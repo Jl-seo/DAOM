@@ -6,8 +6,12 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "DAOM"
     API_V1_STR: str = "/api/v1"
     
-    # CORS
-    BACKEND_CORS_ORIGINS: Union[List[AnyHttpUrl], str] = []
+    # CORS - Include Azure Container Apps URL and localhost for development
+    BACKEND_CORS_ORIGINS: Union[List[AnyHttpUrl], str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://daom-frontend.greenpebble-00aa1dc4.koreacentral.azurecontainerapps.io"
+    ]
 
     @property
     def cors_origins(self) -> List[str]:
