@@ -11,7 +11,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}/backend
-  RESOURCE_GROUP: daom-rg
+  RESOURCE_GROUP: Dalle2
   CONTAINER_APP_NAME: daom-backend
   CONTAINER_APP_ENV: daom-env
 

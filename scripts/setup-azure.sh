@@ -1,11 +1,12 @@
 #!/bin/bash
 # Azure Container Apps Infrastructure Setup Script
-# Run this once to create all required Azure resources
+# Uses existing resource group - creates Container Apps only
 
 set -e
 
-# Configuration - UPDATE THESE VALUES
-RESOURCE_GROUP="daom-rg"
+# Configuration - Using existing resource group
+SUBSCRIPTION_ID="7b1417d8-833d-4ba9-a5cd-d27c91a28b83"
+RESOURCE_GROUP="Dalle2"
 LOCATION="koreacentral"
 CONTAINER_APP_ENV="daom-env"
 BACKEND_APP_NAME="daom-backend"
@@ -25,20 +26,19 @@ if ! az account show &> /dev/null; then
     az login
 fi
 
-log_info "=== Creating Azure Resources ==="
+# Set subscription
+az account set --subscription $SUBSCRIPTION_ID
 
-# 1. Create Resource Group
-log_info "Creating Resource Group: $RESOURCE_GROUP"
-az group create --name $RESOURCE_GROUP --location $LOCATION
+log_info "=== Setting up Azure Container Apps in existing Resource Group: $RESOURCE_GROUP ==="
 
-# 2. Create Container Apps Environment
+# 1. Create Container Apps Environment
 log_info "Creating Container Apps Environment: $CONTAINER_APP_ENV"
 az containerapp env create \
     --name $CONTAINER_APP_ENV \
     --resource-group $RESOURCE_GROUP \
     --location $LOCATION
 
-# 3. Create Backend Container App (placeholder - will be replaced by CI/CD)
+# 2. Create Backend Container App (placeholder - will be replaced by CI/CD)
 log_info "Creating Backend Container App: $BACKEND_APP_NAME"
 az containerapp create \
     --name $BACKEND_APP_NAME \
@@ -52,7 +52,7 @@ az containerapp create \
     --cpu 0.5 \
     --memory 1.0Gi
 
-# 4. Create Frontend Container App (placeholder - will be replaced by CI/CD)
+# 3. Create Frontend Container App (placeholder - will be replaced by CI/CD)
 log_info "Creating Frontend Container App: $FRONTEND_APP_NAME"
 az containerapp create \
     --name $FRONTEND_APP_NAME \
@@ -66,7 +66,7 @@ az containerapp create \
     --cpu 0.25 \
     --memory 0.5Gi
 
-# 5. Get URLs
+# 4. Get URLs
 log_info "=== Deployment URLs ==="
 BACKEND_URL=$(az containerapp show --name $BACKEND_APP_NAME --resource-group $RESOURCE_GROUP --query "properties.configuration.ingress.fqdn" -o tsv)
 FRONTEND_URL=$(az containerapp show --name $FRONTEND_APP_NAME --resource-group $RESOURCE_GROUP --query "properties.configuration.ingress.fqdn" -o tsv)
@@ -76,12 +76,12 @@ echo "Backend URL:  https://$BACKEND_URL"
 echo "Frontend URL: https://$FRONTEND_URL"
 echo ""
 
-# 6. Create Service Principal for GitHub Actions
+# 5. Create Service Principal for GitHub Actions
 log_info "Creating Service Principal for GitHub Actions..."
 SP_OUTPUT=$(az ad sp create-for-rbac \
     --name "daom-github-actions" \
     --role contributor \
-    --scopes /subscriptions/$(az account show --query id -o tsv)/resourceGroups/$RESOURCE_GROUP \
+    --scopes /subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP \
     --sdk-auth)
 
 echo ""
