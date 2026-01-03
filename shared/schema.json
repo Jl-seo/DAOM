@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DaomDocument",
+  "description": "Schema for unstructured document processing in DAOM",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for the document"
+    },
+    "filename": {
+      "type": "string",
+      "description": "Original filename of the uploaded document"
+    },
+    "uploadTimestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of when the document was uploaded"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "processing",
+        "completed",
+        "failed"
+      ],
+      "description": "Current processing status of the document"
+    },
+    "unstructuredContent": {
+      "type": "string",
+      "description": "Raw text or OCR result extracted from the document"
+    },
+    "structuredData": {
+      "type": "object",
+      "description": "Key-value pairs extracted and structured from the document content",
+      "properties": {
+        "merchantName": {
+          "type": "string",
+          "description": "업체명 (상호)"
+        },
+        "businessLicenseNumber": {
+          "type": "string",
+          "pattern": "^\\d{3}-\\d{2}-\\d{5}|\\d{10}$",
+          "description": "사업자등록번호 (000-00-00000 또는 10자리 숫자)"
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "거래 일자 (YYYY-MM-DD)"
+        },
+        "supplyValue": {
+          "type": "integer",
+          "description": "공급가액 (원 단위 정수)"
+        },
+        "surtax": {
+          "type": "integer",
+          "description": "부가세 (원 단위 정수, 공급가액의 10% 내외)"
+        },
+        "totalAmount": {
+          "type": "integer",
+          "description": "총금액 (공급가액 + 부가세)"
+        }
+      },
+      "required": [
+        "merchantName",
+        "totalAmount"
+      ],
+      "additionalProperties": false
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional metadata for extensibility (e.g., file size, mime type, processing stats)",
+      "additionalProperties": true
+    },
+    "errorMessage": {
+      "type": "string",
+      "description": "Error message if status is failed"
+    }
+  },
+  "required": [
+    "id",
+    "filename",
+    "uploadTimestamp",
+    "status"
+  ]
+}

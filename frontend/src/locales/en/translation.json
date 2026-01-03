@@ -1,0 +1,62 @@
+{
+    "upload": {
+        "label": "Click to upload or drag and drop",
+        "supportedFormats": "PDF, PNG, JPG (max {{max}} files)",
+        "dropHere": "Drop files here",
+        "analyzing": "Analyzing with GPT-5.1...",
+        "complete": "Analysis Complete",
+        "process": "Process Document",
+        "error": "Error processing document",
+        "selectModel": "Select Extraction Model"
+    },
+    "action": {
+        "downloadExcel": "Excel Download",
+        "shareTeams": "Teams Share",
+        "sendPowerAutomate": "Send to Power Automate"
+    },
+    "grid": {
+        "title": "Extraction Results",
+        "fields": "fields",
+        "headerName": "Field Name",
+        "headerValue": "Extracted Value",
+        "headerConfidence": "Confidence"
+    },
+    "viewer": {
+        "title": "Original Document",
+        "placeholder": "PDF Viewer Placeholder",
+        "selectPrompt": "Select a document to view content",
+        "zoomIn": "Zoom In",
+        "zoomOut": "Zoom Out"
+    },
+    "results": {
+        "title": "Analysis Results",
+        "anotherFile": "Analyze Another File",
+        "structuredTitle": "Structured Data (GPT-5.1)",
+        "rawTextTitle": "Extracted Text (OCR)"
+    },
+    "header": {
+        "subtitle": "Document Processing Service"
+    },
+    "nav": {
+        "dashboard": "Dashboard",
+        "studio": "Model Studio"
+    },
+    "studio": {
+        "title": "Model Studio",
+        "description": "Define and manage document extraction rules in natural language.",
+        "createModel": "Create New Model",
+        "modelName": "Model Name (e.g., Tax Invoice)",
+        "modelDesc": "Model Concept/Context (Aliases, etc.)",
+        "globalRules": "Global Output Refinement/Format",
+        "addField": "Add Field",
+        "saveModel": "Save Model",
+        "fieldKey": "JSON Key",
+        "fieldLabel": "Display Label (UI)",
+        "fieldDesc": "Extraction Item Definition (Natural Language)",
+        "fieldRules": "Output Refinement/Format Rule (Natural Language)",
+        "noModels": "No models found.",
+        "deleteModel": "Delete Model",
+        "back": "Back to List",
+        "success": "Model saved successfully."
+    }
+}

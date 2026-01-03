@@ -1,0 +1,55 @@
+[
+  {
+    "id": "ca8d5c48-95d6-44ea-9d50-76fc353f1bd1",
+    "name": "\uc778\ubcf4\uc774\uc2a4",
+    "description": "\uc778\ubcf4\uc774\uc2a4\uc5d0\uc11c \uc815\ubcf4\ub97c \ucd94\ucd9c",
+    "global_rules": "\ubaa8\ub4e0 \uae08\uc561\uc740 \ucc9c\uc6d0\ub2e8\uc704\ub85c , \ubd99\uc5ec\uc11c \uad6c\ubd84\ud568 \uadf8\ub9ac\uace0 \uae08\uc561\ub2e8\uc704\uac00 \uc6d0\ud654\uac00 \uc544\ub2cc \uacbd\uc6b0 \uc6d0\ud654\ub85c \ud658\uc804\ud568",
+    "data_structure": "table",
+    "fields": [
+      {
+        "key": "\uc778\ubcf4\uc774\uc2a4\ubc88\ud638",
+        "label": "",
+        "description": "\uc778\ubcf4\uc774\uc2a4 \ubc88\ud638",
+        "rules": "",
+        "type": "string"
+      },
+      {
+        "key": "\ubc1c\ud589\ud68c\uc0ac\uba85",
+        "label": "",
+        "description": "\uc778\ubcf4\uc774\uc2a4 \ubc1c\ud589\ud55c \ud68c\uc0ac \uc774\ub984",
+        "rules": "",
+        "type": "string"
+      },
+      {
+        "key": "\uae08\uc561",
+        "label": "",
+        "description": "\uc778\ubcf4\uc774\uc2a4 \uae08\uc561(\uc138\uae08 \ud3ec\ud568)",
+        "rules": "",
+        "type": "number"
+      },
+      {
+        "key": "\ubd80\uac00\uc138",
+        "label": "",
+        "description": "\uc778\ubcf4\uc774\uc2a4 \uae08\uc561\uc5d0 \ubd99\uc740 \ubd80\uac00\uc138",
+        "rules": "",
+        "type": "number"
+      }
+    ]
+  },
+  {
+    "id": "b1d1ede5-07a3-48b2-ac57-0769b0864bd7",
+    "name": "Updated Model",
+    "description": "\uc5c5\ub370\uc774\ud2b8\ub428",
+    "global_rules": null,
+    "data_structure": "table",
+    "fields": [
+      {
+        "key": "name",
+        "label": "\uc774\ub984 \uc218\uc815\ub428",
+        "description": null,
+        "rules": null,
+        "type": "string"
+      }
+    ]
+  }
+]

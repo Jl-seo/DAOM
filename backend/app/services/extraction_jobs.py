@@ -1,0 +1,245 @@
+"""
+Extraction Jobs Service
+Job-based async extraction processing with status tracking
+"""
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+from pydantic import BaseModel
+import uuid
+from ..db.cosmos import get_extractions_container
+from app.services import audit
+from app.core.enums import ExtractionType, ExtractionStatus
+
+
+class ExtractionJob(BaseModel):
+    """Extraction job with lifecycle tracking"""
+    id: str
+    model_id: str
+    user_id: str
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    filename: str
+    file_url: str
+    status: str  # pending, analyzing, preview_ready, confirmed, error
+    preview_data: Optional[Dict[str, Any]] = None  # guide_extracted, other_data
+    extracted_data: Optional[Dict[str, Any]] = None  # Final confirmed data
+    error: Optional[str] = None
+    created_at: str
+    updated_at: str
+    original_log_id: Optional[str] = None  # For retry jobs - references the parent Log
+    log_id: Optional[str] = None  # Alias for original_log_id - TODO: migrate to log_id only
+    tenant_id: Optional[str] = None  # Tenant ID for multi-tenancy
+
+
+def create_job(
+    model_id: str,
+    user_id: str,
+    filename: str,
+    file_url: str,
+    user_name: Optional[str] = None,
+    user_email: Optional[str] = None,
+    original_log_id: Optional[str] = None,
+    tenant_id: Optional[str] = None
+) -> ExtractionJob:
+    """Create a new extraction job with pending status"""
+    job_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    
+    job = ExtractionJob(
+        id=job_id,
+        model_id=model_id,
+        user_id=user_id,
+        user_name=user_name,
+        user_email=user_email,
+        filename=filename,
+        file_url=file_url,
+        status=ExtractionStatus.PENDING.value,
+        created_at=now,
+        updated_at=now,
+        original_log_id=original_log_id,
+        tenant_id=tenant_id
+    )
+    
+    container = get_extractions_container()
+    if container:
+        try:
+            container.create_item(body={
+                **job.model_dump(),
+                "type": "extraction_job"
+            })
+        except Exception as e:
+            print(f"[ExtractionJobs] Failed to save job: {e}")
+    
+    return job
+
+
+def get_job(job_id: str) -> Optional[ExtractionJob]:
+    """Get job by ID"""
+    container = get_extractions_container()
+    if not container:
+        return None
+    
+    try:
+        query = "SELECT * FROM c WHERE c.id = @job_id AND c.type = 'extraction_job'"
+        items = list(container.query_items(
+            query=query,
+            parameters=[{"name": "@job_id", "value": job_id}],
+            enable_cross_partition_query=True
+        ))
+        if items:
+            return ExtractionJob(**items[0])
+    except Exception as e:
+        print(f"[ExtractionJobs] Failed to get job: {e}")
+    
+    return None
+
+
+def update_job(
+    job_id: str,
+    status: Optional[str] = None,
+    preview_data: Optional[Dict[str, Any]] = None,
+    extracted_data: Optional[Dict[str, Any]] = None,
+    error: Optional[str] = None
+) -> Optional[ExtractionJob]:
+    """Update job status and data"""
+    container = get_extractions_container()
+    if not container:
+        return None
+    
+    try:
+        # Get existing job
+        query = f"SELECT * FROM c WHERE c.id = @job_id AND c.type = '{ExtractionType.JOB.value}'"
+        items = list(container.query_items(
+            query=query,
+            parameters=[{"name": "@job_id", "value": job_id}],
+            enable_cross_partition_query=True
+        ))
+        
+        if not items:
+            return None
+        
+        job_data = items[0]
+        
+        # Update fields
+        if status:
+            job_data["status"] = status
+        if preview_data is not None:
+            job_data["preview_data"] = preview_data
+        if extracted_data is not None:
+            job_data["extracted_data"] = extracted_data
+        if error is not None:
+            job_data["error"] = error
+        job_data["updated_at"] = datetime.utcnow().isoformat()
+        
+        # Upsert
+        container.upsert_item(body=job_data)
+        
+        job = ExtractionJob(**job_data)
+        
+        
+        # Log audit if status changed
+        if status and status != job_data.get("status"):
+            previous_status = job_data.get("status")
+            audit.log_extraction_action(
+                job, 
+                "UPDATE_STATUS", 
+                status="SUCCESS" if status != "error" else "FAILURE",
+                changes={
+                    "status": {
+                        "old": previous_status, 
+                        "new": status
+                    }
+                },
+                details={"error": error} if error else None
+            )
+            
+        return job
+        
+    except Exception as e:
+        print(f"[ExtractionJobs] Failed to update job: {e}")
+    
+    return None
+
+
+def get_jobs_by_model(model_id: str, limit: int = 50) -> List[ExtractionJob]:
+    """Get all jobs for a model"""
+    container = get_extractions_container()
+    if not container:
+        return []
+    
+    try:
+        query = """
+            SELECT * FROM c 
+            WHERE c.model_id = @model_id 
+            AND c.type = 'extraction_job'
+            ORDER BY c.created_at DESC
+            OFFSET 0 LIMIT @limit
+        """
+        items = list(container.query_items(
+            query=query,
+            parameters=[
+                {"name": "@model_id", "value": model_id},
+                {"name": "@limit", "value": limit}
+            ],
+            enable_cross_partition_query=True
+        ))
+        return [ExtractionJob(**item) for item in items]
+    except Exception as e:
+        print(f"[ExtractionJobs] Failed to get jobs: {e}")
+    
+    return []
+
+
+def get_jobs_by_user(user_id: str, limit: int = 50) -> List[ExtractionJob]:
+    """Get all jobs for a user"""
+    container = get_extractions_container()
+    if not container:
+        return []
+    
+    try:
+        query = """
+            SELECT * FROM c 
+            WHERE c.user_id = @user_id 
+            AND c.type = 'extraction_job'
+            ORDER BY c.created_at DESC
+            OFFSET 0 LIMIT @limit
+        """
+        items = list(container.query_items(
+            query=query,
+            parameters=[
+                {"name": "@user_id", "value": user_id},
+                {"name": "@limit", "value": limit}
+            ],
+            enable_cross_partition_query=True
+        ))
+        return [ExtractionJob(**item) for item in items]
+    except Exception as e:
+        print(f"[ExtractionJobs] Failed to get user jobs: {e}")
+    
+    return []
+
+
+def get_latest_job_by_log_id(log_id: str) -> Optional[ExtractionJob]:
+    """Get the most recent job associated with a log via original_log_id"""
+    container = get_extractions_container()
+    if not container:
+        return None
+    
+    try:
+        query = """
+            SELECT TOP 1 * FROM c 
+            WHERE c.original_log_id = @log_id 
+            AND c.type = 'extraction_job'
+            ORDER BY c.created_at DESC
+        """
+        items = list(container.query_items(
+            query=query,
+            parameters=[{"name": "@log_id", "value": log_id}],
+            enable_cross_partition_query=True
+        ))
+        if items:
+            return ExtractionJob(**items[0])
+    except Exception as e:
+        print(f"[ExtractionJobs] Failed to get job by log_id: {e}")
+    
+    return None
