@@ -79,7 +79,6 @@ export function useModels() {
             return response.data
         } catch (err: any) {
             setError(err.message)
-            toast.error('Sample analysis failed')
             throw err
         } finally {
             setLoading(false)
@@ -92,7 +91,7 @@ export function useModels() {
             const response = await modelsApi.refineSchema(fields, instruction)
             return response.data
         } catch (err: any) {
-            toast.error('Refinement failed')
+            setError('Refinement failed')
             throw err
         } finally {
             setLoading(false)

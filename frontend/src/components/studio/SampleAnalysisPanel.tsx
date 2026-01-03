@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Upload, Loader2, Sparkles, AlertCircle } from 'lucide-react'
+import { Upload, Loader2, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useModels } from '../../hooks/useModels'
 import { toast } from 'sonner'
@@ -21,7 +21,7 @@ export function SampleAnalysisPanel({ onFieldsFound, disabled }: SampleAnalysisP
     const [selectedOption, setSelectedOption] = useState<string>('prebuilt-layout')
     const [file, setFile] = useState<File | null>(null)
     const [isAnalyzing, setIsAnalyzing] = useState(false)
-    const [resultCount, setResultCount] = useState<number | null>(null)
+    const [_resultCount, setResultCount] = useState<number | null>(null)
 
     useEffect(() => {
         // Load options on mount

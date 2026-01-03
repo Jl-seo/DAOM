@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 // import { useNavigate } from 'react-router-dom'
 import { Clock, Search, AlertTriangle, Check, ChevronsUpDown } from 'lucide-react'
-import { Checkbox } from "@/components/ui/checkbox"
 import {
     Command,
     CommandEmpty,
