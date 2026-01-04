@@ -368,8 +368,17 @@ export function ExtractionPreview({
     const onDataChangeRef = useRef(onDataChange)
     onDataChangeRef.current = onDataChange
 
-    // Auto-propagate changes to parent
+    // Track if initial sync is done to prevent triggering onDataChange during mount
+    const isInitializedRef = useRef(false)
+
+    // Auto-propagate changes to parent (but skip initial mount)
     useEffect(() => {
+        // Skip the very first effect run to prevent loop during initial render
+        if (!isInitializedRef.current) {
+            isInitializedRef.current = true
+            return
+        }
+
         if (!onDataChangeRef.current) return
 
         const selectedEditedOtherData = editedOtherData.filter(item => {
