@@ -210,13 +210,15 @@ INSTRUCTIONS:
 2. For specific fields like 'Item' or 'Amount', look for corresponding headers in the table.
 3. If a field represents a list of items (e.g. line items in a table), extract it as a JSON Array of objects with relevant keys.
 4. Distinguish between 'Item' (product code/name) and 'Description' (details).
+5. **CRITICAL**: Extract values EXACTLY as they appear in the text. Do not reformat dates or numbers yet.
+6. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value if found in the source JSON. The bbox is [x, y, w, h] or [x1, y1, x2, y2]. Copy it exactly.
 
 Return a JSON object with TWO parts:
 1. "guide_extracted": Object with each field key containing:
-   - "value": The extracted value (string or null if not found)
+   - "value": The extracted value exactly as in text
    - "confidence": Your confidence level from 0.0 to 1.0
-   - "bbox": The bounding box [x1, y1, x2, y2] (extracted exactly as appearing in the source JSON)
-   - "page_number": The page number (1-based) from source data if available
+   - "bbox": The bounding box [x1, y1, x2, y2] from the source data (REQUIRED)
+   - "page_number": The page number (1-based)
 
 2. "other_data": Array of other data found that wasn't matched to fields.
 
@@ -258,11 +260,10 @@ IMPORTANT:
             
             # Return detailed error for frontend
             return {
-                "index": idx,
-                "status": "error",
-                "error": f"{str(e)} (Endpoint: {settings.AZURE_OPENAI_ENDPOINT})"
+                "guide_extracted": {},
+                "other_data": [],
+                "error": str(e)
             }
-            # raise e  <-- Do not raise, let it return error status to frontend
 
     def _validate_and_format(self, raw_data: Dict[str, Any], model: ExtractionModel, pages_info: List[Dict[str, Any]] = []) -> Dict[str, Any]:
         """
@@ -309,7 +310,7 @@ IMPORTANT:
             
             # Smart Snapping: Correct LLM's rough bbox using precise OCR word coordinates
             snapped_bbox = bbox
-            if value and pages_info:
+            if original_value and pages_info:
                 # Determine target page (use AI's page or default to 1)
                 target_page = page_number if page_number else 1
                 
@@ -317,7 +318,8 @@ IMPORTANT:
                 page_data = next((p for p in pages_info if p["page_number"] == target_page), None)
                 
                 if page_data and "words" in page_data:
-                     best_match_bbox = self._snap_bbox_to_words(value, bbox, page_data["words"])
+                     # Use original_value for snapping to avoid format mismatch
+                     best_match_bbox = self._snap_bbox_to_words(str(original_value), bbox, page_data["words"])
                      if best_match_bbox:
                          snapped_bbox = best_match_bbox
                          # If we found it on this page, ensure page_number is set
@@ -338,7 +340,7 @@ IMPORTANT:
                 "confidence": confidence,
                 "low_confidence": low_confidence,
                 "validation_status": validation_status,
-                "bbox": normalized_bbox,
+                "bbox": normalized_bbox, # This is crucial for highlighting
                 "page_number": page_number
             }
 
@@ -351,33 +353,15 @@ IMPORTANT:
     def _snap_bbox_to_words(self, value: str, approximate_bbox: Optional[List[float]], words: List[Dict[str, Any]]) -> Optional[List[float]]:
         """
         Refines the bounding box by snapping to the exact coordinates of the matching words from OCR.
-        Strategy:
-        1. Find all occurrences of the 'value' string in the words list (could be multi-word).
-        2. If 'approximate_bbox' is provided, pick the occurrence closest to it (IOU or Center Distance).
-        3. If no 'approximate_bbox', pick the first distinct match (risky, but better than nothing).
         """
         if not value:
             return None
             
-        value_clean = str(value).replace(" ", "").lower()
+        value_clean = str(value).replace(" ", "").replace(",", "").replace(".", "").replace("-", "").lower()
         if not value_clean:
             return None
 
         # 1. Build a list of candidate words sequences that match the value 
-        # (This is a simplified implementation: Checking combined strings)
-        # Real-world: Need n-gram search or sliding window. 
-        # Low-latency approach: Check if value exists as a substring of combined words? 
-        # Better: iterate words and try to form the string.
-        
-        matches = [] # List of [bbox]
-        
-        # Sliding window? O(N*M). Words ~1000. manageable.
-        current_sequence = []
-        current_str = ""
-        
-        # Optimization: Filter words that might contain parts of the value
-        # But values can be "Total Amount" (2 words).
-        
         import math
 
         def get_bbox_center(b):
@@ -388,29 +372,35 @@ IMPORTANT:
              c2 = get_bbox_center(b2)
              return math.sqrt((c1[0]-c2[0])**2 + (c1[1]-c2[1])**2)
 
-        # Simplified Snapping: Look for exact word matches first
-        # Because full sentence matching is complex.
-        
         candidate_polygons = []
         
-        # Try to find the exact value as a single token first (e.g. ID numbers, Dates)
-        exact_matches = [w for w in words if str(w["content"]).replace(" ","").lower() == value_clean]
+        # Extended cleaning for token matching
+        def clean_token(t):
+             return str(t).replace(" ","").replace(",","").replace(".","").replace("-","").lower()
+
+        # Try to find the exact value as a single token first
+        exact_matches = [w for w in words if clean_token(w["content"]) == value_clean]
+        
         if exact_matches:
-             # Gather their bboxes
              for m in exact_matches:
                  poly = m["polygon"]
-                 if len(poly) >= 8: # Azure returns 8 points [x1,y1, x2,y2...]
+                 if len(poly) >= 8: 
                      xs = poly[0::2]
                      ys = poly[1::2]
                      candidate_polygons.append([min(xs), min(ys), max(xs), max(ys)])
-        else:
-             # Multi-word match?
-             # For now, simplistic approach: if value is long, we rely on approximate_bbox. 
-             # If approximate_bbox is BAD, we can't fix it easily without vector search.
-             pass
+        
+        # Also try partial contains logical if no exact match (e.g. currency symbol in OCR)
+        if not candidate_polygons:
+             partial_matches = [w for w in words if value_clean in clean_token(w["content"])]
+             for m in partial_matches:
+                 poly = m["polygon"]
+                 if len(poly) >= 8:
+                     xs = poly[0::2]
+                     ys = poly[1::2]
+                     candidate_polygons.append([min(xs), min(ys), max(xs), max(ys)])
 
         if not candidate_polygons:
-            return approximate_bbox # Fallback to LLM's guess if no OCR match found
+            return approximate_bbox # Fallback
 
         # 2. Select best match
         if not approximate_bbox:
@@ -425,9 +415,6 @@ IMPORTANT:
                 min_dist = d
                 best_bbox = cand
                 
-        # heuristic: if distance is massive, maybe it's the wrong instance? 
-        # But usually better than random.
-        
         return best_bbox
 
     def _parse_number(self, value: Any) -> Optional[float]:
