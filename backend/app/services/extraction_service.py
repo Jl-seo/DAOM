@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from openai import AsyncAzureOpenAI
 from app.core.config import settings
+from app.services.llm import get_current_model
 from app.core.enums import ExtractionStatus
 from app.services import doc_intel, models, extraction_jobs, extraction_logs
 from app.schemas.model import ExtractionModel, FieldDefinition
@@ -230,8 +231,12 @@ IMPORTANT:
 
         logger.info(f"[LLM] Prompt prepared. Sending request to Azure OpenAI (Focus: {focus_pages})...")
         try:
+            # Use dynamic model from Admin Settings
+            from app.services.llm import get_current_model
+            current_model_name = get_current_model()
+            
             response = await self.azure_openai.chat.completions.create(
-                model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
+                model=current_model_name,
                 messages=[
                     {"role": "system", "content": "You are a precise document data extractor. Return only valid JSON."},
                     {"role": "user", "content": prompt}
