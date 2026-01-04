@@ -48,9 +48,15 @@ app.mount("/static", StaticFiles(directory="temp_uploads"), name="static")
 @app.on_event("startup")
 async def startup_event():
     """Initialize connections and seed data on startup"""
-    init_cosmos()
-    # Run startup tasks (seed menus, create System Admins group, etc.)
-    await startup_service.run_startup_tasks()
+    """Initialize connections and seed data on startup"""
+    try:
+        init_cosmos()
+        # Run startup tasks (seed menus, create System Admins group, etc.)
+        await startup_service.run_startup_tasks()
+    except Exception as e:
+        import logging
+        logging.error(f"CRITICAL: Startup failed: {e}")
+        # Do not raise exception to keep container running for debugging
 
 
 @app.get("/")
