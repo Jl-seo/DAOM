@@ -85,9 +85,9 @@ export function DataReviewPanel({
                 <div className="flex-1 overflow-hidden relative">
                     <TabsContent value="fields" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
                         <ExtractionPreview
-                            // Force remount only when document changes (using documentId)
+                            // Force remount when document changes OR when data arrives
                             // This resets local state while preventing loops during editing
-                            key={documentId || 'default'}
+                            key={`${documentId || 'default'}-${Object.keys(currentGuideExtracted || {}).length}`}
                             guideExtracted={currentGuideExtracted || {}}
                             otherData={currentOtherData || []}
                             modelFields={model?.fields || previewData?.model_fields || []}
