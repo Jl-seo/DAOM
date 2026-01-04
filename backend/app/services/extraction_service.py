@@ -90,11 +90,13 @@ class ExtractionService:
 
     async def _process_single_split_universal(self, full_ocr_data: Dict[str, Any], split: Dict[str, Any]) -> Dict[str, Any]:
         """Universal extraction without predefined schema"""
+        # Unwrap LLM Extraction (Universal)
         raw_extraction = await self._unwrap_universal_extraction(full_ocr_data, focus_pages=split["page_ranges"])
         
         # In universal mode, we trust the LLM's structure mostly
         # But we still try to normalize bboxes if possible
-        validated_data = self._validate_and_format_universal(raw_extraction, full_ocr_data.get("pages", []))
+        start_page = split["page_ranges"][0] if split["page_ranges"] else 1
+        validated_data = self._validate_and_format_universal(raw_extraction, full_ocr_data.get("pages", []), default_page=start_page)
         
         return {
             "index": split["index"],
@@ -108,6 +110,7 @@ class ExtractionService:
         """Ask LLM to discover ANY relevant fields"""
         focus_instruction = ""
         if focus_pages:
+            logger.info(f"[LLM-Universal] Focusing on pages: {focus_pages}")
             focus_instruction = f"\nIMPORTANT: FOCUS ONLY ON DATA FROM PAGES {focus_pages}. IGNORE OTHER PAGES."
 
         prompt = f"""You are a universal document data extractor.
@@ -120,7 +123,8 @@ INSTRUCTIONS:
 2. Group related information (e.g., "Vendor Details", "Financials", "Line Items").
 3. Determine the best label (key) and data type for each item.
 4. **CRITICAL**: Extract values EXACTLY as they appear.
-5. **CRITICAL**: Include 'bbox' for every value.
+5. **CRITICAL**: Include 'bbox' [x1, y1, x2, y2] for every value.
+6. **CRITICAL**: Include 'page_number' (1-based index) for every value.
 
 Return a JSON object with:
 1. "guide_extracted": Object where Keys are the labels you discovered, and Values are objects:
@@ -129,7 +133,7 @@ Return a JSON object with:
    - "category": grouping name (optional)
    - "confidence": 0.0 to 1.0
    - "bbox": [x1, y1, x2, y2] (REQUIRED)
-   - "page_number": 1-based index
+   - "page_number": 1-based index (REQUIRED)
 
 2. "other_data": Any unstructured highlights.
 
@@ -156,7 +160,7 @@ IMPORTANT:
             logger.error(f"[LLM] Universal Extraction Error: {e}")
             return {"guide_extracted": {}, "error": str(e)}
 
-    def _validate_and_format_universal(self, raw_data: Dict[str, Any], pages_info: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _validate_and_format_universal(self, raw_data: Dict[str, Any], pages_info: List[Dict[str, Any]], default_page: int = 1) -> Dict[str, Any]:
         """Relaxed validation for universal mode"""
         guide_extracted = raw_data.get("guide_extracted", {})
         validated_extracted = {}
@@ -164,9 +168,14 @@ IMPORTANT:
         page_dims = {p["page_number"]: (p["width"], p["height"]) for p in pages_info}
 
         for key, item in guide_extracted.items():
+            if not isinstance(item, dict): continue
+            
             value = item.get("value")
             bbox = item.get("bbox")
-            page_number = item.get("page_number", 1)
+            page_number = item.get("page_number")
+            
+            if not page_number:
+                page_number = default_page
             
             # Try basic snapping
             snapped_bbox = bbox
@@ -181,7 +190,7 @@ IMPORTANT:
             normalized_bbox = None
             if snapped_bbox:
                 p_w, p_h = 100, 100
-                if page_number in page_dims: p_w, p_h = page_dims[page_number]
+                if page_number and page_number in page_dims: p_w, p_h = page_dims[page_number]
                 normalized_bbox = self._normalize_bbox(snapped_bbox, p_w, p_h)
 
             validated_extracted[key] = {
@@ -277,16 +286,16 @@ IMPORTANT:
         raw_extraction = await self._unwrap_llm_extraction(full_ocr_data, model, focus_pages=split["page_ranges"])
         
         # Validation
-        validated_data = self._validate_and_format(raw_extraction, model, full_ocr_data.get("pages", []))
+        # Pass the first page of the split as default_page to handle missing page_number from LLM
+        start_page = split["page_ranges"][0] if split["page_ranges"] else 1
+        validated_data = self._validate_and_format(raw_extraction, model, full_ocr_data.get("pages", []), default_page=start_page)
         
         return {
             "index": split["index"],
             "type": split["type"],
             "page_ranges": split["page_ranges"],
-            "status": "success",
             "data": validated_data
         }
-
 
     async def _unwrap_llm_extraction(self, ocr_data: Dict[str, Any], model: ExtractionModel, focus_pages: List[int] = None) -> Dict[str, Any]:
         """ask LLM to extract data based on model fields"""
@@ -321,14 +330,15 @@ INSTRUCTIONS:
 3. If a field represents a list of items (e.g. line items in a table), extract it as a JSON Array of objects with relevant keys.
 4. Distinguish between 'Item' (product code/name) and 'Description' (details).
 5. **CRITICAL**: Extract values EXACTLY as they appear in the text. Do not reformat dates or numbers yet.
-6. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value if found in the source JSON. The bbox is [x, y, w, h] or [x1, y1, x2, y2]. Copy it exactly.
+6. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value. Copy it exactly from source.
+7. **CRITICAL**: You MUST include the 'page_number' (1-based index) for every extracted value.
 
 Return a JSON object with TWO parts:
 1. "guide_extracted": Object with each field key containing:
    - "value": The extracted value exactly as in text
    - "confidence": Your confidence level from 0.0 to 1.0
    - "bbox": The bounding box [x1, y1, x2, y2] from the source data (REQUIRED)
-   - "page_number": The page number (1-based)
+   - "page_number": The page number (1-based integer) (REQUIRED)
 
 2. "other_data": Array of other data found that wasn't matched to fields.
 
@@ -375,7 +385,7 @@ IMPORTANT:
                 "error": str(e)
             }
 
-    def _validate_and_format(self, raw_data: Dict[str, Any], model: ExtractionModel, pages_info: List[Dict[str, Any]] = []) -> Dict[str, Any]:
+    def _validate_and_format(self, raw_data: Dict[str, Any], model: ExtractionModel, pages_info: List[Dict[str, Any]] = [], default_page: int = 1) -> Dict[str, Any]:
         """
         Strictly validates and formats data based on field types.
         AI provides the raw string, Code ensures it matches the Type.
@@ -397,6 +407,10 @@ IMPORTANT:
             confidence = item.get("confidence", 0)
             bbox = item.get("bbox")
             page_number = item.get("page_number")
+            
+            # Fallback for page_number if missing
+            if not page_number:
+                page_number = default_page
 
             # Type Validation Logic
             validation_status = "valid"
@@ -421,8 +435,8 @@ IMPORTANT:
             # Smart Snapping: Correct LLM's rough bbox using precise OCR word coordinates
             snapped_bbox = bbox
             if original_value and pages_info:
-                # Determine target page (use AI's page or default to 1)
-                target_page = page_number if page_number else 1
+                # Determine target page
+                target_page = page_number 
                 
                 # Find page data
                 page_data = next((p for p in pages_info if p["page_number"] == target_page), None)
@@ -432,8 +446,6 @@ IMPORTANT:
                      best_match_bbox = self._snap_bbox_to_words(str(original_value), bbox, page_data["words"])
                      if best_match_bbox:
                          snapped_bbox = best_match_bbox
-                         # If we found it on this page, ensure page_number is set
-                         page_number = target_page
 
             # Normalize bbox for frontend rendering
             normalized_bbox = None
