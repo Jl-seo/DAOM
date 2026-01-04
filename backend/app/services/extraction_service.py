@@ -250,8 +250,18 @@ IMPORTANT:
         except Exception as e:
             with open("debug_extraction.log", "a") as f:
                 f.write(f"\n--- ERROR ---\n{e}\n")
+                f.write(f"Config: Endpoint={settings.AZURE_OPENAI_ENDPOINT}, Version={settings.AZURE_OPENAI_API_VERSION}\n")
+            
             logger.error(f"[LLM] Error calling OpenAI: {e}")
-            raise e
+            logger.error(f"[LLM] Config Debug: Endpoint={settings.AZURE_OPENAI_ENDPOINT}, Model={settings.AZURE_OPENAI_DEPLOYMENT_NAME}")
+            
+            # Return detailed error for frontend
+            return {
+                "index": idx,
+                "status": "error",
+                "error": f"{str(e)} (Endpoint: {settings.AZURE_OPENAI_ENDPOINT})"
+            }
+            # raise e  <-- Do not raise, let it return error status to frontend
 
     def _validate_and_format(self, raw_data: Dict[str, Any], model: ExtractionModel, pages_info: List[Dict[str, Any]] = []) -> Dict[str, Any]:
         """
