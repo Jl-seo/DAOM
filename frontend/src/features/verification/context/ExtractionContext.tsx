@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useRef, type ReactNode, useCallback, useMemo, useEffect } from 'react'
+import { createContext, useContext, useState, useRef, type ReactNode, useCallback, useMemo } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api'
