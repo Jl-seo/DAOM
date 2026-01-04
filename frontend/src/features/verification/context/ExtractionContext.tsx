@@ -177,6 +177,8 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                 const job = res.data
 
                 console.log('[Polling] Job status:', job.status)
+                console.log('[Polling] Job preview_data keys:', job.preview_data ? Object.keys(job.preview_data) : 'NULL')
+                console.log('[Polling] Job preview_data sample:', JSON.stringify(job.preview_data)?.slice(0, 300))
 
                 // Check for completion (either PREVIEW_READY or SUCCESS)
                 if (isReviewNeededStatus(job.status) || isSuccessStatus(job.status)) {
@@ -187,8 +189,9 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                     const raw = job.preview_data
                     const preview = Array.isArray(raw)
                         ? { guide_extracted: raw[0] || {}, other_data: [], model_fields: model?.fields || [] }
-                        : { ...raw, model_fields: raw.model_fields || model?.fields || [] }
+                        : { ...raw, model_fields: raw?.model_fields || model?.fields || [] }
 
+                    console.log('[Polling] Setting previewData:', JSON.stringify(preview)?.slice(0, 300))
                     setPreviewData(preview)
                     setStatus(EXTRACTION_STATUS.SUCCESS) // Treat as success
                     setActiveStep('review') // Show review view
