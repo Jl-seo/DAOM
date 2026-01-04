@@ -66,6 +66,7 @@ jobs:
             # Common params
             SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | cut -c 1-10)
             TIMESTAMP=$(date +%s | cut -c 6-10)
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7)
             
             if [[ "${{ github.ref_name }}" == "master" ]]; then
               echo "Deploying to PRODUCTION"
@@ -81,7 +82,7 @@ jobs:
             
             APP_NAME=${{ env.CONTAINER_APP_NAME }}
             RG=${{ env.RESOURCE_GROUP }}
-            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA}"
             REVISION_NAME="$APP_NAME--$SUFFIX"
 
             echo "1. Deploying new revision: $REVISION_NAME"
