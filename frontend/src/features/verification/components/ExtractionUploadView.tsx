@@ -3,9 +3,10 @@ import { motion } from 'framer-motion'
 import { Upload, FileText, AlertTriangle, X } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { AnimatedCircularProgress } from '@/components/ui/animated-circular-progress'
 import { cn } from '@/lib/utils'
 import type { ExtractionStatus } from '../types'
-import { isProcessingStatus, isReviewNeededStatus, isSuccessStatus, isErrorStatus, STATUS_LABELS, EXTRACTION_STATUS } from '../constants/status'
+import { isProcessingStatus, isReviewNeededStatus, isSuccessStatus, isErrorStatus, STATUS_LABELS, STATUS_PROGRESS, STATUS_STEP, EXTRACTION_STATUS } from '../constants/status'
 
 interface ExtractionUploadViewProps {
     file: File | null
@@ -40,8 +41,11 @@ export function ExtractionUploadView({
         return STATUS_LABELS[status] || 'AI가 문서를 분석하고 있습니다'
     }
 
-    // Processing state - show spinner when actively processing
+    // Processing state - show spinner with progress bar when actively processing
     if (isActiveProcessing) {
+        const progress = STATUS_PROGRESS[status] || 0
+        const stepInfo = STATUS_STEP[status] || { current: 1, total: 4, label: '처리 중' }
+
         return (
             <motion.div
                 key="processing"
@@ -50,18 +54,65 @@ export function ExtractionUploadView({
                 exit={{ opacity: 0, scale: 1.05 }}
                 className="h-full flex flex-col items-center justify-center p-8 text-center"
             >
-                <div className="relative w-32 h-32 mb-8">
-                    <div className="absolute inset-0 border-4 border-muted rounded-full" />
-                    <div className="absolute inset-0 border-4 border-primary rounded-full border-t-transparent animate-spin" />
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <FileText className="w-10 h-10 text-primary animate-pulse" />
+                {/* Animated Circular Progress */}
+                <AnimatedCircularProgress
+                    value={progress}
+                    size={140}
+                    strokeWidth={12}
+                    className="mb-6"
+                >
+                    <FileText className="w-10 h-10 text-primary animate-pulse" />
+                </AnimatedCircularProgress>
+
+                {/* Status Message */}
+                <h2 className="text-2xl font-bold mb-1">
+                    {getProcessingMessage()}
+                </h2>
+                <p className="text-muted-foreground mb-6">잠시만 기다려주세요...</p>
+
+                {/* Progress Bar */}
+                <div className="w-full max-w-md mb-4">
+                    <div className="flex justify-between text-sm text-muted-foreground mb-2">
+                        <span className="font-medium text-foreground">{stepInfo.label}</span>
+                        <span>{progress}%</span>
+                    </div>
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                        <motion.div
+                            className="h-full bg-primary rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${progress}%` }}
+                            transition={{ duration: 0.5, ease: 'easeOut' }}
+                        />
                     </div>
                 </div>
 
-                <h2 className="text-2xl font-bold mb-2">
-                    {getProcessingMessage()}
-                </h2>
-                <p className="text-muted-foreground mb-8">잠시만 기다려주세요...</p>
+                {/* Step Indicator */}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
+                    {Array.from({ length: stepInfo.total }).map((_, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                            <div
+                                className={cn(
+                                    "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-colors",
+                                    i + 1 < stepInfo.current
+                                        ? "bg-primary text-primary-foreground"
+                                        : i + 1 === stepInfo.current
+                                            ? "bg-primary/20 text-primary border-2 border-primary"
+                                            : "bg-muted text-muted-foreground"
+                                )}
+                            >
+                                {i + 1}
+                            </div>
+                            {i < stepInfo.total - 1 && (
+                                <div
+                                    className={cn(
+                                        "w-8 h-0.5",
+                                        i + 1 < stepInfo.current ? "bg-primary" : "bg-muted"
+                                    )}
+                                />
+                            )}
+                        </div>
+                    ))}
+                </div>
 
                 <Button variant="outline" onClick={onCancel}>
                     취소하기

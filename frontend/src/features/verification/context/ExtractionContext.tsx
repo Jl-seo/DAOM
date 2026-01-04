@@ -444,6 +444,8 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
 
         // Use saved preview_data if available (preserves other_data structure)
         // Otherwise fall back to reconstructing from extracted_data
+        console.log('[loadFromHistory] preview_data:', JSON.stringify(log.preview_data, null, 2)?.slice(0, 500))
+        console.log('[loadFromHistory] extracted_data:', JSON.stringify(log.extracted_data, null, 2)?.slice(0, 500))
         if (log.preview_data) {
             setPreviewData({
                 ...log.preview_data,
