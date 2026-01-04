@@ -29,7 +29,7 @@ jobs:
       - name: Setup Environment
         run: |
           echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c 1-7)" >> $GITHUB_ENV
-          echo "IMAGE_NAME=$(echo ${{ github.repository }}/backend | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "LOWER_IMAGE_NAME=$(echo ${{ github.repository }}/backend | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Log in to Container Registry
         uses: docker/login-action@v3
@@ -43,7 +43,7 @@ jobs:
         with:
           context: ./backend
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.SHORT_SHA }}
+          tags: ${{ env.REGISTRY }}/${{ env.LOWER_IMAGE_NAME }}:${{ env.SHORT_SHA }}
 
       - name: Azure Login
         uses: azure/login@v1
@@ -76,7 +76,7 @@ jobs:
             
             APP_NAME=${{ env.CONTAINER_APP_NAME }}
             RG=${{ env.RESOURCE_GROUP }}
-            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA_VAL}"
+            IMAGE="${{ env.REGISTRY }}/${{ env.LOWER_IMAGE_NAME }}:${SHORT_SHA_VAL}"
             REVISION_NAME="$APP_NAME--$SUFFIX"
 
             echo "0. Configuring Registry Authentication"
