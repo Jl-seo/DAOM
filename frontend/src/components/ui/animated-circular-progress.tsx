@@ -25,7 +25,7 @@ export function AnimatedCircularProgress({
     strokeWidth = 10,
     className,
     gaugePrimaryColor,
-    _gaugeSecondaryColor,
+    // gaugeSecondaryColor - not used in current design
     showValue = true,
     children
 }: AnimatedCircularProgressProps) {
