@@ -78,7 +78,7 @@ function ResizableNestedTable({
         typeof item === 'object' && item !== null ? Object.keys(item) : []
     )))
 
-    // Initialize column widths
+    // Initialize column widths - only runs once when data changes and widths are empty
     useEffect(() => {
         if (allKeys.length > 0 && Object.keys(columnWidths).length === 0) {
             const initialWidths: Record<string, number> = {}
@@ -88,7 +88,8 @@ function ResizableNestedTable({
             })
             setColumnWidths(initialWidths)
         }
-    }, [allKeys])
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.length, columnWidths]) // Use data.length instead of allKeys array
 
     // Handle column resize
     const handleResizeStart = (e: React.MouseEvent, columnKey: string) => {
