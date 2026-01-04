@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.core.config import settings
 from app.api.api import api_router
 from app.db.cosmos import init_cosmos
@@ -11,6 +12,10 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+# Trust proxy headers (X-Forwarded-Proto, X-Forwarded-For) from Azure Container Apps
+# This fixes HTTPS redirect issues when behind a reverse proxy
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
 # Set all CORS enabled origins
 cors_origins = settings.cors_origins
