@@ -363,9 +363,13 @@ export function ExtractionPreview({
         setEditedOtherData([...otherData])
     }, [otherData])
 
+    // Store callback in ref to prevent infinite loops
+    const onDataChangeRef = useRef(onDataChange)
+    onDataChangeRef.current = onDataChange
+
     // Auto-propagate changes to parent
     useEffect(() => {
-        if (!onDataChange) return
+        if (!onDataChangeRef.current) return
 
         const selectedEditedOtherData = editedOtherData.filter(item => {
             const columnName = typeof item.column === 'object'
@@ -374,11 +378,11 @@ export function ExtractionPreview({
             return selectedOtherColumns.has(columnName)
         })
 
-        onDataChange({
+        onDataChangeRef.current({
             guide: editedGuideData,
             other: selectedEditedOtherData
         })
-    }, [editedGuideData, editedOtherData, selectedOtherColumns, onDataChange])
+    }, [editedGuideData, editedOtherData, selectedOtherColumns]) // Removed onDataChange from deps
 
     const updateGuideField = (key: string, value: any) => {
         setEditedGuideData(prev => ({ ...prev, [key]: value }))

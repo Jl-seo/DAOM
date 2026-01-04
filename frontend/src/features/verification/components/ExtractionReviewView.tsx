@@ -65,17 +65,21 @@ export function ExtractionReviewView({
         ? previewData.sub_documents[selectedSubDocIndex]?.data?.other_data
         : previewData?.other_data
 
+    // Store callbacks in refs to prevent infinite loops from prop changes
+    const onSaveRef = useRef(onSave)
+    onSaveRef.current = onSave
+
     // Auto-Save Effect
     useEffect(() => {
         if (!latestData) return
 
         const timer = setTimeout(() => {
             console.log('[AutoSave] Saving data...', latestData)
-            onSave(latestData.guide, latestData.other)
+            onSaveRef.current(latestData.guide, latestData.other)
         }, 1000) // 1 second debounce
 
         return () => clearTimeout(timer)
-    }, [latestData, onSave])
+    }, [latestData]) // Removed onSave from deps - use ref instead
 
     // Sync Scroll Effect: Data -> PDF
     useEffect(() => {
