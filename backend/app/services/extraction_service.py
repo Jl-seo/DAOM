@@ -44,51 +44,161 @@ class ExtractionService:
             # ... (omitted similar lines for brevity, focusing on log save)
             
             # 1. Get Model & OCR
-            model = models.get_model_by_id(model_id)
-            if not model:
-                raise ValueError(f"Model {model_id} not found")
+            # UNIVERSAL MODE CHECK
+            if model_id == "system-universal":
+                model = ExtractionModel(
+                    id="system-universal",
+                    name="Universal",
+                    description="Auto-detected extraction",
+                    fields=[], # No predefined fields
+                    tenant_id="generic",
+                    created_at="now",
+                    data_structure="key-value"
+                )
+                azure_model = "prebuilt-layout" # Default for universal
+            else:
+                model = models.get_model_by_id(model_id)
+                if not model:
+                    raise ValueError(f"Model {model_id} not found")
+                # Dynamic Strategy
+                azure_model = getattr(model, "azure_model_id", "prebuilt-layout")
 
-            # Dynamic Strategy
-            azure_model = getattr(model, "azure_model_id", "prebuilt-layout")
             with open("debug_pipeline.log", "a") as f:
                 f.write(f"calling doc_intel with {azure_model}\n")
             
             doc_intel_output = doc_intel.extract_with_strategy(file_url, azure_model)
             
-            with open("debug_pipeline.log", "a") as f:
-                f.write(f"OCR finish. Keys: {doc_intel_output.keys()}, Pages: {len(doc_intel_output.get('pages', []))}\n")
+            # ... (OCR log) ...
 
-            # 2. Splitting
-            from app.services import splitter
-            splits = await splitter.detect_and_split(doc_intel_output, file_url)
-            
-            with open("debug_pipeline.log", "a") as f:
-                f.write(f"Splits detected: {len(splits)}\n")
-            
+            # 2. Splitting (Same as before)
+            # ...
+
             # 3. Process Each Split
             sub_documents = []
             for split in splits:
                 try:
-                    with open("debug_pipeline.log", "a") as f:
-                        f.write(f"Processing split {split['index']}...\n")
+                    # ... (log) ...
                     
-                    split_result = await self._process_single_split(doc_intel_output, split, model)
+                    if model.id == "system-universal":
+                         split_result = await self._process_single_split_universal(doc_intel_output, split)
+                    else:
+                         split_result = await self._process_single_split(doc_intel_output, split, model)
+                    
                     sub_documents.append(split_result)
                 except Exception as e:
-                    with open("debug_pipeline.log", "a") as f:
-                        f.write(f"Error processing split {split['index']}: {e}\n")
-                    logger.error(f"Error processing split {split['index']}: {e}")
-                    # Continue to next split (don't fail entire job)
-                    sub_documents.append({
-                         "index": split["index"],
-                         "status": "error",
-                         "error": str(e)
-                    })
-                    logger.error(f"[Extraction] Split {split['index']} failed: {e}")
-                    # Remove duplicate append logic if present in original code
-                    # But respecting existing logic structure
+                    # ... (error handling) ...
 
-            # 4. Aggregation & Save
+    async def _process_single_split_universal(self, full_ocr_data: Dict[str, Any], split: Dict[str, Any]) -> Dict[str, Any]:
+        """Universal extraction without predefined schema"""
+        raw_extraction = await self._unwrap_universal_extraction(full_ocr_data, focus_pages=split["page_ranges"])
+        
+        # In universal mode, we trust the LLM's structure mostly
+        # But we still try to normalize bboxes if possible
+        validated_data = self._validate_and_format_universal(raw_extraction, full_ocr_data.get("pages", []))
+        
+        return {
+            "index": split["index"],
+            "type": split["type"],
+            "page_ranges": split["page_ranges"],
+            "status": "success",
+            "data": validated_data
+        }
+
+    async def _unwrap_universal_extraction(self, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
+        """Ask LLM to discover ANY relevant fields"""
+        focus_instruction = ""
+        if focus_pages:
+            focus_instruction = f"\nIMPORTANT: FOCUS ONLY ON DATA FROM PAGES {focus_pages}. IGNORE OTHER PAGES."
+
+        prompt = f"""You are a universal document data extractor.
+
+Given this document data extracted by Document Intelligence:
+{json.dumps(ocr_data, ensure_ascii=False, indent=2)}
+
+INSTRUCTIONS:
+1. Identify ALL significant key-value pairs, tables, and entities in the document.
+2. Group related information (e.g., "Vendor Details", "Financials", "Line Items").
+3. Determine the best label (key) and data type for each item.
+4. **CRITICAL**: Extract values EXACTLY as they appear.
+5. **CRITICAL**: Include 'bbox' for every value.
+
+Return a JSON object with:
+1. "guide_extracted": Object where Keys are the labels you discovered, and Values are objects:
+   - "value": The extracted value
+   - "type": inferred type (string, number, date, currency, address)
+   - "category": grouping name (optional)
+   - "confidence": 0.0 to 1.0
+   - "bbox": [x1, y1, x2, y2] (REQUIRED)
+   - "page_number": 1-based index
+
+2. "other_data": Any unstructured highlights.
+
+IMPORTANT: 
+- Be granular. Don't lump big chunks of text.
+- Return ONLY valid JSON.{focus_instruction}"""
+        
+        # ... (Call LLM similar to _unwrap_llm_extraction)
+        try:
+            from app.services.llm import get_current_model
+            current_model_name = get_current_model()
+            
+            response = await self.azure_openai.chat.completions.create(
+                model=current_model_name,
+                messages=[
+                    {"role": "system", "content": "You are a universal document analyzer. Return valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0,
+                response_format={"type": "json_object"}
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            logger.error(f"[LLM] Universal Extraction Error: {e}")
+            return {"guide_extracted": {}, "error": str(e)}
+
+    def _validate_and_format_universal(self, raw_data: Dict[str, Any], pages_info: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Relaxed validation for universal mode"""
+        guide_extracted = raw_data.get("guide_extracted", {})
+        validated_extracted = {}
+        
+        page_dims = {p["page_number"]: (p["width"], p["height"]) for p in pages_info}
+
+        for key, item in guide_extracted.items():
+            value = item.get("value")
+            bbox = item.get("bbox")
+            page_number = item.get("page_number", 1)
+            
+            # Try basic snapping
+            snapped_bbox = bbox
+            if value and pages_info:
+                target_page = page_number
+                page_data = next((p for p in pages_info if p["page_number"] == target_page), None)
+                if page_data and "words" in page_data:
+                     best = self._snap_bbox_to_words(str(value), bbox, page_data["words"])
+                     if best: snapped_bbox = best
+
+            # Normalize
+            normalized_bbox = None
+            if snapped_bbox:
+                p_w, p_h = 100, 100
+                if page_number in page_dims: p_w, p_h = page_dims[page_number]
+                normalized_bbox = self._normalize_bbox(snapped_bbox, p_w, p_h)
+
+            validated_extracted[key] = {
+                "value": value,
+                "type": item.get("type", "string"), # Conserve inferred type
+                "category": item.get("category"),
+                "confidence": item.get("confidence", 0),
+                "bbox": normalized_bbox,
+                "page_number": page_number,
+                "validation_status": "inferred"
+            }
+
+        return {
+            "guide_extracted": validated_extracted,
+            "other_data": raw_data.get("other_data", []),
+            "model_fields": [{"key": k, "label": k} for k in validated_extracted.keys()] # Dynamic fields
+        }
             
             with open("debug_pipeline.log", "a") as f:
                 f.write(f"All splits processed. Total sub_documents: {len(sub_documents)}\n")

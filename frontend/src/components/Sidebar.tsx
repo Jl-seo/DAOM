@@ -30,7 +30,7 @@ interface Model {
     description: string
 }
 
-export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: SidebarProps) {
+export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className, onClose }: SidebarProps & { className?: string, onClose?: () => void }) {
     const { config } = useSiteConfig()
     const [expandedGroups, setExpandedGroups] = useState<string[]>(['models'])
 
@@ -52,6 +52,11 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
         )
     }
 
+    const handleMenuChange = (menu: MenuId) => {
+        onMenuChange(menu)
+        if (onClose) onClose()
+    }
+
     const getActiveGroup = () => {
         if (activeMenu.startsWith('model-')) return 'models'
         if (activeMenu === 'model-studio') return 'admin-model'
@@ -63,7 +68,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
     const activeGroup = getActiveGroup()
 
     return (
-        <aside className="w-64 bg-sidebar text-sidebar-foreground flex flex-col h-full">
+        <aside className={clsx("bg-sidebar text-sidebar-foreground flex flex-col h-full", className || "w-64")}>
             {/* Logo */}
             <div className="p-6 border-b border-sidebar-border">
                 <div className="flex items-center gap-3">
@@ -84,14 +89,17 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
                     </div>
                 </div>
 
-                {onQuickExtraction && (
-                    <button
-                        onClick={onQuickExtraction}
-                        className="mt-6 w-full flex items-center justify-center gap-2 bg-gradient-to-r from-primary to-chart-5 hover:opacity-90 text-primary-foreground font-semibold py-2.5 rounded-lg shadow-md transition-all active:scale-[0.98]"
-                    >
-                        <span className="text-lg">⚡</span> 빠른 추출 시작
-                    </button>
-                )}
+                <button
+                    onClick={() => handleMenuChange('quick-extraction')}
+                    className={clsx(
+                        "mt-6 w-full flex items-center justify-center gap-2 font-semibold py-2.5 rounded-lg shadow-md transition-all active:scale-[0.98]",
+                        activeMenu === 'quick-extraction'
+                            ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                            : "bg-gradient-to-r from-primary to-chart-5 text-primary-foreground hover:opacity-90"
+                    )}
+                >
+                    <span className="text-lg">⚡</span> 빠른 추출 시작
+                </button>
             </div>
 
             {/* Navigation */}
@@ -123,7 +131,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
                                 models.map(model => (
                                     <button
                                         key={model.id}
-                                        onClick={() => onMenuChange(`model-${model.id}` as MenuId)}
+                                        onClick={() => handleMenuChange(`model-${model.id}` as MenuId)}
                                         className={clsx(
                                             "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
                                             activeMenu === `model-${model.id}`
@@ -157,7 +165,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
                     {expandedGroups.includes('admin-model') && (
                         <div className="mt-1 ml-4 space-y-1">
                             <button
-                                onClick={() => onMenuChange('model-studio')}
+                                onClick={() => handleMenuChange('model-studio')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
                                     activeMenu === 'model-studio'
@@ -169,7 +177,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
                                 <span className="flex-1 text-left">모델 관리 스튜디오</span>
                             </button>
                             <button
-                                onClick={() => onMenuChange('model-gallery')}
+                                onClick={() => handleMenuChange('model-gallery')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
                                     activeMenu === 'model-gallery'
@@ -198,7 +206,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
                     {expandedGroups.includes('admin') && (
                         <div className="mt-1 ml-4 space-y-1">
                             <button
-                                onClick={() => onMenuChange('admin-dashboard')}
+                                onClick={() => handleMenuChange('admin-dashboard')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
                                     activeMenu === 'admin-dashboard'
@@ -210,7 +218,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
                                 <span className="flex-1 text-left">대시보드</span>
                             </button>
                             <button
-                                onClick={() => onMenuChange('admin-audit')}
+                                onClick={() => handleMenuChange('admin-audit')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
                                     activeMenu === 'admin-audit'
@@ -222,7 +230,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
                                 <span className="flex-1 text-left">활동 로그</span>
                             </button>
                             <button
-                                onClick={() => onMenuChange('settings-general')}
+                                onClick={() => handleMenuChange('settings-general')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
                                     activeMenu === 'settings-general'
@@ -234,7 +242,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
                                 <span className="flex-1 text-left">일반 설정</span>
                             </button>
                             <button
-                                onClick={() => onMenuChange('settings-users')}
+                                onClick={() => handleMenuChange('settings-users')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
                                     activeMenu === 'settings-users'
@@ -254,14 +262,14 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction }: Sidebar
                     icon={History}
                     label="전체 추출 기록"
                     isActive={activeMenu === 'extraction-history'}
-                    onClick={() => onMenuChange('extraction-history')}
+                    onClick={() => handleMenuChange('extraction-history')}
                 />
 
             </nav>
 
             {/* User Menu */}
             <div className="p-4 border-t border-sidebar-border">
-                <UserMenu onMenuChange={onMenuChange} />
+                <UserMenu onMenuChange={handleMenuChange} />
             </div>
         </aside >
     )
