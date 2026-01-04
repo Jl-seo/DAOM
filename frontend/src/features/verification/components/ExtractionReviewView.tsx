@@ -209,6 +209,7 @@ export function ExtractionReviewView({
                         onReset={onReset}
                         onRetry={onRetry}
                         onDownload={handleDownload}
+                        documentId={fileUrl} // Pass fileUrl as stable identifier
                     />
                 </div>
             </div>

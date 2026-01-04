@@ -21,6 +21,7 @@ interface DataReviewPanelProps {
     onReset: () => void
     onRetry: () => void
     onDownload: () => void
+    documentId?: string | null // Unique identifier for the document (fileUrl or ID)
 }
 
 export function DataReviewPanel({
@@ -34,7 +35,8 @@ export function DataReviewPanel({
     onSave,
     onReset,
     onRetry,
-    onDownload
+    onDownload,
+    documentId
 }: DataReviewPanelProps) {
     const [isExpanded, setIsExpanded] = useState(false)
 
@@ -83,6 +85,9 @@ export function DataReviewPanel({
                 <div className="flex-1 overflow-hidden relative">
                     <TabsContent value="fields" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
                         <ExtractionPreview
+                            // Force remount only when document changes (using documentId)
+                            // This resets local state while preventing loops during editing
+                            key={documentId || 'default'}
                             guideExtracted={currentGuideExtracted || {}}
                             otherData={currentOtherData || []}
                             modelFields={model?.fields || previewData?.model_fields || []}
