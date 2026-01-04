@@ -79,6 +79,14 @@ jobs:
             IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHORT_SHA_VAL}"
             REVISION_NAME="$APP_NAME--$SUFFIX"
 
+            echo "0. Configuring Registry Authentication"
+            az containerapp registry set \
+              --name $APP_NAME \
+              --resource-group $RG \
+              --server ghcr.io \
+              --username ${{ github.actor }} \
+              --password ${{ secrets.GITHUB_TOKEN }}
+
             echo "1. Deploying new revision: $REVISION_NAME"
             az containerapp update \
               --name $APP_NAME \
