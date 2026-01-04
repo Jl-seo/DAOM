@@ -111,6 +111,11 @@ class ExtractionService:
             # Also update the associated Log status to S100 (완료)
             job = extraction_jobs.get_job(job_id)
             if job and job.original_log_id:
+                # Build the same preview_data structure for the log
+                log_preview_data = {
+                    "sub_documents": sub_documents,
+                    **legacy_preview  # Flatten first doc for legacy UI support
+                }
                 extraction_logs.save_extraction_log(
                     model_id=model_id,
                     user_id=job.user_id,
@@ -119,11 +124,13 @@ class ExtractionService:
                     filename=job.filename,
                     file_url=file_url,
                     status=ExtractionStatus.SUCCESS.value,  # S100 - 완료
+                    extracted_data=legacy_preview.get("guide_extracted", {}),  # ✅ Add extracted data
+                    preview_data=log_preview_data,  # ✅ Add preview data
                     log_id=job.original_log_id,
                     job_id=job_id
                 )
                 with open("debug_pipeline.log", "a") as f:
-                    f.write(f"Updated Log {job.original_log_id} to S100\n")
+                    f.write(f"Updated Log {job.original_log_id} to S100 with preview_data\\n")
             
             with open("debug_pipeline.log", "a") as f:
                 f.write(f"update_job result: {result is not None}\n")

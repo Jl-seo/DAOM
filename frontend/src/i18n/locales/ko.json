@@ -1,0 +1,339 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$comment": "DAOM UI Terminology Glossary - Korean (ko-KR)",
+    "common": {
+        "actions": {
+            "save": "저장",
+            "cancel": "취소",
+            "delete": "삭제",
+            "edit": "편집",
+            "create": "생성",
+            "confirm": "확인",
+            "retry": "재시도",
+            "search": "검색...",
+            "reset": "초기화",
+            "close": "닫기",
+            "expand": "확대",
+            "collapse": "축소",
+            "download": "다운로드",
+            "upload": "업로드",
+            "apply": "적용",
+            "analyze": "분석 & 적용",
+            "preview_open": "미리보기 열기",
+            "preview_close": "미리보기 닫기"
+        },
+        "status": {
+            "pending": "대기 중",
+            "processing": "처리 중",
+            "analyzing": "분석 중",
+            "uploading": "업로드 중",
+            "preparing": "준비 중",
+            "in_progress": "진행 중",
+            "success": "성공",
+            "complete": "완료",
+            "confirmed": "확정 완료",
+            "draft": "임시저장",
+            "review_pending": "검토 대기",
+            "failed": "실패",
+            "error": "오류",
+            "blocked": "차단",
+            "allowed": "허용",
+            "unknown": "알 수 없음",
+            "none": "없음"
+        },
+        "labels": {
+            "all": "전체",
+            "today": "오늘",
+            "this_week": "이번 주",
+            "this_month": "이번 달",
+            "date": "날짜",
+            "time": "시간",
+            "name": "이름",
+            "title": "제목",
+            "description": "설명",
+            "status": "상태",
+            "action": "액션",
+            "data": "데이터",
+            "file": "파일",
+            "filename": "파일명",
+            "model": "모델",
+            "user": "사용자",
+            "admin": "관리자",
+            "system": "시스템",
+            "resource": "리소스",
+            "settings": "설정",
+            "report": "보고서",
+            "created_at": "생성일시",
+            "updated_at": "수정일시"
+        },
+        "messages": {
+            "no_data": "데이터가 없습니다",
+            "loading": "로딩 중...",
+            "saving": "저장 중...",
+            "creating": "생성 중...",
+            "unknown_error": "알 수 없는 오류",
+            "no_changes": "변경 없음",
+            "no_permission": "권한 없음"
+        },
+        "placeholders": {
+            "enter_value": "값을 입력하세요",
+            "search": "검색...",
+            "min_2_chars": "2자 이상 입력하세요"
+        }
+    },
+    "extraction": {
+        "nav": {
+            "document_extraction": "문서 추출",
+            "document_automation": "문서 자동화",
+            "extraction_history": "전체 추출 기록",
+            "new_extraction": "새 문서 추출하기"
+        },
+        "wizard": {
+            "step_upload": "문서 업로드",
+            "step_review": "데이터 검토",
+            "step_complete": "완료"
+        },
+        "upload": {
+            "drag_drop": "문서를 여기에 놓으세요",
+            "click_to_select": "또는 클릭하여 파일을 선택하세요",
+            "select_file": "파일 선택하기",
+            "supported_formats": "(PDF, 이미지 지원)",
+            "drop_here": "여기에 놓으세요!",
+            "uploading_document": "문서를 업로드하고 있습니다",
+            "ai_analyzing": "AI가 문서를 분석하고 있습니다",
+            "unsupported_format": "지원되지 않는 파일 형식입니다 (PDF, 이미지 가능)"
+        },
+        "processing": {
+            "pending": "준비 중",
+            "uploading": "파일 업로드",
+            "ocr_analysis": "OCR 문서 분석",
+            "ai_refining": "AI 데이터 정제",
+            "review_ready": "검토 대기",
+            "data_refining": "데이터 정제 중",
+            "document_analysis": "문서 분석 중",
+            "please_wait": "잠시만 기다려주세요..."
+        },
+        "review": {
+            "extracted_fields": "추출 필드",
+            "detail_table": "상세 테이블",
+            "raw_json": "Raw JSON",
+            "extraction_complete": "AI 가이드 추출 완료",
+            "fields_count": "{filled}/{total}개 필드",
+            "value_not_found": "값을 찾지 못함 - 직접 입력",
+            "enter_value": "값 입력...",
+            "enter_column": "컬럼명 입력...",
+            "reference_data": "참고정보 기반 추출",
+            "field_name": "필드명",
+            "extracted_value": "추출값 (편집 가능)",
+            "confidence": "신뢰도"
+        },
+        "actions": {
+            "start_extraction": "빠른 추출 시작",
+            "save_changes": "변경 사항 저장",
+            "save_extraction": "💾 저장하기",
+            "new_document": "새 문서",
+            "retry": "재시도",
+            "go_to_list": "목록으로 돌아가기",
+            "excel_download": "Excel 다운로드!"
+        },
+        "history": {
+            "no_records": "검색 조건에 맞는 기록이 없습니다",
+            "no_documents": "아직 추출된 문서가 없습니다",
+            "first_upload_hint": "첫 문서를 업로드하여 추출을 시작해보세요",
+            "document_records": "문서를 추출하면 여기에 기록이 표시됩니다",
+            "search_filename": "파일명으로 검색...",
+            "try_different_filter": "다른 필터 조건을 시도해보세요",
+            "no_success_records": "다운로드할 성공 기록이 없습니다"
+        },
+        "errors": {
+            "extraction_failed": "추출 실패",
+            "save_failed": "저장 실패",
+            "upload_failed": "파일 업로드 실패",
+            "model_load_failed": "모델 정보를 불러올 수 없습니다",
+            "no_fields_found": "추출 가능한 필드를 찾지 못했습니다",
+            "invalid_result": "분석 결과가 유효하지 않습니다",
+            "job_not_found": "작업을 찾을 수 없습니다",
+            "retry_failed": "재시도 요청 실패",
+            "no_data_to_download": "다운로드할 데이터가 없습니다"
+        },
+        "success": {
+            "saved": "저장되었습니다",
+            "retry_started": "재시도 작업이 시작되었습니다",
+            "excel_downloaded": "Excel로 받았어요!",
+            "reprocess_complete": "재처리 완료!"
+        }
+    },
+    "models": {
+        "labels": {
+            "model": "모델",
+            "all_models": "모든 모델",
+            "active_models": "활성 모델",
+            "model_search": "모델 검색",
+            "in_use": "사용 중인 데이터 모델"
+        },
+        "actions": {
+            "create_model": "모델 생성",
+            "edit_model": "모델 편집",
+            "delete_model": "모델 삭제"
+        },
+        "form": {
+            "enter_name": "모델 이름을 입력하세요",
+            "example_name": "예: 문서 자동화",
+            "sample_file": "샘플 파일 선택 (PDF, 이미지)",
+            "add_document": "분석할 문서를 추가하세요"
+        },
+        "messages": {
+            "saved": "모델이 성공적으로 저장되었습니다",
+            "deleted": "모델이 삭제되었습니다",
+            "load_failed": "모델을 불러오는데 실패했습니다",
+            "delete_confirm": "정말 이 모델을 삭제하시겠습니까?",
+            "change_failed": "모델 변경 실패"
+        }
+    },
+    "admin": {
+        "nav": {
+            "admin": "⚡ 관리자",
+            "site_settings": "사이트 설정",
+            "theme_customizer": "테마 커스터마이저"
+        },
+        "users": {
+            "all_users": "모든 사용자",
+            "user": "👁️ 사용자",
+            "admin": "관리자",
+            "search_user": "사용자 이름/이메일 검색",
+            "entra_user": "Entra 사용자",
+            "entra_group": "Entra 보안 그룹"
+        },
+        "permissions": {
+            "permission_group": "권한 그룹",
+            "create_group": "그룹 생성",
+            "delete_group": "그룹 삭제",
+            "add_member": "멤버 추가",
+            "remove_member": "멤버 제거",
+            "search_group": "그룹 이름 검색...",
+            "read_only": "읽기 전용",
+            "editing": "편집 중"
+        },
+        "messages": {
+            "group_created": "권한 그룹이 생성되었습니다",
+            "group_deleted": "그룹이 삭제되었습니다",
+            "member_added": "멤버가 추가되었습니다",
+            "member_removed": "멤버가 제거되었습니다",
+            "permissions_saved": "권한이 저장되었습니다",
+            "settings_saved": "설정이 저장되었습니다",
+            "branding_saved": "브랜딩 설정이 저장되었습니다",
+            "delete_confirm": "이 권한 그룹을 삭제하시겠습니까?"
+        },
+        "errors": {
+            "settings_load_failed": "설정을 불러올 수 없습니다",
+            "permission_save_failed": "권한 저장에 실패했습니다",
+            "group_create_failed": "그룹 생성에 실패했습니다",
+            "group_delete_failed": "그룹 삭제에 실패했습니다",
+            "member_add_failed": "멤버 추가에 실패했습니다",
+            "member_remove_failed": "멤버 제거에 실패했습니다",
+            "graph_user_search_failed": "사용자 검색에 실패했습니다. Graph API 권한을 확인해주세요.",
+            "graph_group_search_failed": "그룹 검색에 실패했습니다. Graph API 권한을 확인해주세요."
+        }
+    },
+    "dashboard": {
+        "labels": {
+            "data_report": "데이터 보고서",
+            "total_extractions": "총 추출 건수",
+            "today_extractions": "오늘 추출",
+            "success_rate": "성공률",
+            "total_success_rate": "전체 평균 성공률",
+            "cumulative_documents": "누적 문서 처리량",
+            "failed_count": "실패 건수"
+        }
+    },
+    "theme": {
+        "modes": {
+            "light": "라이트 모드",
+            "dark": "다크 모드",
+            "light_short": "라이트",
+            "dark_short": "다크"
+        },
+        "colors": {
+            "blue_default": "블루 (기본)",
+            "green": "그린",
+            "orange": "오렌지",
+            "purple": "퍼플",
+            "red": "빨간",
+            "color": "컬러"
+        },
+        "sizes": {
+            "narrow": "좁게",
+            "normal": "보통",
+            "wide": "넓게",
+            "large": "크게"
+        },
+        "elements": {
+            "font": "폰트",
+            "header": "헤더",
+            "sample_text": "샘플 텍스트",
+            "primary_color": "Primary 색상"
+        },
+        "messages": {
+            "primary_changed": "Primary 색상이 변경되었습니다"
+        }
+    },
+    "templates": {
+        "labels": {
+            "new_template": "새 템플릿",
+            "template_name": "템플릿 이름 입력"
+        },
+        "placeholders": {
+            "edit_request": "템플릿 수정 요청...",
+            "global_correction": "전역 보정 규칙을 입력하세요..."
+        }
+    },
+    "table": {
+        "structure": {
+            "table": "테이블",
+            "row_column": "행/열 구조",
+            "column_name": "컬럼명",
+            "header": "헤더",
+            "total": "합계",
+            "object_type": "객체 형태",
+            "document_type": "문서 형태",
+            "data_structure": "데이터 구조"
+        },
+        "fields": {
+            "supplier": "공급자",
+            "buyer": "구매자",
+            "manager": "담당자",
+            "amount": "금액",
+            "final_amount": "최종 금액",
+            "invoice_date": "청구일",
+            "created_date": "작성일",
+            "sender": "보내는 사람",
+            "receiver": "받는 사람"
+        }
+    },
+    "ai_assistant": {
+        "prompts": {
+            "greeting": "안녕하세요! 어떤 형태로 데이터를 출력하고 싶으신가요?",
+            "not_understood": "죄송해요, 잘 이해하지 못했어요.",
+            "ask_ai": "AI에게 물어보기"
+        },
+        "examples": {
+            "add_header": "헤더에 제목 추가해줘",
+            "show_total": "합계 보여줘",
+            "add_header_short": "헤더 추가해줘",
+            "remove_discount": "할인율 필드 제거해"
+        },
+        "responses": {
+            "total_added": "합계 행을 추가했어요! 평균이나 개수도 표시할까요?",
+            "color_changed_red": "주요 색상을 빨간색으로 변경했어요!",
+            "color_changed_blue": "주요 색상을 파란색으로 변경했어요!",
+            "power_automate_coming": "Power Automate 연동 준비 중이에요"
+        }
+    },
+    "integration": {
+        "azure": {
+            "llm_model": "LLM 모델",
+            "deployment_name": "예: my-gpt-4o-deployment"
+        },
+        "advanced_settings": "고급 설정"
+    }
+}
