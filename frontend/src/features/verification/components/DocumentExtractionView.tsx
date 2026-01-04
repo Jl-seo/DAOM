@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { modelsApi } from '@/lib/api'
@@ -37,6 +37,9 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
         loadFromHistory
     } = useExtraction()
 
+    // Track if initial file was already processed to prevent infinite loops
+    const initialFileProcessedRef = useRef(false)
+
     // -- Load Model Data --
     useEffect(() => {
         if (!modelId) return
@@ -53,8 +56,9 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
 
     // -- Handle Initial File (Quick Extraction) --
     useEffect(() => {
-        if (initialFile && model && activeStep !== 'upload' && status === 'idle') {
-            // Only trigger if we have a file, model is loaded, and we haven't started yet
+        // Only process once per initialFile
+        if (initialFile && model && !initialFileProcessedRef.current && status === 'idle') {
+            initialFileProcessedRef.current = true
             console.log('Quick Extraction: Processing initial file', initialFile.name)
             setActiveStep('upload')
             processFile(initialFile)
@@ -64,7 +68,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                 onFileConsumed()
             }
         }
-    }, [initialFile, model, activeStep, status, setActiveStep, processFile, onFileConsumed])
+    }, [initialFile, model, status])
 
     if (!model) {
         return (
