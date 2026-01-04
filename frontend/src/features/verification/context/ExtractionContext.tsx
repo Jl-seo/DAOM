@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useRef, type ReactNode } from 'react'
+import { createContext, useContext, useState, useRef, type ReactNode, useCallback, useMemo, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api'
@@ -126,7 +126,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
     const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
     // Compute highlights from preview data
-    const highlights: Highlight[] = (() => {
+    const highlights: Highlight[] = useMemo(() => {
         if (!previewData?.guide_extracted) return []
         const currentData = previewData.sub_documents && previewData.sub_documents.length > 0
             ? previewData.sub_documents[selectedSubDocIndex]?.data?.guide_extracted
@@ -165,10 +165,10 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                     position: { boundingRect }
                 }
             })
-    })()
+    }, [previewData, selectedSubDocIndex])
 
     // Start polling for job status
-    const startPolling = (jobId: string) => {
+    const startPolling = useCallback((jobId: string) => {
         if (pollingRef.current) clearInterval(pollingRef.current)
 
         pollingRef.current = setInterval(async () => {
@@ -212,10 +212,10 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                 }
             }
         }, POLLING_INTERVAL_MS)
-    }
+    }, [model?.fields]) // Dependencies for polling interval content
 
     // File processing
-    const processFile = async (selectedFile: File) => {
+    const processFile = useCallback(async (selectedFile: File) => {
         setFile(selectedFile)
         setFilename(selectedFile.name)
         setStatus(EXTRACTION_STATUS.UPLOADING)
@@ -242,7 +242,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             setError(e?.response?.data?.detail || '파일 업로드 실패')
             toast.error('파일 업로드 실패')
         }
-    }
+    }, [modelId, startPolling])
 
     // Confirm extraction mutation
     const saveLogMutation = useMutation({
@@ -345,7 +345,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         }
     })
 
-    const handleConfirmSelection = (
+    const handleConfirmSelection = useCallback((
         _selectedColumns: string[],
         editedGuideData?: Record<string, any>,
         editedOtherData?: any[]
@@ -362,7 +362,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             // Historical record update
             saveLogMutation.mutate({ editedGuideData, editedOtherData })
         }
-    }
+    }, [currentJobId, currentLogId, confirmJobMutation, saveLogMutation])
 
     // Retry mutation
     const retryMutation = useMutation({
@@ -381,7 +381,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         }
     })
 
-    const handleRetry = () => {
+    const handleRetry = useCallback(() => {
         if (currentLogId) {
             retryMutation.mutate()
         } else if (file) {
@@ -389,9 +389,9 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         } else {
             toast.error('재시도할 수 없습니다. 목록에서 다시 선택해 주세요.')
         }
-    }
+    }, [currentLogId, file, retryMutation, processFile])
 
-    const handleReset = () => {
+    const handleReset = useCallback(() => {
         setFile(null)
         setFileUrl(null)
         setPreviewData(null)
@@ -405,17 +405,16 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             clearInterval(pollingRef.current)
             pollingRef.current = null
         }
+    }, [])
 
-    }
-
-    const handleCancelPreview = () => {
+    const handleCancelPreview = useCallback(() => {
         // Since jobs are asynchronous, we just clear local state and go back to history.
         // The job continues in the background.
         handleReset()
         setActiveStep('history')
-    }
+    }, [handleReset])
 
-    const resumeJob = (jobId: string, url?: string, jobStatus?: ExtractionStatus) => {
+    const resumeJob = useCallback((jobId: string, url?: string, jobStatus?: ExtractionStatus) => {
         console.log('[resumeJob] Resuming job:', jobId)
         setCurrentJobId(jobId)
         if (url) setFileUrl(url)
@@ -431,9 +430,9 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         }
 
         setActiveStep('upload') // Start polling will switch to 'review' when ready
-    }
+    }, [startPolling])
 
-    const loadFromHistory = (log: ExtractionLog) => {
+    const loadFromHistory = useCallback((log: ExtractionLog) => {
         console.log('[loadFromHistory] Loading log:', { id: log.id, file_url: log.file_url, filename: log.filename })
         setResult(log.extracted_data || null)
         setStatus(isSuccessStatus(log.status) ? EXTRACTION_STATUS.COMPLETE : EXTRACTION_STATUS.ERROR)
@@ -460,9 +459,9 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         }
 
         setActiveStep('complete')
-    }
+    }, [model?.fields])
 
-    const value: ExtractionContextValue = {
+    const value: ExtractionContextValue = useMemo(() => ({
         model, setModel,
         activeStep, setActiveStep,
         status, setStatus,
@@ -485,7 +484,13 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         handleCancelPreview,
         loadFromHistory,
         resumeJob
-    }
+    }), [
+        model, activeStep, status, file, fileUrl, filename, isDragging,
+        currentJobId, currentLogId, previewData, selectedSubDocIndex,
+        result, selectedFieldKey, error, highlights,
+        processFile, handleConfirmSelection, handleRetry, handleReset,
+        handleCancelPreview, loadFromHistory, resumeJob
+    ])
 
     return (
         <ExtractionContext.Provider value={value}>
