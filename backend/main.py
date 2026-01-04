@@ -55,4 +55,4 @@ async def startup_event():
 
 @app.get("/")
 def root():
-    return {"message": "Welcome to DAOM API"}
+    return {"message": "Welcome to DAOM API v1.0.2"}
