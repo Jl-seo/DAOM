@@ -2,7 +2,7 @@ name: Deploy Backend to Azure Container Apps
 
 on:
   push:
-    branches: [master]
+    branches: [master, 'feature/*']
     paths:
       - 'backend/**'
       - '.github/workflows/deploy-backend.yml'
@@ -55,11 +55,33 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Deploy to Azure Container Apps
-        uses: azure/container-apps-deploy-action@v1
+      - name: Deploy to Azure Container Apps (Multi-Revision)
+        uses: azure/cli@v2
         with:
-          resourceGroup: ${{ env.RESOURCE_GROUP }}
-          containerAppName: ${{ env.CONTAINER_APP_NAME }}
-          containerAppEnvironment: ${{ env.CONTAINER_APP_ENV }}
-          imageToDeploy: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          targetPort: 8000
+          inlineScript: |
+            az config set extension.use_dynamic_install=yes_without_prompt
+            
+            # Determine Revision Config based on Branch
+            if [[ "${{ github.ref_name }}" == "master" ]]; then
+              echo "Deploying to PRODUCTION (Traffic: 100%)"
+              REVISION_SUFFIX=""
+              # No label for main production usually, or "prod"
+              # Traffic 100% implicitly makes it latest
+              CMD_ARGS="--traffic-weight 100"
+            else
+              # Clean branch name for suffix (lowercase, alphanumeric only)
+              SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | cut -c 1-10)
+              SUFFIX="-$SAFE_BRANCH-$(date +%s | cut -c 6-10)"
+              LABEL="test-$SAFE_BRANCH"
+              
+              echo "Deploying to TEST Revision (Label: $LABEL, Traffic: 0%)"
+              # Set traffic to 0 for the new revision, but give it a label for URL access
+              CMD_ARGS="--traffic-weight 0 --revision-suffix $SUFFIX --label $LABEL"
+            fi
+
+            echo "Deploying..."
+            az containerapp update \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+              $CMD_ARGS
