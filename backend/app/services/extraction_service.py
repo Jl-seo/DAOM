@@ -60,8 +60,10 @@ class ExtractionService:
                 model = models.get_model_by_id(model_id)
                 if not model:
                     raise ValueError(f"Model {model_id} not found")
-                # Dynamic Strategy
-                azure_model = getattr(model, "azure_model_id", "prebuilt-layout")
+                # Dynamic Strategy - BUT for LLM extraction, 'prebuilt-layout' is consistently best for bbox/words.
+                # 'prebuilt-invoice' often lacks detailed word maps on secondary pages or uses different coordinate logic.
+                # We enforce layout to ensure Highlighting works reliable.
+                azure_model = "prebuilt-layout" # getattr(model, "azure_model_id", "prebuilt-layout")
 
             with open("debug_pipeline.log", "a") as f:
                 f.write(f"calling doc_intel with {azure_model}\n")
