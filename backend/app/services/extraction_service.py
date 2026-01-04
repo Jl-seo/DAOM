@@ -93,29 +93,33 @@ class ExtractionService:
             with open("debug_pipeline.log", "a") as f:
                 f.write(f"All splits processed. Total sub_documents: {len(sub_documents)}\n")
             
-            # Legacy fallback: Use first doc
-            legacy_preview = sub_documents[0]["data"] if sub_documents and "data" in sub_documents[0] else {}
+            # Legacy fallback: Use first doc ONLY if needed, BUT avoid duplication to save DB space
+            # Frontend handles sub_documents priority, so we can minimalize top-level keys
+            # legacy_preview = sub_documents[0]["data"] if sub_documents and "data" in sub_documents[0] else {}
 
             with open("debug_pipeline.log", "a") as f:
                 f.write(f"Calling update_job with status=SUCCESS...\n")
             
+            # OPTIMIZATION: Only save sub_documents to avoid 2MB Cosmos Limit
+            preview_payload = {
+                "sub_documents": sub_documents
+            }
+            
             result = extraction_jobs.update_job(
                 job_id, 
                 status=ExtractionStatus.SUCCESS.value, 
-                preview_data={
-                    "sub_documents": sub_documents,
-                    **legacy_preview # Flatten first doc for legacy UI support
-                }
+                preview_data=preview_payload
             )
             
+            if not result:
+                # Update failed! Likely DB size limit. Try to save with status ERROR
+                logger.error(f"Failed to update job {job_id} with success data. Payload might be too large.")
+                extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error="Failed to save extraction results (Data too large)")
+                return
+
             # Also update the associated Log status to S100 (완료)
             job = extraction_jobs.get_job(job_id)
             if job and job.original_log_id:
-                # Build the same preview_data structure for the log
-                log_preview_data = {
-                    "sub_documents": sub_documents,
-                    **legacy_preview  # Flatten first doc for legacy UI support
-                }
                 extraction_logs.save_extraction_log(
                     model_id=model_id,
                     user_id=job.user_id,
@@ -124,8 +128,8 @@ class ExtractionService:
                     filename=job.filename,
                     file_url=file_url,
                     status=ExtractionStatus.SUCCESS.value,  # S100 - 완료
-                    extracted_data=legacy_preview.get("guide_extracted", {}),  # ✅ Add extracted data
-                    preview_data=log_preview_data,  # ✅ Add preview data
+                    extracted_data=sub_documents[0]["data"].get("guide_extracted", {}) if sub_documents else {},  # Minimal extracted data
+                    preview_data=preview_payload,  # ✅ Add preview data (Optimized)
                     log_id=job.original_log_id,
                     job_id=job_id
                 )
