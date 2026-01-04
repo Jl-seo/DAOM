@@ -61,27 +61,51 @@ jobs:
           inlineScript: |
             az config set extension.use_dynamic_install=yes_without_prompt
             
-            # Determine Revision Config based on Branch
+            # Common params
+            SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | cut -c 1-10)
+            TIMESTAMP=$(date +%s | cut -c 6-10)
+            
             if [[ "${{ github.ref_name }}" == "master" ]]; then
-              echo "Deploying to PRODUCTION (Traffic: 100%)"
-              REVISION_SUFFIX=""
-              # No label for main production usually, or "prod"
-              # Traffic 100% implicitly makes it latest
-              CMD_ARGS="--traffic-weight 100"
+              echo "Deploying to PRODUCTION"
+              SUFFIX="prod-$TIMESTAMP"
+              LABEL="production"
+              # For production, we want 100% traffic
             else
-              # Clean branch name for suffix (lowercase, alphanumeric only)
-              SAFE_BRANCH=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | cut -c 1-10)
-              SUFFIX="-$SAFE_BRANCH-$(date +%s | cut -c 6-10)"
+              echo "Deploying to TEST Revision"
+              SUFFIX="test-$SAFE_BRANCH-$TIMESTAMP"
               LABEL="test-$SAFE_BRANCH"
-              
-              echo "Deploying to TEST Revision (Label: $LABEL, Traffic: 0%)"
-              # Set traffic to 0 for the new revision, but give it a label for URL access
-              CMD_ARGS="--traffic-weight 0 --revision-suffix $SUFFIX --label $LABEL"
+              # For test, we want 0% traffic (traffic stays on production)
             fi
+            
+            APP_NAME=${{ env.CONTAINER_APP_NAME }}
+            RG=${{ env.RESOURCE_GROUP }}
+            IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+            REVISION_NAME="$APP_NAME--$SUFFIX"
 
-            echo "Deploying..."
+            echo "1. Deploying new revision: $REVISION_NAME"
             az containerapp update \
-              --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --image ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
-              $CMD_ARGS
+              --name $APP_NAME \
+              --resource-group $RG \
+              --image $IMAGE \
+              --revision-suffix $SUFFIX \
+              --query properties.configuration.activeRevisionsMode
+
+            echo "2. Assigning Label: $LABEL"
+            # Add label to the new revision
+            az containerapp revision label add \
+              --resource-group $RG \
+              --name $APP_NAME \
+              --label $LABEL \
+              --revision $REVISION_NAME
+
+            # 3. Traffic Management
+            if [[ "${{ github.ref_name }}" == "master" ]]; then
+              echo "3. Switching Production Traffic to 100%"
+              az containerapp traffic set \
+                --resource-group $RG \
+                --name $APP_NAME \
+                --label-weight $LABEL=100
+            fi
+            # For feature branches, we do nothing. 
+            # Traffic logic: If specific rules exist (like label=production:100), they persist.
+            # The new revision gets 0% default.
