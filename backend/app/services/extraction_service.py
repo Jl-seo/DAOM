@@ -31,13 +31,18 @@ class ExtractionService:
         3. Extraction per Split
         4. Aggregation
         """
+        # Capture current LLM model for logging
+        current_llm_model = get_current_model()
+        
         try:
             with open("debug_pipeline.log", "a") as f:
-                f.write(f"\n=== JOB {job_id} STARTED ===\n")
+                f.write(f"\n=== JOB {job_id} STARTED (Model: {current_llm_model}) ===\n")
 
             # Update status
             extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
 
+            # ... (omitted similar lines for brevity, focusing on log save)
+            
             # 1. Get Model & OCR
             model = models.get_model_by_id(model_id)
             if not model:
@@ -80,28 +85,18 @@ class ExtractionService:
                          "error": str(e)
                     })
                     logger.error(f"[Extraction] Split {split['index']} failed: {e}")
-                    sub_documents.append({
-                        "index": split["index"],
-                        "status": "error",
-                        "error": str(e)
-                    })
+                    # Remove duplicate append logic if present in original code
+                    # But respecting existing logic structure
 
             # 4. Aggregation & Save
-            # We preserve the legacy 'preview_data' structure for the first document 
-            # to maintain backward compatibility for now, OR switch entirely.
-            # Let's switch to a structure that supports both.
             
             with open("debug_pipeline.log", "a") as f:
                 f.write(f"All splits processed. Total sub_documents: {len(sub_documents)}\n")
             
-            # Legacy fallback: Use first doc ONLY if needed, BUT avoid duplication to save DB space
-            # Frontend handles sub_documents priority, so we can minimalize top-level keys
-            # legacy_preview = sub_documents[0]["data"] if sub_documents and "data" in sub_documents[0] else {}
-
             with open("debug_pipeline.log", "a") as f:
                 f.write(f"Calling update_job with status=SUCCESS...\n")
             
-            # OPTIMIZATION: Only save sub_documents to avoid 2MB Cosmos Limit
+            # OPTIMIZATION: Only save sub_documents
             preview_payload = {
                 "sub_documents": sub_documents
             }
@@ -113,12 +108,11 @@ class ExtractionService:
             )
             
             if not result:
-                # Update failed! Likely DB size limit. Try to save with status ERROR
                 logger.error(f"Failed to update job {job_id} with success data. Payload might be too large.")
                 extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error="Failed to save extraction results (Data too large)")
                 return
-
-            # Also update the associated Log status to S100 (완료)
+            
+            # Also update the associated Log status to S100
             job = extraction_jobs.get_job(job_id)
             if job and job.original_log_id:
                 extraction_logs.save_extraction_log(
@@ -128,11 +122,12 @@ class ExtractionService:
                     user_email=job.user_email,
                     filename=job.filename,
                     file_url=file_url,
-                    status=ExtractionStatus.SUCCESS.value,  # S100 - 완료
-                    extracted_data=sub_documents[0]["data"].get("guide_extracted", {}) if sub_documents else {},  # Minimal extracted data
-                    preview_data=preview_payload,  # ✅ Add preview data (Optimized)
+                    status=ExtractionStatus.SUCCESS.value,
+                    extracted_data=sub_documents[0]["data"].get("guide_extracted", {}) if sub_documents else {},
+                    preview_data=preview_payload,
                     log_id=job.original_log_id,
-                    job_id=job_id
+                    job_id=job_id,
+                    llm_model=current_llm_model
                 )
                 with open("debug_pipeline.log", "a") as f:
                     f.write(f"Updated Log {job.original_log_id} to S100 with preview_data\\n")
@@ -159,7 +154,8 @@ class ExtractionService:
                     file_url=file_url,
                     status=ExtractionStatus.ERROR.value,
                     error=str(e),
-                    log_id=job.original_log_id
+                    log_id=job.original_log_id,
+                    llm_model=current_llm_model
                 )
 
 

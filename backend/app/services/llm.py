@@ -5,15 +5,48 @@ import httpx
 from app.core.config import settings
 from app.schemas.model import ExtractionModel
 from app.services.refiner import RefinerEngine
+from app.db.cosmos import get_config_container
 
 # 동적 모델 설정 (어드민에서 변경 가능)
 _current_model = settings.AZURE_OPENAI_DEPLOYMENT_NAME
+LLM_CONFIG_ID = "llm_config"
+
+def initialize_llm_settings():
+    """서버 시작 시 DB에서 설정 로드"""
+    global _current_model
+    try:
+        container = get_config_container()
+        if container:
+            try:
+                item = container.read_item(item=LLM_CONFIG_ID, partition_key=LLM_CONFIG_ID)
+                saved_model = item.get("model_name")
+                if saved_model:
+                    _current_model = saved_model
+                    print(f"[LLM] Loaded configuration from DB: {_current_model}")
+            except Exception:
+                # 설정이 없으면 기본값 사용 (조용히 넘어감)
+                print(f"[LLM] No saved configuration found, using default: {_current_model}")
+    except Exception as e:
+        print(f"[LLM] Failed to initialize settings: {e}")
 
 def set_llm_model(model_name: str):
-    """어드민에서 LLM 모델 변경"""
+    """어드민에서 LLM 모델 변경 (DB 저장)"""
     global _current_model
     _current_model = model_name
     print(f"[LLM] Model changed to: {_current_model}")
+    
+    # DB 저장
+    try:
+        container = get_config_container()
+        if container:
+            container.upsert_item({
+                "id": LLM_CONFIG_ID,
+                "model_name": model_name,
+                "updated_at": "now"
+            })
+            print("[LLM] Configuration saved to DB")
+    except Exception as e:
+        print(f"[LLM] Failed to save configuration to DB: {e}")
 
 def get_current_model() -> str:
     return _current_model

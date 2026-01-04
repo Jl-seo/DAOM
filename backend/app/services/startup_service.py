@@ -5,6 +5,7 @@ import logging
 from app.core.config import settings
 from app.db.cosmos import get_container
 from app.services import menu_service
+from app.services.llm import initialize_llm_settings
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +81,12 @@ async def seed_system_admin_group(tenant_id: str, current_user_email: str = None
         logger.error(f"Error seeding System Admins group: {e}")
         return False
 
-
 async def run_startup_tasks(tenant_id: str = "default", current_user_email: str = None, current_user_id: str = None, current_user_name: str = None):
     """Run all startup tasks"""
     logger.info(f"Running startup tasks for tenant {tenant_id}...")
+    
+    # Initialize LLM settings from DB
+    initialize_llm_settings()
     
     # Seed menus
     await menu_service.seed_menus(tenant_id)

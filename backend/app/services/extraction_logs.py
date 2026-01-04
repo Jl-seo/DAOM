@@ -31,6 +31,7 @@ class ExtractionLog(BaseModel):
     created_at: str
     updated_at: Optional[str] = None
     tenant_id: Optional[str] = "default"
+    llm_model: Optional[str] = None  # Model name used for extraction (e.g. gpt-4.1)
 
     @field_validator('user_id', mode='before')
     @classmethod
@@ -51,7 +52,8 @@ def save_extraction_log(
     user_email: Optional[str] = None,
     log_id: Optional[str] = None,
     job_id: Optional[str] = None,
-    tenant_id: Optional[str] = "default"
+    tenant_id: Optional[str] = "default",
+    llm_model: Optional[str] = None,
 ) -> Optional[ExtractionLog]:
     """Save a new extraction log entry"""
     container = get_extractions_container()
@@ -86,14 +88,15 @@ def save_extraction_log(
         job_id=job_id,
         created_at=existing_created_at if existing_created_at else now,
         updated_at=now,
-        tenant_id=tenant_id
+        tenant_id=tenant_id,
+        llm_model=llm_model
     )
     
     try:
         log_dict = log.model_dump()
         log_dict["type"] = ExtractionType.LOG.value
         container.upsert_item(log_dict)
-        logger.info(f"[ExtractionLogs] Saved log {log.id} (Overwrite: {bool(log_id)}) for user {user_id}, model {model_id}")
+        logger.info(f"[ExtractionLogs] Saved log {log.id} (Overwrite: {bool(log_id)}) for user {user_id}, model {model_id}, llm={llm_model}")
         
         # Log to Audit System
         # We only log significant state changes or new creations to avoid noise?
@@ -147,7 +150,8 @@ def save_extraction_log(
                         "model_id": model_id,
                         "filename": filename,
                         "job_id": job_id,
-                        "error": error
+                        "error": error,
+                        "llm_model": llm_model
                     },
                     "ip_address": "system",
                     "user_agent": "DaomBackend/ExtractionLogs"

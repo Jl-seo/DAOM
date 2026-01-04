@@ -127,5 +127,13 @@ def init_cosmos():
     get_audit_container()
     get_users_container()
     get_groups_container()
+    get_config_container()
     logger.info("[Cosmos] Initialization complete")
+
+
+CONFIG_CONTAINER = "system_config"
+
+def get_config_container():
+    """Get or create system_config container"""
+    return get_container(CONFIG_CONTAINER, "/id")
 
