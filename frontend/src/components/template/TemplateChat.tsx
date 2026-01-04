@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Send, Loader2, Sparkles } from 'lucide-react'
 import type { ChatMessage, TemplateConfig } from '../../types/template'
+import { API_CONFIG } from '../../constants'
 
 interface TemplateChatProps {
     onConfigUpdate: (config: Partial<TemplateConfig>) => void
@@ -40,7 +41,7 @@ export function TemplateChat({ onConfigUpdate, modelFields, currentConfig }: Tem
         setIsLoading(true)
 
         try {
-            const response = await fetch('http://localhost:8000/api/v1/templates/chat', {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/templates/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
