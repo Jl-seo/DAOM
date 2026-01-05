@@ -60,6 +60,11 @@ jobs:
             set -e
             az config set extension.use_dynamic_install=yes_without_prompt
             
+            # Upgrade containerapp extension to get --target-label support (preview feature)
+            echo "0. Upgrading containerapp extension..."
+            az extension add --name containerapp --upgrade --yes
+            az extension show --name containerapp --query version -o tsv
+            
             # Common params
             TIMESTAMP=$(date +%s | cut -c 6-10)
             SHORT_SHA_VAL="${{ steps.vars.outputs.SHORT_SHA }}"
