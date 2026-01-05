@@ -34,10 +34,11 @@ async def upload_file_to_blob(file: UploadFile) -> str:
 
         content = await file.read()
         blob_client.upload_blob(content)
-        
+        return blob_client.url
+
+    except Exception as e:
         print(f"[Storage] Error uploading to blob: {e}")
         raise e
-
 async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
     """Save JSON data to a blob"""
     import json
