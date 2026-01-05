@@ -90,7 +90,10 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                 </div>
 
                 <button
-                    onClick={() => handleMenuChange('quick-extraction')}
+                    onClick={() => {
+                        if (onQuickExtraction) onQuickExtraction()
+                        handleMenuChange('quick-extraction')
+                    }}
                     className={clsx(
                         "mt-6 w-full flex items-center justify-center gap-2 font-semibold py-2.5 rounded-lg shadow-md transition-all active:scale-[0.98]",
                         activeMenu === 'quick-extraction'
