@@ -139,8 +139,60 @@ class ExtractionService:
             "data": validated_data
         }
 
-    async def _unwrap_universal_extraction(self, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
+    def _filter_ocr_data(self, ocr_data: Dict[str, Any], page_numbers: List[int]) -> Dict[str, Any]:
+        """
+        Filter OCR data to include only specific pages to save tokens.
+        Preserves 'content' only if it seems reasonably sized or just omits it in favor of structural elements.
+        """
+        if not page_numbers or not ocr_data:
+            return ocr_data
+
+        filtered_data = {
+            "api_version": ocr_data.get("api_version"),
+            "model_id": ocr_data.get("model_id"),
+            "pages": [],
+            "tables": [],
+            "paragraphs": [] # Optional, might be heavy
+        }
+
+        # 1. Filter Pages
+        # Azure pages are usually 1-indexed in the 'page_number' field if converted from analyzing result
+        # Or we rely on the list index if not present. 
+        # But 'doc_intel_output' usually mirrors the Azure SDK object dict.
+        
+        target_pages = set(page_numbers)
+        
+        for p in ocr_data.get("pages", []):
+            p_num = p.get("page_number", 0) 
+            if p_num in target_pages:
+                filtered_data["pages"].append(p)
+
+        # 2. Filter Tables
+        for t in ocr_data.get("tables", []):
+            # Check bounding regions for page number
+            matches = False
+            for region in t.get("bounding_regions", []):
+                if region.get("page_number") in target_pages:
+                    matches = True
+                    break
+            if matches:
+                filtered_data["tables"].append(t)
+                
+        # 3. Filter Paragraphs (if present) to give text context
+        # This is important for "content" based extraction if we drop the global content string
+        for para in ocr_data.get("paragraphs", []):
+             if para.get("bounding_regions"):
+                 if para["bounding_regions"][0]["page_number"] in target_pages:
+                     filtered_data["paragraphs"].append(para)
+
+        return filtered_data
+
+    async def _unwrap_universal_extraction(self, full_ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
         """Ask LLM to discover ANY relevant fields"""
+        
+        # OPTIMIZATION: Filter payload to only relevant pages
+        ocr_data_to_send = self._filter_ocr_data(full_ocr_data, focus_pages) if focus_pages else full_ocr_data
+        
         focus_instruction = ""
         if focus_pages:
             logger.info(f"[LLM-Universal] Focusing on pages: {focus_pages}")
@@ -148,8 +200,8 @@ class ExtractionService:
 
         prompt = f"""You are a universal document data extractor.
 
-Given this document data extracted by Document Intelligence:
-{json.dumps(ocr_data, ensure_ascii=False, indent=2)}
+Given this document data extracted by Document Intelligence (Pages: {focus_pages}):
+{json.dumps(ocr_data_to_send, ensure_ascii=False)}
 
 INSTRUCTIONS:
 1. Identify ALL significant key-value pairs, tables, and entities in the document.
