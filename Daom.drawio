@@ -1,9 +1,138 @@
 <mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0" version="29.2.9">
   <diagram name="Page-1" id="F6UVB6i768LdOpIYpIKj">
-    <mxGraphModel>
+    <mxGraphModel dx="1836" dy="1196" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" background="#E6E6E6" math="0" shadow="1" adaptiveColors="auto">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-26" parent="1" style="whiteSpace=wrap;strokeWidth=2;verticalAlign=top;" value="Infrastructure / CICD" vertex="1">
+          <mxGeometry height="232" width="772" x="281" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-27" parent="1" style="whiteSpace=wrap;strokeWidth=2;verticalAlign=top;" value="Storage &amp; Persistence" vertex="1">
+          <mxGeometry height="130" width="408" x="55" y="682" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-28" parent="1" style="whiteSpace=wrap;strokeWidth=2;verticalAlign=top;" value="Azure AI Services" vertex="1">
+          <mxGeometry height="130" width="583" x="483" y="682" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-29" parent="1" style="whiteSpace=wrap;strokeWidth=2;verticalAlign=top;" value="Backend: FastAPI" vertex="1">
+          <mxGeometry height="104" width="1274" x="20" y="504" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-30" parent="1" style="whiteSpace=wrap;strokeWidth=2;verticalAlign=top;" value="Identity &amp; Security" vertex="1">
+          <mxGeometry height="130" width="233" x="1086" y="682" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-31" parent="1" style="whiteSpace=wrap;strokeWidth=2;verticalAlign=top;" value="Frontend: React SPA" vertex="1">
+          <mxGeometry height="104" width="740" x="244" y="326" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-32" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="React 18 + TypeScript" vertex="1">
+          <mxGeometry height="54" width="214" x="305" y="351" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-33" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="React PDF Viewer" vertex="1">
+          <mxGeometry height="54" width="186" x="569" y="351" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-34" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="MSAL Client" vertex="1">
+          <mxGeometry height="54" width="143" x="805" y="351" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-35" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="Azure Entra ID" vertex="1">
+          <mxGeometry height="54" width="163" x="1121" y="720" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-36" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="FastAPI Python 3.11" vertex="1">
+          <mxGeometry height="54" width="202" x="547" y="529" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-37" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="Extraction Logic / Chunking" vertex="1">
+          <mxGeometry height="54" width="259" x="799" y="529" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-38" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="MSAL / RBAC" vertex="1">
+          <mxGeometry height="54" width="151" x="1108" y="529" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-39" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="Azure Document Intelligence" vertex="1">
+          <mxGeometry height="78" width="260" x="518" y="708" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-40" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="Azure OpenAI GPT-4" vertex="1">
+          <mxGeometry height="54" width="203" x="828" y="720" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-41" parent="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=10;strokeWidth=2;whiteSpace=wrap;" value="Azure Blob Storage" vertex="1">
+          <mxGeometry height="80" width="151" x="90" y="707" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-42" parent="1" style="shape=cylinder3;boundedLbl=1;backgroundOutline=1;size=10;strokeWidth=2;whiteSpace=wrap;" value="Azure Cosmos DB" vertex="1">
+          <mxGeometry height="78" width="137" x="291" y="708" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-43" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="GitHub Actions" vertex="1">
+          <mxGeometry height="54" width="166" x="534" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-44" parent="1" style="whiteSpace=wrap;strokeWidth=2;" value="Azure Container Apps" vertex="1">
+          <mxGeometry height="54" width="213" x="510" y="173" as="geometry" />
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-45" edge="1" parent="1" source="EPRbEOsw17rqmPsgQ5lI-32" style="curved=1;startArrow=none;endArrow=block;exitX=0.31;exitY=1;entryX=0;entryY=0.19;rounded=0;" target="EPRbEOsw17rqmPsgQ5lI-36" value="1. Upload / Request">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="335" y="430" />
+              <mxPoint x="335" y="504" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-46" edge="1" parent="1" source="EPRbEOsw17rqmPsgQ5lI-36" style="curved=1;startArrow=none;endArrow=block;exitX=1;exitY=0.68;entryX=0.5;entryY=0;rounded=0;" target="EPRbEOsw17rqmPsgQ5lI-35" value="2. Auth Check">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1202" y="608" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-47" edge="1" parent="1" source="EPRbEOsw17rqmPsgQ5lI-36" style="curved=1;startArrow=none;endArrow=block;exitX=0;exitY=0.7;entryX=0.5;entryY=0;rounded=0;" target="EPRbEOsw17rqmPsgQ5lI-41" value="3. Store File">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="165" y="608" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-48" edge="1" parent="1" source="EPRbEOsw17rqmPsgQ5lI-36" style="curved=1;startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;rounded=0;" target="EPRbEOsw17rqmPsgQ5lI-39" value="4. OCR Extraction">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-49" edge="1" parent="1" source="EPRbEOsw17rqmPsgQ5lI-36" style="curved=1;startArrow=none;endArrow=block;exitX=1;exitY=0.85;entryX=0.5;entryY=0;rounded=0;" target="EPRbEOsw17rqmPsgQ5lI-40" value="5. AI Analysis (Chunked)">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="929" y="608" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-50" edge="1" parent="1" source="EPRbEOsw17rqmPsgQ5lI-36" style="curved=1;startArrow=none;endArrow=block;exitX=0;exitY=0.84;entryX=0.5;entryY=0;rounded=0;" target="EPRbEOsw17rqmPsgQ5lI-42" value="6. Save Log/Data">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="359" y="608" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-51" edge="1" parent="1" source="EPRbEOsw17rqmPsgQ5lI-36" style="curved=1;startArrow=none;endArrow=block;exitX=1;exitY=0.15;entryX=1;entryY=0.87;rounded=0;" target="EPRbEOsw17rqmPsgQ5lI-32" value="7. Response">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="924" y="504" />
+              <mxPoint x="924" y="467" />
+              <mxPoint x="687" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-52" edge="1" parent="1" source="EPRbEOsw17rqmPsgQ5lI-43" style="curved=1;startArrow=none;endArrow=block;exitX=0.5;exitY=1;entryX=0.5;entryY=0;rounded=0;" target="EPRbEOsw17rqmPsgQ5lI-44" value="Build &amp; Deploy">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-53" edge="1" parent="1" source="EPRbEOsw17rqmPsgQ5lI-44" style="curved=1;startArrow=none;endArrow=block;exitX=1;exitY=0.75;entryX=0.62;entryY=0;rounded=0;" target="EPRbEOsw17rqmPsgQ5lI-36" value="Hosts">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1022" y="252" />
+              <mxPoint x="1022" y="430" />
+              <mxPoint x="697" y="467" />
+              <mxPoint x="697" y="504" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="EPRbEOsw17rqmPsgQ5lI-54" edge="1" parent="1" source="EPRbEOsw17rqmPsgQ5lI-44" style="curved=1;startArrow=none;endArrow=block;exitX=0;exitY=1;entryX=0.5;entryY=0;rounded=0;" target="EPRbEOsw17rqmPsgQ5lI-32" value="Hosts">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="412" y="252" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
       </root>
     </mxGraphModel>
   </diagram>
