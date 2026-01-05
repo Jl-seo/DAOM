@@ -144,8 +144,16 @@ class ExtractionService:
         Filter OCR data to include only specific pages to save tokens.
         Preserves 'content' only if it seems reasonably sized or just omits it in favor of structural elements.
         """
-        if not page_numbers or not ocr_data:
+        if not page_numbers:
             return ocr_data
+        
+        # Robust check: ocr_data must be a dict
+        if not isinstance(ocr_data, dict):
+            logger.warning(f"[_filter_ocr_data] ocr_data is not a dict: {type(ocr_data)}")
+            # Fallback: attempt to wrap if it looks like a list of pages
+            if isinstance(ocr_data, list):
+                 return {"pages": ocr_data} # Best effort fallback
+            return {}
 
         filtered_data = {
             "api_version": ocr_data.get("api_version"),
@@ -156,34 +164,42 @@ class ExtractionService:
         }
 
         # 1. Filter Pages
-        # Azure pages are usually 1-indexed in the 'page_number' field if converted from analyzing result
-        # Or we rely on the list index if not present. 
-        # But 'doc_intel_output' usually mirrors the Azure SDK object dict.
-        
         target_pages = set(page_numbers)
         
-        for p in ocr_data.get("pages", []):
-            p_num = p.get("page_number", 0) 
-            if p_num in target_pages:
-                filtered_data["pages"].append(p)
+        pages = ocr_data.get("pages", [])
+        if isinstance(pages, list):
+            for p in pages:
+                if isinstance(p, dict) and p.get("page_number", 0) in target_pages:
+                    filtered_data["pages"].append(p)
 
         # 2. Filter Tables
-        for t in ocr_data.get("tables", []):
-            # Check bounding regions for page number
-            matches = False
-            for region in t.get("bounding_regions", []):
-                if region.get("page_number") in target_pages:
-                    matches = True
-                    break
-            if matches:
-                filtered_data["tables"].append(t)
+        tables = ocr_data.get("tables", [])
+        if isinstance(tables, list):
+            for t in tables:
+                if not isinstance(t, dict): continue
                 
-        # 3. Filter Paragraphs (if present) to give text context
-        # This is important for "content" based extraction if we drop the global content string
-        for para in ocr_data.get("paragraphs", []):
-             if para.get("bounding_regions"):
-                 if para["bounding_regions"][0]["page_number"] in target_pages:
-                     filtered_data["paragraphs"].append(para)
+                # Check bounding regions for page number
+                # If bounding_regions missing (e.g. old doc_intel), include table conservatively or check cells?
+                # We'll rely on doc_intel update.
+                matches = False
+                regions = t.get("bounding_regions", [])
+                if isinstance(regions, list):
+                    for region in regions:
+                        if isinstance(region, dict) and region.get("page_number") in target_pages:
+                            matches = True
+                            break
+                if matches:
+                    filtered_data["tables"].append(t)
+                
+        # 3. Filter Paragraphs (if present)
+        paragraphs = ocr_data.get("paragraphs", [])
+        if isinstance(paragraphs, list):
+            for para in paragraphs:
+                 if isinstance(para, dict):
+                     regions = para.get("bounding_regions")
+                     if isinstance(regions, list) and regions:
+                         if isinstance(regions[0], dict) and regions[0].get("page_number") in target_pages:
+                             filtered_data["paragraphs"].append(para)
 
         return filtered_data
 
@@ -320,6 +336,10 @@ IMPORTANT:
 
     async def _unwrap_llm_extraction(self, ocr_data: Dict[str, Any], model: ExtractionModel, focus_pages: List[int] = None) -> Dict[str, Any]:
         """ask LLM to extract data based on model fields"""
+        
+        # OPTIMIZATION: Filter payload to only relevant pages
+        ocr_data_to_send = self._filter_ocr_data(ocr_data, focus_pages) if focus_pages else ocr_data
+        
         field_descriptions = []
         for field in model.fields:
             desc = f"- {field.key}: {field.label}"
@@ -339,8 +359,8 @@ IMPORTANT:
 
         prompt = f"""You are a document data extractor.
 
-Given this document data extracted by Document Intelligence:
-{json.dumps(ocr_data, ensure_ascii=False, indent=2)}
+Given this document data extracted by Document Intelligence (Pages: {focus_pages}):
+{json.dumps(ocr_data_to_send, ensure_ascii=False)}
 
 Extract values for these specific fields:
 {chr(10).join(field_descriptions)}
