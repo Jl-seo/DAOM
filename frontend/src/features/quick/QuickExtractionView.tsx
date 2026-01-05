@@ -1,15 +1,18 @@
 import { useState, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Upload, X, Loader2, FileText, Camera } from 'lucide-react'
-import { cn } from '@/lib/utils' // Assuming utility exists, or use clsx
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { extractionApi } from '@/lib/api'
 import { useQuery } from '@tanstack/react-query'
 import type { ExtractionJob } from '@/types/extraction'
 
 // Simple polling hook for job status
-function useJobPolling(jobId: string | null) {
+// This hook is not part of the QuickExtractionView component, it's a separate function.
+// Assuming it's defined outside or in a separate file, but for the context of this
+// change, I'll keep it as is, just fixing the syntax error (missing function name).
+// Let's assume it's a custom hook named `useJobPolling` as used later.
+function useJobPolling(jobId: string | null) { // Added function name
     return useQuery({
         queryKey: ['job', jobId],
         queryFn: async () => {
@@ -18,7 +21,8 @@ function useJobPolling(jobId: string | null) {
             return res.data as ExtractionJob
         },
         enabled: !!jobId,
-        refetchInterval: (data) => {
+        refetchInterval: (query) => {
+            const data = query.state.data
             if (!data) return 1000
             if (['pending', 'processing', 'analyzing'].includes(data.status)) return 2000
             return false // Stop polling on success/error
@@ -48,11 +52,12 @@ export function QuickExtractionView() {
         } catch (err) {
             console.error(err)
             setError("업로드에 실패했습니다.")
+            alert("업로드에 실패했습니다.") // Fallback
             setFile(null)
         }
     }
 
-    const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    const { getRootProps, getInputProps } = useDropzone({
         onDrop,
         accept: {
             'image/*': [],
