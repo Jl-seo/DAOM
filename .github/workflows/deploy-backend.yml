@@ -95,6 +95,7 @@ jobs:
               --resource-group $RG \
               --image $IMAGE \
               --revision-suffix $SUFFIX \
+              --ingress-target-port 8000 \
               --query properties.configuration.activeRevisionsMode
 
             echo "2. Assigning Label: $LABEL"
