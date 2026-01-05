@@ -79,13 +79,9 @@ jobs:
             IMAGE="${{ env.REGISTRY }}/${{ env.LOWER_IMAGE_NAME }}:${SHORT_SHA_VAL}"
             REVISION_NAME="$APP_NAME--$SUFFIX"
 
-            echo "0. Configuring Registry Authentication"
-            az containerapp registry set \
-              --name $APP_NAME \
-              --resource-group $RG \
-              --server ghcr.io \
-              --username ${{ github.actor }} \
-              --password ${{ secrets.GITHUB_TOKEN }}
+            # Registry credentials are already configured in Container App with a valid PAT
+            # Do NOT overwrite with ephemeral GITHUB_TOKEN
+            echo "0. Using existing registry credentials (PAT stored in Container App)"
 
             echo "1. Deploying new revision: $REVISION_NAME"
             az containerapp update \
