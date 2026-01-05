@@ -1,0 +1,103 @@
+id: /subscriptions/7b1417d8-833d-4ba9-a5cd-d27c91a28b83/resourceGroups/Dalle2/providers/Microsoft.App/containerapps/daom-frontend
+identity:
+  type: None
+location: Korea Central
+name: daom-frontend
+properties:
+  configuration:
+    activeRevisionsMode: Multiple
+    dapr: null
+    identitySettings: []
+    ingress:
+      additionalPortMappings: null
+      allowInsecure: false
+      clientCertificateMode: null
+      corsPolicy: null
+      customDomains: null
+      exposedPort: 0
+      external: true
+      fqdn: daom-frontend.greenpebble-00aa1dc4.koreacentral.azurecontainerapps.io
+      ipSecurityRestrictions: null
+      stickySessions: null
+      targetPort: 80
+      traffic:
+      - label: production
+        revisionName: daom-frontend--prod-89053
+        weight: 0
+      - revisionName: daom-frontend--test-pat-89225
+        weight: 100
+      transport: Auto
+    maxInactiveRevisions: 100
+    registries:
+    - identity: ''
+      passwordSecretRef: ghcrio-jl-seo
+      server: ghcr.io
+      username: jl-seo
+    runtime: null
+    secrets:
+    - name: ghcrio-jl-seo
+    service: null
+  customDomainVerificationId: 5E9E18BE1D6881B8D0424A17F830927D96B9B23E33C2BA3820129F0CE3CDBDEC
+  delegatedIdentities: []
+  environmentId: /subscriptions/7b1417d8-833d-4ba9-a5cd-d27c91a28b83/resourceGroups/Dalle2/providers/Microsoft.App/managedEnvironments/daom-env
+  eventStreamEndpoint: https://koreacentral.azurecontainerapps.dev/subscriptions/7b1417d8-833d-4ba9-a5cd-d27c91a28b83/resourceGroups/Dalle2/containerApps/daom-frontend/eventstream
+  latestReadyRevisionName: daom-frontend--prod-86596
+  latestRevisionFqdn: daom-frontend--0000013.greenpebble-00aa1dc4.koreacentral.azurecontainerapps.io
+  latestRevisionName: daom-frontend--0000013
+  managedEnvironmentId: /subscriptions/7b1417d8-833d-4ba9-a5cd-d27c91a28b83/resourceGroups/Dalle2/providers/Microsoft.App/managedEnvironments/daom-env
+  outboundIpAddresses:
+  - 20.196.245.96
+  - 20.196.230.88
+  - 20.196.245.104
+  - 20.196.245.78
+  - 20.214.78.198
+  - 20.214.113.92
+  - 20.214.113.18
+  - 20.214.78.11
+  - 20.214.78.31
+  - 20.214.78.175
+  - 20.196.231.61
+  - 20.196.243.56
+  - 20.196.225.8
+  - 20.196.227.38
+  - 20.214.118.111
+  - 20.214.118.57
+  - 20.214.118.62
+  - 20.214.118.42
+  - 20.214.118.53
+  - 20.214.118.100
+  - 20.214.121.142
+  provisioningState: Succeeded
+  runningStatus: Running
+  template:
+    containers:
+    - env:
+      - name: DUMMY
+        value: '1'
+      image: ghcr.io/jl-seo/daom/frontend:6b333ea
+      name: daom-frontend
+      resources:
+        cpu: 0.25
+        ephemeralStorage: 1Gi
+        memory: 0.5Gi
+    initContainers: null
+    revisionSuffix: ''
+    scale:
+      cooldownPeriod: 300
+      maxReplicas: 3
+      minReplicas: 0
+      pollingInterval: 30
+      rules: null
+    serviceBinds: null
+    terminationGracePeriodSeconds: null
+    volumes: null
+  workloadProfileName: Consumption
+resourceGroup: Dalle2
+systemData:
+  createdAt: '2026-01-03T11:04:55.3050504'
+  createdBy: jl.seo@dexconsulting.net
+  createdByType: User
+  lastModifiedAt: '2026-01-05T05:05:23.9378243'
+  lastModifiedBy: jl.seo@dexconsulting.net
+  lastModifiedByType: User
+type: Microsoft.App/containerApps
