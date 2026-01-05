@@ -147,6 +147,6 @@ jobs:
             echo "Frontend Revision: $FE_REVISION"
             echo "Backend Revision:  $BE_REVISION"
             echo ""
-            echo "⚠️  Note: Traffic is NOT routed to test revisions."
-            echo "    Access directly via revision URL or manually route traffic."
+            echo "✅ Note: 100% traffic has been routed to the new revisions."
+            echo "    The application is now live with the new changes."
             echo "============================================"
