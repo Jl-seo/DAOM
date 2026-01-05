@@ -13,7 +13,8 @@ export const EXTRACTION_STATUS = {
 
     // Error states (E-Series)
     FAILED: 'E100',
-    ERROR: 'E200'
+    ERROR: 'E200',
+    CANCELLED: 'E300'
 } as const
 
 export type ExtractionStatusType = typeof EXTRACTION_STATUS[keyof typeof EXTRACTION_STATUS]
@@ -28,7 +29,8 @@ export const STATUS_LABELS: Record<string, string> = {
     [EXTRACTION_STATUS.CONFIRMED]: '확정 완료',
     [EXTRACTION_STATUS.COMPLETE]: '완료',
     [EXTRACTION_STATUS.FAILED]: '실패',
-    [EXTRACTION_STATUS.ERROR]: '오류'
+    [EXTRACTION_STATUS.ERROR]: '오류',
+    [EXTRACTION_STATUS.CANCELLED]: '취소됨'
 }
 
 export const STATUS_COLORS: Record<string, string> = {
@@ -41,7 +43,8 @@ export const STATUS_COLORS: Record<string, string> = {
     [EXTRACTION_STATUS.CONFIRMED]: 'text-chart-2',
     [EXTRACTION_STATUS.COMPLETE]: 'text-chart-2',
     [EXTRACTION_STATUS.FAILED]: 'text-destructive',
-    [EXTRACTION_STATUS.ERROR]: 'text-destructive'
+    [EXTRACTION_STATUS.ERROR]: 'text-destructive',
+    [EXTRACTION_STATUS.CANCELLED]: 'text-muted-foreground'
 }
 
 // Progress percentage for each status (0-100)
@@ -55,7 +58,8 @@ export const STATUS_PROGRESS: Record<string, number> = {
     [EXTRACTION_STATUS.CONFIRMED]: 100,
     [EXTRACTION_STATUS.COMPLETE]: 100,
     [EXTRACTION_STATUS.FAILED]: 0,
-    [EXTRACTION_STATUS.ERROR]: 0
+    [EXTRACTION_STATUS.ERROR]: 0,
+    [EXTRACTION_STATUS.CANCELLED]: 0
 }
 
 // Step number for progress display (current step / total steps)
@@ -80,6 +84,10 @@ export const isSuccessStatus = (status: string): boolean => {
         EXTRACTION_STATUS.COMPLETE,
         EXTRACTION_STATUS.PREVIEW_READY // Treat legacy P500 as success
     ].includes(status as any)
+}
+
+export const isCancelledStatus = (status: string): boolean => {
+    return status === EXTRACTION_STATUS.CANCELLED
 }
 
 export const isErrorStatus = (status: string): boolean => {

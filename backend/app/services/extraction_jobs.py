@@ -286,4 +286,19 @@ def cancel_job(job_id: str) -> Optional[ExtractionJob]:
     # Just update status. The background task might still run but result save will check job status?
     # Or we can't easily stop the background task thread.
     # But updating status prevents frontend from polling it as active.
-    return update_job(job_id, status="cancelled", error="Cancelled by user")
+    # But updating status prevents frontend from polling it as active.
+    job = update_job(job_id, status=ExtractionStatus.CANCELLED.value, error="Cancelled by user")
+    
+    # Sync cancellation status to ExtractionLog if linked
+    if job and (job.original_log_id or job.log_id):
+        from app.services import extraction_logs
+        log_id_to_update = job.original_log_id or job.log_id
+        try:
+            extraction_logs.update_log_status(
+                log_id_to_update, 
+                status=ExtractionStatus.CANCELLED.value
+            )
+        except Exception as e:
+            print(f"[ExtractionJobs] Failed to sync cancel status to log: {e}")
+            
+    return job

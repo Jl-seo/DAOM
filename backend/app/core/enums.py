@@ -19,6 +19,7 @@ class ExtractionStatus(str, Enum):
     # Error states (E-Series)
     FAILED = "E100"        # Extraction failed
     ERROR = "E200"         # System error
+    CANCELLED = "E300"     # Cancelled by user
 
 class UserRole(str, Enum):
     SUPER_ADMIN = "SuperAdmin"

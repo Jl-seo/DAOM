@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
     MoreHorizontal, FileText, CheckCircle2, AlertCircle,
-    Download, RefreshCw, Eye, ArrowUpDown, ArrowUp, ArrowDown
+    Download, RefreshCw, Eye, ArrowUpDown, ArrowUp, ArrowDown, Ban
 } from "lucide-react"
 import {
     DropdownMenu,
@@ -28,7 +28,7 @@ import {
 import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import type { ExtractionLog } from '../../verification/types'
-import { isSuccessStatus, isProcessingStatus } from '../../verification/constants/status'
+import { isSuccessStatus, isProcessingStatus, isCancelledStatus } from '../../verification/constants/status'
 
 interface ExtractionLogTableProps {
     logs: ExtractionLog[]
@@ -116,6 +116,13 @@ export function ExtractionLogTable({
                     return (
                         <div className="flex items-center justify-center w-8 h-8 rounded-full bg-chart-4/10 text-chart-4 dark:bg-chart-4/30">
                             <RefreshCw className="w-4 h-4 animate-spin" />
+                        </div>
+                    )
+                }
+                if (isCancelledStatus(status)) {
+                    return (
+                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted text-muted-foreground dark:bg-muted/50">
+                            <Ban className="w-4 h-4" />
                         </div>
                     )
                 }
@@ -244,8 +251,8 @@ export function ExtractionLogTable({
                                     작업 취소
                                 </DropdownMenuItem>
                             )}
-                            {/* Delete Option for Non-Processing Jobs */}
-                            {!isProcessingStatus(row.original.status) && onDelete && (
+                            {/* Delete Option - Available for all logs including stuck processing ones */}
+                            {onDelete && (
                                 <>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
