@@ -157,7 +157,10 @@ IMPORTANT:
                 temperature=0,
                 response_format={"type": "json_object"}
             )
-            return json.loads(response.choices[0].message.content)
+            raw_content = response.choices[0].message.content
+            logger.info(f"[LLM-Universal] Success! Length: {len(raw_content)}. Content Preview: {raw_content[:200]}")
+            logger.info(f"[LLM-Universal] Full Response (Debug): {raw_content}")
+            return json.loads(raw_content)
         except Exception as e:
             logger.error(f"[LLM] Universal Extraction Error: {e}")
             return {"guide_extracted": {}, "error": str(e)}
