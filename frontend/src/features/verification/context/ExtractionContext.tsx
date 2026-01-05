@@ -177,18 +177,35 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             })
     }, [previewData, selectedSubDocIndex])
 
+    // Polling attempt counter ref
+    const pollingAttemptsRef = useRef(0)
+    const MAX_POLLING_ATTEMPTS = 60 // ~5 minutes at 5 second intervals
+
     // Start polling for job status
     const startPolling = useCallback((jobId: string) => {
         if (pollingRef.current) clearInterval(pollingRef.current)
+        pollingAttemptsRef.current = 0
 
         pollingRef.current = setInterval(async () => {
+            pollingAttemptsRef.current += 1
+
+            // Timeout protection
+            if (pollingAttemptsRef.current > MAX_POLLING_ATTEMPTS) {
+                console.warn('[Polling] Max attempts reached, stopping')
+                clearInterval(pollingRef.current!)
+                pollingRef.current = null
+                setStatus(EXTRACTION_STATUS.ERROR)
+                setError('처리 시간이 초과되었습니다. 다시 시도해 주세요.')
+                toast.error('처리 시간 초과')
+                return
+            }
+
             try {
                 const res = await apiClient.get(`/extraction/job/${jobId}`)
                 const job = res.data
 
-                console.log('[Polling] Job status:', job.status)
+                console.log('[Polling] Job status:', job.status, `(attempt ${pollingAttemptsRef.current})`)
                 console.log('[Polling] Job preview_data keys:', job.preview_data ? Object.keys(job.preview_data) : 'NULL')
-                console.log('[Polling] Job preview_data sample:', JSON.stringify(job.preview_data)?.slice(0, 300))
 
                 // Check for completion (either PREVIEW_READY or SUCCESS)
                 if (isReviewNeededStatus(job.status) || isSuccessStatus(job.status)) {
@@ -205,12 +222,22 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                     setPreviewData(preview)
                     setStatus(EXTRACTION_STATUS.SUCCESS) // Treat as success
                     setActiveStep('review') // Show review view
+
+                    // Set log_id for retry functionality
+                    if (job.log_id) {
+                        setCurrentLogId(job.log_id)
+                    }
                 } else if (isErrorStatus(job.status)) {
                     clearInterval(pollingRef.current!)
                     pollingRef.current = null
                     setStatus(EXTRACTION_STATUS.ERROR)
                     setError(job.error || '추출 실패')
                     toast.error('추출 실패: ' + (job.error || '알 수 없는 오류'))
+
+                    // Set log_id even on error for potential retry
+                    if (job.log_id) {
+                        setCurrentLogId(job.log_id)
+                    }
                 }
             } catch (e: any) {
                 console.error('[Polling] Error:', e)
@@ -223,18 +250,33 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                     toast.error('작업을 찾을 수 없습니다')
                     setActiveStep('history')
                 }
+                // Stop polling on 500 errors after a few attempts
+                if (e?.response?.status >= 500 && pollingAttemptsRef.current > 3) {
+                    clearInterval(pollingRef.current!)
+                    pollingRef.current = null
+                    setStatus(EXTRACTION_STATUS.ERROR)
+                    setError('서버 오류가 발생했습니다.')
+                    toast.error('서버 오류')
+                }
             }
         }, POLLING_INTERVAL_MS)
     }, [model?.fields]) // Dependencies for polling interval content
 
     // File processing
     const processFile = useCallback(async (selectedFile: File) => {
+        // Clear any existing polling first
+        if (pollingRef.current) {
+            clearInterval(pollingRef.current)
+            pollingRef.current = null
+        }
+
         setFile(selectedFile)
         setFilename(selectedFile.name)
         setStatus(EXTRACTION_STATUS.UPLOADING)
         setError(null)
         setResult(null)
         setCurrentLogId(null)
+        setCurrentJobId(null)
 
         const formData = new FormData()
         formData.append('file', selectedFile)
@@ -392,6 +434,11 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             setActiveStep('upload')  // Shows the loading/processing view
             startPolling(data.job_id)
             toast.info('재추출을 시작합니다...')
+        },
+        onError: (error: any) => {
+            const errorMsg = error?.response?.data?.detail || error?.message || '재시도 실패'
+            toast.error(`재시도 실패: ${errorMsg}`)
+            console.error('[Retry] Error:', error)
         }
     })
 

@@ -25,7 +25,10 @@ function useJobPolling(jobId: string | null) { // Added function name
         refetchInterval: (query) => {
             const data = query.state.data
             if (!data) return 1000
-            if (['pending', 'processing', 'analyzing'].includes(data.status)) return 2000
+            // Status codes: P100=pending, P200=processing, P300=analyzing
+            // E100=error, S100=success, S200=confirmed
+            const processingStatuses = ['P100', 'P200', 'P300', 'pending', 'processing', 'analyzing']
+            if (processingStatuses.includes(data.status)) return 2000
             return false // Stop polling on success/error
         }
     })
@@ -82,14 +85,18 @@ export function QuickExtractionView() {
     }
 
     // --- Render Result ---
+    const isProcessing = (status: string) => ['P100', 'P200', 'P300', 'pending', 'processing', 'analyzing'].includes(status)
+    const isError = (status: string) => ['E100', 'E200', 'error', 'cancelled'].includes(status)
+    const isSuccess = (status: string) => ['S100', 'S200', 'success', 'completed', 'confirmed'].includes(status)
+
     const renderResult = () => {
         if (!job) return null
-        if (job.status === 'processing' || job.status === 'analyzing' || job.status === 'pending') {
+        if (isProcessing(job.status)) {
             return (
                 <div className="flex flex-col items-center justify-center p-12 text-center space-y-4">
                     <div className="relative">
                         <Loader2 className="w-16 h-16 animate-spin text-primary" />
-                        <div className="absolute inset-0 flex items-center justify-center text-xs font-bold">{job.status === 'analyzing' ? 'AI' : 'OCR'}</div>
+                        <div className="absolute inset-0 flex items-center justify-center text-xs font-bold">{job.status === 'P300' || job.status === 'analyzing' ? 'AI' : 'OCR'}</div>
                     </div>
                     <h3 className="text-xl font-semibold">AI가 문서를 분석하고 있습니다...</h3>
                     <p className="text-muted-foreground">잠시만 기다려주세요.</p>
@@ -115,7 +122,7 @@ export function QuickExtractionView() {
             )
         }
 
-        if (job.status === 'error' || (job.status === 'completed' && job.error) || job.status === 'cancelled') {
+        if (isError(job.status) || (isSuccess(job.status) && job.error)) {
             return (
                 <div className="p-8 text-center text-red-500 bg-red-50 rounded-lg">
                     <h3 className="text-lg font-bold">{job.status === 'cancelled' ? '분석 취소됨' : '분석 실패'}</h3>

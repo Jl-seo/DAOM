@@ -119,14 +119,14 @@ export const documentsApi = {
 
 export const extractionApi = {
     getJob: (jobId: string) =>
-        apiClient.get<import('../types/extraction').ExtractionJob>(`/extraction_jobs/${jobId}`),
+        apiClient.get<import('../types/extraction').ExtractionJob>(`/extraction/job/${jobId}`),
 
     uploadFile: (modelId: string, file: File) => {
         const formData = new FormData()
         formData.append('file', file)
-        // Using generic extract endpoint which returns immediately or job_id depending on implementation
-        // Assuming /documents/extract/{model_id} returns { job_id: ... } for async processing
-        return apiClient.post<{ job_id: string }>(`/documents/extract/${modelId}`, formData, {
+        formData.append('model_id', modelId)
+        // Use the same endpoint as regular extraction
+        return apiClient.post<{ job_id: string; file_url: string; log_id?: string }>(`/extraction/start-job`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
         })
     },

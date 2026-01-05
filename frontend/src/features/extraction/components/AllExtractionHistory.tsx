@@ -174,6 +174,14 @@ export function AllExtractionHistory({ onNavigate }: AllExtractionHistoryProps) 
 
 
 
+    // Use centralized actions hook
+    const {
+        handleDownload,
+        handleRetry,
+        handleCancel,
+        handleDelete
+    } = useExtractionActions()
+
     const handleView = (log: ExtractionLog) => {
         // Navigate to the model page
         // Ideally we would pass the log ID to open it, but for now we just go to the model

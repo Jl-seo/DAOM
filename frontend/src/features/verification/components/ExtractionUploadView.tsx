@@ -4,6 +4,7 @@ import { Upload, FileText, AlertTriangle, X } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { AnimatedCircularProgress } from '@/components/ui/animated-circular-progress'
+import { AnimatedProgressBar } from '@/components/ui/animated-progress-bar'
 import { cn } from '@/lib/utils'
 import type { ExtractionStatus } from '../types'
 import { isProcessingStatus, isReviewNeededStatus, isSuccessStatus, isErrorStatus, STATUS_LABELS, STATUS_PROGRESS, STATUS_STEP, EXTRACTION_STATUS } from '../constants/status'
@@ -70,44 +71,50 @@ export function ExtractionUploadView({
                 </h2>
                 <p className="text-muted-foreground mb-6">잠시만 기다려주세요...</p>
 
-                {/* Progress Bar */}
+                {/* Progress Bar - Magic UI Style */}
                 <div className="w-full max-w-md mb-4">
                     <div className="flex justify-between text-sm text-muted-foreground mb-2">
                         <span className="font-medium text-foreground">{stepInfo.label}</span>
                         <span>{progress}%</span>
                     </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <motion.div
-                            className="h-full bg-primary rounded-full"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${progress}%` }}
-                            transition={{ duration: 0.5, ease: 'easeOut' }}
-                        />
-                    </div>
+                    <AnimatedProgressBar value={progress} size="md" />
                 </div>
 
                 {/* Step Indicator */}
                 <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
                     {Array.from({ length: stepInfo.total }).map((_, i) => (
                         <div key={i} className="flex items-center gap-2">
-                            <div
+                            <motion.div
                                 className={cn(
-                                    "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-colors",
+                                    "w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-colors relative",
                                     i + 1 < stepInfo.current
                                         ? "bg-primary text-primary-foreground"
                                         : i + 1 === stepInfo.current
-                                            ? "bg-primary/20 text-primary border-2 border-primary"
+                                            ? "bg-primary text-primary-foreground"
                                             : "bg-muted text-muted-foreground"
                                 )}
+                                animate={i + 1 === stepInfo.current ? {
+                                    scale: [1, 1.1, 1],
+                                    boxShadow: [
+                                        '0 0 0 0 hsl(var(--primary) / 0.4)',
+                                        '0 0 0 8px hsl(var(--primary) / 0)',
+                                        '0 0 0 0 hsl(var(--primary) / 0)'
+                                    ]
+                                } : {}}
+                                transition={{ duration: 1.5, repeat: Infinity }}
                             >
-                                {i + 1}
-                            </div>
+                                {i + 1 < stepInfo.current ? '✓' : i + 1}
+                            </motion.div>
                             {i < stepInfo.total - 1 && (
-                                <div
+                                <motion.div
                                     className={cn(
-                                        "w-8 h-0.5",
+                                        "w-10 h-1 rounded-full",
                                         i + 1 < stepInfo.current ? "bg-primary" : "bg-muted"
                                     )}
+                                    initial={false}
+                                    animate={i + 1 < stepInfo.current ? {
+                                        background: 'hsl(var(--primary))'
+                                    } : {}}
                                 />
                             )}
                         </div>
