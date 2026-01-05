@@ -61,6 +61,7 @@ try:
         except Exception as e:
             logging.error(f"CRITICAL: Startup failed: {e}")
             # Do not raise exception to keep container running for debugging
+            # Forced redeploy trigger: 2026-01-06 08:30
 
     @app.get("/")
     def root():
