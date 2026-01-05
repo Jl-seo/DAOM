@@ -369,6 +369,9 @@ IMPORTANT:
                 f.write(f"\n--- Extraction Request ---\nFocus: {focus_pages}\n")
                 f.write(f"Response: {raw_content}\n")
             
+            logger.info(f"[LLM] Success! Length: {len(raw_content)}. Content Preview: {raw_content[:200]}")
+            logger.info(f"[LLM] Full Response (Debug): {raw_content}")
+            
             return json.loads(raw_content)
         except Exception as e:
             with open("debug_extraction.log", "a") as f:
