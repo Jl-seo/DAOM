@@ -85,7 +85,8 @@ jobs:
               --resource-group $RG \
               --server ghcr.io \
               --username ${{ github.actor }} \
-              --password ${{ secrets.GITHUB_TOKEN }}
+              --password ${{ secrets.GITHUB_TOKEN }} \
+              --target-label $LABEL
 
             echo "1. Deploying new revision: $REVISION_NAME"
             az containerapp update \
@@ -93,6 +94,7 @@ jobs:
               --resource-group $RG \
               --image $IMAGE \
               --revision-suffix $SUFFIX \
+              --target-label $LABEL \
               --query properties.configuration.activeRevisionsMode
 
             echo "2. Assigning Label: $LABEL"
