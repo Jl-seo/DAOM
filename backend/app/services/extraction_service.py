@@ -374,9 +374,9 @@ IMPORTANT:
             with open("debug_extraction.log", "a") as f:
                 f.write(f"\n--- ERROR ---\n{e}\n")
                 f.write(f"Config: Endpoint={settings.AZURE_OPENAI_ENDPOINT}, Version={settings.AZURE_OPENAI_API_VERSION}\n")
-            
-            logger.error(f"[LLM] Error calling OpenAI: {e}")
+            logger.error(f"[LLM] Extraction failed: {e}")
             logger.error(f"[LLM] Config Debug: Endpoint={settings.AZURE_OPENAI_ENDPOINT}, Model={settings.AZURE_OPENAI_DEPLOYMENT_NAME}")
+            raise e
             
             # Return detailed error for frontend
             return {
