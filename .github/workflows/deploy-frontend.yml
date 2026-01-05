@@ -75,17 +75,26 @@ jobs:
             echo "Revision: $REVISION_NAME"
             echo "==========================================="
 
-            # Step 1: Deploy new revision
-            echo "1. Deploying new revision..."
+            # Step 1: Set registry credentials for ghcr.io
+            echo "1. Setting registry credentials..."
+            az containerapp registry set \
+              --name $APP_NAME \
+              --resource-group $RG \
+              --server ghcr.io \
+              --username ${{ github.actor }} \
+              --password ${{ secrets.GITHUB_TOKEN }}
+
+            # Step 2: Deploy new revision
+            echo "2. Deploying new revision..."
             az containerapp update \
               --name $APP_NAME \
               --resource-group $RG \
               --image $IMAGE \
               --revision-suffix $SUFFIX
 
-            # Step 2: Route 100% traffic to new revision (for master branch)
+            # Step 3: Route 100% traffic to new revision (for master branch)
             if [[ "${{ github.ref_name }}" == "master" ]]; then
-              echo "2. Routing 100% traffic to new revision..."
+              echo "3. Routing 100% traffic to new revision..."
               az containerapp ingress traffic set \
                 --name $APP_NAME \
                 --resource-group $RG \
