@@ -107,7 +107,7 @@ jobs:
             # 3. Traffic Management
             if [[ "${{ github.ref_name }}" == "master" ]]; then
               echo "3. Switching Production Traffic to 100%"
-              az containerapp traffic set \
+              az containerapp ingress traffic set \
                 --resource-group $RG \
                 --name $APP_NAME \
                 --label-weight $LABEL=100

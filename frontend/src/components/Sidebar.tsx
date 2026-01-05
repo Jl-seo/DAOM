@@ -16,7 +16,7 @@ import { SidebarItem } from './SidebarItem'
 import { useSiteConfig } from './SiteConfigProvider'
 import { UserMenu } from './UserMenu'
 
-export type MenuId = 'home' | 'profile' | `model-${string}` | 'model-studio' | 'model-gallery' | 'extraction-history' | 'admin-dashboard' | 'admin-audit' | 'settings-general' | 'settings-users'
+export type MenuId = 'home' | 'profile' | `model-${string}` | 'model-studio' | 'model-gallery' | 'extraction-history' | 'admin-dashboard' | 'admin-audit' | 'settings-general' | 'settings-users' | 'quick-extraction'
 
 interface SidebarProps {
     activeMenu: MenuId
