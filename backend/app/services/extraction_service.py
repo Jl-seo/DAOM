@@ -65,7 +65,7 @@ class ExtractionService:
 
             print(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
             
-            doc_intel_output = doc_intel.extract_with_strategy(file_url, azure_model)
+            doc_intel_output = await doc_intel.extract_with_strategy(file_url, azure_model)
             
             # ... (OCR log) ...
 
@@ -124,10 +124,33 @@ class ExtractionService:
             
             
             print(f"[Pipeline-Debug] Job {job_id} completed successfully!")
+            
+            # Sync status to ExtractionLog if linked
+            job = extraction_jobs.get_job(job_id)
+            if job and (job.original_log_id or job.log_id):
+                log_id_to_update = job.original_log_id or job.log_id
+                # Also save preview_data to log so it can be viewed later
+                extraction_logs.update_log_status(
+                    log_id_to_update, 
+                    status=ExtractionStatus.SUCCESS.value,
+                    preview_data=preview_payload
+                )
 
         except Exception as e:
             logger.error(f"Pipeline error for job {job_id}: {e}")
             extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
+            
+            # Sync error status to ExtractionLog if linked
+            try:
+                job = extraction_jobs.get_job(job_id)
+                if job and (job.original_log_id or job.log_id):
+                    log_id_to_update = job.original_log_id or job.log_id
+                    extraction_logs.update_log_status(
+                        log_id_to_update, 
+                        status=ExtractionStatus.ERROR.value
+                    )
+            except Exception as sync_error:
+                logger.error(f"Failed to sync error status to log for job {job_id}: {sync_error}")
 
     async def _process_single_split_universal(self, full_ocr_data: Dict[str, Any], split: Dict[str, Any]) -> Dict[str, Any]:
         """Universal extraction without predefined schema"""
@@ -170,6 +193,8 @@ class ExtractionService:
             "tables": [],
             "paragraphs": [] # Optional, might be heavy
         }
+        
+
 
         # 1. Filter Pages
         target_pages = set(page_numbers)
@@ -215,7 +240,9 @@ class ExtractionService:
         """Ask LLM to discover ANY relevant fields"""
         
         # OPTIMIZATION: Filter payload to only relevant pages
-        ocr_data_to_send = self._filter_ocr_data(full_ocr_data, focus_pages) if focus_pages else full_ocr_data
+        ocr_data_to_send = self._filter_ocr_data(full_ocr_data, focus_pages) if focus_pages else full_ocr_data.copy()
+        
+
         
         focus_instruction = ""
         if focus_pages:
@@ -378,7 +405,9 @@ IMPORTANT:
         """ask LLM to extract data based on model fields"""
         
         # OPTIMIZATION: Filter payload to only relevant pages
-        ocr_data_to_send = self._filter_ocr_data(ocr_data, focus_pages) if focus_pages else ocr_data
+        ocr_data_to_send = self._filter_ocr_data(ocr_data, focus_pages) if focus_pages else ocr_data.copy()
+        
+
         
         field_descriptions = []
         for field in model.fields:

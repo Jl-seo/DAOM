@@ -221,7 +221,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                     console.log('[Polling] Setting previewData:', JSON.stringify(preview)?.slice(0, 300))
                     setPreviewData(preview)
                     setStatus(EXTRACTION_STATUS.SUCCESS) // Treat as success
-                    setActiveStep('review') // Show review view
+                    setActiveStep('complete') // Show review view with completed step
 
                     // Set log_id for retry functionality
                     if (job.log_id) {

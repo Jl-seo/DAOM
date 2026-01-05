@@ -35,10 +35,58 @@ async def upload_file_to_blob(file: UploadFile) -> str:
         content = await file.read()
         blob_client.upload_blob(content)
         
-        print(f"[Storage] Successfully uploaded blob: {blob_client.url}")
-        return blob_client.url
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
         print(f"[Storage] Error uploading to blob: {e}")
         raise e
+
+async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
+    """Save JSON data to a blob"""
+    import json
+    client = get_blob_service_client()
+    if not client:
+        # Local fallback
+        try:
+            os.makedirs("temp_uploads/cache", exist_ok=True)
+            local_path = f"temp_uploads/cache/{filename}"
+            with open(local_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            return local_path
+        except Exception as e:
+            print(f"[Storage] Local cache save failed: {e}")
+            return None
+
+    try:
+        container_name = settings.AZURE_CONTAINER_NAME
+        blob_client = client.get_blob_client(container=container_name, blob=filename)
+        blob_client.upload_blob(json.dumps(data), overwrite=True)
+        return blob_client.url
+    except Exception as e:
+        print(f"[Storage] Failed to save JSON blob: {e}")
+        return None
+
+async def load_json_from_blob(filename: str) -> Optional[dict]:
+    """Load JSON data from a blob"""
+    import json
+    client = get_blob_service_client()
+    if not client:
+        # Local fallback
+        try:
+            local_path = f"temp_uploads/cache/{filename}"
+            if os.path.exists(local_path):
+                with open(local_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+        except:
+            pass
+        return None
+
+    try:
+        container_name = settings.AZURE_CONTAINER_NAME
+        blob_client = client.get_blob_client(container=container_name, blob=filename)
+        if not blob_client.exists():
+            return None
+            
+        stream = blob_client.download_blob()
+        data = stream.readall()
+        return json.loads(data)
+    except Exception as e:
+        # Don't spam logs for cache miss
+        return None

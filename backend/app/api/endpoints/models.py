@@ -80,7 +80,7 @@ async def analyze_sample(
     
     try:
         # 2. Run analysis (pass bytes directly)
-        result = doc_intel.extract_with_strategy(file_bytes, model_type)
+        result = await doc_intel.extract_with_strategy(file_bytes, model_type)
         
         # 3. Heuristic Field Discovery
         suggested_fields = []

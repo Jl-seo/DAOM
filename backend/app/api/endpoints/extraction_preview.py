@@ -604,7 +604,7 @@ async def get_preview_with_guide(
         
         # Get raw Document Intelligence output using Dynamic Strategy
         azure_model = getattr(model, "azure_model_id", "prebuilt-layout")
-        doc_intel_output = doc_intel.extract_with_strategy(request.file_url, azure_model)
+        doc_intel_output = await doc_intel.extract_with_strategy(request.file_url, azure_model)
         
         # Build field descriptions for AI
         field_descriptions = []
@@ -710,7 +710,7 @@ async def get_extraction_preview(request: PreviewRequest):
     """
     try:
         # Get raw Document Intelligence output (Defaults to Layout)
-        doc_intel_output = doc_intel.extract_full_preview(request.file_url)
+        doc_intel_output = await doc_intel.extract_full_preview(request.file_url)
         
         # Ask AI to structure this into a meaningful table
         structuring_prompt = f"""
@@ -784,7 +784,7 @@ async def refine_extraction(
         azure_model = getattr(model, "azure_model_id", "prebuilt-layout") if model else "prebuilt-layout"
 
         # Get Document Intelligence output using correct strategy
-        doc_intel_output = doc_intel.extract_with_strategy(request.file_url, azure_model)
+        doc_intel_output = await doc_intel.extract_with_strategy(request.file_url, azure_model)
         
         # Extract only selected columns
         extraction_prompt = f"""

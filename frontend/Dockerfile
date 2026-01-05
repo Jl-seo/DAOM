@@ -3,8 +3,9 @@ FROM node:20-slim as build
 
 WORKDIR /app
 
-# Set API URL at build time - this MUST be https for production
-ENV VITE_API_BASE_URL=https://daom-backend.greenpebble-00aa1dc4.koreacentral.azurecontainerapps.io/api/v1
+# Accept API URL as build argument
+ARG VITE_API_BASE_URL=https://daom-backend.greenpebble-00aa1dc4.koreacentral.azurecontainerapps.io/api/v1
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 COPY package*.json ./
 RUN npm install

@@ -31,11 +31,25 @@ def get_document_client() -> DocumentIntelligenceClient:
         credential=AzureKeyCredential(settings.AZURE_FORM_KEY)
     )
 
-def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-layout") -> Dict[str, Any]:
+async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-layout") -> Dict[str, Any]:
     """
     Universal extraction, strategy determined by model_type.
     file_source: str (URL) or bytes/stream
     """
+    # 0. Check Cache (Optimization)
+    cache_blob_name = None
+    if isinstance(file_source, str) and "blob.core.windows.net" in file_source:
+         # Generate a cache key from the file URL (safe filename)
+         import base64
+         safe_name = base64.urlsafe_b64encode(file_source.encode()).decode().strip("=")
+         cache_blob_name = f"ocr_cache/{model_type}/{safe_name}.ocr.json"
+         
+         from app.services import storage
+         cached_data = await storage.load_json_from_blob(cache_blob_name)
+         if cached_data:
+             logger.info(f"[DocIntel] Cache HIT for {cache_blob_name}")
+             return cached_data
+             
     client = get_document_client()
     
     logger.info(f"[DocIntel] Analyzing document using model {model_type}")
@@ -43,20 +57,20 @@ def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-layout")
     try:
         # Check if file_source is a string (URL)
         if isinstance(file_source, str):
-            poller = client.begin_analyze_document(
+            poller = await client.begin_analyze_document(
                 model_id=model_type,
                 body={"urlSource": file_source}
             )
         else:
             # Assume bytes/stream
             # Azure SDK v1.0.0b1 uses 'body' for binary content
-            poller = client.begin_analyze_document(
+            poller = await client.begin_analyze_document(
                 model_id=model_type,
                 body=file_source,
                 content_type="application/octet-stream"
             )
             
-        result: AnalyzeResult = poller.result()
+        result: AnalyzeResult = await poller.result()
         
         # Base extraction (Always available)
         output = {
@@ -70,6 +84,11 @@ def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-layout")
         # Strategy-Specific Enrichment (e.g., if Invoice, map specific fields to top level)
         if model_type == AzureModelType.INVOICE:
              output["invoice_metadata"] = _map_invoice_fields(result.documents)
+        
+        # Save to Cache
+        if cache_blob_name:
+             await storage.save_json_as_blob(output, cache_blob_name)
+             logger.info(f"[DocIntel] Cache SAVED to {cache_blob_name}")
              
         return output
 
@@ -228,8 +247,8 @@ def _map_invoice_fields(documents):
     }
 
 # --- Backward Compatibility Maps ---
-def extract_content_from_url(file_url: str):
-    return extract_with_strategy(file_url, AzureModelType.LAYOUT)
+async def extract_content_from_url(file_url: str):
+    return await extract_with_strategy(file_url, AzureModelType.LAYOUT)
 
-def extract_full_preview(file_url: str):
-    return extract_with_strategy(file_url, AzureModelType.LAYOUT)
+async def extract_full_preview(file_url: str):
+    return await extract_with_strategy(file_url, AzureModelType.LAYOUT)
