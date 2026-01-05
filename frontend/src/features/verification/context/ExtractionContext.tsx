@@ -127,10 +127,20 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
 
     // Compute highlights from preview data
     const highlights: Highlight[] = useMemo(() => {
-        if (!previewData?.guide_extracted) return []
+        console.log('[Highlights] previewData:', previewData ? Object.keys(previewData) : null)
+        console.log('[Highlights] sub_documents:', previewData?.sub_documents?.length)
+
+        if (!previewData?.guide_extracted && !previewData?.sub_documents) return []
+
         const currentData = previewData.sub_documents && previewData.sub_documents.length > 0
             ? previewData.sub_documents[selectedSubDocIndex]?.data?.guide_extracted
             : previewData.guide_extracted
+
+        console.log('[Highlights] currentData keys:', currentData ? Object.keys(currentData) : null)
+        if (currentData) {
+            const sampleKey = Object.keys(currentData)[0]
+            console.log('[Highlights] sample field:', sampleKey, currentData[sampleKey])
+        }
 
         if (!currentData) return []
 
@@ -235,9 +245,10 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                 headers: { 'Content-Type': 'multipart/form-data' }
             })
 
-            const { job_id, file_url } = res.data
+            const { job_id, file_url, log_id } = res.data
             setCurrentJobId(job_id)
             setFileUrl(file_url)
+            if (log_id) setCurrentLogId(log_id)  // Enable retry functionality
             setStatus(EXTRACTION_STATUS.REFINING)
             startPolling(job_id)
         } catch (e: any) {

@@ -115,6 +115,16 @@ class ExtractionService:
                 extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error="Failed to save extraction results")
                 return
             
+            # Also update the linked Log status so history shows correct state
+            job = extraction_jobs.get_job(job_id)
+            if job and job.original_log_id:
+                extraction_logs.update_log_status(
+                    job.original_log_id,
+                    status=ExtractionStatus.PREVIEW_READY.value,
+                    preview_data=preview_payload
+                )
+                print(f"[Pipeline-Debug] Updated linked log {job.original_log_id} to PREVIEW_READY")
+            
             print(f"[Pipeline-Debug] Job {job_id} completed successfully!")
 
         except Exception as e:

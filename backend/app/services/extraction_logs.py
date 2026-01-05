@@ -278,6 +278,37 @@ def get_log(log_id: str) -> Optional[ExtractionLog]:
         return None
 
 
+def update_log_status(log_id: str, status: str, preview_data: Optional[dict] = None) -> bool:
+    """Update just the status (and optionally preview_data) of an existing log"""
+    container = get_extractions_container()
+    
+    if not container:
+        return False
+    
+    try:
+        # Get existing log
+        log = get_log(log_id)
+        if not log:
+            logger.warning(f"[ExtractionLogs] Log {log_id} not found for status update")
+            return False
+        
+        # Update fields
+        log_dict = log.model_dump()
+        log_dict["status"] = status
+        log_dict["updated_at"] = datetime.utcnow().isoformat()
+        log_dict["type"] = ExtractionType.LOG.value
+        
+        if preview_data:
+            log_dict["preview_data"] = preview_data
+        
+        container.upsert_item(log_dict)
+        logger.info(f"[ExtractionLogs] Updated log {log_id} status to {status}")
+        return True
+    except Exception as e:
+        logger.error(f"[ExtractionLogs] Update status failed: {e}")
+        return False
+
+
 def delete_logs(log_ids: List[str]) -> int:
     """Delete multiple extraction logs by IDs"""
     container = get_extractions_container()
