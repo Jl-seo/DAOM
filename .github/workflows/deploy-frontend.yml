@@ -92,13 +92,20 @@ jobs:
               --username ${{ github.actor }} \
               --password ${{ secrets.GITHUB_TOKEN }}
 
+            echo "0.5 Ensure Ingress Configuration"
+            # Explicitly set port to 80 to prevent probe failures
+            az containerapp ingress enable \
+              --name $APP_NAME \
+              --resource-group $RG \
+              --target-port 80 \
+              --type external
+
             echo "1. Deploying new revision: $REVISION_NAME"
             az containerapp update \
               --name $APP_NAME \
               --resource-group $RG \
               --image $IMAGE \
               --revision-suffix $SUFFIX \
-              --ingress-target-port 80 \
               --query properties.configuration.activeRevisionsMode
 
             echo "2. Assigning Label: $LABEL"

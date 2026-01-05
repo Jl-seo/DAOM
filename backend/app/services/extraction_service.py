@@ -277,7 +277,10 @@ IMPORTANT:
             
             value = item.get("value")
             bbox = item.get("bbox")
-            page_number = item.get("page_number")
+            try:
+                page_number = int(item.get("page_number")) if item.get("page_number") else None
+            except (ValueError, TypeError):
+                page_number = None
             
             if not page_number:
                 page_number = default_page
@@ -445,9 +448,11 @@ IMPORTANT:
             value = original_value
             confidence = item.get("confidence", 0)
             bbox = item.get("bbox")
-            page_number = item.get("page_number")
+            try:
+                page_number = int(item.get("page_number")) if item.get("page_number") else None
+            except (ValueError, TypeError):
+                page_number = None
             
-            # Fallback for page_number if missing
             if not page_number:
                 page_number = default_page
 
