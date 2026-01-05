@@ -161,7 +161,7 @@ function App() {
         <Sidebar
           activeMenu={activeMenu}
           onMenuChange={setActiveMenu}
-          onQuickExtraction={() => setIsQuickExtractionOpen(true)}
+          onQuickExtraction={() => setActiveMenu('quick-extraction')}
         />
       </div>
 
