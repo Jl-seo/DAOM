@@ -63,8 +63,7 @@ class ExtractionService:
                 # Dynamic Strategy
                 azure_model = getattr(model, "azure_model_id", "prebuilt-layout")
 
-            with open("debug_pipeline.log", "a") as f:
-                f.write(f"calling doc_intel with {azure_model}\n")
+            print(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
             
             doc_intel_output = doc_intel.extract_with_strategy(file_url, azure_model)
             
@@ -158,8 +157,9 @@ IMPORTANT:
                 response_format={"type": "json_object"}
             )
             raw_content = response.choices[0].message.content
-            logger.info(f"[LLM-Universal] Success! Length: {len(raw_content)}. Content Preview: {raw_content[:200]}")
-            logger.info(f"[LLM-Universal] Full Response (Debug): {raw_content}")
+            print(f"[LLM-Universal-Debug] Success! Length: {len(raw_content)}")
+            print(f"[LLM-Universal-Debug] Preview: {raw_content[:200]}")
+            # logger.info(...)
             return json.loads(raw_content)
         except Exception as e:
             logger.error(f"[LLM] Universal Extraction Error: {e}")
@@ -369,13 +369,8 @@ IMPORTANT:
             )
             raw_content = response.choices[0].message.content
             
-            # File Logging for Debug
-            with open("debug_extraction.log", "a") as f:
-                f.write(f"\n--- Extraction Request ---\nFocus: {focus_pages}\n")
-                f.write(f"Response: {raw_content}\n")
-            
-            logger.info(f"[LLM] Success! Length: {len(raw_content)}. Content Preview: {raw_content[:200]}")
-            logger.info(f"[LLM] Full Response (Debug): {raw_content}")
+            print(f"[LLM-Custom-Debug] Success! Length: {len(raw_content)}")
+            print(f"[LLM-Custom-Debug] Preview: {raw_content[:200]}")
             
             return json.loads(raw_content)
         except Exception as e:
