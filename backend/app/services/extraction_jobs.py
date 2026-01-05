@@ -153,8 +153,6 @@ def update_job(
                 details={"error": error} if error else None
             )
             
-            )
-            
         # Auto-sync status to ExtractionLog to ensure history consistency
         # This handles SUCCESS, ERROR, CANCELLED, etc. automatically
         if (job.original_log_id or job.log_id) and status:
