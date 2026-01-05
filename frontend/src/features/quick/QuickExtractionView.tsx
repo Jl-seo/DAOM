@@ -77,7 +77,7 @@ export function QuickExtractionView() {
     const handleReset = () => {
         setFile(null)
         setJobId(null)
-        setError(null)
+        // setError(null)
     }
 
     // --- Render Result ---
