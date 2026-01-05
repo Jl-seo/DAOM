@@ -213,16 +213,6 @@ def get_job_status(
         "file_url": job.file_url,
         "created_at": job.created_at,
         "updated_at": job.updated_at
-    return {
-        "job_id": job.id,
-        "status": job.status,
-        "preview_data": job.preview_data,
-        "extracted_data": job.extracted_data,
-        "error": job.error,
-        "filename": job.filename,
-        "file_url": job.file_url,
-        "created_at": job.created_at,
-        "updated_at": job.updated_at
     }
 
 
