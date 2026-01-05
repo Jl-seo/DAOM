@@ -153,6 +153,22 @@ def update_job(
                 details={"error": error} if error else None
             )
             
+            )
+            
+        # Auto-sync status to ExtractionLog to ensure history consistency
+        # This handles SUCCESS, ERROR, CANCELLED, etc. automatically
+        if (job.original_log_id or job.log_id) and status:
+            try:
+                from app.services import extraction_logs
+                log_id_to_update = job.original_log_id or job.log_id
+                extraction_logs.update_log_status(
+                    log_id_to_update, 
+                    status=status,
+                    preview_data=preview_data
+                )
+            except Exception as e:
+                print(f"[ExtractionJobs] Failed to sync status to log {job.original_log_id}: {e}")
+            
         return job
         
     except Exception as e:
