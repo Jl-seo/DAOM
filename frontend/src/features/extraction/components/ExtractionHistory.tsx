@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react'
 import { useExtraction } from '../../verification/context/ExtractionContext'
 import { useAuth } from '@/auth'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
+import { useExtractionActions } from '@/hooks/useExtractionActions'
+import { formatDate } from '@/utils/date'
 import {
     CalendarRegular,
     ArrowDownloadRegular,
@@ -15,11 +17,11 @@ import {
     ArrowClockwiseRegular,
     DocumentRegular
 } from '@fluentui/react-icons'
-import { apiClient, extractionApi } from '../../../lib/api'
-
-// ... existing code ...
+import { apiClient } from '../../../lib/api'
 
 import { downloadAsExcel } from '../../../utils/excel'
+
+
 import { toast } from 'sonner'
 import { ExtractionDataViewer } from './ExtractionDataViewer'
 import { ExtractionLogTable } from './ExtractionLogTable'
@@ -52,7 +54,6 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
 
     const { resumeJob } = useExtraction()
     const { user } = useAuth()
-    const queryClient = useQueryClient()
 
     const { data: logs = [], isLoading, error } = useQuery({
         queryKey: ['extraction-logs', modelId],
@@ -153,51 +154,8 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
         }
     }, [filteredLogs])
 
-    const handleDownload = (log: ExtractionLog) => {
-        if (!log.extracted_data) {
-            toast.error('추출 데이터가 없습니다')
-            return
-        }
-        downloadAsExcel(
-            [{ filename: log.filename, ...log.extracted_data }],
-            `${log.filename}_${new Date(log.created_at).toLocaleDateString()}`
-        )
-        toast.success('Excel 다운로드!')
-    }
-
-    const handleRetry = async (log: ExtractionLog) => {
-        try {
-            await apiClient.post(`/extraction/retry/${log.id}`)
-            toast.success('재시도 작업이 시작되었습니다.')
-            // Force immediate refetch from DB, not cache
-            await queryClient.invalidateQueries({ queryKey: ['extraction-logs', modelId] })
-        } catch {
-            toast.error('재시도 요청 실패')
-        }
-    }
-
-    const handleCancel = async (log: ExtractionLog) => {
-        if (!log.job_id) return
-        if (!confirm('정말로 이 작업을 취소하시겠습니까?')) return
-        try {
-            await extractionApi.cancelJob(log.job_id)
-            toast.success('작업이 취소되었습니다.')
-            await queryClient.invalidateQueries({ queryKey: ['extraction-logs', modelId] })
-        } catch {
-            toast.error('작업 취소 실패')
-        }
-    }
-
-    const handleDelete = async (log: ExtractionLog) => {
-        if (!confirm('정말로 이 기록을 삭제하시겠습니까? 복구할 수 없습니다.')) return
-        try {
-            await extractionApi.deleteJob(log.id)
-            toast.success('기록이 삭제되었습니다.')
-            await queryClient.invalidateQueries({ queryKey: ['extraction-logs', modelId] })
-        } catch {
-            toast.error('삭제 실패')
-        }
-    }
+    // Use consolidated actions hook
+    const { handleDownload, handleRetry, handleDelete, handleCancel } = useExtractionActions({ modelId })
 
     const toggleSelect = (id: string) => {
         setSelectedIds(prev => {
@@ -237,16 +195,7 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
         clearSelection()
     }
 
-    const formatDate = (isoString: string) => {
-        const date = new Date(isoString)
-        return date.toLocaleString('ko-KR', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit'
-        })
-    }
+    // formatDate now imported from @/utils/date
 
     const handleRowClick = async (log: ExtractionLog, editMode: boolean = false) => {
         if (isProcessingStatus(log.status)) {

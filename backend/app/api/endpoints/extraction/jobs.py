@@ -1,0 +1,250 @@
+"""
+Extraction endpoints - Jobs management
+"""
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File, Form
+from typing import Dict, Any, Optional
+from app.services import extraction_jobs, extraction_logs
+from app.services.models import get_model_by_id
+from app.auth.dependencies import get_current_user, CurrentUser
+from app.core.config import settings
+from app.core.enums import ExtractionStatus
+import logging
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+async def process_extraction_job(job_id: str, model_id: str, file_url: str):
+    """Background task to run full extraction pipeline"""
+    from app.services.extraction_service import extraction_service
+    await extraction_service.run_extraction_pipeline(job_id, model_id, file_url)
+
+
+@router.post("/start-job")
+async def start_job_with_upload(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    model_id: str = Form(...),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Upload file and start extraction job in one step.
+    This replaces the need for separate upload and start calls.
+    """
+    from app.services.storage import upload_to_storage
+    
+    # Upload file to Azure Blob Storage
+    file_url = await upload_to_storage(file)
+    if not file_url:
+        raise HTTPException(status_code=500, detail="Failed to upload file")
+    
+    # Create extraction log first
+    log = extraction_logs.save_extraction_log(
+        model_id=model_id,
+        user_id=current_user.id if current_user else "unknown",
+        user_name=current_user.name if current_user else None,
+        user_email=current_user.email if current_user else None,
+        filename=file.filename,
+        file_url=file_url,
+        status=ExtractionStatus.PENDING.value,
+        tenant_id=current_user.tenant_id if current_user else None
+    )
+    
+    # Create extraction job linked to log
+    job = extraction_jobs.create_job(
+        model_id=model_id,
+        user_id=current_user.id if current_user else "unknown",
+        user_name=current_user.name if current_user else None,
+        user_email=current_user.email if current_user else None,
+        filename=file.filename,
+        file_url=file_url,
+        original_log_id=log.id if log else None,
+        tenant_id=current_user.tenant_id if current_user else None
+    )
+    
+    # Update log to reference job
+    if log:
+        extraction_logs.save_extraction_log(
+            model_id=model_id,
+            user_id=current_user.id if current_user else "unknown",
+            user_name=current_user.name if current_user else None,
+            user_email=current_user.email if current_user else None,
+            filename=file.filename,
+            file_url=file_url,
+            status=ExtractionStatus.PENDING.value,
+            log_id=log.id,
+            job_id=job.id,
+            tenant_id=current_user.tenant_id if current_user else None
+        )
+    
+    # Start background extraction
+    background_tasks.add_task(
+        process_extraction_job,
+        job.id,
+        model_id,
+        file_url
+    )
+    
+    return {
+        "job_id": job.id,
+        "log_id": log.id if log else None,
+        "file_url": file_url,
+        "filename": file.filename,
+        "status": job.status
+    }
+
+
+@router.get("/log/{log_id}/job")
+def get_latest_job_for_log(
+    log_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Get the most recent job associated with a log"""
+    job = extraction_jobs.get_latest_job_by_log_id(log_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="No active job found for this log")
+    
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "file_url": job.file_url,
+        "filename": job.filename
+    }
+
+
+@router.get("/job/{job_id}")
+def get_job_status(
+    job_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Get job status for polling"""
+    job = extraction_jobs.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "preview_data": job.preview_data,
+        "extracted_data": job.extracted_data,
+        "error": job.error,
+        "filename": job.filename,
+        "file_url": job.file_url,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at
+    }
+
+
+@router.delete("/job/{job_id}")
+def delete_extraction_job(
+    job_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Delete a job"""
+    success = extraction_jobs.delete_job(job_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Job not found or delete failed")
+    return {"status": "deleted"}
+
+
+@router.post("/job/{job_id}/cancel")
+def cancel_extraction_job(
+    job_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Cancel a running job"""
+    job = extraction_jobs.cancel_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"status": "cancelled", "job_id": job.id}
+
+
+@router.get("/jobs")
+def get_jobs(
+    model_id: Optional[str] = None,
+    current_user: CurrentUser = Depends(get_current_user),
+    limit: int = 50
+):
+    """Get jobs for current user or model"""
+    if model_id:
+        jobs = extraction_jobs.get_jobs_by_model(model_id, limit=limit)
+    else:
+        jobs = extraction_jobs.get_jobs_by_user(current_user.id if current_user else "unknown", limit=limit)
+    
+    return [{
+        "id": job.id,
+        "model_id": job.model_id,
+        "filename": job.filename,
+        "status": job.status,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "error": job.error
+    } for job in jobs]
+
+
+@router.post("/retry/{log_id}")
+async def retry_extraction(
+    log_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Retry an extraction from a previous log (success or error).
+    Updates the existing log status to processing and re-runs extraction.
+    """
+    # 1. Get original log
+    log = extraction_logs.get_log(log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Extraction log not found")
+        
+    if not log.file_url:
+        raise HTTPException(status_code=400, detail="Original file URL not found in log")
+        
+    # 2. Check model existence
+    model = get_model_by_id(log.model_id)
+    if not model:
+         raise HTTPException(status_code=404, detail=f"Model {log.model_id} not found")
+    
+    # 3. Create new job with reference to original log
+    job = extraction_jobs.create_job(
+        model_id=log.model_id,
+        user_id=current_user.id if current_user else "unknown",
+        filename=log.filename,
+        file_url=log.file_url,
+        original_log_id=log_id,
+        tenant_id=current_user.tenant_id if current_user else None
+    )
+
+    # 4. Update original log status to pending AND update job_id
+    extraction_logs.save_extraction_log(
+        model_id=log.model_id,
+        user_id=current_user.id if current_user else log.user_id,
+        user_name=current_user.name if current_user else log.user_name,
+        user_email=current_user.email if current_user else log.user_email,
+        filename=log.filename,
+        file_url=log.file_url,
+        status="P100",  # Pending status code
+        extracted_data=None,  # Clear previous data
+        error=None,  # Clear previous error
+        log_id=log_id,  # This updates the existing log
+        job_id=job.id,   # Link to the new job
+        tenant_id=current_user.tenant_id if current_user else None
+    )
+    
+    # 5. Start background task
+    background_tasks.add_task(
+        process_extraction_job,
+        job.id,
+        log.model_id,
+        log.file_url
+    )
+    
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "file_url": job.file_url,
+        "filename": job.filename,
+        "original_log_id": log_id,
+        "message": "Retry job started - existing record updated"
+    }

@@ -74,28 +74,35 @@ class ExtractionService:
             # For MVP, we treat the whole document as one split unless user hints otherwise
             splits = [{"index": 0, "type": "document", "page_ranges": [p["page_number"] for p in doc_intel_output.get("pages", [])]}]
 
-            # 3. Process Each Split
-            sub_documents = []
-            for split in splits:
+            # 3. Process Each Split (Parallel with rate limit protection)
+            import asyncio
+            
+            async def process_split(split):
                 try:
-                    # ... (log) ...
-                    
                     if model.id == "system-universal":
-                         split_result = await self._process_single_split_universal(doc_intel_output, split)
+                        return await self._process_single_split_universal(doc_intel_output, split)
                     else:
-                         split_result = await self._process_single_split(doc_intel_output, split, model)
-                    
-                    sub_documents.append(split_result)
+                        return await self._process_single_split(doc_intel_output, split, model)
                 except Exception as e:
                     logger.error(f"Error processing split {split.get('index', 0)}: {e}")
-                    sub_documents.append({
+                    return {
                         "index": split.get("index", 0),
                         "type": split.get("type", "unknown"),
                         "page_ranges": split.get("page_ranges", []),
                         "status": "error",
                         "error": str(e),
                         "data": {"guide_extracted": {}}
-                    })
+                    }
+            
+            # Process splits in parallel (max 3 concurrent to avoid rate limits)
+            semaphore = asyncio.Semaphore(3)
+            
+            async def process_with_limit(split):
+                async with semaphore:
+                    return await process_split(split)
+            
+            sub_documents = await asyncio.gather(*[process_with_limit(s) for s in splits])
+            sub_documents = list(sub_documents)  # Convert tuple to list
             
             # 4. Save Results
             print(f"[Pipeline-Debug] All splits processed. Total sub_documents: {len(sub_documents)}")
@@ -115,15 +122,6 @@ class ExtractionService:
                 extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error="Failed to save extraction results")
                 return
             
-            # Also update the linked Log status so history shows correct state
-            job = extraction_jobs.get_job(job_id)
-            if job and job.original_log_id:
-                extraction_logs.update_log_status(
-                    job.original_log_id,
-                    status=ExtractionStatus.PREVIEW_READY.value,
-                    preview_data=preview_payload
-                )
-                print(f"[Pipeline-Debug] Updated linked log {job.original_log_id} to PREVIEW_READY")
             
             print(f"[Pipeline-Debug] Job {job_id} completed successfully!")
 
@@ -269,9 +267,38 @@ IMPORTANT:
             raw_content = response.choices[0].message.content
             print(f"[LLM-Universal-Debug] Success! Length: {len(raw_content)}")
             print(f"[LLM-Universal-Debug] Preview: {raw_content[:200]}")
-            # logger.info(...)
             return json.loads(raw_content)
         except Exception as e:
+            error_str = str(e).lower()
+            
+            # Check if token limit exceeded - fallback to chunked processing
+            if "token" in error_str or "context_length" in error_str or ("429" in str(e) and "rate" not in error_str):
+                logger.warning(f"[LLM-Universal] Token limit exceeded, switching to chunked extraction...")
+                
+                try:
+                    from app.services.chunked_extraction import extract_with_chunking
+                    
+                    # Universal mode: discover all fields
+                    model_fields = [{"key": "_discover", "label": "Discover all fields", "description": "Extract all key-value pairs"}]
+                    
+                    merged_result, errors = await extract_with_chunking(
+                        ocr_data_to_send,
+                        model_fields,
+                        max_tokens_per_chunk=2000,
+                        max_concurrent=3
+                    )
+                    
+                    if errors:
+                        logger.warning(f"[LLM-Universal-Chunked] Some chunks failed: {errors}")
+                    
+                    return {
+                        "guide_extracted": {k: {"value": v, "confidence": 0.8, "type": "string"} for k, v in merged_result.items() if not k.startswith("_")},
+                        "other_data": [],
+                        "_chunked": True
+                    }
+                except Exception as chunk_error:
+                    logger.error(f"[LLM-Universal-Chunked] Fallback also failed: {chunk_error}")
+            
             logger.error(f"[LLM] Universal Extraction Error: {e}")
             return {"guide_extracted": {}, "error": str(e)}
 
@@ -423,19 +450,42 @@ IMPORTANT:
             
             return json.loads(raw_content)
         except Exception as e:
-            with open("debug_extraction.log", "a") as f:
-                f.write(f"\n--- ERROR ---\n{e}\n")
-                f.write(f"Config: Endpoint={settings.AZURE_OPENAI_ENDPOINT}, Version={settings.AZURE_OPENAI_API_VERSION}\n")
-            logger.error(f"[LLM] Extraction failed: {e}")
-            logger.error(f"[LLM] Config Debug: Endpoint={settings.AZURE_OPENAI_ENDPOINT}, Model={settings.AZURE_OPENAI_DEPLOYMENT_NAME}")
-            raise e
+            error_str = str(e).lower()
             
-            # Return detailed error for frontend
-            return {
-                "guide_extracted": {},
-                "other_data": [],
-                "error": str(e)
-            }
+            # Check if token limit exceeded - fallback to chunked processing
+            if "token" in error_str or "context_length" in error_str or ("429" in str(e) and "rate" not in error_str):
+                logger.warning(f"[LLM] Token limit exceeded, switching to chunked extraction...")
+                
+                try:
+                    from app.services.chunked_extraction import extract_with_chunking
+                    
+                    # Convert model fields to dict format for chunked extraction
+                    model_fields = [{"key": f.key, "label": f.label, "description": f.description} for f in model.fields]
+                    
+                    # Use chunked extraction
+                    merged_result, errors = await extract_with_chunking(
+                        ocr_data_to_send,
+                        model_fields,
+                        max_tokens_per_chunk=2000,
+                        max_concurrent=3
+                    )
+                    
+                    if errors:
+                        logger.warning(f"[LLM-Chunked] Some chunks failed: {errors}")
+                    
+                    # Convert to expected format
+                    return {
+                        "guide_extracted": {k: {"value": v, "confidence": 0.8} for k, v in merged_result.items() if not k.startswith("_")},
+                        "other_data": [],
+                        "_chunked": True,
+                        "_chunk_errors": errors
+                    }
+                except Exception as chunk_error:
+                    logger.error(f"[LLM-Chunked] Fallback also failed: {chunk_error}")
+                    raise e  # Re-raise original error
+            
+            logger.error(f"[LLM] Extraction failed: {e}")
+            raise e
 
     def _validate_and_format(self, raw_data: Dict[str, Any], model: ExtractionModel, pages_info: List[Dict[str, Any]] = [], default_page: int = 1) -> Dict[str, Any]:
         """

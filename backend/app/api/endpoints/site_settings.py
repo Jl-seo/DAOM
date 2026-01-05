@@ -1,18 +1,17 @@
 """
 Site Settings API Endpoints
 Manages site branding, theme, and configuration
+Persists to Cosmos DB for durability across deployments
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
-import json
-import os
-from pathlib import Path
+from app.db.cosmos import get_config_container
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
-# Config file path
-CONFIG_FILE = Path(__file__).parent.parent.parent.parent / "site_config.json"
+# Fixed document ID for singleton config
+SITE_CONFIG_ID = "site_config"
 
 class SiteColors(BaseModel):
     primary: str
@@ -52,18 +51,39 @@ class SiteConfig(BaseModel):
     colors: Optional[ColorConfig] = None
     fontFamily: str = "Inter, ui-sans-serif, system-ui, sans-serif"
     customCss: Optional[str] = None
+    radius: Optional[float] = 0.5
+    density: Optional[str] = "normal"
 
 def load_config() -> dict:
-    """Load site config from file"""
-    if CONFIG_FILE.exists():
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {}
+    """Load site config from Cosmos DB"""
+    container = get_config_container()
+    if not container:
+        return {}
+    
+    try:
+        item = container.read_item(item=SITE_CONFIG_ID, partition_key=SITE_CONFIG_ID)
+        # Remove Cosmos metadata
+        item.pop('id', None)
+        item.pop('_rid', None)
+        item.pop('_self', None)
+        item.pop('_etag', None)
+        item.pop('_attachments', None)
+        item.pop('_ts', None)
+        return item
+    except Exception:
+        return {}
 
 def save_config(config: dict):
-    """Save site config to file"""
-    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
+    """Save site config to Cosmos DB"""
+    container = get_config_container()
+    if not container:
+        raise HTTPException(status_code=500, detail="Database not available")
+    
+    try:
+        doc = {"id": SITE_CONFIG_ID, **config}
+        container.upsert_item(doc)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save config: {str(e)}")
 
 @router.get("/site")
 async def get_site_config():

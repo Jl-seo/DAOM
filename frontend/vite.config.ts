@@ -20,9 +20,11 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor': ['react', 'react-dom', 'axios'],
+          'vendor': ['react', 'react-dom'],
           'pdf-viewer': ['@react-pdf-viewer/core', '@react-pdf-viewer/highlight', 'pdfjs-dist'],
-          'ui': ['lucide-react', 'clsx', 'sonner'],
+          'ui': ['lucide-react', 'clsx', 'sonner', '@radix-ui/react-dialog', '@radix-ui/react-popover'],
+          'table': ['@tanstack/react-table'],
+          'query': ['@tanstack/react-query', 'axios'],
         }
       }
     }
