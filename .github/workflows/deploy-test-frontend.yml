@@ -1,0 +1,89 @@
+name: Deploy Frontend (Test)
+
+on:
+  push:
+    branches: ['feature/*', 'fix/*']
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-test-frontend.yml'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/frontend
+  RESOURCE_GROUP: Dalle2
+  CONTAINER_APP: daom-frontend
+
+jobs:
+  build-and-deploy-frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        id: vars
+        run: |
+          echo "SHORT_SHA=$(echo ${{ github.sha }} | cut -c 1-7)" >> $GITHUB_OUTPUT
+          echo "LOWER_IMAGE=$(echo ${{ github.repository }}/frontend | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ steps.vars.outputs.LOWER_IMAGE }}:test-${{ steps.vars.outputs.SHORT_SHA }}
+          build-args: |
+            VITE_API_BASE_URL=https://daom-backend.greenpebble-00aa1dc4.koreacentral.azurecontainerapps.io/api/v1
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy Frontend Revision
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            set -e
+            az config set extension.use_dynamic_install=yes_without_prompt
+            
+            SHORT_SHA="${{ steps.vars.outputs.SHORT_SHA }}"
+            SUFFIX="test-${SHORT_SHA}"
+            RG=${{ env.RESOURCE_GROUP }}
+            APP_NAME=${{ env.CONTAINER_APP }}
+            IMAGE="${{ env.REGISTRY }}/${{ steps.vars.outputs.LOWER_IMAGE }}:test-${SHORT_SHA}"
+            REVISION="${APP_NAME}--${SUFFIX}"
+
+            echo "============================================"
+            echo "🧪 FRONTEND TEST DEPLOYMENT"
+            echo "Branch: ${{ github.ref_name }}"
+            echo "Image: $IMAGE"
+            echo "============================================"
+
+            az containerapp registry set \
+              --name $APP_NAME --resource-group $RG \
+              --server ghcr.io \
+              --username ${{ github.actor }} \
+              --password ${{ secrets.GITHUB_TOKEN }}
+
+            az containerapp update \
+              --name $APP_NAME --resource-group $RG \
+              --image $IMAGE \
+              --revision-suffix $SUFFIX
+
+            echo ">> Routing 100% traffic to revision: $REVISION"
+            az containerapp ingress traffic set \
+              --name $APP_NAME --resource-group $RG \
+              --revision-weight ${REVISION}=100
