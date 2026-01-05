@@ -2,6 +2,7 @@
  * useExtractionActions - Consolidated hook for extraction log actions
  * Handles retry, download, delete, cancel operations
  */
+// Forced redeploy: 2026-01-06 08:34
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiClient, extractionApi } from '@/lib/api'
