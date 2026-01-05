@@ -13,7 +13,7 @@ import { ModelGallery } from './components/ModelGallery'
 import { AllExtractionHistory } from './features/extraction/components/AllExtractionHistory'
 import { QuickExtractionModal } from './components/QuickExtractionModal'
 import { useAuth } from './auth'
-import { Menu } from 'lucide-react'
+import { Menu, Loader2 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "./components/ui/sheet"
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { QuickExtractionView } from './features/quick/QuickExtractionView'
