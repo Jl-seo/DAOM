@@ -33,7 +33,7 @@ function useJobPolling(jobId: string | null) { // Added function name
 export function QuickExtractionView() {
     const [file, setFile] = useState<File | null>(null)
     const [jobId, setJobId] = useState<string | null>(null)
-    const [error, setError] = useState<string | null>(null)
+    // const [error, setError] = useState<string | null>(null)
 
     // Polling
     const { data: job, isLoading: isJobLoading } = useJobPolling(jobId)
@@ -42,7 +42,7 @@ export function QuickExtractionView() {
         const f = acceptedFiles[0]
         if (!f) return
         setFile(f)
-        setError(null)
+        // setError(null)
         setJobId(null)
 
         // Auto start
@@ -51,7 +51,7 @@ export function QuickExtractionView() {
             setJobId(res.data.job_id)
         } catch (err) {
             console.error(err)
-            setError("업로드에 실패했습니다.")
+            // setError("업로드에 실패했습니다.")
             alert("업로드에 실패했습니다.") // Fallback
             setFile(null)
         }
