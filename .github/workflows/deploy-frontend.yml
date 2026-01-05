@@ -57,6 +57,7 @@ jobs:
         uses: azure/cli@v2
         with:
           inlineScript: |
+            set -e
             az config set extension.use_dynamic_install=yes_without_prompt
             
             # Common params
@@ -79,25 +80,60 @@ jobs:
             IMAGE="${{ env.REGISTRY }}/${{ steps.vars.outputs.LOWER_IMAGE_NAME }}:${SHORT_SHA_VAL}"
             REVISION_NAME="$APP_NAME--$SUFFIX"
 
-            echo "0. Refreshing Registry Credentials"
-            az containerapp registry set \
+            # Step 0: Check revision mode and current active revision
+            echo "0. Checking current app configuration..."
+            REVISION_MODE=$(az containerapp show \
               --name $APP_NAME \
               --resource-group $RG \
-              --server ghcr.io \
-              --username ${{ github.actor }} \
-              --password ${{ secrets.GITHUB_TOKEN }} \
-              --target-label $LABEL
+              --query "properties.configuration.activeRevisionsMode" -o tsv)
+            echo "   Revision Mode: $REVISION_MODE"
+            
+            # Get current active revision name for traffic handling
+            CURRENT_REVISION=$(az containerapp show \
+              --name $APP_NAME \
+              --resource-group $RG \
+              --query "properties.latestRevisionName" -o tsv)
+            echo "   Current Active Revision: $CURRENT_REVISION"
+            
+            # Step 1: For labels mode, first ensure traffic is on a labeled revision
+            # This prevents ContainerAppLabelsModeTargetLabelRequired error
+            if [[ "$REVISION_MODE" == "labels" ]]; then
+              echo "1. [Labels Mode] Ensuring traffic is assigned to labeled revision..."
+              # Check if production label exists and points to current revision
+              LABELED_REVISION=$(az containerapp revision label show \
+                --name $APP_NAME \
+                --resource-group $RG \
+                --label $LABEL \
+                --query "revisionName" -o tsv 2>/dev/null || echo "")
+              
+              if [[ -z "$LABELED_REVISION" ]]; then
+                echo "   No revision has '$LABEL' label. Assigning to current revision first..."
+                az containerapp revision label add \
+                  --resource-group $RG \
+                  --name $APP_NAME \
+                  --label $LABEL \
+                  --revision $CURRENT_REVISION \
+                  --no-prompt || true
+                
+                # Ensure 100% traffic to this label
+                az containerapp ingress traffic set \
+                  --resource-group $RG \
+                  --name $APP_NAME \
+                  --label-weight $LABEL=100 || true
+              fi
+              echo "   ✓ Traffic configuration ready for update"
+            fi
 
-            echo "1. Deploying new revision: $REVISION_NAME"
+            # Step 2: Deploy new revision
+            echo "2. Deploying new revision: $REVISION_NAME"
             az containerapp update \
               --name $APP_NAME \
               --resource-group $RG \
               --image $IMAGE \
-              --revision-suffix $SUFFIX \
-              --target-label $LABEL \
-              --query properties.configuration.activeRevisionsMode
+              --revision-suffix $SUFFIX
 
-            echo "2. Assigning Label: $LABEL"
+            # Step 3: Assign label to new revision (moves it from old revision)
+            echo "3. Assigning Label '$LABEL' to new revision..."
             az containerapp revision label add \
               --resource-group $RG \
               --name $APP_NAME \
@@ -105,11 +141,13 @@ jobs:
               --revision $REVISION_NAME \
               --no-prompt
 
-            # 3. Traffic Management
+            # Step 4: Traffic Management - route 100% to the new labeled revision
             if [[ "${{ github.ref_name }}" == "master" ]]; then
-              echo "3. Switching Production Traffic to 100%"
+              echo "4. Switching Production Traffic to 100%"
               az containerapp ingress traffic set \
                 --resource-group $RG \
                 --name $APP_NAME \
                 --label-weight $LABEL=100
             fi
+            
+            echo "✓ Deployment complete: $REVISION_NAME"
