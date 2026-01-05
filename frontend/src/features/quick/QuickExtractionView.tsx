@@ -197,7 +197,7 @@ export function QuickExtractionView() {
 
                 <div className="flex-1 flex flex-col items-center justify-center min-h-[400px] border-2 border-dashed rounded-xl bg-muted/5 hover:bg-muted/10 transition-colors relative group">
                     <div {...getRootProps()} className="absolute inset-0 z-10 cursor-pointer" />
-                    <input {...getInputProps()} />
+                    <input {...getInputProps()} name="file-upload" id="file-upload" />
 
                     <div className="flex flex-col items-center space-y-4 text-center p-6">
                         <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform duration-300">
@@ -230,6 +230,8 @@ export function QuickExtractionView() {
                                 className="hidden"
                                 ref={cameraInputRef}
                                 onChange={handleCameraCapture}
+                                name="camera-input"
+                                id="camera-input"
                             />
                         </div>
                     </div>
