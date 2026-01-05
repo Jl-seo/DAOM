@@ -71,7 +71,9 @@ class ExtractionService:
             # ... (OCR log) ...
 
             # 2. Splitting (Same as before)
-            # ...
+            # 2. Splitting (Use new Splitting Service or simple page iteration)
+            # For MVP, we treat the whole document as one split unless user hints otherwise
+            splits = [{"index": 0, "type": "document", "page_ranges": [p["page_number"] for p in doc_intel_output.get("pages", [])]}]
 
             # 3. Process Each Split
             sub_documents = []
