@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Optional
 from enum import Enum
-from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.ai.documentintelligence.aio import DocumentIntelligenceClient
 from azure.ai.documentintelligence.models import AnalyzeResult
 from azure.core.credentials import AzureKeyCredential
 from app.core.config import settings
@@ -25,12 +25,6 @@ def get_supported_models() -> List[Dict[str, str]]:
         for m in AzureModelType
     ]
 
-def get_document_client() -> DocumentIntelligenceClient:
-    return DocumentIntelligenceClient(
-        endpoint=settings.AZURE_FORM_ENDPOINT,
-        credential=AzureKeyCredential(settings.AZURE_FORM_KEY)
-    )
-
 async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-layout") -> Dict[str, Any]:
     """
     Universal extraction, strategy determined by model_type.
@@ -50,47 +44,50 @@ async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-la
              logger.info(f"[DocIntel] Cache HIT for {cache_blob_name}")
              return cached_data
              
-    client = get_document_client()
-    
     logger.info(f"[DocIntel] Analyzing document using model {model_type}")
     
     try:
-        # Check if file_source is a string (URL)
-        if isinstance(file_source, str):
-            poller = await client.begin_analyze_document(
-                model_id=model_type,
-                body={"urlSource": file_source}
-            )
-        else:
-            # Assume bytes/stream
-            # Azure SDK v1.0.0b1 uses 'body' for binary content
-            poller = await client.begin_analyze_document(
-                model_id=model_type,
-                body=file_source,
-                content_type="application/octet-stream"
-            )
+        async with DocumentIntelligenceClient(
+            endpoint=settings.AZURE_FORM_ENDPOINT,
+            credential=AzureKeyCredential(settings.AZURE_FORM_KEY)
+        ) as client:
             
-        result: AnalyzeResult = await poller.result()
-        
-        # Base extraction (Always available)
-        output = {
-            "content": result.content,
-            "pages": _process_pages(result.pages),
-            "tables": _process_tables(result.tables),
-            "key_value_pairs": _process_kv_pairs(result.key_value_pairs, result.pages),
-            "documents": _process_documents(result.documents, result.pages) # Pass pages for normalization
-        }
+            # Check if file_source is a string (URL)
+            if isinstance(file_source, str):
+                poller = await client.begin_analyze_document(
+                    model_id=model_type,
+                    body={"urlSource": file_source}
+                )
+            else:
+                # Assume bytes/stream
+                # Azure SDK v1.0.0b1 uses 'body' for binary content
+                poller = await client.begin_analyze_document(
+                    model_id=model_type,
+                    body=file_source,
+                    content_type="application/octet-stream"
+                )
+                
+            result: AnalyzeResult = await poller.result()
+            
+            # Base extraction (Always available)
+            output = {
+                "content": result.content,
+                "pages": _process_pages(result.pages),
+                "tables": _process_tables(result.tables),
+                "key_value_pairs": _process_kv_pairs(result.key_value_pairs, result.pages),
+                "documents": _process_documents(result.documents, result.pages) # Pass pages for normalization
+            }
 
-        # Strategy-Specific Enrichment (e.g., if Invoice, map specific fields to top level)
-        if model_type == AzureModelType.INVOICE:
-             output["invoice_metadata"] = _map_invoice_fields(result.documents)
-        
-        # Save to Cache
-        if cache_blob_name:
-             await storage.save_json_as_blob(output, cache_blob_name)
-             logger.info(f"[DocIntel] Cache SAVED to {cache_blob_name}")
-             
-        return output
+            # Strategy-Specific Enrichment
+            if model_type == AzureModelType.INVOICE:
+                 output["invoice_metadata"] = _map_invoice_fields(result.documents)
+            
+            # Save to Cache
+            if cache_blob_name:
+                 await storage.save_json_as_blob(output, cache_blob_name)
+                 logger.info(f"[DocIntel] Cache SAVED to {cache_blob_name}")
+                 
+            return output
 
     except Exception as e:
         logger.error(f"[DocIntel] Error: {e}")
