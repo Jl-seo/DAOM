@@ -87,7 +87,39 @@ class ExtractionService:
                     
                     sub_documents.append(split_result)
                 except Exception as e:
-                    # ... (error handling) ...
+                    logger.error(f"Error processing split {split.get('index', 0)}: {e}")
+                    sub_documents.append({
+                        "index": split.get("index", 0),
+                        "type": split.get("type", "unknown"),
+                        "page_ranges": split.get("page_ranges", []),
+                        "status": "error",
+                        "error": str(e),
+                        "data": {"guide_extracted": {}}
+                    })
+            
+            # 4. Save Results
+            print(f"[Pipeline-Debug] All splits processed. Total sub_documents: {len(sub_documents)}")
+            
+            preview_payload = {
+                "sub_documents": sub_documents
+            }
+            
+            result = extraction_jobs.update_job(
+                job_id, 
+                status=ExtractionStatus.SUCCESS.value, 
+                preview_data=preview_payload
+            )
+            
+            if not result:
+                logger.error(f"Failed to update job {job_id} with success data.")
+                extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error="Failed to save extraction results")
+                return
+            
+            print(f"[Pipeline-Debug] Job {job_id} completed successfully!")
+
+        except Exception as e:
+            logger.error(f"Pipeline error for job {job_id}: {e}")
+            extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
 
     async def _process_single_split_universal(self, full_ocr_data: Dict[str, Any], split: Dict[str, Any]) -> Dict[str, Any]:
         """Universal extraction without predefined schema"""
@@ -213,74 +245,6 @@ IMPORTANT:
             "other_data": raw_data.get("other_data", []),
             "model_fields": [{"key": k, "label": k} for k in validated_extracted.keys()] # Dynamic fields
         }
-            
-            with open("debug_pipeline.log", "a") as f:
-                f.write(f"All splits processed. Total sub_documents: {len(sub_documents)}\n")
-            
-            with open("debug_pipeline.log", "a") as f:
-                f.write(f"Calling update_job with status=SUCCESS...\n")
-            
-            # OPTIMIZATION: Only save sub_documents
-            preview_payload = {
-                "sub_documents": sub_documents
-            }
-            
-            result = extraction_jobs.update_job(
-                job_id, 
-                status=ExtractionStatus.SUCCESS.value, 
-                preview_data=preview_payload
-            )
-            
-            if not result:
-                logger.error(f"Failed to update job {job_id} with success data. Payload might be too large.")
-                extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error="Failed to save extraction results (Data too large)")
-                return
-            
-            # Also update the associated Log status to S100
-            job = extraction_jobs.get_job(job_id)
-            if job and job.original_log_id:
-                extraction_logs.save_extraction_log(
-                    model_id=model_id,
-                    user_id=job.user_id,
-                    user_name=job.user_name,
-                    user_email=job.user_email,
-                    filename=job.filename,
-                    file_url=file_url,
-                    status=ExtractionStatus.SUCCESS.value,
-                    extracted_data=sub_documents[0]["data"].get("guide_extracted", {}) if sub_documents else {},
-                    preview_data=preview_payload,
-                    log_id=job.original_log_id,
-                    job_id=job_id,
-                    llm_model=current_llm_model
-                )
-                with open("debug_pipeline.log", "a") as f:
-                    f.write(f"Updated Log {job.original_log_id} to S100 with preview_data\\n")
-            
-            with open("debug_pipeline.log", "a") as f:
-                f.write(f"update_job result: {result is not None}\n")
-            
-            logger.info(f"Extraction job {job_id} completed with {len(sub_documents)} sub-documents")
-
-        except Exception as e:
-            with open("debug_pipeline.log", "a") as f:
-                f.write(f"EXCEPTION: {e}\n")
-            extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
-            
-            # Also update the associated Log status to ERROR
-            job = extraction_jobs.get_job(job_id)
-            if job and job.original_log_id:
-                extraction_logs.save_extraction_log(
-                    model_id=model_id,
-                    user_id=job.user_id,
-                    user_name=job.user_name,
-                    user_email=job.user_email,
-                    filename=job.filename,
-                    file_url=file_url,
-                    status=ExtractionStatus.ERROR.value,
-                    error=str(e),
-                    log_id=job.original_log_id,
-                    llm_model=current_llm_model
-                )
 
 
     async def _process_single_split(self, full_ocr_data: Dict[str, Any], split: Dict[str, Any], model: ExtractionModel) -> Dict[str, Any]:
