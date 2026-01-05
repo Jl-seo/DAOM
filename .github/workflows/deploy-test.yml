@@ -107,9 +107,6 @@ jobs:
             az containerapp update \
               --name $FE_APP --resource-group $RG \
               --image $FE_IMAGE \
-              --registry-server ghcr.io \
-              --registry-username ${{ github.actor }} \
-              --registry-password ${{ secrets.GITHUB_TOKEN }} \
               --revision-suffix $SUFFIX
 
             echo ">> Routing 100% traffic to Frontend revision: $FE_REVISION"
