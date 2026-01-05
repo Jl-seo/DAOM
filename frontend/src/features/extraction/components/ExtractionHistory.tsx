@@ -15,7 +15,10 @@ import {
     ArrowClockwiseRegular,
     DocumentRegular
 } from '@fluentui/react-icons'
-import { apiClient } from '../../../lib/api'
+import { apiClient, extractionApi } from '../../../lib/api'
+
+// ... existing code ...
+
 import { downloadAsExcel } from '../../../utils/excel'
 import { toast } from 'sonner'
 import { ExtractionDataViewer } from './ExtractionDataViewer'
@@ -170,6 +173,29 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
             await queryClient.invalidateQueries({ queryKey: ['extraction-logs', modelId] })
         } catch {
             toast.error('재시도 요청 실패')
+        }
+    }
+
+    const handleCancel = async (log: ExtractionLog) => {
+        if (!log.job_id) return
+        if (!confirm('정말로 이 작업을 취소하시겠습니까?')) return
+        try {
+            await extractionApi.cancelJob(log.job_id)
+            toast.success('작업이 취소되었습니다.')
+            await queryClient.invalidateQueries({ queryKey: ['extraction-logs', modelId] })
+        } catch {
+            toast.error('작업 취소 실패')
+        }
+    }
+
+    const handleDelete = async (log: ExtractionLog) => {
+        if (!confirm('정말로 이 기록을 삭제하시겠습니까? 복구할 수 없습니다.')) return
+        try {
+            await extractionApi.deleteJob(log.id)
+            toast.success('기록이 삭제되었습니다.')
+            await queryClient.invalidateQueries({ queryKey: ['extraction-logs', modelId] })
+        } catch {
+            toast.error('삭제 실패')
         }
     }
 
@@ -351,6 +377,8 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
                             onView={(log) => handleRowClick(log, false)}
                             onDownload={handleDownload}
                             onRetry={handleRetry}
+                            onCancel={handleCancel}
+                            onDelete={handleDelete}
                         />
                     )}
                 </Card>

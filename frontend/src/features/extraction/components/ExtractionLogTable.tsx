@@ -40,6 +40,8 @@ interface ExtractionLogTableProps {
     onView?: (log: ExtractionLog) => void
     onDownload?: (log: ExtractionLog) => void
     onRetry?: (log: ExtractionLog) => void
+    onDelete?: (log: ExtractionLog) => void
+    onCancel?: (log: ExtractionLog) => void
 }
 
 export function ExtractionLogTable({
@@ -51,7 +53,9 @@ export function ExtractionLogTable({
     onSelectAll,
     onView,
     onDownload,
-    onRetry
+    onRetry,
+    onDelete,
+    onCancel
 }: ExtractionLogTableProps) {
     const [sorting, setSorting] = React.useState<SortingState>([])
 
@@ -230,6 +234,29 @@ export function ExtractionLogTable({
                                     다시 추출
                                 </DropdownMenuItem>
                             )}
+                            {/* Cancel Option for Processing Jobs */}
+                            {isProcessingStatus(row.original.status) && onCancel && (
+                                <DropdownMenuItem
+                                    onClick={(e) => { e.stopPropagation(); onCancel(row.original); }}
+                                    className="text-destructive focus:text-destructive"
+                                >
+                                    <AlertCircle className="w-4 h-4 mr-2" />
+                                    작업 취소
+                                </DropdownMenuItem>
+                            )}
+                            {/* Delete Option for Non-Processing Jobs */}
+                            {!isProcessingStatus(row.original.status) && onDelete && (
+                                <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                        onClick={(e) => { e.stopPropagation(); onDelete(row.original); }}
+                                        className="text-destructive focus:text-destructive"
+                                    >
+                                        <AlertCircle className="w-4 h-4 mr-2" />
+                                        기록 삭제
+                                    </DropdownMenuItem>
+                                </>
+                            )}
                         </DropdownMenuContent>
                     </DropdownMenu>
                 </div>
@@ -239,7 +266,7 @@ export function ExtractionLogTable({
         })
 
         return cols
-    }, [enableSelection, selectedIds, showModelColumn, onSelect, onSelectAll, onView, onDownload, onRetry])
+    }, [enableSelection, selectedIds, showModelColumn, onSelect, onSelectAll, onView, onDownload, onRetry, onDelete, onCancel])
 
     const table = useReactTable({
         data: logs,

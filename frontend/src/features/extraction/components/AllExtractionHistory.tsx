@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 // import { useNavigate } from 'react-router-dom'
 import { Clock, Search, AlertTriangle, Check, ChevronsUpDown } from 'lucide-react'
 import {
@@ -16,7 +16,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
-import { apiClient, modelsApi, usersApi } from '../../../lib/api'
+import { apiClient, modelsApi, usersApi, extractionApi } from '../../../lib/api'
 import { downloadAsExcel } from '../../../utils/excel'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -100,7 +100,7 @@ const Combobox = ({ value, onChange, options, placeholder, searchPlaceholder }: 
 }
 
 export function AllExtractionHistory({ onNavigate }: AllExtractionHistoryProps) {
-
+    const queryClient = useQueryClient()
     const [modelFilter, setModelFilter] = useState<string>('all')
     const [userFilter, setUserFilter] = useState<string>('all')
     const [searchTerm, setSearchTerm] = useState('')
@@ -197,6 +197,30 @@ export function AllExtractionHistory({ onNavigate }: AllExtractionHistoryProps) 
             success: '재시도 작업이 시작되었습니다. 잠시 후 목록이 갱신됩니다.',
             error: '재시도 요청 실패'
         })
+        await queryClient.invalidateQueries({ queryKey: ['extraction-logs-all'] })
+    }
+
+    const handleCancel = async (log: ExtractionLog) => {
+        if (!log.job_id) return
+        if (!confirm('정말로 이 작업을 취소하시겠습니까?')) return
+        try {
+            await extractionApi.cancelJob(log.job_id)
+            toast.success('작업이 취소되었습니다.')
+            await queryClient.invalidateQueries({ queryKey: ['extraction-logs-all'] })
+        } catch {
+            toast.error('작업 취소 실패')
+        }
+    }
+
+    const handleDelete = async (log: ExtractionLog) => {
+        if (!confirm('정말로 이 기록을 삭제하시겠습니까? 복구할 수 없습니다.')) return
+        try {
+            await extractionApi.deleteJob(log.id)
+            toast.success('기록이 삭제되었습니다.')
+            await queryClient.invalidateQueries({ queryKey: ['extraction-logs-all'] })
+        } catch {
+            toast.error('삭제 실패')
+        }
     }
 
     const handleView = (log: ExtractionLog) => {
@@ -312,6 +336,8 @@ export function AllExtractionHistory({ onNavigate }: AllExtractionHistoryProps) 
                             onView={handleView}
                             onDownload={handleDownload}
                             onRetry={handleRetry}
+                            onCancel={handleCancel}
+                            onDelete={handleDelete}
                         />
                     )}
                 </Card>

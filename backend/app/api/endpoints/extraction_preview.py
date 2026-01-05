@@ -213,7 +213,58 @@ def get_job_status(
         "file_url": job.file_url,
         "created_at": job.created_at,
         "updated_at": job.updated_at
+    return {
+        "job_id": job.id,
+        "status": job.status,
+        "preview_data": job.preview_data,
+        "extracted_data": job.extracted_data,
+        "error": job.error,
+        "filename": job.filename,
+        "file_url": job.file_url,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at
     }
+
+
+@router.delete("/job/{job_id}")
+def delete_extraction_job(
+    job_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Delete a job"""
+    # Optional: check ownership if not admin
+    job = extraction_jobs.get_job(job_id)
+    if not job:
+         raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.user_id != current_user.id and not is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    success = extraction_jobs.delete_job(job_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete job")
+    
+    return {"success": True, "job_id": job_id}
+
+
+@router.post("/job/{job_id}/cancel")
+def cancel_extraction_job(
+    job_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Cancel a running job"""
+    job = extraction_jobs.get_job(job_id)
+    if not job:
+         raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.user_id != current_user.id and not is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    updated_job = extraction_jobs.cancel_job(job_id)
+    if not updated_job:
+         raise HTTPException(status_code=500, detail="Failed to cancel job")
+
+    return {"success": True, "status": "cancelled"}
 
 
 @router.post("/confirm-job/{job_id}")

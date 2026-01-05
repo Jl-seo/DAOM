@@ -243,3 +243,47 @@ def get_latest_job_by_log_id(log_id: str) -> Optional[ExtractionJob]:
         print(f"[ExtractionJobs] Failed to get job by log_id: {e}")
     
     return None
+
+
+def delete_job(job_id: str) -> bool:
+    """Delete a job or log permanently by ID"""
+    container = get_extractions_container()
+    if not container:
+        return False
+    
+    try:
+        # Find item by ID to get partition key (model_id)
+        # We query without type restriction to handle both Jobs and Logs
+        query = "SELECT * FROM c WHERE c.id = @id"
+        items = list(container.query_items(
+            query=query,
+            parameters=[{"name": "@id", "value": job_id}],
+            enable_cross_partition_query=True
+        ))
+        
+        if not items:
+            return False
+
+        item = items[0]
+        partition_key = item.get("model_id") # Most items use model_id as PK
+        
+        if not partition_key:
+             # Fallback or check if it's a legacy item. 
+             # If no model_id, maybe we can't delete if PK is required.
+             # Tries deleting using id as PK? (unlikely for this container)
+             print(f"[ExtractionJobs] Item {job_id} has no model_id partition key.")
+             return False
+
+        container.delete_item(item=job_id, partition_key=partition_key)
+        return True
+    except Exception as e:
+        print(f"[ExtractionJobs] Failed to delete item {job_id}: {e}")
+        return False
+
+
+def cancel_job(job_id: str) -> Optional[ExtractionJob]:
+    """Cancel a running job"""
+    # Just update status. The background task might still run but result save will check job status?
+    # Or we can't easily stop the background task thread.
+    # But updating status prevents frontend from polling it as active.
+    return update_job(job_id, status="cancelled", error="Cancelled by user")

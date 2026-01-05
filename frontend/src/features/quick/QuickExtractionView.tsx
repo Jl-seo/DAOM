@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card'
 import { extractionApi } from '@/lib/api'
 import { useQuery } from '@tanstack/react-query'
 import type { ExtractionJob } from '@/types/extraction'
+import { toast } from 'sonner'
 
 // Simple polling hook for job status
 // This hook is not part of the QuickExtractionView component, it's a separate function.
@@ -92,16 +93,53 @@ export function QuickExtractionView() {
                     </div>
                     <h3 className="text-xl font-semibold">AI가 문서를 분석하고 있습니다...</h3>
                     <p className="text-muted-foreground">잠시만 기다려주세요.</p>
+                    <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={async () => {
+                            if (!confirm('분석을 중단하시겠습니까?')) return;
+                            try {
+                                await extractionApi.cancelJob(jobId!); // jobId is guaranteed if job exists and we are polling
+                                toast.success('분석이 취소되었습니다.');
+                                setJobId(null); // Stop polling
+                                setFile(null); // Return to upload
+                            } catch {
+                                toast.error('취소 실패');
+                            }
+                        }}
+                        className="mt-4"
+                    >
+                        분석 중단
+                    </Button>
                 </div>
             )
         }
 
-        if (job.status === 'error' || (job.status === 'completed' && job.error)) { // Check for completed with error
+        if (job.status === 'error' || (job.status === 'completed' && job.error) || job.status === 'cancelled') {
             return (
                 <div className="p-8 text-center text-red-500 bg-red-50 rounded-lg">
-                    <h3 className="text-lg font-bold">분석 실패</h3>
-                    <p>{job.error || "알 수 없는 오류가 발생했습니다."}</p>
-                    <Button variant="outline" onClick={handleReset} className="mt-4">다시 시도</Button>
+                    <h3 className="text-lg font-bold">{job.status === 'cancelled' ? '분석 취소됨' : '분석 실패'}</h3>
+                    <p>{job.error || "작업이 중단되었습니다."}</p>
+                    <div className="flex justify-center gap-3 mt-4">
+                        <Button variant="outline" onClick={handleReset}>다시 시도</Button>
+                        <Button
+                            variant="default"
+                            className="bg-red-600 hover:bg-red-700"
+                            onClick={async () => {
+                                if (!confirm('정말로 기록을 삭제하시겠습니까?')) return;
+                                try {
+                                    // Use job.job_id since ExtractionJob uses job_id
+                                    await extractionApi.deleteJob(job.job_id || jobId!);
+                                    toast.success('삭제되었습니다.');
+                                    handleReset();
+                                } catch {
+                                    toast.error('삭제 실패');
+                                }
+                            }}
+                        >
+                            기록 삭제
+                        </Button>
+                    </div>
                 </div>
             )
         }
@@ -134,7 +172,26 @@ export function QuickExtractionView() {
                             <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-sm">완료</span>
                             추출 결과 ({keys.length}개 항목)
                         </h3>
-                        <Button variant="outline" onClick={handleReset} size="sm">새로 하기</Button>
+                        <div className="flex gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={async () => {
+                                    if (!confirm('기록을 삭제하시겠습니까?')) return;
+                                    try {
+                                        await extractionApi.deleteJob(job.job_id); // Use job_id
+                                        toast.success('삭제되었습니다.');
+                                        handleReset();
+                                    } catch {
+                                        toast.error('삭제 실패');
+                                    }
+                                }}
+                                size="sm"
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                                삭제
+                            </Button>
+                            <Button variant="outline" onClick={handleReset} size="sm">새로 하기</Button>
+                        </div>
                     </div>
 
                     {/* Mobile: Card View */}
@@ -159,20 +216,20 @@ export function QuickExtractionView() {
                     <div className="hidden md:block border rounded-lg overflow-hidden">
                         <table className="w-full text-sm">
                             <thead className="bg-muted/50">
-                                <tr>
-                                    <th className="px-4 py-3 text-left font-medium w-1/3">Field</th>
-                                    <th className="px-4 py-3 text-left font-medium">Extracted Value</th>
-                                    <th className="px-4 py-3 text-left font-medium w-24">Type</th>
+                                <tr className="border-b">
+                                    <th className="px-4 py-3 text-left font-medium w-1/3 text-muted-foreground text-xs uppercase">Field</th>
+                                    <th className="px-4 py-3 text-left font-medium text-muted-foreground text-xs uppercase">Extracted Value</th>
+                                    <th className="px-4 py-3 text-left font-medium w-24 text-muted-foreground text-xs uppercase">Type</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y">
+                            <tbody className="divide-y bg-card">
                                 {keys.map(key => {
                                     const item = data[key]
                                     return (
-                                        <tr key={key} className="hover:bg-muted/5">
-                                            <td className="px-4 py-3 font-medium text-muted-foreground">{key}</td>
-                                            <td className="px-4 py-3">{item.value?.toString() || '-'}</td>
-                                            <td className="px-4 py-3 text-xs text-muted-foreground">{item.type}</td>
+                                        <tr key={key} className="hover:bg-muted/5 transition-colors">
+                                            <td className="px-4 py-3 font-medium text-foreground">{key}</td>
+                                            <td className="px-4 py-3 text-foreground">{item.value?.toString() || '-'}</td>
+                                            <td className="px-4 py-3 text-xs text-muted-foreground font-mono">{item.type}</td>
                                         </tr>
                                     )
                                 })}

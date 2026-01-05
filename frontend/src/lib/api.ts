@@ -129,7 +129,13 @@ export const extractionApi = {
         return apiClient.post<{ job_id: string }>(`/documents/extract/${modelId}`, formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
         })
-    }
+    },
+
+    deleteJob: (jobId: string) =>
+        apiClient.delete(`/extraction/job/${jobId}`),
+
+    cancelJob: (jobId: string) =>
+        apiClient.post(`/extraction/job/${jobId}/cancel`)
 }
 
 // ============================================

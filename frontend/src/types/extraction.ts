@@ -1,4 +1,4 @@
-export type ExtractionStatus = 'pending' | 'uploading' | 'processing' | 'analyzing' | 'completed' | 'success' | 'failed' | 'error'
+export type ExtractionStatus = 'pending' | 'uploading' | 'processing' | 'analyzing' | 'completed' | 'success' | 'failed' | 'error' | 'cancelled'
 
 export interface ExtractionJob {
     job_id: string
