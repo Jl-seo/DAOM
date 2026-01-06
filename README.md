@@ -12,8 +12,9 @@ DAOM은 Azure AI Document Intelligence와 GPT를 결합하여 비정형 문서(P
 - **🎨 커스텀 모델 정의**: 추출하고 싶은 필드를 직접 정의하여 모델 생성
 - **📊 실시간 검증 UI**: 추출된 데이터를 PDF와 함께 보며 실시간 수정 가능
 - **🔄 재시도 및 이력 관리**: 추출 실패 시 재시도, 전체 추출 이력 관리
+- **⚡ OCR 캐싱**: 재시도 시 OCR 결과를 캐시하여 95% 빠른 처리
 - **👥 멀티 테넌트**: Entra ID 기반 인증 및 권한 관리
-- **⚡ 대용량 문서 처리**: 페이지별 청킹으로 토큰 제한 극복
+- **📦 대용량 문서 처리**: 페이지별 청킹으로 토큰 제한 극복
 
 ---
 
@@ -50,6 +51,7 @@ DAOM은 Azure AI Document Intelligence와 GPT를 결합하여 비정형 문서(P
 
 **Infrastructure**
 - Azure Container Apps
+- Azure Container Registry (ACR)
 - GitHub Actions (CI/CD)
 - Docker
 
@@ -300,6 +302,7 @@ npm run dev
 - **S100**: 추출 완료 (Success)
 - **S200**: 검증 완료 (Confirmed)
 - **E100**: 오류 (Error)
+- **E300**: 취소됨 (Cancelled)
 
 ---
 
@@ -310,9 +313,10 @@ npm run dev
 #### 테스트 배포 (feature/*, fix/* 브랜치)
 
 ```yaml
-# .github/workflows/deploy-test.yml
+# .github/workflows/deploy-test-backend.yml
+# .github/workflows/deploy-test-frontend.yml
 # feature/* 또는 fix/* 브랜치 푸시 시 자동 배포
-# 테스트 리비전 생성 (트래픽 라우팅 안 함)
+# Azure Container Registry 사용
 ```
 
 #### 프로덕션 배포 (main 브랜치)
@@ -431,7 +435,8 @@ daom/
 │   └── workflows/
 │       ├── deploy-frontend.yml
 │       ├── deploy-backend.yml
-│       └── deploy-test.yml
+│       ├── deploy-test-frontend.yml
+│       └── deploy-test-backend.yml
 └── README.md
 ```
 
