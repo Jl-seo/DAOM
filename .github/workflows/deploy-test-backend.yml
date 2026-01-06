@@ -78,9 +78,7 @@ jobs:
             az containerapp update \
               --name $APP_NAME --resource-group $RG \
               --image $IMAGE \
-              --revision-suffix $SUFFIX \
-              --command uvicorn \
-              --args "main:app" "--host" "0.0.0.0" "--port" "8000" "--proxy-headers" "--forwarded-allow-ips" "*"
+              --revision-suffix $SUFFIX
 
             echo ">> Routing 100% traffic to revision: $REVISION"
             az containerapp ingress traffic set \
