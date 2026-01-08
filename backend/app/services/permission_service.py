@@ -44,14 +44,31 @@ async def can_access_model(user: User, model_id: str) -> bool:
     Check if user can access a model
     
     Access is granted if:
-    1. User is Admin
-    2. User is model owner
-    3. User is in model's users list
-    4. User is member of a group in model's groups list
-    5. Model is public
+    1. User is Bootstrap Admin (INITIAL_ADMIN_EMAILS)
+    2. User is superAdmin via group membership
+    3. User has model permission via group
+    4. User is model owner
+    5. User is in model's users list
+    6. User is member of a group in model's groups list
+    7. Model is public
     """
-    # Admins can access everything
-    if user.role == "Admin":
+    from app.core.group_permission_utils import (
+        check_initial_admin, 
+        is_super_admin_by_group,
+        get_model_role_by_group
+    )
+    
+    # 1. Bootstrap admin
+    if check_initial_admin(user.email):
+        return True
+    
+    # 2. Group superAdmin -> access all models
+    if await is_super_admin_by_group(user.id, user.tenant_id):
+        return True
+    
+    # 3. Group-based model permission
+    role = await get_model_role_by_group(user.id, user.tenant_id, model_id)
+    if role:  # "Admin" or "User" both grant access
         return True
     
     container = get_container(MODELS_CONTAINER, "/id")
@@ -161,13 +178,16 @@ async def get_model_permissions(model_id: str) -> Optional[ModelPermissions]:
 
 async def get_accessible_models(user: User) -> list[str]:
     """Get list of model IDs user can access"""
+    from app.core.group_permission_utils import check_initial_admin, is_super_admin_by_group
+    
     container = get_container(MODELS_CONTAINER, "/id")
     if not container:
         return []
     
     try:
-        # Admins can access all models
-        if user.role == "Admin":
+        # Bootstrap admin or superAdmin can access all models
+        is_admin = check_initial_admin(user.email) or await is_super_admin_by_group(user.id, user.tenant_id)
+        if is_admin:
             items = list(container.query_items(
                 query="SELECT c.id FROM c",
                 enable_cross_partition_query=True

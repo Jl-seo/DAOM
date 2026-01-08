@@ -123,41 +123,37 @@ async def get_current_user_optional(request: Request) -> Optional[CurrentUser]:
     return await auth(request)
 
 
-def is_admin(user: CurrentUser) -> bool:
-    """Check if user has admin role"""
+async def is_admin(user: CurrentUser) -> bool:
+    """Check if user has admin privileges via group membership"""
     if not user:
         return False
-    # Normalize roles for comparison
-    roles_lower = [r.lower() for r in user.roles]
-    admin_roles = [UserRole.ADMIN.value.lower(), UserRole.SYSTEM_ADMIN.value.lower(), UserRole.SUPER_ADMIN.value.lower()]
     
-    # 1. Check Token Roles
-    if any(role in admin_roles for role in roles_lower):
+    # Import group permission utilities
+    from app.core.group_permission_utils import check_initial_admin, is_super_admin_by_group
+    
+    # 1. Bootstrap: INITIAL_ADMIN_EMAILS (for initial setup/testing)
+    if check_initial_admin(user.email):
         return True
     
-    # 2. Check Initial Admin Emails (Dev/Bootstrap fallback)
-    # This allows users specified in .env to be admins even without Azure AD roles
-    if user.email and settings.INITIAL_ADMIN_EMAILS:
-        initial_admins = [e.strip().lower() for e in settings.INITIAL_ADMIN_EMAILS.split(',')]
-        if user.email.lower() in initial_admins:
-            return True
-            
+    # 2. Production: Check Cosmos DB group membership with superAdmin=true
+    if await is_super_admin_by_group(user.id, user.tenant_id):
+        return True
+    
     return False
 
-def is_super_admin(user: CurrentUser) -> bool:
-    """Check if user has super admin role"""
+async def is_super_admin(user: CurrentUser) -> bool:
+    """Check if user has super admin privileges via group membership"""
     if not user:
         return False
-        
-    # 1. Check Token Roles
-    if user.roles and (UserRole.SUPER_ADMIN.value in user.roles or UserRole.SYSTEM_ADMIN.value in user.roles):
+    
+    from app.core.group_permission_utils import check_initial_admin, is_super_admin_by_group
+    
+    # 1. Bootstrap: INITIAL_ADMIN_EMAILS
+    if check_initial_admin(user.email):
         return True
-        
-    # 2. Check Initial Admin Emails (Dev/Bootstrap fallback)
-    # This allows users specified in .env to be super admins
-    if user.email and settings.INITIAL_ADMIN_EMAILS:
-        initial_admins = [e.strip().lower() for e in settings.INITIAL_ADMIN_EMAILS.split(',')]
-        if user.email.lower() in initial_admins:
-            return True
-            
+    
+    # 2. Production: Check Cosmos DB group superAdmin
+    if await is_super_admin_by_group(user.id, user.tenant_id):
+        return True
+    
     return False

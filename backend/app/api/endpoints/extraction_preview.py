@@ -218,7 +218,7 @@ def get_job_status(
 
 
 @router.delete("/job/{job_id}")
-def delete_extraction_job(
+async def delete_extraction_job(
     job_id: str,
     current_user: CurrentUser = Depends(get_current_user)
 ):
@@ -228,7 +228,7 @@ def delete_extraction_job(
     if not job:
          raise HTTPException(status_code=404, detail="Job not found")
 
-    if job.user_id != current_user.id and not is_admin(current_user):
+    if job.user_id != current_user.id and not await is_admin(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     success = extraction_jobs.delete_job(job_id)
@@ -239,7 +239,7 @@ def delete_extraction_job(
 
 
 @router.post("/job/{job_id}/cancel")
-def cancel_extraction_job(
+async def cancel_extraction_job(
     job_id: str,
     current_user: CurrentUser = Depends(get_current_user)
 ):
@@ -248,7 +248,7 @@ def cancel_extraction_job(
     if not job:
          raise HTTPException(status_code=404, detail="Job not found")
     
-    if job.user_id != current_user.id and not is_admin(current_user):
+    if job.user_id != current_user.id and not await is_admin(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
     updated_job = extraction_jobs.cancel_job(job_id)
@@ -873,7 +873,7 @@ async def get_extraction_logs_by_model(
     """
     Get extraction logs for a specific model
     """
-    if is_admin(current_user):
+    if await is_admin(current_user):
         logs = extraction_logs.get_logs_by_model(model_id=model_id, limit=limit)
     else:
         # Non-admin: only their own logs for this model
@@ -895,7 +895,7 @@ async def get_all_extraction_logs(
     user_oid = current_user.id
     
     # Admin can see all logs, regular users see only their logs
-    if is_admin(current_user):
+    if await is_admin(current_user):
         logs = extraction_logs.get_all_logs(limit=limit)
     else:
         logs = extraction_logs.get_logs_by_user(user_id=user_oid, limit=limit)
@@ -920,7 +920,7 @@ async def bulk_delete_logs(
         raise HTTPException(status_code=400, detail="No log IDs provided")
     
     # Verify permissions for each log
-    if not is_admin(current_user):
+    if not await is_admin(current_user):
         # Non-admin: verify they own all logs
         for log_id in log_ids:
             log = extraction_logs.get_log(log_id)
