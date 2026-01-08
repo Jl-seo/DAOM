@@ -332,6 +332,15 @@ IMPORTANT:
     def _validate_and_format_universal(self, raw_data: Dict[str, Any], pages_info: List[Dict[str, Any]], default_page: int = 1) -> Dict[str, Any]:
         """Relaxed validation for universal mode"""
         guide_extracted = raw_data.get("guide_extracted", {})
+        
+        # Defensive: if LLM returns a list instead of dict, convert or skip
+        if isinstance(guide_extracted, list):
+            logger.warning(f"[Validation-Universal] guide_extracted is a list, converting to dict")
+            guide_extracted = {f"item_{i}": item for i, item in enumerate(guide_extracted) if isinstance(item, dict)}
+        elif not isinstance(guide_extracted, dict):
+            logger.error(f"[Validation-Universal] guide_extracted is not a dict or list: {type(guide_extracted)}")
+            guide_extracted = {}
+        
         validated_extracted = {}
         
         page_dims = {p["page_number"]: (p["width"], p["height"]) for p in pages_info}
@@ -523,6 +532,22 @@ IMPORTANT:
         Adds confidence flags and normalizes bbox for frontend rendering.
         """
         guide_extracted = raw_data.get("guide_extracted", {})
+        
+        # Defensive: if LLM returns a list instead of dict, convert or handle gracefully
+        if isinstance(guide_extracted, list):
+            logger.warning(f"[Validation] guide_extracted is a list, converting to dict")
+            # Try to convert list to dict using 'key' field if present, otherwise numeric index
+            converted = {}
+            for i, item in enumerate(guide_extracted):
+                if isinstance(item, dict) and 'key' in item:
+                    converted[item['key']] = item
+                elif isinstance(item, dict):
+                    converted[f"item_{i}"] = item
+            guide_extracted = converted
+        elif not isinstance(guide_extracted, dict):
+            logger.error(f"[Validation] guide_extracted is not a dict or list: {type(guide_extracted)}")
+            guide_extracted = {}
+        
         validated_extracted = {}
 
         CONFIDENCE_THRESHOLD = 0.7  # Flag values below this
@@ -533,6 +558,9 @@ IMPORTANT:
         for field in model.fields:
             key = field.key
             item = guide_extracted.get(key, {})
+            # Defensive: item must also be a dict
+            if not isinstance(item, dict):
+                item = {"value": item} if item is not None else {}
             original_value = item.get("value")
             value = original_value
             confidence = item.get("confidence", 0)
@@ -729,16 +757,7 @@ IMPORTANT:
         try:
             x1, y1, x2, y2 = [float(b) for b in bbox[:4]]
             
-            # If coordinates are seemingly already in 0-100 range (percentage)
-            # Checking if both width/height are <= 1 might indicate normalized 0-1 too, 
-            # but usually pixel coordinates for docs are much larger.
-            # However, if page dims are not provided, we might assume they are already normalized? 
-            # Or if they are very small.
-            
-            # Case 1: Already Percentage-ish
-            # BUT: Azure usually returns Inches or Pixels.
-            
-            # Allow pure calculation if page dimensions are valid
+            # Case 1: Page dimensions are provided - calculate percentages
             if page_width > 0 and page_height > 0:
                 return {
                     "x1": (x1 / page_width) * 100,
@@ -747,18 +766,55 @@ IMPORTANT:
                     "height": ((y2 - y1) / page_height) * 100
                 }
             
-            # Fallback: legacy logic or guess
-            # If coordinates look like percentages (0-100) and no page info
+            # Case 2: Coordinates already look like percentages (0-100 range)
             if all(0 <= v <= 100 for v in [x1, y1, x2, y2]):
-                 return {
+                return {
                     "x1": x1,
                     "y1": y1,
                     "width": x2 - x1,
                     "height": y2 - y1
                 }
-
-            return None
-        except (ValueError, TypeError):
+            
+            # Case 3: Azure Document Intelligence returns inches (typically 0-11 for letter size)
+            # Standard letter size: 8.5 x 11 inches
+            # Common A4 size: 8.27 x 11.69 inches
+            # If coordinates are in reasonable inch range, convert using standard page size
+            if all(0 <= v <= 20 for v in [x1, y1, x2, y2]):
+                # Assume standard letter size in inches
+                default_page_width = 8.5
+                default_page_height = 11.0
+                logger.info(f"[_normalize_bbox] Using default page dims (inches): {default_page_width}x{default_page_height}")
+                return {
+                    "x1": (x1 / default_page_width) * 100,
+                    "y1": (y1 / default_page_height) * 100,
+                    "width": ((x2 - x1) / default_page_width) * 100,
+                    "height": ((y2 - y1) / default_page_height) * 100
+                }
+            
+            # Case 4: Coordinates might be in pixels (typically 600-2000+ for scanned docs)
+            # Assume common DPI scan: 8.5in * 72dpi = 612 pixels width
+            if x2 > 100 or y2 > 100:
+                # Estimate page size from max coordinate (assume roughly letter-size ratio)
+                estimated_width = max(x2 * 1.1, 612)  # Add 10% margin or use standard
+                estimated_height = max(y2 * 1.1, 792)  # 11 * 72 = 792
+                logger.info(f"[_normalize_bbox] Estimating page dims (pixels): {estimated_width}x{estimated_height}")
+                return {
+                    "x1": (x1 / estimated_width) * 100,
+                    "y1": (y1 / estimated_height) * 100,
+                    "width": ((x2 - x1) / estimated_width) * 100,
+                    "height": ((y2 - y1) / estimated_height) * 100
+                }
+            
+            # Fallback: return raw coordinates as-is (frontend will try to use them)
+            logger.warning(f"[_normalize_bbox] Could not normalize bbox, returning raw: {bbox}")
+            return {
+                "x1": x1,
+                "y1": y1,
+                "width": x2 - x1,
+                "height": y2 - y1
+            }
+        except (ValueError, TypeError) as e:
+            logger.error(f"[_normalize_bbox] Error: {e}, bbox: {bbox}")
             return None
 
 # Singleton instance
