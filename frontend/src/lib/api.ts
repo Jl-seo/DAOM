@@ -134,6 +134,9 @@ export const extractionApi = {
     deleteJob: (jobId: string) =>
         apiClient.delete(`/extraction/job/${jobId}`),
 
+    deleteLogs: (logIds: string[]) =>
+        apiClient.delete(`/extraction/logs/bulk`, { data: logIds }),
+
     cancelJob: (jobId: string) =>
         apiClient.post(`/extraction/job/${jobId}/cancel`)
 }

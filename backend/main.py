@@ -71,3 +71,11 @@ except Exception as e:
     print("!!! CRITICAL STARTUP ERROR !!!", file=sys.stderr)
     traceback.print_exc(file=sys.stderr)
     sys.exit(1)
+
+if __name__ == "__main__":
+    import uvicorn
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8000)
+    args = parser.parse_args()
+    uvicorn.run("main:app", host="0.0.0.0", port=args.port, reload=True)

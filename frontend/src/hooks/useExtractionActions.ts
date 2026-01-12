@@ -56,7 +56,8 @@ export function useExtractionActions(options: UseExtractionActionsOptions = {}) 
     const handleDelete = async (log: ExtractionLog) => {
         if (!confirm('정말로 이 기록을 삭제하시겠습니까? 복구할 수 없습니다.')) return false
         try {
-            await extractionApi.deleteJob(log.id)
+            // Use logs bulk delete endpoint for correct log deletion
+            await extractionApi.deleteLogs([log.id])
             toast.success('기록이 삭제되었습니다.')
             await invalidateLogs()
             return true

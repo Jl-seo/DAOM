@@ -1,19 +1,30 @@
 import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Upload, FileText, AlertTriangle, X } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { AnimatedCircularProgress } from '@/components/ui/animated-circular-progress'
 import { AnimatedProgressBar } from '@/components/ui/animated-progress-bar'
 import { cn } from '@/lib/utils'
-import type { ExtractionStatus } from '../types'
-import { isProcessingStatus, isReviewNeededStatus, isSuccessStatus, isErrorStatus, STATUS_LABELS, STATUS_PROGRESS, STATUS_STEP, EXTRACTION_STATUS } from '../constants/status'
+import type { ExtractionModel, ExtractionStatus } from '../types'
+import {
+    EXTRACTION_STATUS,
+    STATUS_LABELS,
+    STATUS_PROGRESS,
+    STATUS_STEP,
+    isSuccessStatus,
+    isErrorStatus,
+    isProcessingStatus,
+    isReviewNeededStatus
+} from '../constants/status'
 
 interface ExtractionUploadViewProps {
     file: File | null
     status: ExtractionStatus
     error?: string | null
-    onFileSelect: (file: File) => void
+    model: ExtractionModel | null // NEW
+    onFileSelect: (file: File, candidateFiles?: File[]) => void
     onCancel: () => void
 }
 
@@ -21,31 +32,37 @@ export function ExtractionUploadView({
     file: _file,
     status,
     error,
+    model,
     onFileSelect,
     onCancel
 }: ExtractionUploadViewProps) {
+    const { t } = useTranslation()
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const candidateInputRef = useRef<HTMLInputElement>(null)
     const [isDragging, setIsDragging] = useState(false)
+    const [selectedBaseline, setSelectedBaseline] = useState<File | null>(null)
+    const [selectedCandidates, setSelectedCandidates] = useState<File[]>([]) // CHANGED: Array
 
+    // Handle single file (Extraction Mode)
     const handleFileSelect = (selectedFile: File | null | undefined) => {
         if (selectedFile) onFileSelect(selectedFile)
     }
 
-    // Determine if we're in a processing state (excludes idle and ready states)
+    // Determine if we're in a processing state
     const isActiveProcessing = isProcessingStatus(status) && !isReviewNeededStatus(status) && !isSuccessStatus(status) && !isErrorStatus(status) && status !== 'idle'
 
     // Get human-readable status message
     const getProcessingMessage = () => {
         if (status === EXTRACTION_STATUS.UPLOADING) {
-            return '문서를 업로드하고 있습니다'
+            return t('extraction.processing.uploading')
         }
-        return STATUS_LABELS[status] || 'AI가 문서를 분석하고 있습니다'
+        return STATUS_LABELS[status] || t('extraction.processing.document_analysis')
     }
 
-    // Processing state - show spinner with progress bar when actively processing
+    // Processing state
     if (isActiveProcessing) {
         const progress = STATUS_PROGRESS[status] || 0
-        const stepInfo = STATUS_STEP[status] || { current: 1, total: 4, label: '처리 중' }
+        const stepInfo = STATUS_STEP[status] || { current: 1, total: 4, label: t('common.status.processing') }
 
         return (
             <motion.div
@@ -69,9 +86,9 @@ export function ExtractionUploadView({
                 <h2 className="text-2xl font-bold mb-1">
                     {getProcessingMessage()}
                 </h2>
-                <p className="text-muted-foreground mb-6">잠시만 기다려주세요...</p>
+                <p className="text-muted-foreground mb-6">{t('extraction.processing.please_wait')}</p>
 
-                {/* Progress Bar - Magic UI Style */}
+                {/* Progress Bar */}
                 <div className="w-full max-w-md mb-4">
                     <div className="flex justify-between text-sm text-muted-foreground mb-2">
                         <span className="font-medium text-foreground">{stepInfo.label}</span>
@@ -80,55 +97,149 @@ export function ExtractionUploadView({
                     <AnimatedProgressBar value={progress} size="md" />
                 </div>
 
-                {/* Step Indicator */}
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-8">
-                    {Array.from({ length: stepInfo.total }).map((_, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                            <motion.div
-                                className={cn(
-                                    "w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-colors relative",
-                                    i + 1 < stepInfo.current
-                                        ? "bg-primary text-primary-foreground"
-                                        : i + 1 === stepInfo.current
-                                            ? "bg-primary text-primary-foreground"
-                                            : "bg-muted text-muted-foreground"
-                                )}
-                                animate={i + 1 === stepInfo.current ? {
-                                    scale: [1, 1.1, 1],
-                                    boxShadow: [
-                                        '0 0 0 0 hsl(var(--primary) / 0.4)',
-                                        '0 0 0 8px hsl(var(--primary) / 0)',
-                                        '0 0 0 0 hsl(var(--primary) / 0)'
-                                    ]
-                                } : {}}
-                                transition={{ duration: 1.5, repeat: Infinity }}
-                            >
-                                {i + 1 < stepInfo.current ? '✓' : i + 1}
-                            </motion.div>
-                            {i < stepInfo.total - 1 && (
-                                <motion.div
-                                    className={cn(
-                                        "w-10 h-1 rounded-full",
-                                        i + 1 < stepInfo.current ? "bg-primary" : "bg-muted"
-                                    )}
-                                    initial={false}
-                                    animate={i + 1 < stepInfo.current ? {
-                                        background: 'hsl(var(--primary))'
-                                    } : {}}
-                                />
-                            )}
-                        </div>
-                    ))}
-                </div>
-
                 <Button variant="outline" onClick={onCancel}>
-                    취소하기
+                    {t('common.actions.cancel')}
                 </Button>
             </motion.div>
         )
     }
 
-    // Upload state
+    const isComparisonMode = model?.model_type === 'comparison'
+
+    // Comparison Mode Upload View
+    if (isComparisonMode) {
+        return (
+            <motion.div
+                key="upload-comparison"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                className="h-full flex flex-col items-center justify-center p-8"
+            >
+                <h2 className="text-2xl font-bold mb-2">{t('comparison.title.upload_view')}</h2>
+                <p className="text-muted-foreground mb-8">{t('comparison.upload.description')}</p>
+
+                <div className="flex gap-6 w-full max-w-5xl h-[350px]">
+                    {/* Baseline Upload */}
+                    <Card
+                        className={cn(
+                            "flex-1 flex flex-col items-center justify-center border-2 border-dashed transition-all duration-300 relative cursor-pointer",
+                            selectedBaseline ? "border-primary bg-primary/5" : "border-muted-foreground/20 hover:border-primary/50"
+                        )}
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        <h3 className="font-bold mb-2">{t('comparison.upload.baseline_label')}</h3>
+                        {selectedBaseline ? (
+                            <div className="flex flex-col items-center text-primary">
+                                <FileText className="w-8 h-8 mb-2" />
+                                <span className="text-sm truncate max-w-[150px] font-medium">{selectedBaseline.name}</span>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center text-muted-foreground">
+                                <Upload className="w-8 h-8 mb-2" />
+                                <span className="text-xs">{t('comparison.upload.select_file')}</span>
+                            </div>
+                        )}
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            onChange={(e) => setSelectedBaseline(e.target.files?.[0] || null)}
+                            className="hidden"
+                        />
+                    </Card>
+
+                    {/* Candidate Upload (Multi-Select) */}
+                    <Card
+                        className={cn(
+                            "flex-[1.5] flex flex-col items-center justify-start border-2 border-dashed transition-all duration-300 relative cursor-pointer overflow-hidden",
+                            selectedCandidates.length > 0 ? "border-primary bg-primary/5" : "border-muted-foreground/20 hover:border-primary/50"
+                        )}
+                        onClick={(e) => {
+                            // Prevent click when removing individual items
+                            if ((e.target as HTMLElement).closest('.remove-btn')) return;
+                            candidateInputRef.current?.click()
+                        }}
+                    >
+                        <div className="w-full p-4 border-b bg-muted/20 text-center shrink-0">
+                            <h3 className="font-bold">{t('comparison.upload.candidate_label')}</h3>
+                            <p className="text-xs text-muted-foreground">{t('comparison.upload.multi_select')}</p>
+                        </div>
+
+                        <div className="flex-1 w-full p-4 overflow-y-auto custom-scrollbar flex flex-col items-center justify-center gap-2">
+                            {selectedCandidates.length > 0 ? (
+                                <div className="w-full flex flex-col gap-2">
+                                    {selectedCandidates.map((file, idx) => (
+                                        <div key={idx} className="flex items-center justify-between bg-background p-2 rounded-md border text-sm shadow-sm group">
+                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                <FileText className="w-4 h-4 text-primary shrink-0" />
+                                                <span className="truncate max-w-[200px]">{file.name}</span>
+                                            </div>
+                                            <button
+                                                className="remove-btn p-1 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedCandidates(prev => prev.filter((_, i) => i !== idx));
+                                                }}
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                    <div className="mt-2 text-center">
+                                        <Button variant="outline" size="sm" className="h-7 text-xs">
+                                            <Upload className="w-3 h-3 mr-1" /> {t('comparison.upload.add_candidate')}
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center text-muted-foreground">
+                                    <Upload className="w-8 h-8 mb-2" />
+                                    <span className="text-xs">{t('comparison.upload.drag_drop')}</span>
+                                </div>
+                            )}
+                        </div>
+
+                        <input
+                            ref={candidateInputRef}
+                            type="file"
+                            multiple // Enable multiple files
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            onChange={(e) => {
+                                if (e.target.files) {
+                                    // Append new files to existing ones
+                                    const newFiles = Array.from(e.target.files);
+                                    setSelectedCandidates(prev => [...prev, ...newFiles]);
+                                    // Reset input so same files can be selected again if needed
+                                    e.target.value = '';
+                                }
+                            }}
+                            className="hidden"
+                        />
+                    </Card>
+                </div>
+
+                <div className="mt-8 flex gap-4">
+                    <Button variant="ghost" onClick={onCancel}>
+                        <X className="w-4 h-4 mr-2" /> {t('common.actions.cancel')}
+                    </Button>
+                    <Button
+                        size="lg"
+                        disabled={!selectedBaseline || selectedCandidates.length === 0}
+                        onClick={() => {
+                            if (selectedBaseline && selectedCandidates.length > 0) {
+                                onFileSelect(selectedBaseline, selectedCandidates as any) // Cast for compat with interface check
+                            }
+                        }}
+                    >
+                        {t('comparison.upload.start_comparison')} ({selectedCandidates.length}건)
+                    </Button>
+                </div>
+            </motion.div>
+        )
+    }
+
+    // Default Extraction Upload View
     return (
         <motion.div
             key="upload"
@@ -161,13 +272,13 @@ export function ExtractionUploadView({
                         <Upload className="w-10 h-10" />
                     </div>
 
-                    <h3 className="text-xl font-bold mb-2">문서를 여기에 놓으세요</h3>
+                    <h3 className="text-xl font-bold mb-2">{t('extraction.upload.drag_drop')}</h3>
                     <p className="text-muted-foreground mb-8 text-center max-w-xs">
-                        또는 클릭하여 파일을 선택하세요<br />(PDF, 이미지 지원)
+                        {t('extraction.upload.click_to_select')}<br />{t('extraction.upload.supported_formats')}
                     </p>
 
                     <Button size="lg" className="min-w-[180px]">
-                        파일 선택하기
+                        {t('extraction.upload.select_file')}
                     </Button>
                 </div>
 
@@ -190,7 +301,7 @@ export function ExtractionUploadView({
 
             <div className="mt-8">
                 <Button variant="ghost" onClick={onCancel}>
-                    <X className="w-4 h-4 mr-2" /> 목록으로 돌아가기
+                    <X className="w-4 h-4 mr-2" /> {t('extraction.actions.go_to_list')}
                 </Button>
             </div>
         </motion.div>

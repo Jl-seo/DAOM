@@ -1,6 +1,4 @@
 {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$comment": "DAOM UI Terminology Glossary - Korean (ko-KR)",
     "common": {
         "actions": {
             "save": "저장",
@@ -161,6 +159,43 @@
             "retry_started": "재시도 작업이 시작되었습니다",
             "excel_downloaded": "Excel로 받았어요!",
             "reprocess_complete": "재처리 완료!"
+        }
+    },
+    "comparison": {
+        "title": {
+            "upload_view": "문서 비교 업로드",
+            "workspace": "비교 분석 보기"
+        },
+        "upload": {
+            "description": "기준 문서와 비교할 문서를 선택해주세요. (여러 파일 선택 가능)",
+            "baseline_label": "기준 문서 (Original)",
+            "candidate_label": "비교 대상 (Candidate)",
+            "add_candidate": "추가 선택",
+            "start_comparison": "비교 시작하기",
+            "select_file": "파일 선택",
+            "drag_drop": "드래그 앤 드롭",
+            "multi_select": "여러 장 선택 가능"
+        },
+        "workspace": {
+            "baseline": "기준 문서 (Baseline)",
+            "candidate": "비교 문서 (Candidate)",
+            "analysis_results": "분석 결과",
+            "no_differences": "발견된 차이점이 없습니다.",
+            "identical_docs": "두 문서가 동일합니다.",
+            "error": "분석 오류",
+            "check_location": "위치 확인",
+            "page": "페이지",
+            "candidates_list": "비교 목록",
+            "subtitle_single": "기준 vs 비교 문서",
+            "subtitle_multi": "기준 vs 비교 문서 {index}",
+            "diffs_count": "{count}개의 차이점 발견"
+        },
+        "categories": {
+            "content": "내용",
+            "layout": "레이아웃",
+            "style": "스타일",
+            "missing_element": "누락됨",
+            "added_element": "추가됨"
         }
     },
     "models": {

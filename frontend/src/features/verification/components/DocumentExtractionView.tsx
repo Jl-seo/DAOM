@@ -11,6 +11,7 @@ import { ExtractionWizardHeader } from './ExtractionWizardHeader'
 import { ExtractionHistoryView } from './ExtractionHistoryView'
 import { ExtractionUploadView } from './ExtractionUploadView'
 import { ExtractionReviewView } from './ExtractionReviewView'
+import { ComparisonWorkspace } from '../../comparison/ComparisonWorkspace'
 
 interface DocumentExtractionViewProps {
     modelId: string
@@ -108,6 +109,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                     <ExtractionUploadView
                         file={file}
                         status={status}
+                        model={model}
                         onFileSelect={processFile}
                         onCancel={() => {
                             handleReset()
@@ -118,33 +120,44 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
 
                 {/* 3. Review / Edit View */}
                 {(activeStep === 'review' || activeStep === 'complete') && (
-                    <ExtractionReviewView
-                        // Data
-                        previewData={previewData}
-                        result={result}
-                        model={model}
-                        highlights={highlights}
+                    model?.model_type === 'comparison' ? (
+                        <ComparisonWorkspace
+                            fileUrl={fileUrl || ''}
+                            candidateFileUrl={useExtraction().candidateFileUrl || ''}
+                            candidateFileUrls={useExtraction().candidateFileUrls || []}
+                            comparisonResult={previewData?.comparison_result || null}
+                            comparisons={previewData?.comparisons || []}
+                            onRetry={handleRetry}
+                        />
+                    ) : (
+                        <ExtractionReviewView
+                            // Data
+                            previewData={previewData}
+                            result={result}
+                            model={model}
+                            highlights={highlights}
 
-                        // State
-                        selectedSubDocIndex={selectedSubDocIndex}
-                        selectedFieldKey={selectedFieldKey}
+                            // State
+                            selectedSubDocIndex={selectedSubDocIndex}
+                            selectedFieldKey={selectedFieldKey}
 
-                        // File Info
-                        file={file}
-                        fileUrl={fileUrl || null}
+                            // File Info
+                            file={file}
+                            fileUrl={fileUrl || null}
 
-                        // Actions
-                        onSubDocSelect={setSelectedSubDocIndex}
-                        onFieldSelect={setSelectedFieldKey}
-                        onRetry={handleRetry}
-                        onReset={handleReset}
-                        onSave={(guide, other) => {
-                            // Wrapper to match signature if needed, or pass directly if signatures match
-                            // handleConfirmSelection takes (selectedColumns, editedGuide, editedOther)
-                            // We can ignore selectedColumns (first arg) for auto-save of content
-                            handleConfirmSelection([], guide, other)
-                        }}
-                    />
+                            // Actions
+                            onSubDocSelect={setSelectedSubDocIndex}
+                            onFieldSelect={setSelectedFieldKey}
+                            onRetry={handleRetry}
+                            onReset={handleReset}
+                            onSave={(guide, other) => {
+                                // Wrapper to match signature if needed, or pass directly if signatures match
+                                // handleConfirmSelection takes (selectedColumns, editedGuide, editedOther)
+                                // We can ignore selectedColumns (first arg) for auto-save of content
+                                handleConfirmSelection([], guide, other)
+                            }}
+                        />
+                    )
                 )}
             </div>
         </div>

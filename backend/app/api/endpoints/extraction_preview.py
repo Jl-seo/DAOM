@@ -54,36 +54,52 @@ class StartExtractionRequest(BaseModel):
 
 
 # Background task to process extraction
-async def process_extraction_job(job_id: str, model_id: str, file_url: str):
+async def process_extraction_job(job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None):
     """Background task to run full extraction pipeline"""
     from app.services.extraction_service import extraction_service
-    await extraction_service.run_extraction_pipeline(job_id, model_id, file_url)
+    await extraction_service.run_extraction_pipeline(job_id, model_id, file_url, candidate_file_url, candidate_file_urls)
 
 
 @router.post("/start-job")
 async def start_job_with_upload(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    candidate_files: List[UploadFile] = File(None),  # Multi-file support
     model_id: str = Form(...),
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """
-    Upload file and start extraction job in one step.
-    This replaces the need for separate upload and start calls.
+    Upload file(s) and start extraction/comparison job.
+    If candidate_files provided, it's a comparison job.
     """
     if not file.filename.endswith(('.pdf', '.jpg', '.jpeg', '.png')):
         raise HTTPException(status_code=400, detail="Invalid file type")
 
-    # 1. Upload file
+    # 1. Upload files
     from app.services.storage import upload_file_to_blob
     try:
         file_url = await upload_file_to_blob(file)
+        
+        candidate_file_urls = []
+        candidate_file_url = None # Legacy support
+
+        if candidate_files:
+            for c_file in candidate_files:
+                url = await upload_file_to_blob(c_file)
+                candidate_file_urls.append(url)
+            
+            # Set legacy single URL to the first one for backward compatibility
+            if candidate_file_urls:
+                candidate_file_url = candidate_file_urls[0]
+            
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
 
     # 2. Create Log (Initial Pending State)
     user_id = current_user.id if current_user else "unknown"
     
+    # Logs might need schema update too, but for now specific log fields are flexible or we use extracted_data
+    # We won't break log schema yet, just store primary candidate in legacy field if needed
     log = extraction_logs.save_extraction_log(
         model_id=model_id,
         user_id=user_id,
@@ -91,6 +107,7 @@ async def start_job_with_upload(
         user_email=current_user.email if current_user else None,
         filename=file.filename,
         file_url=file_url,
+        candidate_file_url=candidate_file_url, 
         status="P100",  # Pending
         tenant_id=current_user.tenant_id if current_user else None
     )
@@ -102,6 +119,8 @@ async def start_job_with_upload(
         user_id=user_id,
         filename=file.filename,
         file_url=file_url,
+        candidate_file_url=candidate_file_url,
+        candidate_file_urls=candidate_file_urls, # NEW
         user_name=current_user.name if current_user else None,
         user_email=current_user.email if current_user else None,
         original_log_id=log_id,  # Link to the log
@@ -113,13 +132,16 @@ async def start_job_with_upload(
         process_extraction_job,
         job.id,
         model_id,
-        file_url
+        file_url,
+        candidate_file_url,
+        candidate_file_urls # Pass list
     )
 
     return {
         "job_id": job.id,
         "log_id": log_id,
         "file_url": file_url,
+        "candidate_file_urls": candidate_file_urls,
         "status": job.status
     }
 

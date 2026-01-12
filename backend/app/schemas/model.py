@@ -14,6 +14,7 @@ class ExtractionModel(BaseModel):
     description: Optional[str] = None # 대체 내용 정의 등
     global_rules: Optional[str] = None # 전체적인 출력 형태/보정 정의
     data_structure: Optional[str] = "data" # 데이터 구조 타입: "table" (표), "data" (JSON 객체), "report" (문서)
+    model_type: Optional[str] = "extraction" # "extraction" or "comparison"
     azure_model_id: Optional[str] = "prebuilt-layout" # Azure Document Intelligence Model ID (e.g. prebuilt-invoice)
     allowedGroups: Optional[List[str]] = None # Access control groups
     fields: List[FieldDefinition]
@@ -24,5 +25,6 @@ class ExtractionModelCreate(BaseModel):
     description: Optional[str] = None
     global_rules: Optional[str] = None
     data_structure: Optional[str] = "data"
+    model_type: Optional[str] = "extraction"
     allowedGroups: Optional[List[str]] = None
     fields: List[FieldDefinition]

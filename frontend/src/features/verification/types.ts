@@ -29,6 +29,32 @@ export interface PreviewData {
     other_data: Array<{ column: string; value: any; confidence?: number; bbox?: number[] }>
     model_fields: Array<{ key: string; label: string }>
     sub_documents?: SubDocument[]
+    comparison_result?: {
+        differences: Array<{
+            id: string | number
+            description: string
+            category: string
+            location_1: number[] | null
+            location_2: number[] | null
+            page_number?: number
+        }>
+        error?: string
+    }
+    comparisons?: Array<{
+        candidate_index: number
+        result: {
+            differences: Array<{
+                id: string | number
+                description: string
+                category: string
+                location_1: number[] | null
+                location_2: number[] | null
+            }>
+            error?: string
+        }
+        file_url?: string
+        error?: string
+    }>
 }
 
 /**
@@ -40,6 +66,7 @@ export interface ExtractionModel {
     description: string
     fields: Array<{ key: string; label: string; type?: string }>
     allowedGroups?: string[]
+    model_type?: 'extraction' | 'comparison'
 }
 
 /**

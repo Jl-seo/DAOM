@@ -263,3 +263,80 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
         return current_fields
     finally:
         await client.close()
+
+async def compare_images(image_url_1: str, image_url_2: str) -> dict:
+    """
+    Compare two images using the globally configured LLM (e.g. GPT-4.1).
+    Expects data uris or public urls.
+    """
+    client = get_openai_client()
+    
+    # Use configured global model (Admin controlled)
+    model = _current_model
+    
+    system_prompt = """
+    You are an expert QA and Visual Inspection AI.
+    Compare the two provided images (Baseline vs Candidate) and identify semantic and visual differences.
+    
+    Return a JSON object with a key "differences" containing a list of objects.
+    Each difference object must have:
+    - "id": unique integer (1, 2, 3...)
+    - "description": concise text describing the change in **KOREAN** (한국어로 설명).
+    - "category": one of ["content", "layout", "style", "missing_element", "added_element"]
+    - "location_1": bounding box in Baseline image as [y_min, x_min, y_max, x_max]
+    - "location_2": bounding box in Candidate image as [y_min, x_min, y_max, x_max]
+    - "page_number": integer (1-based), default to 1.
+    
+    **CRITICAL BOUNDING BOX FORMAT:**
+    - Coordinates are normalized to 0-1000 scale (0=top-left origin, 1000=bottom-right).
+    - Format: [y_min, x_min, y_max, x_max] where:
+      - y_min: distance from TOP edge (0 = very top)
+      - x_min: distance from LEFT edge (0 = very left)
+      - y_max: distance from TOP edge (must be > y_min)
+      - x_max: distance from LEFT edge (must be > x_min)
+    
+    **EXAMPLE:**
+    If a button is located in the center of the image:
+    - y_min ≈ 400, x_min ≈ 400, y_max ≈ 600, x_max ≈ 600
+    If text is at the top-left corner:
+    - y_min ≈ 50, x_min ≈ 50, y_max ≈ 100, x_max ≈ 300
+    
+    Focus on meaningful differences (text changes, missing buttons, layout shifts). Ignore minor rendering noise.
+    Be precise with bounding box coordinates - estimate the exact area where the difference occurs.
+    
+    IMPORTANT: Respond with valid JSON only. Descriptions MUST be in Korean.
+    """
+    
+    user_message_content = [
+        {"type": "text", "text": "Compare these two images. Image 1 is Baseline. Image 2 is Candidate."},
+        {
+            "type": "image_url",
+            "image_url": {"url": image_url_1}
+        },
+        {
+            "type": "image_url",
+            "image_url": {"url": image_url_2}
+        }
+    ]
+
+    try:
+        print(f"[LLM] Comparing images using {model}...")
+        
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message_content}
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=2000
+        )
+        
+        result_content = response.choices[0].message.content
+        return json.loads(result_content)
+        
+    except Exception as e:
+        print(f"[LLM] Comparison failed: {e}")
+        return {"differences": [], "error": str(e)}
+    finally:
+        await client.close()

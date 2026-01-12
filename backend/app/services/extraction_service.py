@@ -23,13 +23,15 @@ class ExtractionService:
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
         )
 
-    async def run_extraction_pipeline(self, job_id: str, model_id: str, file_url: str):
+    async def run_extraction_pipeline(self, job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None):
         """
         Orchestrates the full extraction pipeline with Multi-Document Support:
         1. OCR (Doc Intelligence)
         2. Splitting (Azure or GPT)
         3. Extraction per Split
         4. Aggregation
+        
+        Also handles COMPARISON jobs if candidate_file_url/urls are present.
         """
         # Capture current LLM model for logging
         current_llm_model = get_current_model()
@@ -40,7 +42,7 @@ class ExtractionService:
 
             # Update status
             extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
-
+            
             # ... (omitted similar lines for brevity, focusing on log save)
             
             # 1. Get Model & OCR
@@ -57,11 +59,94 @@ class ExtractionService:
                 )
                 azure_model = "prebuilt-layout" # Default for universal
             else:
-                model = models.get_model_by_id(model_id)
+                try:
+                    model = models.get_model_by_id(model_id)
+                except Exception:
+                    model = None
+                
                 if not model:
-                    raise ValueError(f"Model {model_id} not found")
+                    # Fallback for transient model errors or if model_id is just a string in some contexts
+                    # But usually it should exist. If comparison, maybe strict model check isn't needed?
+                    # For now keep strict check unless it's a comparison job without strict model reqs
+                    # But comparison usually uses a generic "Comparison" model or similar.
+                    pass 
+
                 # Dynamic Strategy
-                azure_model = getattr(model, "azure_model_id", "prebuilt-layout")
+                azure_model = getattr(model, "azure_model_id", "prebuilt-layout") if model else "prebuilt-layout"
+
+            # --- COMPARISON MODE CHECK ---
+            # Compile all candidate URLs
+            all_candidates = []
+            if candidate_file_urls:
+                all_candidates.extend(candidate_file_urls)
+            if candidate_file_url and candidate_file_url not in all_candidates:
+                all_candidates.insert(0, candidate_file_url) # Legacy takes precedence or is added
+
+            if all_candidates:
+                print(f"[Pipeline] Starting 1:N Comparison for Job {job_id} on {len(all_candidates)} candidates")
+                from app.services import llm
+                
+                comparison_results = []
+                
+                # Run Comparison using GPT-4 Vision for EACH candidate
+                # Process in parallel for speed if possible, or sequential for safety
+                # Using simple loop for now to avoid complexity
+                for idx, c_url in enumerate(all_candidates):
+                    print(f"[Pipeline] Comparing Candidate {idx+1}/{len(all_candidates)}")
+                    try:
+                        res = await llm.compare_images(file_url, c_url)
+                        comparison_results.append({
+                            "candidate_index": idx,
+                            "file_url": c_url,
+                            "result": res
+                        })
+                    except Exception as comp_error:
+                        logger.error(f"[Pipeline] Comparison failed for candidate {c_url}: {comp_error}")
+                        comparison_results.append({
+                            "candidate_index": idx,
+                            "file_url": c_url,
+                            "error": str(comp_error),
+                            "result": {}
+                        })
+
+                # Save results
+                # We store differences in 'preview_data'
+                # For backward compatibility, if there's only 1 candidate, we might want to structure it simply
+                # BUT new frontend expects 'comparisons' list.
+                
+                preview_payload = {
+                    "comparisons": comparison_results,
+                    "mode": "comparison",
+                    "comparison_count": len(all_candidates)
+                }
+                
+                # If single result, populate legacy field 'comparison_result' for older frontends if needed
+                if len(comparison_results) == 1:
+                    preview_payload["comparison_result"] = comparison_results[0]["result"]
+
+                result = extraction_jobs.update_job(
+                    job_id, 
+                    status=ExtractionStatus.SUCCESS.value, 
+                    preview_data=preview_payload,
+                    extracted_data={"comparisons": comparison_results} # Use extracted_data for final persistence?
+                )
+                
+                if not result:
+                    logger.error(f"Failed to update job {job_id} with comparison results.")
+                    return
+
+                # Sync status to ExtractionLog if linked
+                job = extraction_jobs.get_job(job_id)
+                if job and (job.original_log_id or job.log_id):
+                    log_id_to_update = job.original_log_id or job.log_id
+                    extraction_logs.update_log_status(
+                        log_id_to_update, 
+                        status=ExtractionStatus.SUCCESS.value,
+                        preview_data=preview_payload
+                    )
+                
+                return # Exit pipeline for comparison jobs
+            # -----------------------------
 
             print(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
             

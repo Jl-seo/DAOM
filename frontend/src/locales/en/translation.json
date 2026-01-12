@@ -58,5 +58,67 @@
         "deleteModel": "Delete Model",
         "back": "Back to List",
         "success": "Model saved successfully."
+    },
+    "common": {
+        "actions": {
+            "cancel": "Cancel",
+            "retry": "Retry"
+        },
+        "status": {
+            "processing": "Processing"
+        }
+    },
+    "extraction": {
+        "upload": {
+            "drag_drop": "Drop your document here",
+            "click_to_select": "or click to select a file",
+            "select_file": "Select File",
+            "supported_formats": "(PDF, Images supported)"
+        },
+        "processing": {
+            "uploading": "Uploading File",
+            "document_analysis": "AI is analyzing the document",
+            "please_wait": "Please wait..."
+        },
+        "actions": {
+            "go_to_list": "Back to List"
+        }
+    },
+    "comparison": {
+        "title": {
+            "upload_view": "Compare Documents",
+            "workspace": "Comparison View"
+        },
+        "upload": {
+            "description": "Select a baseline document and candidate documents to compare.",
+            "baseline_label": "Baseline (Original)",
+            "candidate_label": "Candidates (Comparisons)",
+            "add_candidate": "Add Selection",
+            "start_comparison": "Start Comparison",
+            "select_file": "Select File",
+            "drag_drop": "Drag & Drop",
+            "multi_select": "Multi-select available"
+        },
+        "workspace": {
+            "baseline": "Baseline (Original)",
+            "candidate": "Candidate (Comparison)",
+            "analysis_results": "Analysis Results",
+            "no_differences": "No differences found.",
+            "identical_docs": "The documents appear to be identical.",
+            "error": "Analysis Error",
+            "check_location": "View Location",
+            "page": "Page",
+            "candidates_list": "Candidates",
+            "subtitle_single": "Baseline vs Candidate",
+            "subtitle_multi": "Baseline vs Candidate {{index}}",
+            "diffs_count": "{{count}} diffs found"
+        },
+        "categories": {
+            "content": "Content",
+            "layout": "Layout",
+            "style": "Style",
+            "missing_element": "Missing",
+            "added_element": "Added"
+        }
     }
 }

@@ -1,6 +1,4 @@
 {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$comment": "DAOM UI Terminology Glossary - English (en-US)",
     "common": {
         "actions": {
             "save": "Save",
@@ -161,6 +159,43 @@
             "retry_started": "Retry job started",
             "excel_downloaded": "Downloaded to Excel!",
             "reprocess_complete": "Reprocessing complete!"
+        }
+    },
+    "comparison": {
+        "title": {
+            "upload_view": "Compare Documents",
+            "workspace": "Comparison View"
+        },
+        "upload": {
+            "description": "Select a baseline document and candidate documents to compare.",
+            "baseline_label": "Baseline (Original)",
+            "candidate_label": "Candidates (Comparisons)",
+            "add_candidate": "Add Selection",
+            "start_comparison": "Start Comparison",
+            "select_file": "Select File",
+            "drag_drop": "Drag & Drop",
+            "multi_select": "Multi-select available"
+        },
+        "workspace": {
+            "baseline": "Baseline (Original)",
+            "candidate": "Candidate (Comparison)",
+            "analysis_results": "Analysis Results",
+            "no_differences": "No differences found.",
+            "identical_docs": "The documents appear to be identical.",
+            "error": "Analysis Error",
+            "check_location": "View Location",
+            "page": "Page",
+            "candidates_list": "Candidates",
+            "subtitle_single": "Baseline vs Candidate",
+            "subtitle_multi": "Baseline vs Candidate {index}",
+            "diffs_count": "{count} diffs found"
+        },
+        "categories": {
+            "content": "Content",
+            "layout": "Layout",
+            "style": "Style",
+            "missing_element": "Missing",
+            "added_element": "Added"
         }
     },
     "models": {

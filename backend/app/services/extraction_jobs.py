@@ -20,6 +20,8 @@ class ExtractionJob(BaseModel):
     user_email: Optional[str] = None
     filename: str
     file_url: str
+    candidate_file_url: Optional[str] = None  # Comparison target file URL (Legacy, single)
+    candidate_file_urls: Optional[List[str]] = None  # Comparison target file URLs (Multi)
     status: str  # pending, analyzing, preview_ready, confirmed, error
     preview_data: Optional[Dict[str, Any]] = None  # guide_extracted, other_data
     extracted_data: Optional[Dict[str, Any]] = None  # Final confirmed data
@@ -36,6 +38,8 @@ def create_job(
     user_id: str,
     filename: str,
     file_url: str,
+    candidate_file_url: Optional[str] = None,
+    candidate_file_urls: Optional[List[str]] = None,
     user_name: Optional[str] = None,
     user_email: Optional[str] = None,
     original_log_id: Optional[str] = None,
@@ -53,6 +57,8 @@ def create_job(
         user_email=user_email,
         filename=filename,
         file_url=file_url,
+        candidate_file_url=candidate_file_url,
+        candidate_file_urls=candidate_file_urls,
         status=ExtractionStatus.PENDING.value,
         created_at=now,
         updated_at=now,

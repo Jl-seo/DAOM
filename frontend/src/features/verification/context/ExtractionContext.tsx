@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useRef, type ReactNode, useCallbac
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api'
-import { EXTRACTION_STATUS, isSuccessStatus, isErrorStatus, isReviewNeededStatus } from '../constants/status'
+import { EXTRACTION_STATUS, isSuccessStatus } from '../constants/status'
 import type {
     ViewStep,
     ExtractionStatus,
@@ -34,7 +34,11 @@ interface ExtractionContextValue {
     // File
     file: File | null
     setFile: (file: File | null) => void
+    candidateFiles: File[] | null // NEW: Array
+    setCandidateFiles: (files: File[] | null) => void
     fileUrl: string | null
+    candidateFileUrls?: string[] | null // NEW: Array
+    candidateFileUrl: string | null // Legacy/Convenience: First candidate URL
     setFileUrl: (url: string | null) => void
     isDragging: boolean
     setIsDragging: (dragging: boolean) => void
@@ -69,7 +73,7 @@ interface ExtractionContextValue {
     highlights: Highlight[]
 
     // Actions
-    processFile: (file: File) => Promise<void>
+    processFile: (file: File, candidateFiles?: File[]) => Promise<void>
     handleConfirmSelection: (selectedColumns: string[], editedGuideData?: Record<string, any>, editedOtherData?: any[]) => void
     handleRetry: () => void
     handleReset: () => void
@@ -105,165 +109,83 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
 
     // File
     const [file, setFile] = useState<File | null>(null)
+    const [candidateFiles, setCandidateFiles] = useState<File[] | null>(null) // CHANGED: Single -> Array
     const [fileUrl, setFileUrl] = useState<string | null>(null)
+    const [candidateFileUrls, setCandidateFileUrls] = useState<string[] | null>(null) // CHANGED: Single -> Array
     const [isDragging, setIsDragging] = useState(false)
     const [filename, setFilename] = useState<string | null>(null)
 
-    // Job tracking (for DB integration)
+    // State for Job & Log tracking
     const [currentJobId, setCurrentJobId] = useState<string | null>(null)
     const [currentLogId, setCurrentLogId] = useState<string | null>(null)
 
-    // Data
+    // State for Preview Data & Results
     const [previewData, setPreviewData] = useState<PreviewData | null>(null)
-    const [selectedSubDocIndex, setSelectedSubDocIndex] = useState(0)
     const [result, setResult] = useState<Record<string, any> | null>(null)
+    const [selectedSubDocIndex, setSelectedSubDocIndex] = useState(0)
 
-    // UI
+    // UI Interactive State
     const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
+    const [highlights] = useState<Highlight[]>([])
 
-    // Polling ref
-    const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+    // Polling Reference
+    const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    // Compute highlights from preview data
-    const highlights: Highlight[] = useMemo(() => {
-        console.log('[Highlights] previewData:', previewData ? Object.keys(previewData) : null)
-        console.log('[Highlights] sub_documents:', previewData?.sub_documents?.length)
-
-        if (!previewData?.guide_extracted && !previewData?.sub_documents) return []
-
-        const currentData = previewData.sub_documents && previewData.sub_documents.length > 0
-            ? previewData.sub_documents[selectedSubDocIndex]?.data?.guide_extracted
-            : previewData.guide_extracted
-
-        console.log('[Highlights] currentData keys:', currentData ? Object.keys(currentData) : null)
-        if (currentData) {
-            const sampleKey = Object.keys(currentData)[0]
-            console.log('[Highlights] sample field:', sampleKey, currentData[sampleKey])
-        }
-
-        if (!currentData) return []
-
-        return Object.entries(currentData)
-            .filter(([_, value]) => {
-                const data = typeof value === 'object' && value && 'bbox' in value ? value : null
-                // Support both old array format and new object format
-                return data?.bbox && (
-                    (Array.isArray(data.bbox) && data.bbox.length >= 4) ||
-                    (typeof data.bbox === 'object' && 'x1' in data.bbox)
-                )
-            })
-            .map(([key, value]) => {
-                const data = value as { value: any; bbox: any; confidence?: number; page_number?: number; low_confidence?: boolean }
-                // Backend returns 1-based page number, viewer needs 0-based index
-                const pageIndex = data.page_number ? data.page_number - 1 : 0
-
-                // Handle both array [x1, y1, x2, y2] and object {x1, y1, width, height} formats
-                let boundingRect
-                if (Array.isArray(data.bbox)) {
-                    const [x1, y1, x2, y2] = data.bbox
-                    boundingRect = { x1, y1, x2, y2, width: x2 - x1, height: y2 - y1 }
-                } else {
-                    const { x1, y1, width, height } = data.bbox
-                    boundingRect = { x1, y1, x2: x1 + width, y2: y1 + height, width, height }
-                }
-
-                return {
-                    fieldKey: key,
-                    content: String(data.value),
-                    pageIndex: pageIndex,
-                    position: { boundingRect }
-                }
-            })
-    }, [previewData, selectedSubDocIndex])
-
-    // Polling attempt counter ref
-    const pollingAttemptsRef = useRef(0)
-    const MAX_POLLING_ATTEMPTS = 60 // ~5 minutes at 5 second intervals
-
-    // Start polling for job status
+    // Polling Logic
     const startPolling = useCallback((jobId: string) => {
         if (pollingRef.current) clearInterval(pollingRef.current)
-        pollingAttemptsRef.current = 0
 
-        pollingRef.current = setInterval(async () => {
-            pollingAttemptsRef.current += 1
-
-            // Timeout protection
-            if (pollingAttemptsRef.current > MAX_POLLING_ATTEMPTS) {
-                console.warn('[Polling] Max attempts reached, stopping')
-                clearInterval(pollingRef.current!)
-                pollingRef.current = null
-                setStatus(EXTRACTION_STATUS.ERROR)
-                setError('처리 시간이 초과되었습니다. 다시 시도해 주세요.')
-                toast.error('처리 시간 초과')
-                return
-            }
-
+        const poll = async () => {
             try {
-                const res = await apiClient.get(`/extraction/job/${jobId}`)
+                // Fix import path here if needed, generic usage is fine
+                const res = await apiClient.get<any>(`/extraction/job/${jobId}`)
                 const job = res.data
 
-                console.log('[Polling] Job status:', job.status, `(attempt ${pollingAttemptsRef.current})`)
-                console.log('[Polling] Job preview_data keys:', job.preview_data ? Object.keys(job.preview_data) : 'NULL')
+                if (isSuccessStatus(job.status) || job.status === 'completed' || job.status === 'confirmed') {
+                    if (pollingRef.current) clearInterval(pollingRef.current)
 
-                // Check for completion (either PREVIEW_READY or SUCCESS)
-                if (isReviewNeededStatus(job.status) || isSuccessStatus(job.status)) {
-                    clearInterval(pollingRef.current!)
-                    pollingRef.current = null
-
-                    // Handle array or object response
-                    const raw = job.preview_data
-                    const preview = Array.isArray(raw)
-                        ? { guide_extracted: raw[0] || {}, other_data: [], model_fields: model?.fields || [] }
-                        : { ...raw, model_fields: raw?.model_fields || model?.fields || [] }
-
-                    console.log('[Polling] Setting previewData:', JSON.stringify(preview)?.slice(0, 300))
-                    setPreviewData(preview)
-                    setStatus(EXTRACTION_STATUS.SUCCESS) // Treat as success
-                    setActiveStep('complete') // Show review view with completed step
-
-                    // Set log_id for retry functionality
-                    if (job.log_id) {
-                        setCurrentLogId(job.log_id)
+                    // If we have a result, use it
+                    if (job.result) {
+                        setResult(job.result)
                     }
-                } else if (isErrorStatus(job.status)) {
-                    clearInterval(pollingRef.current!)
-                    pollingRef.current = null
-                    setStatus(EXTRACTION_STATUS.ERROR)
-                    setError(job.error || '추출 실패')
-                    toast.error('추출 실패: ' + (job.error || '알 수 없는 오류'))
 
-                    // Set log_id even on error for potential retry
-                    if (job.log_id) {
-                        setCurrentLogId(job.log_id)
+                    // Update URLs if present in job (important for candidate file)
+                    if (job.file_url) setFileUrl(job.file_url)
+                    if (job.candidate_file_urls) setCandidateFileUrls(job.candidate_file_urls) // Expecting array from backend now
+
+                    // If we have preview data (standard flow), use it
+                    if (job.preview_data) {
+                        setPreviewData({
+                            ...job.preview_data,
+                            // Ensure model fields exist for mapping
+                            model_fields: job.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
+                        })
                     }
-                }
-            } catch (e: any) {
-                console.error('[Polling] Error:', e)
-                // Stop polling on 404 - job doesn't exist (expired or invalid)
-                if (e?.response?.status === 404) {
-                    clearInterval(pollingRef.current!)
-                    pollingRef.current = null
+
+                    setStatus(isSuccessStatus(job.status) ? EXTRACTION_STATUS.PREVIEW_READY : EXTRACTION_STATUS.SUCCESS)
+
+                    // Auto-advance to review step if not there
+                    setActiveStep(current => current === 'upload' ? 'review' : current)
+
+                } else if (job.status === 'failed') {
+                    if (pollingRef.current) clearInterval(pollingRef.current)
                     setStatus(EXTRACTION_STATUS.ERROR)
-                    setError('작업을 찾을 수 없습니다. 목록으로 돌아가서 다시 시도해 주세요.')
-                    toast.error('작업을 찾을 수 없습니다')
-                    setActiveStep('history')
+                    setError(job.error_message || '추출 실패')
                 }
-                // Stop polling on 500 errors after a few attempts
-                if (e?.response?.status >= 500 && pollingAttemptsRef.current > 3) {
-                    clearInterval(pollingRef.current!)
-                    pollingRef.current = null
-                    setStatus(EXTRACTION_STATUS.ERROR)
-                    setError('서버 오류가 발생했습니다.')
-                    toast.error('서버 오류')
-                }
+            } catch (err) {
+                console.error('Polling error:', err)
             }
-        }, POLLING_INTERVAL_MS)
-    }, [model?.fields]) // Dependencies for polling interval content
+        }
+
+        // Initial call
+        poll()
+        // Interval
+        pollingRef.current = setInterval(poll, POLLING_INTERVAL_MS || 2000)
+    }, [model?.fields])
 
     // File processing
-    const processFile = useCallback(async (selectedFile: File) => {
+    const processFile = useCallback(async (selectedFile: File, selectedCandidateFiles?: File[]) => {
         // Clear any existing polling first
         if (pollingRef.current) {
             clearInterval(pollingRef.current)
@@ -271,6 +193,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         }
 
         setFile(selectedFile)
+        setCandidateFiles(selectedCandidateFiles || null)
         setFilename(selectedFile.name)
         setStatus(EXTRACTION_STATUS.UPLOADING)
         setError(null)
@@ -280,6 +203,14 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
 
         const formData = new FormData()
         formData.append('file', selectedFile)
+
+        // Append multiple candidate files
+        if (selectedCandidateFiles && selectedCandidateFiles.length > 0) {
+            selectedCandidateFiles.forEach(file => {
+                formData.append('candidate_files', file)
+            })
+        }
+
         formData.append('model_id', modelId)
 
         try {
@@ -287,11 +218,14 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                 headers: { 'Content-Type': 'multipart/form-data' }
             })
 
-            const { job_id, file_url, log_id } = res.data
+            const { job_id, file_url, candidate_file_urls, log_id } = res.data
             setCurrentJobId(job_id)
             setFileUrl(file_url)
+            if (candidate_file_urls) setCandidateFileUrls(candidate_file_urls)
             if (log_id) setCurrentLogId(log_id)  // Enable retry functionality
             setStatus(EXTRACTION_STATUS.REFINING)
+
+            // Start polling for job status updates
             startPolling(job_id)
         } catch (e: any) {
             setStatus(EXTRACTION_STATUS.ERROR)
@@ -529,7 +463,10 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         activeStep, setActiveStep,
         status, setStatus,
         file, setFile,
+        candidateFiles, setCandidateFiles,
         fileUrl, setFileUrl,
+        candidateFileUrls, setCandidateFileUrls,
+        candidateFileUrl: candidateFileUrls?.[0] || null,
         filename, setFilename,
         isDragging, setIsDragging,
         currentJobId, setCurrentJobId,

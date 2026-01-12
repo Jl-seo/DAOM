@@ -221,28 +221,61 @@ export function ModelStudio() {
                                     </div>
                                 </div>
 
-                                {/* Extraction Fields */}
-                                <Card icon={LayoutTemplate} title="추출 필드">
-                                    <FieldEditorTable
-                                        fields={editingModel.fields || []}
-                                        onChange={(fields) => setEditingModel({ ...editingModel, fields })}
-                                        disabled={!isEditing}
-                                    />
-                                    {isEditing && (
+                                {/* Model Type Selection */}
+                                <Card icon={Sliders} title="모델 유형">
+                                    <div className="flex gap-2">
                                         <button
-                                            onClick={() => {
-                                                const newField = { key: '', label: '', description: '', rules: '', type: 'string' as const }
-                                                setEditingModel({
-                                                    ...editingModel,
-                                                    fields: [...(editingModel.fields || []), newField]
-                                                })
-                                            }}
-                                            className="mt-3 w-full py-2 border-2 border-dashed border-border hover:border-primary text-muted-foreground hover:text-primary rounded-lg text-xs font-medium transition-all"
+                                            onClick={() => setEditingModel({ ...editingModel, model_type: 'extraction' })}
+                                            className={clsx(
+                                                "flex-1 px-4 py-3 rounded-lg border-2 text-left transition-all",
+                                                (!editingModel.model_type || editingModel.model_type === 'extraction')
+                                                    ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                                                    : "border-border hover:border-primary/50 hover:bg-muted/50"
+                                            )}
                                         >
-                                            + 필드 추가
+                                            <div className="font-bold text-sm mb-1">📄 일반 추출 (Extraction)</div>
+                                            <div className="text-xs text-muted-foreground">문서에서 텍스트와 데이터를 추출합니다.</div>
                                         </button>
-                                    )}
+                                        <button
+                                            onClick={() => setEditingModel({ ...editingModel, model_type: 'comparison' })}
+                                            className={clsx(
+                                                "flex-1 px-4 py-3 rounded-lg border-2 text-left transition-all",
+                                                editingModel.model_type === 'comparison'
+                                                    ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                                                    : "border-border hover:border-primary/50 hover:bg-muted/50"
+                                            )}
+                                        >
+                                            <div className="font-bold text-sm mb-1">⚖️ 비교 분석 (Comparison)</div>
+                                            <div className="text-xs text-muted-foreground">두 이미지/문서 간의 차이점을 분석합니다.</div>
+                                        </button>
+                                    </div>
                                 </Card>
+
+                                {/* Extraction Fields - Only show for Extraction Models */}
+                                {(!editingModel.model_type || editingModel.model_type === 'extraction') && (
+                                    <Card icon={LayoutTemplate} title="추출 필드">
+                                        <FieldEditorTable
+                                            fields={editingModel.fields || []}
+                                            onChange={(fields) => setEditingModel({ ...editingModel, fields })}
+                                            disabled={!isEditing}
+                                        />
+                                        {isEditing && (
+                                            <button
+                                                onClick={() => {
+                                                    const newField = { key: '', label: '', description: '', rules: '', type: 'string' as const }
+                                                    setEditingModel({
+                                                        ...editingModel,
+                                                        fields: [...(editingModel.fields || []), newField]
+                                                    })
+                                                }}
+                                                className="mt-3 w-full py-2 border-2 border-dashed border-border hover:border-primary text-muted-foreground hover:text-primary rounded-lg text-xs font-medium transition-all"
+                                            >
+                                                + 필드 추가
+                                            </button>
+                                        )}
+                                    </Card>
+
+                                )}
 
                                 {/* Data Structure */}
                                 <Card icon={RefreshCw} title="데이터 구조">

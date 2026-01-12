@@ -17,5 +17,6 @@ export interface Model {
     description: string
     global_rules: string
     data_structure: DataStructureType
+    model_type?: 'extraction' | 'comparison'
     fields: Field[]
 }
