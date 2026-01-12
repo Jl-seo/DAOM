@@ -3,12 +3,12 @@ name: Trigger auto deployment for daom-frontend
 # When this action will be executed
 on:
   # Automatically trigger it when detected changes in repo
-  push:
-    branches: 
-      [ fix/extraction-issues ]
-    paths:
-    - '**'
-    - '.github/workflows/daom-frontend-AutoDeployTrigger-0ba9b177-a831-4f00-bf0d-1d0173e4cc70.yml'
+  # push:
+  #   branches: 
+  #     [ fix/extraction-issues ]
+  #   paths:
+  #   - '**'
+  #   - '.github/workflows/daom-frontend-AutoDeployTrigger-0ba9b177-a831-4f00-bf0d-1d0173e4cc70.yml'
 
   # Allow manual trigger 
   workflow_dispatch:      
