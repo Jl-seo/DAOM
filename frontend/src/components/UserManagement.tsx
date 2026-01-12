@@ -14,7 +14,6 @@ import { useTranslation } from 'react-i18next'
 type SearchType = 'user' | 'entra_group' | 'local_user'
 
 export function UserManagement() {
-    // Trigger CI build
     const { t } = useTranslation()
     const [groups, setGroups] = useState<GroupInfo[]>([])
     const [models, setModels] = useState<{ id: string, name: string }[]>([])
