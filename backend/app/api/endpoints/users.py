@@ -61,11 +61,14 @@ async def get_current_user_info(current_user: CurrentUser = Depends(get_current_
 
 
 @router.get("/", response_model=list[UserResponse])
-async def list_users(current_user: CurrentUser = Depends(require_admin)):
+async def list_users(
+    search: Optional[str] = None,
+    current_user: CurrentUser = Depends(require_admin)
+):
     """
     List all users in tenant (Admin only)
     """
-    users = await user_service.get_users_by_tenant(current_user.tenant_id)
+    users = await user_service.get_users_by_tenant(current_user.tenant_id, search_term=search)
     return [
         UserResponse(
             id=u.id,

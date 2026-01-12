@@ -143,6 +143,45 @@ async def create_group(
         return None
 
 
+async def update_group(
+    group_id: str,
+    name: str = None,
+    description: str = None,
+    tenant_id: str = None
+) -> Optional[Group]:
+    """Update group details"""
+    container = get_container(GROUPS_CONTAINER, "/tenant_id")
+    if not container:
+        return None
+    
+    try:
+        items = list(container.query_items(
+            query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
+            parameters=[
+                {"name": "@id", "value": group_id},
+                {"name": "@tenant_id", "value": tenant_id}
+            ],
+            enable_cross_partition_query=True
+        ))
+        
+        if not items:
+            return None
+        
+        group_data = items[0]
+        if name is not None:
+            group_data["name"] = name
+        if description is not None:
+            group_data["description"] = description
+            
+        container.upsert_item(body=group_data)
+        logger.info(f"Updated group: {group_data['name']}")
+        return Group.from_dict(group_data)
+        
+    except Exception as e:
+        logger.error(f"Error updating group: {e}")
+        return None
+
+
 async def get_group_by_id(group_id: str) -> Optional[Group]:
     """Get group by ID"""
     container = get_container(GROUPS_CONTAINER, "/tenant_id")

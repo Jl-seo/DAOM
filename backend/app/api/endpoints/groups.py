@@ -102,6 +102,7 @@ async def create_group(
     return _to_response(group)
 
 
+
 @router.get("/{group_id}", response_model=GroupResponse)
 async def get_group(
     group_id: str,
@@ -111,6 +112,31 @@ async def get_group(
     group = await group_service.get_group_by_id(group_id)
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    
+    return _to_response(group)
+
+
+class UpdateGroupRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+@router.put("/{group_id}", response_model=GroupResponse)
+async def update_group(
+    group_id: str,
+    request: UpdateGroupRequest,
+    current_user: CurrentUser = Depends(require_admin)
+):
+    """Update group details (Admin only)"""
+    group = await group_service.update_group(
+        group_id=group_id,
+        name=request.name,
+        description=request.description,
+        tenant_id=current_user.tenant_id
+    )
+    
+    if not group:
+        raise HTTPException(status_code=400, detail="Failed to update group")
     
     return _to_response(group)
 

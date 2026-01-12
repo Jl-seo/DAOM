@@ -117,16 +117,23 @@ async def get_user_by_id(user_id: str) -> Optional[User]:
         return None
 
 
-async def get_users_by_tenant(tenant_id: str) -> list[User]:
-    """Get all users in a tenant"""
+async def get_users_by_tenant(tenant_id: str, search_term: str = None) -> list[User]:
+    """Get all users in a tenant, optionally filtered by search term"""
     container = get_container(USERS_CONTAINER, "/tenant_id")
     if not container:
         return []
     
     try:
+        query = "SELECT * FROM c WHERE c.tenant_id = @tenant_id"
+        parameters = [{"name": "@tenant_id", "value": tenant_id}]
+        
+        if search_term:
+            query += " AND (CONTAINS(LOWER(c.name), @search) OR CONTAINS(LOWER(c.email), @search))"
+            parameters.append({"name": "@search", "value": search_term.lower()})
+            
         items = list(container.query_items(
-            query="SELECT * FROM c WHERE c.tenant_id = @tenant_id",
-            parameters=[{"name": "@tenant_id", "value": tenant_id}],
+            query=query,
+            parameters=parameters,
             enable_cross_partition_query=True
         ))
         return [User.from_dict(item) for item in items]
