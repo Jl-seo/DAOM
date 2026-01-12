@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFi
 from typing import Dict, Any, Optional
 from app.services import extraction_jobs, extraction_logs
 from app.services.models import get_model_by_id
-from app.auth.dependencies import get_current_user, CurrentUser
+from app.core.auth import get_current_user, CurrentUser
 from app.core.config import settings
 from app.core.enums import ExtractionStatus
 import logging

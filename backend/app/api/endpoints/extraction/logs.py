@@ -4,7 +4,7 @@ Extraction endpoints - Logs management
 from fastapi import APIRouter, HTTPException, Depends
 from typing import Optional, List
 from app.services import extraction_logs
-from app.auth.dependencies import get_current_user, CurrentUser
+from app.core.auth import get_current_user, CurrentUser
 import logging
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def get_all_extraction_logs(
     if model_id:
         logs = extraction_logs.get_logs_by_model(model_id, limit=limit)
     else:
-        logs = extraction_logs.get_all_logs(tenant_id=tenant_id, limit=limit)
+        logs = extraction_logs.get_all_logs(limit=limit)
     
     return [log.model_dump() for log in logs]
 
