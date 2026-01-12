@@ -831,73 +831,65 @@ IMPORTANT:
         # If nothing matched, return original (let AI's normalization stand)
         return value
 
-    def _normalize_bbox(self, bbox: Any, page_width: float = 0, page_height: float = 0) -> Optional[Dict[str, float]]:
+    def _normalize_bbox(self, bbox: Any, page_width: float = 0, page_height: float = 0) -> Optional[List[float]]:
         """
         Normalize bbox to percentage coordinates (0-100) for frontend rendering.
-        Accepts [x1, y1, x2, y2] and returns {x1, y1, width, height} in percentages.
+        Accepts [x1, y1, x2, y2] or polygon and returns [x1, y1, x2, y2] in percentages.
         """
         if not bbox or not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
             return None
         
         try:
-            x1, y1, x2, y2 = [float(b) for b in bbox[:4]]
+            # Handle 8-point polygon (x1,y1, x2,y2, x3,y3, x4,y4) -> convert to bbox [min_x, min_y, max_x, max_y]
+            if len(bbox) >= 8:
+                xs = bbox[0::2]
+                ys = bbox[1::2]
+                x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
+            else:
+                x1, y1, x2, y2 = [float(b) for b in bbox[:4]]
             
             # Case 1: Page dimensions are provided - calculate percentages
             if page_width > 0 and page_height > 0:
-                return {
-                    "x1": (x1 / page_width) * 100,
-                    "y1": (y1 / page_height) * 100,
-                    "width": ((x2 - x1) / page_width) * 100,
-                    "height": ((y2 - y1) / page_height) * 100
-                }
+                return [
+                    (x1 / page_width) * 100,
+                    (y1 / page_height) * 100,
+                    (x2 / page_width) * 100,
+                    (y2 / page_height) * 100
+                ]
             
             # Case 2: Coordinates already look like percentages (0-100 range)
-            if all(0 <= v <= 100 for v in [x1, y1, x2, y2]):
-                return {
-                    "x1": x1,
-                    "y1": y1,
-                    "width": x2 - x1,
-                    "height": y2 - y1
-                }
+            # CAUTION: If document is tiny (inches < 20), this might mistakenly treat inches as percentages.
+            # But since LLMs or OCR might output inches, we should check reasonable bounds.
+            # If width > 20, it's likely pixels. If < 20, likely inches.
+            # If strict 0-100 used for percentages, we can't distinguish 5 inches from 5%.
+            # However, doc intel "inches" usually implies we SHOULD normalize against 8.5x11.
             
             # Case 3: Azure Document Intelligence returns inches (typically 0-11 for letter size)
-            # Standard letter size: 8.5 x 11 inches
-            # Common A4 size: 8.27 x 11.69 inches
-            # If coordinates are in reasonable inch range, convert using standard page size
             if all(0 <= v <= 20 for v in [x1, y1, x2, y2]):
-                # Assume standard letter size in inches
+                # Assume standard letter size in inches if no page dims provided
                 default_page_width = 8.5
                 default_page_height = 11.0
-                logger.info(f"[_normalize_bbox] Using default page dims (inches): {default_page_width}x{default_page_height}")
-                return {
-                    "x1": (x1 / default_page_width) * 100,
-                    "y1": (y1 / default_page_height) * 100,
-                    "width": ((x2 - x1) / default_page_width) * 100,
-                    "height": ((y2 - y1) / default_page_height) * 100
-                }
+                return [
+                    (x1 / default_page_width) * 100,
+                    (y1 / default_page_height) * 100,
+                    (x2 / default_page_width) * 100,
+                    (y2 / default_page_height) * 100
+                ]
             
-            # Case 4: Coordinates might be in pixels (typically 600-2000+ for scanned docs)
-            # Assume common DPI scan: 8.5in * 72dpi = 612 pixels width
+            # Case 4: Coordinates might be in pixels 
             if x2 > 100 or y2 > 100:
-                # Estimate page size from max coordinate (assume roughly letter-size ratio)
-                estimated_width = max(x2 * 1.1, 612)  # Add 10% margin or use standard
-                estimated_height = max(y2 * 1.1, 792)  # 11 * 72 = 792
-                logger.info(f"[_normalize_bbox] Estimating page dims (pixels): {estimated_width}x{estimated_height}")
-                return {
-                    "x1": (x1 / estimated_width) * 100,
-                    "y1": (y1 / estimated_height) * 100,
-                    "width": ((x2 - x1) / estimated_width) * 100,
-                    "height": ((y2 - y1) / estimated_height) * 100
-                }
+                estimated_width = max(x2 * 1.1, 612)
+                estimated_height = max(y2 * 1.1, 792)
+                return [
+                    (x1 / estimated_width) * 100,
+                    (y1 / estimated_height) * 100,
+                    (x2 / estimated_width) * 100,
+                    (y2 / estimated_height) * 100
+                ]
             
-            # Fallback: return raw coordinates as-is (frontend will try to use them)
-            logger.warning(f"[_normalize_bbox] Could not normalize bbox, returning raw: {bbox}")
-            return {
-                "x1": x1,
-                "y1": y1,
-                "width": x2 - x1,
-                "height": y2 - y1
-            }
+            # Fallback (Case 2 match): Return as-is if it looks like percentages (0-100) but not inches (<20 handled above)
+            return [x1, y1, x2, y2]
+
         except (ValueError, TypeError) as e:
             logger.error(f"[_normalize_bbox] Error: {e}, bbox: {bbox}")
             return None

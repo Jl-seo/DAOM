@@ -1,8 +1,9 @@
 import uuid
 from typing import List
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from app.schemas.model import ExtractionModel, ExtractionModelCreate
 from app.services.models import load_models, save_models, get_model_by_id
+from app.core.permissions import require_admin, verify_model_admin
 
 router = APIRouter()
 
@@ -12,7 +13,7 @@ def list_models():
     all_models = load_models()
     return [m for m in all_models if getattr(m, "is_active", True)]
 
-@router.post("/", response_model=ExtractionModel)
+@router.post("/", response_model=ExtractionModel, dependencies=[Depends(require_admin)])
 def create_model(model_in: ExtractionModelCreate):
     models = load_models()
     new_model = ExtractionModel(
@@ -30,7 +31,7 @@ def get_model(model_id: str):
         raise HTTPException(status_code=404, detail="Model not found")
     return model
 
-@router.put("/{model_id}", response_model=ExtractionModel)
+@router.put("/{model_id}", response_model=ExtractionModel, dependencies=[Depends(verify_model_admin)])
 def update_model(model_id: str, model_in: ExtractionModelCreate):
     """모델 업데이트"""
     models = load_models()
@@ -45,7 +46,7 @@ def update_model(model_id: str, model_in: ExtractionModelCreate):
             return updated_model
     raise HTTPException(status_code=404, detail="Model not found")
 
-@router.delete("/{model_id}")
+@router.delete("/{model_id}", dependencies=[Depends(verify_model_admin)])
 def delete_model(model_id: str):
     models = load_models()
     for i, m in enumerate(models):

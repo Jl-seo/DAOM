@@ -230,8 +230,8 @@ export const usersApi = {
     getMe: () =>
         apiClient.get<UserInfo>('/users/me'),
 
-    getAll: () =>
-        apiClient.get<UserInfo[]>('/users'),
+    getAll: (search?: string) =>
+        apiClient.get<UserInfo[]>('/users', { params: { search } }),
 
     getById: (userId: string) =>
         apiClient.get<UserInfo>(`/users/${userId}`),
@@ -279,6 +279,9 @@ export const groupsApi = {
 
     create: (name: string, description: string, superAdmin: boolean = false) =>
         apiClient.post<GroupInfo>('/groups', { name, description, superAdmin }),
+
+    update: (groupId: string, name?: string, description?: string) =>
+        apiClient.put<GroupInfo>(`/groups/${groupId}`, { name, description }),
 
     getById: (groupId: string) =>
         apiClient.get<GroupInfo>(`/groups/${groupId}`),

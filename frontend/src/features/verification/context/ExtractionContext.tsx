@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useRef, type ReactNode, useCallback, useMemo } from 'react'
+import { createContext, useContext, useState, useRef, type ReactNode, useCallback, useMemo, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api'
@@ -127,7 +127,79 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
     // UI Interactive State
     const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
-    const [highlights] = useState<Highlight[]>([])
+    const [highlights, setHighlights] = useState<Highlight[]>([])
+
+    // Compute highlights from previewData
+    useEffect(() => {
+        if (!previewData) {
+            setHighlights([])
+            return
+        }
+
+        const currentData = previewData.sub_documents && previewData.sub_documents.length > 0
+            ? previewData.sub_documents[selectedSubDocIndex]?.data?.guide_extracted
+            : previewData.guide_extracted
+
+        if (!currentData) {
+            setHighlights([])
+            return
+        }
+
+        const newHighlights: Highlight[] = []
+
+        Object.entries(currentData).forEach(([key, item]: [string, any]) => {
+            // Check if item has bbox info (from refiner)
+            if (item && typeof item === 'object' && item.bbox && Array.isArray(item.bbox)) {
+                const points = item.bbox
+                if (points.length < 4) return
+
+                let x1 = 0, y1 = 0, x2 = 0, y2 = 0
+
+                if (points.length === 4) {
+                    // Assume [x, y, w, h] or [x1, y1, x2, y2] - treating as rect
+                    // But Azure OCR polygon is usually 8 points.
+                    // If 4 points, might be [xmin, ymin, xmax, ymax] from some other source?
+                    // Safe bet for 4 items is treating as x,y,w,h or rect.
+                    // Let's assume points are absolute coords for now?
+                    // Actually, let's treat it as polygon points if it's from refiner.py (which takes from Azure 'polygon')
+                    // But Azure 'polygon' is always list of points.
+                    // If we treat generic:
+                    const xs = points.filter((_: number, i: number) => i % 2 === 0)
+                    const ys = points.filter((_: number, i: number) => i % 2 === 1)
+                    if (xs.length > 0 && ys.length > 0) {
+                        x1 = Math.min(...xs)
+                        x2 = Math.max(...xs)
+                        y1 = Math.min(...ys)
+                        y2 = Math.max(...ys)
+                    }
+                } else {
+                    // 8 points or more
+                    const xs = points.filter((_: number, i: number) => i % 2 === 0)
+                    const ys = points.filter((_: number, i: number) => i % 2 === 1)
+                    x1 = Math.min(...xs)
+                    x2 = Math.max(...xs)
+                    y1 = Math.min(...ys)
+                    y2 = Math.max(...ys)
+                }
+
+                newHighlights.push({
+                    fieldKey: key,
+                    content: item.source_text || String(item.value || ''),
+                    pageIndex: (item.page || 1) - 1, // 0-based for frontend
+                    position: {
+                        boundingRect: {
+                            x1, y1, x2, y2,
+                            width: x2 - x1,
+                            height: y2 - y1
+                        }
+                    }
+                })
+            }
+        })
+
+        setHighlights(newHighlights)
+
+    }, [previewData, selectedSubDocIndex])
 
     // Polling Reference
     const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
