@@ -2,11 +2,9 @@ import { useState, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Activity, Database, FileText, TrendingUp, CheckCircle2 } from 'lucide-react'
-import axios from 'axios'
-import { API_CONFIG } from '../../constants'
+import { apiClient, API_CONFIG } from '../../lib/api'
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d']
-const API_BASE = API_CONFIG.BASE_URL
 
 export function DashboardStats() {
     const [stats, setStats] = useState<any>(null)
@@ -18,7 +16,7 @@ export function DashboardStats() {
 
     const fetchStats = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/audit/stats`)
+            const res = await apiClient.get('/audit/stats')
             setStats(res.data)
         } catch (error) {
             console.error('Failed to load stats:', error)

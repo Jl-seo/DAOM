@@ -836,12 +836,18 @@ IMPORTANT:
         Normalize bbox to percentage coordinates (0-100) for frontend rendering.
         Accepts [x1, y1, x2, y2] or polygon and returns [x1, y1, x2, y2] in percentages.
         """
-        if not bbox or not isinstance(bbox, (list, tuple)) or len(bbox) < 4:
+        if not bbox or not isinstance(bbox, (list, tuple, dict)):
             return None
         
         try:
             # Handle 8-point polygon (x1,y1, x2,y2, x3,y3, x4,y4) -> convert to bbox [min_x, min_y, max_x, max_y]
-            if len(bbox) >= 8:
+            if isinstance(bbox, dict):
+                 # Handle dictionary input (e.g. from LLM)
+                 x1 = float(bbox.get("x1", bbox.get("x", 0)))
+                 y1 = float(bbox.get("y1", bbox.get("y", 0)))
+                 x2 = float(bbox.get("x2", bbox.get("w", 0) + x1)) # Handle w/h if needed or x2
+                 y2 = float(bbox.get("y2", bbox.get("h", 0) + y1))
+            elif len(bbox) >= 8:
                 xs = bbox[0::2]
                 ys = bbox[1::2]
                 x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
