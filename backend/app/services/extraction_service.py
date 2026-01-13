@@ -440,17 +440,39 @@ IMPORTANT:
             except (ValueError, TypeError):
                 page_number = None
             
-            if not page_number:
-                page_number = default_page
+            # --- SMART PAGE DISCOVERY (Universal Mode) ---
+            detected_page = page_number
+            if not detected_page:
+                 detected_page = default_page
+
+            snapped_bbox = None
+            final_page_number = detected_page
+
+            # Helper (inline for safely accessing self if needed, though self is available)
+            def search_page_univ(p_num):
+                p_data = next((p for p in pages_info if p["page_number"] == p_num), None)
+                if p_data and "words" in p_data:
+                    return self._snap_bbox_to_words(str(value), bbox, p_data["words"])
+                return None
+
+            # Attempt 1: Check intended page
+            snapped_bbox = search_page_univ(final_page_number)
+
+            # Attempt 2: Check other pages
+            if not snapped_bbox and pages_info:
+                  for p_info in pages_info:
+                     p_num = p_info["page_number"]
+                     if p_num == final_page_number: continue
+                     
+                     found_bbox = search_page_univ(p_num)
+                     if found_bbox:
+                         snapped_bbox = found_bbox
+                         final_page_number = p_num
+                         logger.info(f"[SmartDiscovery-Univ] Value '{value}' found on Page {p_num}")
+                         break
             
-            # Try basic snapping
-            snapped_bbox = bbox
-            if value and pages_info:
-                target_page = page_number
-                page_data = next((p for p in pages_info if p["page_number"] == target_page), None)
-                if page_data and "words" in page_data:
-                     best = self._snap_bbox_to_words(str(value), bbox, page_data["words"])
-                     if best: snapped_bbox = best
+            page_number = final_page_number
+            # ---------------------------------------------
 
             # Normalize
             normalized_bbox = None
@@ -655,10 +677,7 @@ IMPORTANT:
             except (ValueError, TypeError):
                 page_number = None
             
-            if not page_number:
-                page_number = default_page
-
-            # Type Validation Logic
+            # Type Validation Logic (Restored)
             validation_status = "valid"
             if value is not None:
                 if field.type == "number" or field.type == "currency":
@@ -673,25 +692,47 @@ IMPORTANT:
                     if parsed != original_value:
                         validation_status = "normalized"
                     value = parsed
-                # String is default, no processing needed
             
+            # --- SMART PAGE DISCOVERY (FIX FOR PAGE MISMATCH) ---
+            # If page_number is missing, or if we want to be robust, check if the value actually exists on that page.
+            # If not, search other pages in the split.
+            
+            detected_page = page_number
+            if not detected_page:
+                 detected_page = default_page
+            
+            # 1. Try to find the value on the detected/default page first
+            snapped_bbox = None
+            final_page_number = detected_page
+            
+            # Helper to search a specific page
+            def search_page(p_num):
+                p_data = next((p for p in pages_info if p["page_number"] == p_num), None)
+                if p_data and "words" in p_data:
+                    return self._snap_bbox_to_words(str(value), bbox, p_data["words"])
+                return None
+
+            # Attempt 1: Default/Provided Page
+            snapped_bbox = search_page(final_page_number)
+            
+            # Attempt 2: If no match, search ALL other pages in the split
+            if not snapped_bbox and pages_info:
+                 for p_info in pages_info:
+                     p_num = p_info["page_number"]
+                     if p_num == final_page_number: continue # Already checked
+                     
+                     found_bbox = search_page(p_num)
+                     if found_bbox:
+                         snapped_bbox = found_bbox
+                         final_page_number = p_num
+                         logger.info(f"[SmartDiscovery] Value '{value}' found on Page {p_num} (was defaulting to {detected_page})")
+                         break
+            
+            page_number = final_page_number
+            # ----------------------------------------------------
+
             # Low confidence flag
             low_confidence = confidence < CONFIDENCE_THRESHOLD
-            
-            # Smart Snapping: Correct LLM's rough bbox using precise OCR word coordinates
-            snapped_bbox = bbox
-            if original_value and pages_info:
-                # Determine target page
-                target_page = page_number 
-                
-                # Find page data
-                page_data = next((p for p in pages_info if p["page_number"] == target_page), None)
-                
-                if page_data and "words" in page_data:
-                     # Use original_value for snapping to avoid format mismatch
-                     best_match_bbox = self._snap_bbox_to_words(str(original_value), bbox, page_data["words"])
-                     if best_match_bbox:
-                         snapped_bbox = best_match_bbox
 
             # Normalize bbox for frontend rendering
             normalized_bbox = None
