@@ -81,19 +81,42 @@ export const PDFViewer = forwardRef<PDFViewerHandle, PDFViewerProps>(({ fileUrl,
 
             // 2. OCR Coordinate Jump (Navigation)
             if (target) {
-                jumpToPage(target.pageIndex)
+                // If we are not on the target page, jump to it
+                if (currentPage !== target.pageIndex) {
+                    jumpToPage(target.pageIndex)
+                }
 
                 // ZOOM IN for focus (User Request)
                 zoomPluginInstance.zoomTo(1.5) // 150% zoom
 
-                // Wait for page render then scroll
-                setTimeout(() => {
+                // Robust Polling: Wait for element to appear in DOM
+                let attempts = 0
+                const maxAttempts = 20 // 2 seconds max
+                const interval = setInterval(() => {
+                    attempts++
                     const el = document.getElementById(`highlight-${fieldKey}`)
-                    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+
+                    if (el) {
+                        clearInterval(interval)
+
+                        // Scroll logic
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
+
+                        // Add temporary visual cue (flash)
+                        el.style.boxShadow = '0 0 0 4px rgba(250, 204, 21, 0.8)'
+                        setTimeout(() => {
+                            el.style.transition = 'box-shadow 0.5s ease-out'
+                            el.style.boxShadow = 'none'
+                        }, 1000)
+
+                    } else if (attempts >= maxAttempts) {
+                        clearInterval(interval)
+                        console.warn(`[PDFViewer] Could not find highlight element: highlight-${fieldKey} after ${maxAttempts} attempts`)
+                    }
                 }, 100)
             }
         }
-    }), [highlights, jumpToPage, highlight, clearHighlights, zoomPluginInstance])
+    }), [highlights, jumpToPage, highlight, clearHighlights, zoomPluginInstance, currentPage])
 
     // Highlight Rendering
     const renderHighlights = (props: RenderHighlightsProps) => {
