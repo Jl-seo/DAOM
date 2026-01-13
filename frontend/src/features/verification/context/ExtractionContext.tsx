@@ -149,51 +149,58 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
 
         Object.entries(currentData).forEach(([key, item]: [string, any]) => {
             // Check if item has bbox info (from refiner)
-            if (item && typeof item === 'object' && item.bbox && Array.isArray(item.bbox)) {
-                const points = item.bbox
-                if (points.length < 4) return
-
+            if (item && typeof item === 'object' && item.bbox) {
                 let x1 = 0, y1 = 0, x2 = 0, y2 = 0
+                let validBBox = false
 
-                if (points.length === 4) {
-                    // Assume [x, y, w, h] or [x1, y1, x2, y2] - treating as rect
-                    // But Azure OCR polygon is usually 8 points.
-                    // If 4 points, might be [xmin, ymin, xmax, ymax] from some other source?
-                    // Safe bet for 4 items is treating as x,y,w,h or rect.
-                    // Let's assume points are absolute coords for now?
-                    // Actually, let's treat it as polygon points if it's from refiner.py (which takes from Azure 'polygon')
-                    // But Azure 'polygon' is always list of points.
-                    // If we treat generic:
-                    const xs = points.filter((_: number, i: number) => i % 2 === 0)
-                    const ys = points.filter((_: number, i: number) => i % 2 === 1)
-                    if (xs.length > 0 && ys.length > 0) {
-                        x1 = Math.min(...xs)
-                        x2 = Math.max(...xs)
-                        y1 = Math.min(...ys)
-                        y2 = Math.max(...ys)
+                if (Array.isArray(item.bbox)) {
+                    const points = item.bbox
+                    if (points.length >= 4) {
+                        if (points.length === 4) {
+                            // [x1, y1, x2, y2]
+                            // Verify if it's [x,y,w,h] or [x1,y1,x2,y2]. 
+                            // Usually NormalizedBBox is [x1,y1,x2,y2].
+                            // If x2 < x1, maybe it's w,h?
+                            // Let's assume standard [x1, y1, x2, y2] as per backend extraction_service
+                            x1 = points[0]; y1 = points[1]; x2 = points[2]; y2 = points[3];
+                        } else {
+                            // Polygon (8+ points)
+                            const xs = points.filter((_: number, i: number) => i % 2 === 0)
+                            const ys = points.filter((_: number, i: number) => i % 2 === 1)
+                            if (xs.length > 0) {
+                                x1 = Math.min(...xs); x2 = Math.max(...xs)
+                                y1 = Math.min(...ys); y2 = Math.max(...ys)
+                            }
+                        }
+                        validBBox = true
                     }
-                } else {
-                    // 8 points or more
-                    const xs = points.filter((_: number, i: number) => i % 2 === 0)
-                    const ys = points.filter((_: number, i: number) => i % 2 === 1)
-                    x1 = Math.min(...xs)
-                    x2 = Math.max(...xs)
-                    y1 = Math.min(...ys)
-                    y2 = Math.max(...ys)
+                } else if (typeof item.bbox === 'object') {
+                    // Handle Dict format: {x1, y1, x2, y2} or {x, y, w, h}
+                    // Prioritize x1/x2 over x/w
+                    const b = item.bbox
+                    x1 = Number(b.x1 ?? b.x ?? 0)
+                    y1 = Number(b.y1 ?? b.y ?? 0)
+                    // If x2 is present, use it. If not, try x+w.
+                    x2 = b.x2 !== undefined ? Number(b.x2) : (Number(b.w ?? 0) + x1)
+                    y2 = b.y2 !== undefined ? Number(b.y2) : (Number(b.h ?? 0) + y1)
+
+                    if (x2 > x1 || y2 > y1) validBBox = true
                 }
 
-                newHighlights.push({
-                    fieldKey: key,
-                    content: item.source_text || String(item.value || ''),
-                    pageIndex: (item.page || 1) - 1, // 0-based for frontend
-                    position: {
-                        boundingRect: {
-                            x1, y1, x2, y2,
-                            width: x2 - x1,
-                            height: y2 - y1
+                if (validBBox) {
+                    newHighlights.push({
+                        fieldKey: key,
+                        content: item.source_text || String(item.value || ''),
+                        pageIndex: (item.page_number || item.page || 1) - 1,
+                        position: {
+                            boundingRect: {
+                                x1, y1, x2, y2,
+                                width: x2 - x1,
+                                height: y2 - y1
+                            }
                         }
-                    }
-                })
+                    })
+                }
             }
         })
 
