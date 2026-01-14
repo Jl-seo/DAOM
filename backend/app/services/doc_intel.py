@@ -85,6 +85,7 @@ async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-la
             # Save to Cache
             if cache_blob_name:
                  await storage.save_json_as_blob(output, cache_blob_name)
+                 output["_cache_blob_path"] = cache_blob_name # Expose for debugging
                  logger.info(f"[DocIntel] Cache SAVED to {cache_blob_name}")
                  
             return output

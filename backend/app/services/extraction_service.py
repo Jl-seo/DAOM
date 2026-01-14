@@ -167,6 +167,7 @@ class ExtractionService:
                 try:
                     debug_info = {
                         "message": "Full raw data exceeded storage limit. Showing summary.",
+                        "raw_data_blob_path": doc_intel_output.get("_cache_blob_path"), # Link to full data in Blob
                         "doc_intel_summary": {
                             "page_count": len(doc_intel_output.get("pages", [])),
                             "model_id": doc_intel_output.get("model_id"),
