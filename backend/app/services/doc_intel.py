@@ -32,7 +32,9 @@ async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-la
     """
     # 0. Check Cache (Optimization)
     cache_blob_name = None
-    if isinstance(file_source, str) and "blob.core.windows.net" in file_source:
+    # 0. Check Cache (Optimization)
+    cache_blob_name = None
+    if isinstance(file_source, str):
          # Generate a cache key from the file URL (safe filename)
          import base64
          safe_name = base64.urlsafe_b64encode(file_source.encode()).decode().strip("=")
