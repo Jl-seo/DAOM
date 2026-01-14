@@ -67,10 +67,20 @@ async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
     try:
         container_name = settings.AZURE_CONTAINER_NAME
         blob_client = client.get_blob_client(container=container_name, blob=filename)
+
+        # Ensure container exists
+        container_client = client.get_container_client(container_name)
+        if not container_client.exists():
+            try:
+                container_client.create_container()
+            except Exception:
+                pass # Already created by another process
+
         blob_client.upload_blob(json.dumps(data), overwrite=True)
         return blob_client.url
     except Exception as e:
-        print(f"[Storage] Failed to save JSON blob: {e}")
+        import logging
+        logging.getLogger(__name__).error(f"[Storage] Cloud Blob Upload Failed: {e}")
         return None
 
 async def load_json_from_blob(filename: str) -> Optional[dict]:
