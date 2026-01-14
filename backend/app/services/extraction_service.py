@@ -289,9 +289,14 @@ class ExtractionService:
                  return {"pages": ocr_data} # Best effort fallback
             return {}
 
+        # PRESERVE CONTENT: Essential for LLM context! 
+        # If filtering pages, we can't easily filter content string without spans, 
+        # but providing full content is safer than providing none.
+        # We'll truncate if absolutely massive (e.g. > 100k chars), but 32k is handled by chunking.
         filtered_data = {
             "api_version": ocr_data.get("api_version"),
             "model_id": ocr_data.get("model_id"),
+            "content": ocr_data.get("content", ""), # Restore content
             "pages": [],
             "tables": [],
             "paragraphs": [] # Optional, might be heavy
@@ -544,6 +549,35 @@ IMPORTANT:
         # OPTIMIZATION: Filter payload to only relevant pages
         ocr_data_to_send = self._filter_ocr_data(ocr_data, focus_pages) if focus_pages else ocr_data.copy()
         
+        
+        # PRE-EMPTIVE CHUNKING: If document is too large, skip direct call and chunk immediately.
+        # Threshold: ~32k chars (approx 8-10k tokens) or > 10 pages
+        content_len = len(ocr_data_to_send.get("content", ""))
+        page_count = len(ocr_data_to_send.get("pages", []))
+        
+        if content_len > 32000 or page_count > 10:
+            logger.info(f"[LLM] Document too large (Length: {content_len}, Pages: {page_count}), skipping direct call and starting Pre-emptive Chunking...")
+            try:
+                from app.services.chunked_extraction import extract_with_chunking
+                merged_result, errors = await extract_with_chunking(
+                    ocr_data_to_send,
+                    model.fields,
+                    max_tokens_per_chunk=8000,
+                    max_concurrent=8
+                )
+                
+                if errors:
+                    logger.warning(f"[LLM-Chunked] Some chunks failed: {errors}")
+                
+                # Merge structured result
+                return {
+                    "guide_extracted": {k: {"value": v.get("value"), "confidence": v.get("confidence", 0.0), "bbox": v.get("bbox"), "page_number": v.get("page_number")} for k, v in merged_result.items() if not k.startswith("_")},
+                    "other_data": [],
+                    "_chunked": True
+                }
+            except Exception as chunk_error:
+                logger.error(f"[LLM-Chunked] Pre-emptive chunking failed: {chunk_error}")
+                # Fallback to normal execution if chunking fails (though likely will fail too)
 
         
         field_descriptions = []

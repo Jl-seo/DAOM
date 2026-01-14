@@ -103,7 +103,8 @@ def _process_pages(pages):
             "height": page.height,
             "unit": page.unit,
             "words": [{"content": w.content, "polygon": w.polygon, "confidence": w.confidence} for w in (page.words or [])],
-             # Helpful for detecting checkboxes in forms
+            "lines": [{"content": l.content, "polygon": l.polygon} for l in (page.lines or [])], # Added lines!
+            # Helpful for detecting checkboxes in forms
             "selection_marks": [{"state": m.state, "polygon": m.polygon} for m in (page.selection_marks or [])]
         })
     return processed
