@@ -28,6 +28,7 @@ export interface PreviewData {
     guide_extracted: Record<string, any>
     other_data: Array<{ column: string; value: any; confidence?: number; bbox?: number[] }>
     model_fields: Array<{ key: string; label: string }>
+    debug_data?: any // Raw debug information from backend
     sub_documents?: SubDocument[]
     comparison_result?: {
         differences: Array<{
