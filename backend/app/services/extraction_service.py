@@ -609,7 +609,8 @@ IMPORTANT:
                 }
             except Exception as chunk_error:
                 logger.error(f"[LLM-Chunked] Pre-emptive chunking failed: {chunk_error}")
-                # Fallback to normal execution if chunking fails (though likely will fail too)
+                # Don't silently fallback - raise error so user knows what happened
+                raise Exception(f"문서가 너무 커서 분할 처리를 시도했으나 실패했습니다: {chunk_error}")
 
         
         field_descriptions = []
