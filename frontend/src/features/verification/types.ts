@@ -30,6 +30,8 @@ export interface PreviewData {
     model_fields: Array<{ key: string; label: string }>
     debug_data?: any // Raw debug information from backend
     sub_documents?: SubDocument[]
+    raw_content?: string // Raw text from Document Intelligence
+    raw_tables?: any[] // Raw table data from Document Intelligence
     comparison_result?: {
         differences: Array<{
             id: string | number
