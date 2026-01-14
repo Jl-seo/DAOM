@@ -353,11 +353,11 @@ def merge_chunk_results(
             val = item.get("value")
             
             # Strategy: If field not present, take it.
-            # If present, only replace if current is null and new is not null.
+            # If present, only replace if current is null.
+            # Actually, we should take non-null over null.
             if key not in merged_guide:
-                 if val is not None:
-                     merged_guide[key] = item
-                     field_sources[key] = item.get("page_number") or (pages[0] if pages else 0)
+                 merged_guide[key] = item
+                 field_sources[key] = item.get("page_number") or (pages[0] if pages else 0)
             else:
                 current_val = merged_guide[key].get("value")
                 if current_val is None and val is not None:
@@ -392,8 +392,8 @@ def merge_chunk_results(
 async def extract_with_chunking(
     doc_intel_output: Dict[str, Any],
     model_fields: List[Dict[str, Any]],
-    max_tokens_per_chunk: int = MAX_TOKENS_PER_CHUNK,
-    max_concurrent: int = 3
+    max_tokens_per_chunk: int = 8000, # Increased default
+    max_concurrent: int = 8 # Increased default
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Main entry point: Extract data from large document using chunking.

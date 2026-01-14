@@ -402,7 +402,9 @@ IMPORTANT:
             error_str = str(e).lower()
             
             # Check if token limit exceeded - fallback to chunked processing
-            if "token" in error_str or "context_length" in error_str or ("429" in str(e) and "rate" not in error_str):
+            # Only switch to chunked if it's genuinely a context length issue. 
+            # 429 Rate Limit should be handled by retry, not chunking.
+            if "context_length" in error_str or "maximum context" in error_str:
                 logger.warning(f"[LLM-Universal] Token limit exceeded, switching to chunked extraction...")
                 
                 try:
@@ -414,15 +416,16 @@ IMPORTANT:
                     merged_result, errors = await extract_with_chunking(
                         ocr_data_to_send,
                         model_fields,
-                        max_tokens_per_chunk=4000,
-                        max_concurrent=5
+                        max_tokens_per_chunk=8000, # Increased chunk size
+                        max_concurrent=8 # Increased concurrency
                     )
                     
                     if errors:
                         logger.warning(f"[LLM-Universal-Chunked] Some chunks failed: {errors}")
                     
+                    # Merge structured result
                     return {
-                        "guide_extracted": {k: v for k, v in merged_result.items() if not k.startswith("_")},
+                        "guide_extracted": {k: {"value": v.get("value"), "confidence": v.get("confidence", 0.0), "bbox": v.get("bbox"), "page_number": v.get("page_number")} for k, v in merged_result.items() if not k.startswith("_")},
                         "other_data": [],
                         "_chunked": True
                     }

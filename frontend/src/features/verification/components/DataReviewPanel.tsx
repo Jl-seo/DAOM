@@ -67,11 +67,9 @@ export function DataReviewPanel({
                     추출 결과 확인
                 </span>
                 <div className="flex gap-2">
-                    {debugData && (
-                        <Button variant="ghost" size="icon" onClick={() => setShowDebugModal(true)} title="View Debug Info">
-                            <Bug className="w-4 h-4 text-muted-foreground" />
-                        </Button>
-                    )}
+                    <Button variant="ghost" size="icon" onClick={() => setShowDebugModal(true)} title="View Debug Info">
+                        <Bug className="w-4 h-4 text-muted-foreground" />
+                    </Button>
                     <Button variant="ghost" size="icon" onClick={() => setIsExpanded(!isExpanded)}>
                         {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                     </Button>

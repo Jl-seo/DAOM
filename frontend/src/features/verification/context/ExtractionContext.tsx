@@ -234,14 +234,15 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                     if (job.candidate_file_urls) setCandidateFileUrls(job.candidate_file_urls) // Expecting array from backend now
 
                     // If we have preview data (standard flow), use it
-                    if (job.preview_data) {
-                        setPreviewData({
-                            ...job.preview_data,
-                            debug_data: job.debug_data, // Inject debug data from job level
-                            // Ensure model fields exist for mapping
-                            model_fields: job.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
-                        })
-                    }
+                    // Always inject debug_data if available
+                    // This ensures users can see raw OCR/LLM response even if extraction failed
+                    const basePreviewData = job.preview_data || { guide_extracted: {}, other_data: [] }
+
+                    setPreviewData({
+                        ...basePreviewData,
+                        debug_data: job.debug_data, // Inject debug_data ALWAYS
+                        model_fields: basePreviewData.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
+                    })
 
                     setStatus(isSuccessStatus(job.status) ? EXTRACTION_STATUS.PREVIEW_READY : EXTRACTION_STATUS.SUCCESS)
 
