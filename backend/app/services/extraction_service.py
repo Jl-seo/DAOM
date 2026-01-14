@@ -263,7 +263,8 @@ class ExtractionService:
                 extraction_logs.update_log_status(
                     log_id_to_update, 
                     status=ExtractionStatus.SUCCESS.value,
-                    preview_data=preview_payload
+                    preview_data=preview_payload,
+                    debug_data=debug_info_final # PASS DEBUG DATA TO LOG
                 )
 
         except Exception as e:
@@ -338,11 +339,9 @@ class ExtractionService:
         if isinstance(pages, list):
             for p in pages:
                 if isinstance(p, dict) and p.get("page_number", 0) in target_pages:
-                    # OPTIMIZATION: Remove 'words' to save tokens.
-                    # LLM sees 'lines' and 'content', so 'words' are redundant noise.
-                    p_clean = p.copy()
-                    p_clean.pop("words", None)
-                    filtered_data["pages"].append(p_clean)
+                    # PRESERVE WORDS: LLM needs word-level precision for accurate BBox extraction
+                    # We rely on Pre-emptive Chunking to handle token limits if this gets too big.
+                    filtered_data["pages"].append(p.copy())
 
         # 2. Filter Tables
         tables = ocr_data.get("tables", [])
@@ -641,9 +640,10 @@ INSTRUCTIONS:
 2. For specific fields like 'Item' or 'Amount', look for corresponding headers in the table.
 3. If a field represents a list of items (e.g. line items in a table), extract it as a JSON Array of objects with relevant keys.
 4. Distinguish between 'Item' (product code/name) and 'Description' (details).
-5. **CRITICAL**: Extract values EXACTLY as they appear in the text. Do not reformat dates or numbers yet.
-6. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value. Copy it exactly from source.
-7. **CRITICAL**: You MUST include the 'page_number' (1-based index) for every extracted value.
+5. **Key-Value Tables**: If a table has a structure like [Field Name | Value], map the 'Value' column to the corresponding requested field. Do not treat it as a line item list.
+6. **CRITICAL**: Extract values EXACTLY as they appear in the text. Do not reformat dates or numbers yet.
+7. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value. Copy it exactly from source.
+8. **CRITICAL**: You MUST include the 'page_number' (1-based index) for every extracted value.
 
 Return a JSON object with TWO parts:
 1. "guide_extracted": Object with each field key containing:

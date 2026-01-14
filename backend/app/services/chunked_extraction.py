@@ -35,6 +35,7 @@ class Chunk:
     content: str
     paragraphs: List[Dict[str, Any]]
     tables: List[Dict[str, Any]]
+    pages_data: List[Dict[str, Any]] # High fidelity data including words
     token_estimate: int
 
 
@@ -70,6 +71,7 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
             content=content,
             paragraphs=paragraphs,
             tables=tables,
+            pages_data=pages, # Pass all pages
             token_estimate=estimate_tokens(content)
         )]
     
@@ -78,6 +80,7 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
     current_chunk_content = ""
     current_chunk_paragraphs: List[Dict] = []
     current_chunk_tables: List[Dict] = []
+    current_chunk_pages_data: List[Dict] = []
     
     for page in pages:
         page_num = page.get("pageNumber", 1)
@@ -104,15 +107,18 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
                 content=current_chunk_content,
                 paragraphs=current_chunk_paragraphs.copy(),
                 tables=current_chunk_tables.copy(),
+                pages_data=current_chunk_pages_data.copy(),
                 token_estimate=current_tokens
             ))
             current_chunk_pages = []
+            current_chunk_pages_data = [] # Reset pages data
             current_chunk_content = ""
             current_chunk_paragraphs = []
             current_chunk_tables = []
         
         # Add page to current chunk
         current_chunk_pages.append(page_num)
+        current_chunk_pages_data.append(page.copy()) # Collect high-fidelity page data
         current_chunk_content += f"\n--- Page {page_num} ---\n{page_content}"
         current_chunk_paragraphs.extend(page_paragraphs)
         current_chunk_tables.extend(page_tables)
@@ -125,6 +131,7 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
             content=current_chunk_content,
             paragraphs=current_chunk_paragraphs,
             tables=current_chunk_tables,
+            pages_data=current_chunk_pages_data,
             token_estimate=estimate_tokens(current_chunk_content)
         ))
     

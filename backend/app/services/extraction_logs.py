@@ -284,7 +284,7 @@ def get_log(log_id: str) -> Optional[ExtractionLog]:
         return None
 
 
-def update_log_status(log_id: str, status: str, preview_data: Optional[dict] = None) -> bool:
+def update_log_status(log_id: str, status: str, preview_data: Optional[dict] = None, debug_data: Optional[dict] = None) -> bool:
     """Update just the status (and optionally preview_data) of an existing log"""
     container = get_extractions_container()
     
@@ -306,6 +306,9 @@ def update_log_status(log_id: str, status: str, preview_data: Optional[dict] = N
         
         if preview_data:
             log_dict["preview_data"] = preview_data
+        
+        if debug_data:
+            log_dict["debug_data"] = debug_data
         
         container.upsert_item(log_dict)
         logger.info(f"[ExtractionLogs] Updated log {log_id} status to {status}")

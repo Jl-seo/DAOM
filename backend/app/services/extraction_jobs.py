@@ -172,7 +172,8 @@ def update_job(
                 extraction_logs.update_log_status(
                     log_id_to_update, 
                     status=status,
-                    preview_data=preview_data
+                    preview_data=preview_data,
+                    debug_data=debug_data # FIXED: Propagate debug_data
                 )
             except Exception as e:
                 print(f"[ExtractionJobs] Failed to sync status to log {job.original_log_id}: {e}")

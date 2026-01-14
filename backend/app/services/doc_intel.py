@@ -118,7 +118,8 @@ def _process_tables(tables):
     for table in tables:
         cells = [{
             "row_index": c.row_index, "column_index": c.column_index, 
-            "content": c.content, "kind": getattr(c, "kind", "content")
+            "content": c.content, "kind": getattr(c, "kind", "content"),
+            "bounding_regions": [{"page_number": r.page_number, "polygon": r.polygon} for r in (c.bounding_regions or [])]
         } for c in table.cells]
         processed.append({
             "row_count": table.row_count, 
