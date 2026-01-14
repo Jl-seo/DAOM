@@ -43,6 +43,7 @@ export function DataReviewPanel({
 }: DataReviewPanelProps) {
     const [isExpanded, setIsExpanded] = useState(false)
     const [showDebugModal, setShowDebugModal] = useState(false)
+    const [rawViewTab, setRawViewTab] = useState<'text' | 'tables'>('text')
 
     // Columns for the "Other Data" (Table) tab
     const tableColumns = currentOtherData && currentOtherData.length > 0
@@ -91,6 +92,7 @@ export function DataReviewPanel({
                     <TabsList className="bg-transparent h-12 p-0 space-x-6">
                         <TabsTrigger value="fields" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">추출 필드</TabsTrigger>
                         <TabsTrigger value="table" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">상세 테이블</TabsTrigger>
+                        <TabsTrigger value="ocr" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">OCR 원본</TabsTrigger>
                         <TabsTrigger value="raw" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">Raw JSON</TabsTrigger>
                     </TabsList>
                 </div>
@@ -132,6 +134,72 @@ export function DataReviewPanel({
                                 {JSON.stringify(currentGuideExtracted, null, 2)}
                             </pre>
                         </ScrollArea>
+                    </TabsContent>
+                    <TabsContent value="ocr" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
+                        <div className="flex flex-col h-full">
+                            {/* Sub-tabs for Text/Tables */}
+                            <div className="px-6 py-2 border-b bg-muted/20 flex gap-4">
+                                <button
+                                    onClick={() => setRawViewTab('text')}
+                                    className={`px-3 py-1 rounded text-sm ${rawViewTab === 'text' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+                                >
+                                    텍스트
+                                </button>
+                                <button
+                                    onClick={() => setRawViewTab('tables')}
+                                    className={`px-3 py-1 rounded text-sm ${rawViewTab === 'tables' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+                                >
+                                    테이블 ({previewData?.raw_tables?.length || 0})
+                                </button>
+                            </div>
+                            <ScrollArea className="flex-1">
+                                {rawViewTab === 'text' ? (
+                                    <div className="p-6">
+                                        <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed">
+                                            {previewData?.raw_content || '텍스트 데이터가 없습니다'}
+                                        </pre>
+                                    </div>
+                                ) : (
+                                    <div className="p-6 space-y-6">
+                                        {previewData?.raw_tables && previewData.raw_tables.length > 0 ? (
+                                            previewData.raw_tables.map((table: any, tableIdx: number) => (
+                                                <div key={tableIdx} className="border rounded-lg overflow-hidden">
+                                                    <div className="bg-muted px-4 py-2 font-semibold text-sm">
+                                                        Table {tableIdx + 1} ({table.row_count || '?'} rows × {table.column_count || '?'} cols)
+                                                    </div>
+                                                    <div className="overflow-auto">
+                                                        <table className="w-full text-sm">
+                                                            <tbody>
+                                                                {/* Group cells by row */}
+                                                                {(() => {
+                                                                    const rows: Record<number, any[]> = {}
+                                                                        ; (table.cells || []).forEach((cell: any) => {
+                                                                            const ri = cell.row_index || 0
+                                                                            if (!rows[ri]) rows[ri] = []
+                                                                            rows[ri].push(cell)
+                                                                        })
+                                                                    return Object.keys(rows).sort((a, b) => Number(a) - Number(b)).map(ri => (
+                                                                        <tr key={ri} className="border-b last:border-b-0">
+                                                                            {rows[Number(ri)].sort((a, b) => (a.column_index || 0) - (b.column_index || 0)).map((cell, ci) => (
+                                                                                <td key={ci} className="border-r last:border-r-0 px-3 py-2">
+                                                                                    {cell.content || ''}
+                                                                                </td>
+                                                                            ))}
+                                                                        </tr>
+                                                                    ))
+                                                                })()}
+                                                            </tbody>
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="text-center text-muted-foreground py-10">테이블 데이터가 없습니다</div>
+                                        )}
+                                    </div>
+                                )}
+                            </ScrollArea>
+                        </div>
                     </TabsContent>
                 </div>
             </Tabs>

@@ -237,7 +237,9 @@ class ExtractionService:
             # -----------------------------------------
 
             preview_payload = {
-                "sub_documents": sub_documents
+                "sub_documents": sub_documents,
+                "raw_content": doc_intel_output.get("content", ""),
+                "raw_tables": doc_intel_output.get("tables", [])
             }
             
             result = extraction_jobs.update_job(
@@ -602,9 +604,11 @@ IMPORTANT:
                     logger.warning(f"[LLM-Chunked] Some chunks failed: {errors}")
                 
                 # Merge structured result
+                # Include raw tables in other_data so user can see something even if LLM fails
+                raw_tables = ocr_data_to_send.get("tables", [])
                 return {
                     "guide_extracted": {k: {"value": v.get("value"), "confidence": v.get("confidence", 0.0), "bbox": v.get("bbox"), "page_number": v.get("page_number")} for k, v in merged_result.items() if not k.startswith("_")},
-                    "other_data": [],
+                    "other_data": [{"type": "raw_tables", "tables": raw_tables}] if raw_tables else [],
                     "_chunked": True
                 }
             except Exception as chunk_error:
