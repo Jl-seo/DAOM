@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Token estimation: ~4 chars per token for mixed content
 CHARS_PER_TOKEN = 4
-MAX_TOKENS_PER_CHUNK = 2000
+MAX_TOKENS_PER_CHUNK = 4000
 MAX_CHARS_PER_CHUNK = MAX_TOKENS_PER_CHUNK * CHARS_PER_TOKEN  # ~8000 chars
 
 # Retry configuration
@@ -149,38 +149,82 @@ async def process_chunk_with_retry(
     
     for attempt in range(max_retries):
         try:
-            # Build prompt for this chunk
-            fields_str = json.dumps(model_fields, ensure_ascii=False)
-            prompt = f"""다음 문서에서 필드 정보를 추출하세요.
+            # Build prompt for this chunk - USES HIGH FIDELITY ENGLISH PROMPT
+            # Converted fields to list of descriptions
+            field_descriptions = []
+            for field in model_fields:
+                desc = f"- {field.get('key')}: {field.get('label')}"
+                if field.get('description'):
+                    desc += f" ({field.get('description')})"
+                field_descriptions.append(desc)
 
-필드 목록:
-{fields_str}
+            fields_block = "\n".join(field_descriptions)
 
-문서 내용 (페이지 {chunk.page_numbers}):
+            prompt = f"""You are a document data extractor.
+
+Given this document data extracting from pages {chunk.page_numbers}:
 {chunk.content}
 
-JSON 형식으로만 응답하세요. 해당 페이지에 없는 필드는 null로 표시하세요.
-{{"field_name": "extracted_value", ...}}"""
+Extract values for these specific fields:
+{fields_block}
+
+INSTRUCTIONS:
+1. Analyze the document context.
+2. **CRITICAL**: Extract values EXACTLY as they appear in the text.
+3. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value.
+   - Since you are working with text content relative to the start of this chunk, if you cannot determine exact bbox, return null for bbox.
+   - However, if the input includes spatial data (OCR), use it.
+   - Note: In this chunked mode, we are passing text content. if you cannot find coordinates, set bbox to null and we will infer later.
+4. **CRITICAL**: You MUST include the 'page_number' (1-based index) for every extracted value.
+
+Return a JSON object with:
+1. "guide_extracted": Object with each field key containing:
+   - "value": The extracted value exactly as in text
+   - "confidence": Your confidence level from 0.0 to 1.0
+   - "bbox": [x1, y1, x2, y2] or null
+   - "page_number": The page number
+2. "other_data": Array of other noteworthy data found.
+
+IMPORTANT:
+- Use exact field keys.
+- If value is not found, set value to null.
+- Return ONLY valid JSON."""
 
             response = await client.chat.completions.create(
                 model=deployment,
                 messages=[
-                    {"role": "system", "content": "You are a document extraction assistant. Extract field values from the given document. Respond only with valid JSON."},
+                    {"role": "system", "content": "You are a precise document data extractor. The user needs to verify your work, so you must return bounding boxes and page numbers if available. Return only valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,
-                max_tokens=2000
+                response_format={"type": "json_object"}
             )
             
             result_text = response.choices[0].message.content.strip()
             
             # Parse JSON response
-            if result_text.startswith("```"):
-                result_text = result_text.split("```")[1]
-                if result_text.startswith("json"):
-                    result_text = result_text[4:]
-            
             extracted = json.loads(result_text)
+            
+            # Normalize structure if LLM responds weirdly (sometimes returns list)
+            if "guide_extracted" not in extracted:
+                 # Try to see if it's the old flat format or something else
+                 # If it looks like flat key-values, wrap it
+                 if not any(k in ["guide_extracted", "other_data"] for k in extracted.keys()):
+                     extracted = {"guide_extracted": extracted}
+
+            guide = extracted.get("guide_extracted", {})
+            
+            # Ensure every field in guide is an object
+            for k, v in guide.items():
+                if not isinstance(v, dict):
+                    guide[k] = {
+                        "value": v,
+                        "confidence": 0.5,
+                        "bbox": None,
+                        "page_number": chunk.page_numbers[0] if chunk.page_numbers else 1
+                    }
+            
+            extracted["guide_extracted"] = guide
             
             # Add page metadata
             extracted["_chunk_index"] = chunk.index
@@ -264,14 +308,25 @@ def merge_chunk_results(
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Merge results from multiple chunks into a single coherent result.
-    For duplicate fields, take the first non-null value.
-    Returns (merged_data, errors_list)
+    For duplicate fields, take the best value (highest confidence or first non-null).
+    Returns (merged_flat_data, errors_list) - Note: returning flat data with structure!
+    
+    Wait, the caller (extraction_service) expects:
+    { "field_key": "value" ... } ? 
+    NO, extraction_service._unwrap_llm_extraction fallback returns:
+    {
+        "guide_extracted": {k: {"value": v ...}},
+        "other_data": ...
+    }
+    
+    So we should return a dictionary suitable for that structure.
     """
-    merged: Dict[str, Any] = {}
+    merged_guide: Dict[str, Any] = {}
+    merged_other: List[Any] = []
     field_sources: Dict[str, int] = {}  # Track which page gave us each field
     errors: List[str] = []
     
-    # Sort results by chunk index to maintain order
+    # Sort results by chunk index
     sorted_results = sorted(results, key=lambda r: r.chunk_index)
     
     for result in sorted_results:
@@ -283,29 +338,55 @@ def merge_chunk_results(
             continue
         
         chunk_data = result.extracted_data
+        guide = chunk_data.get("guide_extracted", {})
+        other = chunk_data.get("other_data", [])
+        
+        if isinstance(other, list):
+            merged_other.extend(other)
+            
         pages = chunk_data.get("_pages", [])
         
-        for key, value in chunk_data.items():
-            if key.startswith("_"):  # Skip metadata
-                continue
+        for key, item in guide.items():
+            # item is expected to be {value, confidence, bbox, page}
+            if not isinstance(item, dict): continue
             
-            # Take first non-null value for each field
-            if key not in merged or merged[key] is None:
-                if value is not None:
-                    merged[key] = value
-                    field_sources[key] = pages[0] if pages else 0
-    
+            val = item.get("value")
+            
+            # Strategy: If field not present, take it.
+            # If present, only replace if current is null and new is not null.
+            if key not in merged_guide:
+                 if val is not None:
+                     merged_guide[key] = item
+                     field_sources[key] = item.get("page_number") or (pages[0] if pages else 0)
+            else:
+                current_val = merged_guide[key].get("value")
+                if current_val is None and val is not None:
+                    merged_guide[key] = item
+                    field_sources[key] = item.get("page_number") or (pages[0] if pages else 0)
+
     # Add metadata about merge
-    merged["_merge_info"] = {
+    # We return the dictionary that will be put INTO 'guide_extracted' by the caller ??
+    # Actually extraction_service._unwrap... fallback puts the result of this function:
+    # "guide_extracted": {k: {"value": v ...} for k, v in merged_result.items()}
+    # Wait, the caller loop in extraction_service needs update too if we change return type.
+    # checking extraction_service line 623:
+    # "guide_extracted": {k: {"value": v, "confidence": 0.8} for k, v in merged_result.items() if not k.startswith("_")},
+    
+    # WE MUST CHANGE extraction_service TO ACCEPT THIS RICHER RETURN or CHANGE THIS TO MATCH.
+    # The plan says "Update merge_chunk_results Logic to merge the richer object structure".
+    # I should change this to return the dictionary of Objects.
+    # And I need to update extraction_service to use it directly instead of wrapping it again.
+    
+    merged_guide["_merge_info"] = {
         "total_chunks": len(results),
         "successful_chunks": sum(1 for r in results if r.success),
         "field_sources": field_sources
     }
     
     success_rate = sum(1 for r in results if r.success) / len(results) if results else 0
-    logger.info(f"[Merge] Merged {len(merged)} fields from {len(results)} chunks (success rate: {success_rate:.0%})")
+    logger.info(f"[Merge] Merged {len(merged_guide)} fields from {len(results)} chunks (success rate: {success_rate:.0%})")
     
-    return merged, errors
+    return merged_guide, errors
 
 
 async def extract_with_chunking(

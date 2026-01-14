@@ -210,6 +210,7 @@ export function ExtractionReviewView({
                         onRetry={onRetry}
                         onDownload={handleDownload}
                         documentId={fileUrl} // Pass fileUrl as stable identifier
+                        debugData={previewData?.debug_data}
                     />
                 </div>
             </div>

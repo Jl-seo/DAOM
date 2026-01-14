@@ -33,6 +33,7 @@ class ExtractionLog(BaseModel):
     updated_at: Optional[str] = None
     tenant_id: Optional[str] = "default"
     llm_model: Optional[str] = None  # Model name used for extraction (e.g. gpt-4.1)
+    debug_data: Optional[dict] = None  # Raw debug data
 
     @field_validator('user_id', mode='before')
     @classmethod
@@ -56,6 +57,7 @@ def save_extraction_log(
     job_id: Optional[str] = None,
     tenant_id: Optional[str] = "default",
     llm_model: Optional[str] = None,
+    debug_data: Optional[dict] = None,
 ) -> Optional[ExtractionLog]:
     """Save a new extraction log entry"""
     container = get_extractions_container()
@@ -92,7 +94,8 @@ def save_extraction_log(
         created_at=existing_created_at if existing_created_at else now,
         updated_at=now,
         tenant_id=tenant_id,
-        llm_model=llm_model
+        llm_model=llm_model,
+        debug_data=debug_data
     )
     
     try:

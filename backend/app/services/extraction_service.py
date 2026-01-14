@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.services.llm import get_current_model
 from app.core.enums import ExtractionStatus
 from app.services import doc_intel, models, extraction_jobs, extraction_logs
+from app.services.extraction_utils import parse_number, parse_date, normalize_bbox
 from app.schemas.model import ExtractionModel, FieldDefinition
 
 logger = logging.getLogger(__name__)
@@ -153,6 +154,23 @@ class ExtractionService:
             doc_intel_output = await doc_intel.extract_with_strategy(file_url, azure_model)
             
             # ... (OCR log) ...
+            
+            # --- DEBUG DATA PERSISTENCE ---
+            # Cosmos DB has 2MB limit, so we can't save full OCR JSON. 
+            # We save the text content and structure summary.
+            try:
+                debug_info = {
+                    "doc_intel_summary": {
+                        "page_count": len(doc_intel_output.get("pages", [])),
+                        "model_id": doc_intel_output.get("model_id"),
+                        "api_version": doc_intel_output.get("api_version")
+                    },
+                    "doc_intel_content_preview": doc_intel_output.get("content", "")[:30000] # Max 30k chars
+                }
+                extraction_jobs.update_job(job_id, debug_data=debug_info)
+            except Exception as e:
+                logger.error(f"Failed to save debug data: {e}")
+            # ------------------------------
 
             # 2. Splitting (Same as before)
             # 2. Splitting (Use new Splitting Service or simple page iteration)
@@ -396,15 +414,15 @@ IMPORTANT:
                     merged_result, errors = await extract_with_chunking(
                         ocr_data_to_send,
                         model_fields,
-                        max_tokens_per_chunk=2000,
-                        max_concurrent=3
+                        max_tokens_per_chunk=4000,
+                        max_concurrent=5
                     )
                     
                     if errors:
                         logger.warning(f"[LLM-Universal-Chunked] Some chunks failed: {errors}")
                     
                     return {
-                        "guide_extracted": {k: {"value": v, "confidence": 0.8, "type": "string"} for k, v in merged_result.items() if not k.startswith("_")},
+                        "guide_extracted": {k: v for k, v in merged_result.items() if not k.startswith("_")},
                         "other_data": [],
                         "_chunked": True
                     }
@@ -611,16 +629,16 @@ IMPORTANT:
                     merged_result, errors = await extract_with_chunking(
                         ocr_data_to_send,
                         model_fields,
-                        max_tokens_per_chunk=2000,
-                        max_concurrent=3
+                        max_tokens_per_chunk=4000,
+                        max_concurrent=5
                     )
                     
                     if errors:
                         logger.warning(f"[LLM-Chunked] Some chunks failed: {errors}")
                     
-                    # Convert to expected format
+                    # Convert to expected format (Merged result is now rich object dict)
                     return {
-                        "guide_extracted": {k: {"value": v, "confidence": 0.8} for k, v in merged_result.items() if not k.startswith("_")},
+                        "guide_extracted": {k: v for k, v in merged_result.items() if not k.startswith("_")},
                         "other_data": [],
                         "_chunked": True,
                         "_chunk_errors": errors
@@ -827,119 +845,16 @@ IMPORTANT:
         return best_bbox
 
     def _parse_number(self, value: Any) -> Optional[float]:
-        """Strict number parsing"""
-        if isinstance(value, (int, float)):
-            return float(value)
-        if isinstance(value, str):
-            # Remove currency symbols and commas
-            clean = value.replace(",", "").replace("₩", "").replace("$", "").replace("원", "").strip()
-            try:
-                return float(clean)
-            except ValueError:
-                return None # Fail gracefully or set flag
-        return None
+        """Strict number parsing - delegates to extraction_utils"""
+        return parse_number(value)
 
     def _parse_date(self, value: Any) -> Optional[str]:
-        """Strict date parsing to ISO8601 YYYY-MM-DD"""
-        import re
-        
-        if not isinstance(value, str) or not value:
-            return None
-        
-        value = value.strip()
-        
-        # Already ISO format
-        if re.match(r'^\d{4}-\d{2}-\d{2}$', value):
-            return value
-        
-        # Common Korean formats
-        # YYYY년 MM월 DD일
-        match = re.match(r'^(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일', value)
-        if match:
-            return f"{match.group(1)}-{match.group(2).zfill(2)}-{match.group(3).zfill(2)}"
-        
-        # YYYY.MM.DD or YYYY/MM/DD
-        match = re.match(r'^(\d{4})[./](\d{1,2})[./](\d{1,2})', value)
-        if match:
-            return f"{match.group(1)}-{match.group(2).zfill(2)}-{match.group(3).zfill(2)}"
-        
-        # DD/MM/YYYY or MM/DD/YYYY (assume MM/DD/YYYY for US format)
-        match = re.match(r'^(\d{1,2})[./](\d{1,2})[./](\d{4})', value)
-        if match:
-            # Assume MM/DD/YYYY
-            return f"{match.group(3)}-{match.group(1).zfill(2)}-{match.group(2).zfill(2)}"
-        
-        # If nothing matched, return original (let AI's normalization stand)
-        return value
+        """Strict date parsing to ISO8601 - delegates to extraction_utils"""
+        return parse_date(value)
 
     def _normalize_bbox(self, bbox: Any, page_width: float = 0, page_height: float = 0) -> Optional[List[float]]:
-        """
-        Normalize bbox to percentage coordinates (0-100) for frontend rendering.
-        Accepts [x1, y1, x2, y2] or polygon and returns [x1, y1, x2, y2] in percentages.
-        """
-        if not bbox or not isinstance(bbox, (list, tuple, dict)):
-            return None
-        
-        try:
-            # Handle 8-point polygon (x1,y1, x2,y2, x3,y3, x4,y4) -> convert to bbox [min_x, min_y, max_x, max_y]
-            if isinstance(bbox, dict):
-                 # Handle dictionary input (e.g. from LLM)
-                 x1 = float(bbox.get("x1", bbox.get("x", 0)))
-                 y1 = float(bbox.get("y1", bbox.get("y", 0)))
-                 x2 = float(bbox.get("x2", bbox.get("w", 0) + x1)) # Handle w/h if needed or x2
-                 y2 = float(bbox.get("y2", bbox.get("h", 0) + y1))
-            elif len(bbox) >= 8:
-                xs = bbox[0::2]
-                ys = bbox[1::2]
-                x1, y1, x2, y2 = min(xs), min(ys), max(xs), max(ys)
-            else:
-                x1, y1, x2, y2 = [float(b) for b in bbox[:4]]
-            
-            # Case 1: Page dimensions are provided - calculate percentages
-            if page_width > 0 and page_height > 0:
-                return [
-                    (x1 / page_width) * 100,
-                    (y1 / page_height) * 100,
-                    (x2 / page_width) * 100,
-                    (y2 / page_height) * 100
-                ]
-            
-            # Case 2: Coordinates already look like percentages (0-100 range)
-            # CAUTION: If document is tiny (inches < 20), this might mistakenly treat inches as percentages.
-            # But since LLMs or OCR might output inches, we should check reasonable bounds.
-            # If width > 20, it's likely pixels. If < 20, likely inches.
-            # If strict 0-100 used for percentages, we can't distinguish 5 inches from 5%.
-            # However, doc intel "inches" usually implies we SHOULD normalize against 8.5x11.
-            
-            # Case 3: Azure Document Intelligence returns inches (typically 0-11 for letter size)
-            if all(0 <= v <= 20 for v in [x1, y1, x2, y2]):
-                # Assume standard letter size in inches if no page dims provided
-                default_page_width = 8.5
-                default_page_height = 11.0
-                return [
-                    (x1 / default_page_width) * 100,
-                    (y1 / default_page_height) * 100,
-                    (x2 / default_page_width) * 100,
-                    (y2 / default_page_height) * 100
-                ]
-            
-            # Case 4: Coordinates might be in pixels 
-            if x2 > 100 or y2 > 100:
-                estimated_width = max(x2 * 1.1, 612)
-                estimated_height = max(y2 * 1.1, 792)
-                return [
-                    (x1 / estimated_width) * 100,
-                    (y1 / estimated_height) * 100,
-                    (x2 / estimated_width) * 100,
-                    (y2 / estimated_height) * 100
-                ]
-            
-            # Fallback (Case 2 match): Return as-is if it looks like percentages (0-100) but not inches (<20 handled above)
-            return [x1, y1, x2, y2]
-
-        except (ValueError, TypeError) as e:
-            logger.error(f"[_normalize_bbox] Error: {e}, bbox: {bbox}")
-            return None
+        """Normalize bbox to percentages - delegates to extraction_utils"""
+        return normalize_bbox(bbox, page_width, page_height)
 
 # Singleton instance
 extraction_service = ExtractionService()

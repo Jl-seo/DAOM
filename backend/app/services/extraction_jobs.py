@@ -25,6 +25,7 @@ class ExtractionJob(BaseModel):
     status: str  # pending, analyzing, preview_ready, confirmed, error
     preview_data: Optional[Dict[str, Any]] = None  # guide_extracted, other_data
     extracted_data: Optional[Dict[str, Any]] = None  # Final confirmed data
+    debug_data: Optional[Dict[str, Any]] = None  # Raw OCR/LLM for debugging
     error: Optional[str] = None
     created_at: str
     updated_at: str
@@ -105,6 +106,7 @@ def update_job(
     status: Optional[str] = None,
     preview_data: Optional[Dict[str, Any]] = None,
     extracted_data: Optional[Dict[str, Any]] = None,
+    debug_data: Optional[Dict[str, Any]] = None,
     error: Optional[str] = None
 ) -> Optional[ExtractionJob]:
     """Update job status and data"""
@@ -133,6 +135,8 @@ def update_job(
             job_data["preview_data"] = preview_data
         if extracted_data is not None:
             job_data["extracted_data"] = extracted_data
+        if debug_data is not None:
+            job_data["debug_data"] = debug_data
         if error is not None:
             job_data["error"] = error
         job_data["updated_at"] = datetime.utcnow().isoformat()

@@ -128,6 +128,7 @@ def get_job_status(
         "status": job.status,
         "preview_data": job.preview_data,
         "extracted_data": job.extracted_data,
+        "debug_data": job.debug_data,
         "error": job.error,
         "filename": job.filename,
         "file_url": job.file_url,

@@ -19,9 +19,25 @@ interface ExtractionPreviewProps {
 }
 
 function extractValue(data: any): any {
-    if (data && typeof data === 'object' && 'value' in data) {
+    // Handle null/undefined
+    if (data === null || data === undefined) return data
+
+    // If it's a primitive, return as-is
+    if (typeof data !== 'object') return data
+
+    // Case 1: Standard rich object { value: "xxx", confidence: 0.9, ... }
+    if ('value' in data) {
         return data.value
     }
+
+    // Case 2: OpenAI sometimes returns arrays of rich objects - don't unwrap these
+    if (Array.isArray(data)) {
+        return data
+    }
+
+    // Case 3: Single-key object where the key might be a header OpenAI added
+    // e.g., { "graduation_date": "2024" } - just return the whole object
+    // We let renderValue handle stringification
     return data
 }
 
@@ -50,8 +66,10 @@ function ConfidenceBadge({ confidence }: { confidence: number | null }) {
 
 function renderValue(value: any): string {
     if (value === null || value === undefined) return ''
-    if (typeof value === 'object') return JSON.stringify(value, null, 2)
-    return String(value)
+    // First unwrap if it's a rich object with .value
+    const unwrapped = extractValue(value)
+    if (typeof unwrapped === 'object') return JSON.stringify(unwrapped, null, 2)
+    return String(unwrapped)
 }
 
 // Enhanced Nested Table with Column Resizing
@@ -218,7 +236,7 @@ function ResizableNestedTable({
                                             />
                                         ) : (
                                             <div className="px-3 py-2 truncate">
-                                                {renderValue(row?.[key] ?? '')}
+                                                {renderValue(row?.[key])}
                                             </div>
                                         )}
                                     </td>

@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { CheckCircle2, RefreshCw, Download, Upload, Maximize2, Minimize2 } from 'lucide-react'
+import { CheckCircle2, RefreshCw, Download, Upload, Maximize2, Minimize2, Bug } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ExtractionPreview } from './ExtractionPreview'
 import { ExtractionGrid } from '../../extraction/components/ExtractionGrid'
+import { DebugInfoModal } from './DebugInfoModal'
 import type { ExtractionModel, PreviewData } from '../types'
 
 interface DataReviewPanelProps {
@@ -13,6 +14,7 @@ interface DataReviewPanelProps {
     currentOtherData: any[]
     model: ExtractionModel
     previewData: PreviewData | null // For fallback fields
+    debugData?: any // Optional debug data
 
     selectedFieldKey: string | null
     onFieldSelect: (key: string | null) => void
@@ -29,6 +31,7 @@ export function DataReviewPanel({
     currentOtherData,
     model,
     previewData,
+    debugData,
     selectedFieldKey,
     onFieldSelect,
     onDataChange,
@@ -39,6 +42,7 @@ export function DataReviewPanel({
     documentId
 }: DataReviewPanelProps) {
     const [isExpanded, setIsExpanded] = useState(false)
+    const [showDebugModal, setShowDebugModal] = useState(false)
 
     // Columns for the "Other Data" (Table) tab
     const tableColumns = currentOtherData && currentOtherData.length > 0
@@ -51,12 +55,23 @@ export function DataReviewPanel({
 
     return (
         <Card className={`h-full flex flex-col bg-background overflow-hidden border-0 rounded-none transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-50' : ''}`}>
+            <DebugInfoModal
+                isOpen={showDebugModal}
+                onClose={() => setShowDebugModal(false)}
+                data={debugData}
+            />
+
             <div className="px-6 py-3 border-b bg-card flex justify-between items-center shrink-0">
                 <span className="flex items-center gap-2 font-semibold">
                     <CheckCircle2 className="w-5 h-5 text-green-500" />
                     추출 결과 확인
                 </span>
                 <div className="flex gap-2">
+                    {debugData && (
+                        <Button variant="ghost" size="icon" onClick={() => setShowDebugModal(true)} title="View Debug Info">
+                            <Bug className="w-4 h-4 text-muted-foreground" />
+                        </Button>
+                    )}
                     <Button variant="ghost" size="icon" onClick={() => setIsExpanded(!isExpanded)}>
                         {isExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
                     </Button>

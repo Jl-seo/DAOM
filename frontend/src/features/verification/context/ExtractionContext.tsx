@@ -237,6 +237,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                     if (job.preview_data) {
                         setPreviewData({
                             ...job.preview_data,
+                            debug_data: job.debug_data, // Inject debug data from job level
                             // Ensure model fields exist for mapping
                             model_fields: job.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
                         })
@@ -350,7 +351,8 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                 file_url: fileUrl || '',
                 guide_extracted: finalData,
                 other_data: editedOtherData || [],
-                log_id: currentLogId
+                log_id: currentLogId,
+                debug_data: previewData?.debug_data // Pass debug data for persistence
             }
 
             const res = await apiClient.post('/extraction/save-extraction', payload)
@@ -523,6 +525,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         if (log.preview_data) {
             setPreviewData({
                 ...log.preview_data,
+                debug_data: log.debug_data, // Inject debug data from log level
                 model_fields: log.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
             })
         } else {

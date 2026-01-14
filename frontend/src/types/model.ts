@@ -18,5 +18,6 @@ export interface Model {
     global_rules: string
     data_structure: DataStructureType
     model_type?: 'extraction' | 'comparison'
+    webhook_url?: string  // POST URL for automation after extraction
     fields: Field[]
 }

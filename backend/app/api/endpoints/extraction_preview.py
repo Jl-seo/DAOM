@@ -44,6 +44,7 @@ class SaveExtractionRequest(BaseModel):
     guide_extracted: Dict[str, Any]  # Model field values
     other_data: Optional[List[Dict[str, Any]]] = []  # Additional selected data (values can be any type)
     log_id: Optional[str] = None  # Optional: Update existing log
+    debug_data: Optional[Dict[str, Any]] = None  # Raw debug data to persist
 
 
 class StartExtractionRequest(BaseModel):
@@ -334,7 +335,8 @@ def confirm_job(
                             extracted_data=split_data,
                             preview_data=sub.get("data"),  # Save full structure for this sub-doc
                             job_id=job_id,
-                            tenant_id=current_user.tenant_id if current_user else None
+                            tenant_id=current_user.tenant_id if current_user else None,
+                            debug_data=job.debug_data
                         )
                         if log: saved_logs.append(log)
                 except Exception as e:
@@ -358,22 +360,49 @@ def confirm_job(
                 preview_data=job.preview_data,  # Save full structure for reload
                 log_id=job.original_log_id,
                 job_id=job_id,
-                tenant_id=current_user.tenant_id if current_user else None
+                tenant_id=current_user.tenant_id if current_user else None,
+                debug_data=job.debug_data
             )
             
     except Exception as e:
         logger.error(f"[ConfirmJob] Critical error saving logs: {e}")
         with open("last_error.txt", "w") as f:
             f.write(str(e))
-        # Don't fail the request, just log it? Or fail?
-        # User needs to know if save failed.
         raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
 
+    # --- WEBHOOK CALL ---
+    webhook_result = None
+    try:
+        model = get_model_by_id(job.model_id)
+        if model and getattr(model, 'webhook_url', None):
+            import httpx
+            webhook_payload = {
+                "event": "extraction_confirmed",
+                "job_id": job_id,
+                "model_id": job.model_id,
+                "model_name": model.name,
+                "filename": job.filename,
+                "file_url": job.file_url,
+                "extracted_data": final_data,
+                "user_id": user_id,
+                "user_email": current_user.email if current_user else None,
+                "timestamp": job.updated_at or job.created_at
+            }
+            logger.info(f"[Webhook] Sending to {model.webhook_url}")
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.post(model.webhook_url, json=webhook_payload)
+                webhook_result = {"status": resp.status_code, "success": resp.is_success}
+                logger.info(f"[Webhook] Response: {resp.status_code}")
+    except Exception as webhook_err:
+        logger.error(f"[Webhook] Failed: {webhook_err}")
+        webhook_result = {"error": str(webhook_err)}
+    # ---------------------
     
     return {
         "success": True,
         "job_id": job_id,
-        "extracted_data": final_data
+        "extracted_data": final_data,
+        "webhook": webhook_result
     }
 
 
@@ -501,7 +530,8 @@ async def save_extraction(
             status=ExtractionStatus.SUCCESS.value,
             extracted_data=extracted_data,
             log_id=request.log_id,
-            tenant_id=current_user.tenant_id if current_user else None
+            tenant_id=current_user.tenant_id if current_user else None,
+            debug_data=request.debug_data
         )
         
         return {

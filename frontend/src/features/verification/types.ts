@@ -55,6 +55,7 @@ export interface PreviewData {
         file_url?: string
         error?: string
     }>
+    debug_data?: any // Optional debug info
 }
 
 /**
@@ -104,6 +105,7 @@ export interface ExtractionLog {
     extracted_data?: Record<string, any>
     preview_data?: PreviewData // For in-progress jobs
     job_id?: string // For in-progress jobs
+    debug_data?: any // Raw debug data from backend
     error?: string
     created_at: string
     updated_at?: string

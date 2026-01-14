@@ -298,6 +298,25 @@ export function ModelStudio() {
                                             !isEditing && "bg-muted cursor-not-allowed"
                                         )}
                                     />
+                                    <div className="mt-4">
+                                        <label className="block text-xs font-medium text-muted-foreground mb-2">
+                                            🔗 Webhook URL (추출 완료 시 POST 전송)
+                                        </label>
+                                        <input
+                                            type="url"
+                                            value={editingModel.webhook_url || ''}
+                                            onChange={(e) => setEditingModel({ ...editingModel, webhook_url: e.target.value })}
+                                            disabled={!isEditing}
+                                            placeholder="https://your-automation-endpoint.com/webhook"
+                                            className={clsx(
+                                                "w-full px-4 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary transition-all bg-background",
+                                                !isEditing && "bg-muted cursor-not-allowed"
+                                            )}
+                                        />
+                                        <p className="mt-1 text-[10px] text-muted-foreground">
+                                            추출 확정 시 이 URL로 결과 데이터가 POST 됩니다.
+                                        </p>
+                                    </div>
                                 </Card>
                             </div>
                         )
