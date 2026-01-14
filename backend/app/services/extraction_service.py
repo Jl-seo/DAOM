@@ -157,27 +157,23 @@ class ExtractionService:
             
             # --- DEBUG DATA PERSISTENCE ---
             # --- DEBUG DATA PERSISTENCE ---
-            # Try to save FULL raw data first as per user request. 
-            # If it exceeds 2MB limit (Cosmos DB), fallback to summary.
+            # OPTIMIZATION: Don't store full JSON in Cosmos DB (2MB limit).
+            # Store reference to Blob Storage where ADI output is already cached.
             try:
-                # Attempt to save full raw data (without binary images if any)
-                extraction_jobs.update_job(job_id, debug_data=doc_intel_output)
+                debug_info = {
+                    "source": "blob_storage",
+                    "raw_data_blob_path": doc_intel_output.get("_cache_blob_path"), 
+                    "doc_intel_summary": {
+                        "page_count": len(doc_intel_output.get("pages", [])),
+                        "model_id": doc_intel_output.get("model_id"),
+                        "api_version": doc_intel_output.get("api_version")
+                    },
+                    "doc_intel_content_preview": doc_intel_output.get("content", "")[:1000] # Just a snippet
+                }
+                extraction_jobs.update_job(job_id, debug_data=debug_info)
             except Exception as e:
-                logger.warning(f"[DebugData] Full raw data save failed (likely size limit), falling back to summary: {e}")
-                try:
-                    debug_info = {
-                        "message": "Full raw data exceeded storage limit. Showing summary.",
-                        "raw_data_blob_path": doc_intel_output.get("_cache_blob_path"), # Link to full data in Blob
-                        "doc_intel_summary": {
-                            "page_count": len(doc_intel_output.get("pages", [])),
-                            "model_id": doc_intel_output.get("model_id"),
-                            "api_version": doc_intel_output.get("api_version")
-                        },
-                        "doc_intel_content_preview": doc_intel_output.get("content", "")[:30000] # Max 30k chars
-                    }
-                    extraction_jobs.update_job(job_id, debug_data=debug_info)
-                except Exception as ex:
-                    logger.error(f"Failed to save debug summary: {ex}")
+                logger.error(f"Failed to save debug reference: {e}")
+            # ------------------------------
             except Exception as e:
                 logger.error(f"Failed to save debug data: {e}")
             # ------------------------------

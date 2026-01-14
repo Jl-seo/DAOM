@@ -114,7 +114,7 @@ def get_latest_job_for_log(
 
 
 @router.get("/job/{job_id}")
-def get_job_status(
+async def get_job_status(
     job_id: str,
     current_user: CurrentUser = Depends(get_current_user)
 ):
@@ -123,12 +123,29 @@ def get_job_status(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
+    # Hydrate debug_data from Blob if needed
+    debug_data = job.debug_data
+    if debug_data and debug_data.get("source") == "blob_storage":
+        blob_path = debug_data.get("raw_data_blob_path")
+        if blob_path:
+            try:
+                from app.services import storage
+                raw_data = await storage.load_json_from_blob(blob_path)
+                if raw_data:
+                     # Merge or replace debug_data with full raw data
+                     # We can either replace it entirely or wrap it
+                     # Replacing is simpler for frontend which experts standard ADI structure
+                     debug_data = raw_data
+            except Exception as e:
+                # Fallback: keep original metadata but add error
+                debug_data["error"] = f"Failed to load full raw data: {e}"
+
     return {
         "job_id": job.id,
         "status": job.status,
         "preview_data": job.preview_data,
         "extracted_data": job.extracted_data,
-        "debug_data": job.debug_data,
+        "debug_data": debug_data,
         "error": job.error,
         "filename": job.filename,
         "file_url": job.file_url,
