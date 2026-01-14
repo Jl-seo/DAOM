@@ -156,31 +156,34 @@ class ExtractionService:
             # ... (OCR log) ...
             
             # --- DEBUG DATA PERSISTENCE ---
-            # --- DEBUG DATA PERSISTENCE ---
-            # OPTIMIZATION: Don't store full JSON in Cosmos DB (2MB limit).
-            # Store reference to Blob Storage where ADI output is already cached.
-            try:
-                blob_path = doc_intel_output.get("_cache_blob_path")
-                if not blob_path:
-                    # If not cached by doc_intel (e.g. direct upload), save it now explicitly
-                    from app.services import storage
-                    blob_path = f"ocr_cache/{azure_model}/{job_id}.ocr.json"
-                    await storage.save_json_as_blob(doc_intel_output, blob_path)
-                    logger.info(f"[DebugData] Explicitly saved raw ADI data to {blob_path}")
+            # OPTIMIZATION: Fire-and-forget to avoid blocking extraction pipeline.
+            # "Processing takes too long" fix.
+            import asyncio
+            async def _persist_debug_data_task():
+                try:
+                    blob_path = doc_intel_output.get("_cache_blob_path")
+                    if not blob_path:
+                        from app.services import storage
+                        blob_path = f"ocr_cache/{azure_model}/{job_id}.ocr.json"
+                        await storage.save_json_as_blob(doc_intel_output, blob_path)
+                        logger.info(f"[DebugData] Explicitly saved raw ADI data to {blob_path}")
 
-                debug_info = {
-                    "source": "blob_storage",
-                    "raw_data_blob_path": blob_path, 
-                    "doc_intel_summary": {
-                        "page_count": len(doc_intel_output.get("pages", [])),
-                        "model_id": doc_intel_output.get("model_id"),
-                        "api_version": doc_intel_output.get("api_version")
-                    },
-                    "doc_intel_content_preview": doc_intel_output.get("content", "")[:1000] # Just a snippet
-                }
-                extraction_jobs.update_job(job_id, debug_data=debug_info)
-            except Exception as e:
-                logger.error(f"Failed to save debug reference: {e}")
+                    debug_info = {
+                        "source": "blob_storage",
+                        "raw_data_blob_path": blob_path, 
+                        "doc_intel_summary": {
+                            "page_count": len(doc_intel_output.get("pages", [])),
+                            "model_id": doc_intel_output.get("model_id"),
+                            "api_version": doc_intel_output.get("api_version")
+                        },
+                        "doc_intel_content_preview": doc_intel_output.get("content", "")[:1000] # Just a snippet
+                    }
+                    extraction_jobs.update_job(job_id, debug_data=debug_info)
+                except Exception as e:
+                    logger.error(f"Failed to persist debug data: {e}")
+            
+            # Schedule task without awaiting
+            asyncio.create_task(_persist_debug_data_task())
             # ------------------------------
             # ------------------------------
 

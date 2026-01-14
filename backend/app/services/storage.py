@@ -4,6 +4,11 @@ from fastapi import UploadFile
 from azure.storage.blob import BlobServiceClient
 from app.core.config import settings
 import uuid
+from pathlib import Path
+
+# Resolve absolute path to backend root
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+TEMP_DIR = BASE_DIR / "temp_uploads"
 
 def get_blob_service_client():
     if not settings.AZURE_STORAGE_CONNECTION_STRING:
@@ -16,16 +21,15 @@ async def upload_file_to_blob(file: UploadFile) -> str:
     # Mock behavior if client is not configured
     if not client:
         # Save locally for testing if no azure credentials
-        os.makedirs("temp_uploads", exist_ok=True)
+        # Use absolute path
+        TEMP_DIR.mkdir(parents=True, exist_ok=True)
         filename = f"{uuid.uuid4()}_{file.filename}"
-        local_path = f"temp_uploads/{filename}"
+        local_path = TEMP_DIR / filename
+        
         with open(local_path, "wb") as f:
             content = await file.read()
             f.write(content)
-        # Return a fake URL or simple path that the doc intel mock might need to handle?
-        # Actually doc intel needs a public URL. 
-        # For local dev without azure, we might struggle unless we tunnel.
-        # But we will assume the user will configure it.
+
         return f"{settings.API_BASE_URL}/static/{filename}" 
 
     try:
@@ -40,6 +44,7 @@ async def upload_file_to_blob(file: UploadFile) -> str:
     except Exception as e:
         print(f"[Storage] Error uploading to blob: {e}")
         raise e
+
 async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
     """Save JSON data to a blob"""
     import json
@@ -47,11 +52,14 @@ async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
     if not client:
         # Local fallback
         try:
-            local_path = f"temp_uploads/cache/{filename}"
-            os.makedirs(os.path.dirname(local_path), exist_ok=True) # Recursive creation
+            cache_dir = TEMP_DIR / "cache"
+            local_path = cache_dir / filename
+            # Ensure nested directories exist
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            
             with open(local_path, "w", encoding="utf-8") as f:
                 json.dump(data, f)
-            return local_path
+            return str(local_path)
         except Exception as e:
             print(f"[Storage] Local cache save failed: {e}")
             return None
@@ -72,8 +80,10 @@ async def load_json_from_blob(filename: str) -> Optional[dict]:
     if not client:
         # Local fallback
         try:
-            local_path = f"temp_uploads/cache/{filename}"
-            if os.path.exists(local_path):
+            cache_dir = TEMP_DIR / "cache"
+            # Filename is relative as passed from extraction_service
+            local_path = cache_dir / filename
+            if local_path.exists():
                 with open(local_path, "r", encoding="utf-8") as f:
                     return json.load(f)
         except:
