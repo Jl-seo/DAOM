@@ -155,11 +155,11 @@ class ExtractionService:
             
             # ... (OCR log) ...
             
-            # --- DEBUG DATA PERSISTENCE ---
-            # OPTIMIZATION: Fire-and-forget to avoid blocking extraction pipeline.
-            # "Processing takes too long" fix.
+            # --- DEBUG DATA PERSISTENCE (PARALLEL) ---
+            # OPTIMIZATION: Run Blob Upload in parallel with LLM extraction.
+            # Await it at the end to ensure data integrity without race conditions.
             import asyncio
-            async def _persist_debug_data_task():
+            async def _upload_debug_data():
                 try:
                     blob_path = doc_intel_output.get("_cache_blob_path")
                     if not blob_path:
@@ -167,23 +167,13 @@ class ExtractionService:
                         blob_path = f"ocr_cache/{azure_model}/{job_id}.ocr.json"
                         await storage.save_json_as_blob(doc_intel_output, blob_path)
                         logger.info(f"[DebugData] Explicitly saved raw ADI data to {blob_path}")
-
-                    debug_info = {
-                        "source": "blob_storage",
-                        "raw_data_blob_path": blob_path, 
-                        "doc_intel_summary": {
-                            "page_count": len(doc_intel_output.get("pages", [])),
-                            "model_id": doc_intel_output.get("model_id"),
-                            "api_version": doc_intel_output.get("api_version")
-                        },
-                        "doc_intel_content_preview": doc_intel_output.get("content", "")[:1000] # Just a snippet
-                    }
-                    extraction_jobs.update_job(job_id, debug_data=debug_info)
+                    return blob_path
                 except Exception as e:
                     logger.error(f"Failed to persist debug data: {e}")
+                    return None
             
-            # Schedule task without awaiting
-            asyncio.create_task(_persist_debug_data_task())
+            # Start task but don't await yet
+            debug_upload_task = asyncio.create_task(_upload_debug_data())
             # ------------------------------
             # ------------------------------
 
@@ -225,6 +215,27 @@ class ExtractionService:
             # 4. Save Results
             print(f"[Pipeline-Debug] All splits processed. Total sub_documents: {len(sub_documents)}")
             
+            # --- DEBUG DATA MERGE (Parallel Await) ---
+            debug_info_final = None
+            if debug_upload_task:
+                try:
+                    blob_path = await debug_upload_task
+                    if blob_path:
+                        debug_info_final = {
+                            "source": "blob_storage",
+                            "raw_data_blob_path": blob_path, 
+                            "doc_intel_summary": {
+                                "page_count": len(doc_intel_output.get("pages", [])),
+                                "model_id": doc_intel_output.get("model_id"),
+                                "api_version": doc_intel_output.get("api_version")
+                            },
+                            "doc_intel_content_preview": doc_intel_output.get("content", "")[:1000]
+                        }
+                        logger.info(f"[Pipeline] Debug data merged successfully")
+                except Exception as dbg_err:
+                    logger.error(f"[Pipeline] Failed to await debug upload: {dbg_err}")
+            # -----------------------------------------
+
             preview_payload = {
                 "sub_documents": sub_documents
             }
@@ -232,7 +243,8 @@ class ExtractionService:
             result = extraction_jobs.update_job(
                 job_id, 
                 status=ExtractionStatus.SUCCESS.value, 
-                preview_data=preview_payload
+                preview_data=preview_payload,
+                debug_data=debug_info_final # ATOMIC UPDATE
             )
             
             if not result:
