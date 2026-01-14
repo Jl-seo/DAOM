@@ -47,8 +47,8 @@ async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
     if not client:
         # Local fallback
         try:
-            os.makedirs("temp_uploads/cache", exist_ok=True)
             local_path = f"temp_uploads/cache/{filename}"
+            os.makedirs(os.path.dirname(local_path), exist_ok=True) # Recursive creation
             with open(local_path, "w", encoding="utf-8") as f:
                 json.dump(data, f)
             return local_path
