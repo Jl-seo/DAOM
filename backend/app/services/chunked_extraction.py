@@ -167,22 +167,31 @@ async def process_chunk_with_retry(
 
             fields_block = "\n".join(field_descriptions)
 
+            # Prepare High-Fidelity Data for Prompt
+            doc_context = ""
+            if chunk.pages_data:
+                # Include 'words' and 'bounding_regions' for coordinates
+                doc_context = json.dumps({"pages": chunk.pages_data}, ensure_ascii=False)
+            else:
+                doc_context = chunk.content
+
             prompt = f"""You are a document data extractor.
 
-Given this document data extracting from pages {chunk.page_numbers}:
-{chunk.content}
+Given this document data extracted from pages {chunk.page_numbers}:
+{doc_context}
 
 Extract values for these specific fields:
 {fields_block}
 
 INSTRUCTIONS:
 1. Analyze the document context.
-2. **CRITICAL**: Extract values EXACTLY as they appear in the text.
-3. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value.
-   - Since you are working with text content relative to the start of this chunk, if you cannot determine exact bbox, return null for bbox.
-   - However, if the input includes spatial data (OCR), use it.
-   - Note: In this chunked mode, we are passing text content. if you cannot find coordinates, set bbox to null and we will infer later.
-4. **CRITICAL**: You MUST include the 'page_number' (1-based index) for every extracted value.
+2. For specific fields like 'Item' or 'Amount', look for corresponding headers in the table.
+3. If a field represents a list of items (e.g. line items in a table), extract it as a JSON Array of objects with relevant keys.
+4. Distinguish between 'Item' (product code/name) and 'Description' (details).
+5. **Key-Value Tables**: If a table has a structure like [Field Name | Value], map the 'Value' column to the corresponding requested field. Do not treat it as a line item list.
+6. **CRITICAL**: Extract values EXACTLY as they appear in the text.
+7. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value. Copy it exactly from source (ocr data) if available.
+8. **CRITICAL**: You MUST include the 'page_number' (1-based index) for every extracted value.
 
 Return a JSON object with:
 1. "guide_extracted": Object with each field key containing:

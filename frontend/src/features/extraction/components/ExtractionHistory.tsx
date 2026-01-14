@@ -434,84 +434,18 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
 
                     {!isLoading && !error && filteredLogs.length > 0 && (
                         <div className="overflow-auto">
-                            <table className="w-full">
-                                <thead className="bg-muted sticky top-0 z-10">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase border-b-2 border-border">상태</th>
-                                        <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase border-b-2 border-border">파일명</th>
-                                        <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase border-b-2 border-border">추출 시간</th>
-                                        <th className="px-6 py-3 text-left text-xs font-semibold text-foreground uppercase border-b-2 border-border">결과</th>
-                                        <th className="px-6 py-3 text-right text-xs font-semibold text-foreground uppercase border-b-2 border-border">작업</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-border">
-                                    {filteredLogs.map((log) => (
-                                        <tr key={log.id} className="hover:bg-accent transition-colors cursor-pointer" onClick={() => handleRowClick(log, false)}>
-                                            <td className="px-6 py-4">
-                                                {isSuccessStatus(log.status) ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <CheckmarkCircleRegular className="w-5 h-5 text-chart-2" />
-                                                        <span className="text-sm font-medium text-chart-2">{STATUS_LABELS[log.status] || '성공'}</span>
-                                                    </div>
-
-                                                ) : isProcessingStatus(log.status) ? (
-                                                    <div className="flex items-center gap-2">
-                                                        <ClockRegular className="w-5 h-5 text-chart-4 animate-spin" />
-                                                        <span className="text-sm font-medium text-chart-4">{STATUS_LABELS[log.status] || '처리 중'}</span>
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex items-center gap-2">
-                                                        <WarningRegular className="w-5 h-5 text-destructive" />
-                                                        <span className="text-sm font-medium text-destructive">{STATUS_LABELS[log.status] || '실패'}</span>
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-2">
-                                                    <DocumentRegular className="w-4 h-4 text-muted-foreground" />
-                                                    <span className="text-sm font-medium text-foreground">{log.filename}</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                                    <CalendarRegular className="w-4 h-4" />
-                                                    {formatDate(log.created_at)}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                {isSuccessStatus(log.status) && log.extracted_data && (
-                                                    <span className="text-sm text-foreground">{Object.keys(log.extracted_data).length}개 필드 추출</span>
-                                                )}
-                                                {isErrorStatus(log.status) && log.error && (
-                                                    <span className="text-sm text-destructive" title={log.error}>{log.error.substring(0, 50)}...</span>
-                                                )}
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-2">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={(e) => { e.stopPropagation(); handleRetry(log) }}
-                                                        title="재시도"
-                                                    >
-                                                        <ArrowClockwiseRegular className="w-4 h-4" />
-                                                    </Button>
-                                                    {isSuccessStatus(log.status) && log.extracted_data && (
-                                                        <Button
-                                                            size="sm"
-                                                            onClick={(e) => { e.stopPropagation(); handleDownload(log) }}
-                                                            className="bg-chart-2 hover:bg-chart-2/90"
-                                                        >
-                                                            <ArrowDownloadRegular className="w-4 h-4 mr-1" />
-                                                            Excel
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                            <ExtractionLogTable
+                                logs={filteredLogs}
+                                showModelColumn={false}
+                                enableSelection={true}
+                                selectedIds={selectedIds}
+                                onSelect={(id) => toggleSelect(id)}
+                                onSelectAll={(checked) => checked ? selectAll() : clearSelection()}
+                                onView={(log) => handleRowClick(log, false)}
+                                onDownload={handleDownload}
+                                onRetry={handleRetry}
+                                onCancel={handleCancel}
+                            />
                         </div>
                     )}
                 </Card>
