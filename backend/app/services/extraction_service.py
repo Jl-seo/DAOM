@@ -156,18 +156,27 @@ class ExtractionService:
             # ... (OCR log) ...
             
             # --- DEBUG DATA PERSISTENCE ---
-            # Cosmos DB has 2MB limit, so we can't save full OCR JSON. 
-            # We save the text content and structure summary.
+            # --- DEBUG DATA PERSISTENCE ---
+            # Try to save FULL raw data first as per user request. 
+            # If it exceeds 2MB limit (Cosmos DB), fallback to summary.
             try:
-                debug_info = {
-                    "doc_intel_summary": {
-                        "page_count": len(doc_intel_output.get("pages", [])),
-                        "model_id": doc_intel_output.get("model_id"),
-                        "api_version": doc_intel_output.get("api_version")
-                    },
-                    "doc_intel_content_preview": doc_intel_output.get("content", "")[:30000] # Max 30k chars
-                }
-                extraction_jobs.update_job(job_id, debug_data=debug_info)
+                # Attempt to save full raw data (without binary images if any)
+                extraction_jobs.update_job(job_id, debug_data=doc_intel_output)
+            except Exception as e:
+                logger.warning(f"[DebugData] Full raw data save failed (likely size limit), falling back to summary: {e}")
+                try:
+                    debug_info = {
+                        "message": "Full raw data exceeded storage limit. Showing summary.",
+                        "doc_intel_summary": {
+                            "page_count": len(doc_intel_output.get("pages", [])),
+                            "model_id": doc_intel_output.get("model_id"),
+                            "api_version": doc_intel_output.get("api_version")
+                        },
+                        "doc_intel_content_preview": doc_intel_output.get("content", "")[:30000] # Max 30k chars
+                    }
+                    extraction_jobs.update_job(job_id, debug_data=debug_info)
+                except Exception as ex:
+                    logger.error(f"Failed to save debug summary: {ex}")
             except Exception as e:
                 logger.error(f"Failed to save debug data: {e}")
             # ------------------------------
