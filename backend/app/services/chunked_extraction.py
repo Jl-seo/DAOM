@@ -83,7 +83,8 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
     current_chunk_pages_data: List[Dict] = []
     
     for page in pages:
-        page_num = page.get("pageNumber", 1)
+        # IMPORTANT: doc_intel.py uses snake_case "page_number", not camelCase "pageNumber"
+        page_num = page.get("page_number") or page.get("pageNumber", 1)
         
         # Get content for this page
         page_paragraphs = [p for p in paragraphs 
@@ -170,8 +171,15 @@ async def process_chunk_with_retry(
             # Prepare Lean Data for Prompt
             # Use text content + tables (with cell bboxes) - NOT full pages_data (too heavy)
             doc_context = chunk.content
-            if chunk.tables:
-                doc_context += f"\n\n--- TABLES DATA ---\n{json.dumps(chunk.tables, ensure_ascii=False)}"
+            
+            # DEBUG: Log table data being sent
+            tables_to_use = chunk.tables if chunk.tables else []
+            logger.info(f"[Chunk {chunk.index}] Tables count: {len(tables_to_use)}, Content length: {len(chunk.content)}")
+            
+            if tables_to_use:
+                doc_context += f"\n\n--- TABLES DATA ---\n{json.dumps(tables_to_use, ensure_ascii=False)}"
+            else:
+                logger.warning(f"[Chunk {chunk.index}] No tables in chunk! This may cause null extractions.")
 
             prompt = f"""You are a document data extractor.
 
