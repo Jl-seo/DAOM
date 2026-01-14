@@ -224,6 +224,10 @@ IMPORTANT:
             
             result_text = response.choices[0].message.content.strip()
             
+            # DEBUG: Log prompt size and response
+            logger.info(f"[Chunk {chunk.index}] Prompt size: {len(prompt)} chars, Response size: {len(result_text)} chars")
+            logger.info(f"[Chunk {chunk.index}] LLM Response preview: {result_text[:500]}...")
+            
             # Parse JSON response
             extracted = json.loads(result_text)
             
