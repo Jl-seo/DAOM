@@ -18,7 +18,9 @@ export function DebugInfoModal({ isOpen, onClose, data }: DebugInfoModalProps) {
         setTimeout(() => setCopied(false), 2000)
     }
 
-    if (!data) return null
+    // Instead of returning null, show the modal with a "No Data" message
+    const hasData = data && Object.keys(data).length > 0
+
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
@@ -38,9 +40,16 @@ export function DebugInfoModal({ isOpen, onClose, data }: DebugInfoModalProps) {
                 </div>
 
                 <div className="flex-1 overflow-auto bg-slate-950 text-slate-50 p-4 rounded-md font-mono text-xs">
-                    <pre>
-                        {JSON.stringify(data, null, 2)}
-                    </pre>
+                    {hasData ? (
+                        <pre>
+                            {JSON.stringify(data, null, 2)}
+                        </pre>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
+                            <span className="text-lg">데이터가 없습니다</span>
+                            <span className="text-xs">백엔드에서 디버그 데이터를 받지 못했거나, 추출 전입니다.</span>
+                        </div>
+                    )}
                 </div>
             </DialogContent>
         </Dialog>
