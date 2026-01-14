@@ -311,7 +311,11 @@ class ExtractionService:
         if isinstance(pages, list):
             for p in pages:
                 if isinstance(p, dict) and p.get("page_number", 0) in target_pages:
-                    filtered_data["pages"].append(p)
+                    # OPTIMIZATION: Remove 'words' to save tokens.
+                    # LLM sees 'lines' and 'content', so 'words' are redundant noise.
+                    p_clean = p.copy()
+                    p_clean.pop("words", None)
+                    filtered_data["pages"].append(p_clean)
 
         # 2. Filter Tables
         tables = ocr_data.get("tables", [])
