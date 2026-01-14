@@ -56,7 +56,6 @@ export interface PreviewData {
         file_url?: string
         error?: string
     }>
-    debug_data?: any // Optional debug info
 }
 
 /**
