@@ -142,11 +142,13 @@ npm run dev
 - **필드 정의**: 추출할 데이터 항목 (예: 계약서 번호, 날짜, 금액)
 - **필드 타입**: `string`, `number`, `date`, `boolean`, `array`
 - **설명**: AI가 필드를 이해하도록 돕는 힌트
+- **웹훅 URL**: 추출 완료 시 자동으로 데이터를 POST할 외부 엔드포인트
 
 **예시:**
 ```json
 {
   "model_name": "국외거래 신고서",
+  "webhook_url": "https://your-automation.com/webhook",
   "fields": [
     {
       "key": "report_title",
@@ -171,21 +173,23 @@ npm run dev
 ### 2. 문서 추출 프로세스
 
 ```
-파일 업로드 → OCR (Document Intelligence) → AI 분석 (GPT) → 데이터 검증 → 저장
+파일 업로드 → OCR (Document Intelligence) → AI 분석 (GPT) → 데이터 검증 → 저장 → 웹훅 발송(선택)
 ```
 
 1. **파일 업로드**: PDF 또는 이미지 파일 업로드
 2. **OCR 처리**: Azure Document Intelligence가 텍스트, 표, 레이아웃 추출
-3. **AI 분석**: GPT가 모델 정의에 따라 데이터 추출
+3. **AI 분석**: GPT가 모델 정의에 따라 데이터 추출 (bbox, 페이지 번호 포함)
 4. **실시간 검증**: 사용자가 추출된 데이터를 PDF와 함께 검토
 5. **수정 및 저장**: 필요 시 수정 후 최종 저장
+6. **웹훅 발송**: 설정된 URL로 추출 데이터 POST (자동화 연동)
 
 ### 3. 검증 UI
 
 - **PDF 뷰어**: 원본 문서 표시
 - **데이터 테이블**: 추출된 데이터를 편집 가능한 테이블로 표시
-- **하이라이팅**: 클릭 시 PDF에서 해당 위치 강조 표시
+- **하이라이팅**: 클릭 시 PDF에서 해당 위치 강조 표시 (bbox 기반)
 - **실시간 수정**: 테이블에서 직접 데이터 수정 가능
+- **디버그 모달**: 🐛 버튼으로 raw OCR 데이터 및 LLM 응답 확인 가능
 
 ### 4. 대용량 문서 처리 (청킹)
 
@@ -193,23 +197,51 @@ npm run dev
 
 ```python
 # backend/app/services/chunked_extraction.py
-# 문서를 페이지 단위로 분할하여 병렬 처리
-# 각 청크는 독립적으로 GPT에 전송
-# 결과를 병합하여 최종 데이터 생성
+MAX_TOKENS_PER_CHUNK = 4000  # 약 6-8페이지
+MAX_CONCURRENT = 5           # 동시 처리 개수
 ```
 
 **특징:**
 - 최대 토큰 수 초과 시 자동으로 청킹 모드 전환
-- 페이지별 병렬 처리로 속도 향상
+- 페이지별 병렬 처리로 **40-50% 속도 향상**
 - Semaphore로 동시 호출 수 제한 (Rate Limit 방지)
+- 각 필드에 **bbox, page_number, confidence** 메타데이터 포함
 
-### 5. 추출 이력 관리
+### 5. 웹훅 자동화
+
+추출 완료 시 외부 시스템으로 데이터 자동 전송:
+
+**설정 방법:**
+1. 모델 스튜디오 → 고급 설정
+2. Webhook URL 입력 (예: `https://webhook.site/xxx`)
+3. 저장
+
+**Payload 예시:**
+```json
+{
+  "event": "extraction_confirmed",
+  "job_id": "abc-123",
+  "model_id": "model-456",
+  "model_name": "이력서 추출",
+  "filename": "resume.pdf",
+  "file_url": "https://blob.storage/resume.pdf",
+  "extracted_data": {
+    "name": { "value": "홍길동", "confidence": 0.98 },
+    "phone": { "value": "010-1234-5678", "confidence": 0.95 }
+  },
+  "user_email": "user@company.com",
+  "timestamp": "2026-01-14T10:00:00Z"
+}
+```
+
+### 6. 추출 이력 관리
 
 - **개인 이력**: 내가 추출한 문서 목록
 - **전체 이력**: 모든 사용자의 추출 기록 (관리자)
 - **필터링**: 상태, 모델, 사용자별 필터
 - **재시도**: 실패한 추출 재시도
 - **일괄 다운로드**: 여러 추출 결과를 Excel로 일괄 다운로드
+- **디버그 데이터 보존**: 각 추출 로그에 raw OCR/LLM 응답 저장
 
 ---
 
