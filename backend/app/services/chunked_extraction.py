@@ -167,13 +167,11 @@ async def process_chunk_with_retry(
 
             fields_block = "\n".join(field_descriptions)
 
-            # Prepare High-Fidelity Data for Prompt
-            doc_context = ""
-            if chunk.pages_data:
-                # Include 'words' and 'bounding_regions' for coordinates
-                doc_context = json.dumps({"pages": chunk.pages_data}, ensure_ascii=False)
-            else:
-                doc_context = chunk.content
+            # Prepare Lean Data for Prompt
+            # Use text content + tables (with cell bboxes) - NOT full pages_data (too heavy)
+            doc_context = chunk.content
+            if chunk.tables:
+                doc_context += f"\n\n--- TABLES DATA ---\n{json.dumps(chunk.tables, ensure_ascii=False)}"
 
             prompt = f"""You are a document data extractor.
 

@@ -581,12 +581,14 @@ IMPORTANT:
         
         
         # PRE-EMPTIVE CHUNKING: If document is too large, skip direct call and chunk immediately.
-        # Threshold: ~32k chars (approx 8-10k tokens) or > 10 pages
-        content_len = len(ocr_data_to_send.get("content", ""))
+        # Check actual JSON payload size, not just text content (metadata can be huge)
+        json_payload = json.dumps(ocr_data_to_send, ensure_ascii=False)
+        payload_len = len(json_payload)
         page_count = len(ocr_data_to_send.get("pages", []))
         
-        if content_len > 32000 or page_count > 10:
-            logger.info(f"[LLM] Document too large (Length: {content_len}, Pages: {page_count}), skipping direct call and starting Pre-emptive Chunking...")
+        # Threshold: 80k chars (~20k tokens) or > 10 pages
+        if payload_len > 80000 or page_count > 10:
+            logger.info(f"[LLM] Payload too large (Size: {payload_len}, Pages: {page_count}), starting Pre-emptive Chunking...")
             try:
                 from app.services.chunked_extraction import extract_with_chunking
                 merged_result, errors = await extract_with_chunking(
