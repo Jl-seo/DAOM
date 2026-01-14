@@ -3,11 +3,9 @@ import { useExtraction } from '../../verification/context/ExtractionContext'
 import { useAuth } from '@/auth'
 import { useQuery } from '@tanstack/react-query'
 import { useExtractionActions } from '@/hooks/useExtractionActions'
-import { formatDate } from '@/utils/date'
+
 import {
-    CalendarRegular,
     ArrowDownloadRegular,
-    CheckmarkCircleRegular,
     WarningRegular,
     ClockRegular,
     SearchRegular,
@@ -33,7 +31,7 @@ import { StatusFilter, type StatusFilterValue } from '@/components/StatusFilter'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { isSuccessStatus, isErrorStatus, isProcessingStatus, isReviewNeededStatus, STATUS_LABELS } from '../../verification/constants/status'
+import { isSuccessStatus, isErrorStatus, isProcessingStatus, isReviewNeededStatus } from '../../verification/constants/status'
 
 type DatePreset = 'all' | 'today' | 'week' | 'month'
 
