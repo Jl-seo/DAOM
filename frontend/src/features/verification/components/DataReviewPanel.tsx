@@ -45,14 +45,22 @@ export function DataReviewPanel({
     const [showDebugModal, setShowDebugModal] = useState(false)
     const [rawViewTab, setRawViewTab] = useState<'text' | 'tables'>('text')
 
-    // Columns for the "Other Data" (Table) tab
-    const tableColumns = currentOtherData && currentOtherData.length > 0
-        ? Object.keys(currentOtherData[0] || {}).map(key => ({
-            accessorKey: key,
-            header: key,
-            cell: (info: any) => <span className="text-sm">{info.getValue()}</span>
-        }))
-        : []
+    // Columns for the "Other Data" (Table) tab - with safe handling
+    const tableColumns = (() => {
+        try {
+            if (!currentOtherData || !Array.isArray(currentOtherData) || currentOtherData.length === 0) return []
+            const firstItem = currentOtherData[0]
+            if (!firstItem || typeof firstItem !== 'object') return []
+            return Object.keys(firstItem).map(key => ({
+                accessorKey: key,
+                header: key,
+                cell: (info: any) => <span className="text-sm">{String(info.getValue() ?? '')}</span>
+            }))
+        } catch (e) {
+            console.error('[DataReviewPanel] Error building tableColumns:', e)
+            return []
+        }
+    })()
 
     return (
         <Card className={`h-full flex flex-col bg-background overflow-hidden border-0 rounded-none transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-50' : ''}`}>
