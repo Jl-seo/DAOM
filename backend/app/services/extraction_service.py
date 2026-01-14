@@ -588,8 +588,12 @@ IMPORTANT:
         payload_len = len(json_payload)
         page_count = len(ocr_data_to_send.get("pages", []))
         
-        # Threshold: 80k chars (~20k tokens) or > 10 pages
-        if payload_len > 80000 or page_count > 10:
+        # DEBUG: Print to ensure logging works
+        print(f"[DEBUG-LLM] Payload size: {payload_len}, Pages: {page_count}")
+        
+        # Threshold: 20k chars for DEBUG (lowered from 80k to force chunking)
+        if payload_len > 20000 or page_count > 3:
+            print(f"[DEBUG-LLM] CHUNKING TRIGGERED! Size: {payload_len}, Pages: {page_count}")
             logger.info(f"[LLM] Payload too large (Size: {payload_len}, Pages: {page_count}), starting Pre-emptive Chunking...")
             try:
                 from app.services.chunked_extraction import extract_with_chunking
