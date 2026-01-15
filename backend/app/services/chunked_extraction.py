@@ -46,6 +46,7 @@ class ChunkResult:
     success: bool
     extracted_data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    debug_info: Optional[Dict[str, Any]] = None  # LLM prompt/response for debugging
 
 
 def estimate_tokens(text: str) -> int:
@@ -261,7 +262,14 @@ IMPORTANT:
             return ChunkResult(
                 chunk_index=chunk.index,
                 success=True,
-                extracted_data=extracted
+                extracted_data=extracted,
+                debug_info={
+                    "prompt_size": len(prompt),
+                    "response_size": len(result_text),
+                    "response_preview": result_text[:1000],
+                    "doc_context_preview": doc_context[:500] if doc_context else "",
+                    "tables_count": len(tables_to_use)
+                }
             )
             
         except Exception as e:
@@ -403,10 +411,22 @@ def merge_chunk_results(
     # I should change this to return the dictionary of Objects.
     # And I need to update extraction_service to use it directly instead of wrapping it again.
     
+    # Collect debug info from chunks
+    chunk_debug = []
+    for r in sorted_results:
+        if r.debug_info:
+            chunk_debug.append({
+                "chunk_index": r.chunk_index,
+                "success": r.success,
+                "error": r.error,
+                **r.debug_info
+            })
+    
     merged_guide["_merge_info"] = {
         "total_chunks": len(results),
         "successful_chunks": sum(1 for r in results if r.success),
-        "field_sources": field_sources
+        "field_sources": field_sources,
+        "chunk_debug": chunk_debug  # LLM prompt/response info for each chunk
     }
     
     success_rate = sum(1 for r in results if r.success) / len(results) if results else 0
