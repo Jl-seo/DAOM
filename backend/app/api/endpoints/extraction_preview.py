@@ -57,8 +57,20 @@ class StartExtractionRequest(BaseModel):
 # Background task to process extraction
 async def process_extraction_job(job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None):
     """Background task to run full extraction pipeline"""
-    from app.services.extraction_service import extraction_service
-    await extraction_service.run_extraction_pipeline(job_id, model_id, file_url, candidate_file_url, candidate_file_urls)
+    print(f"[Background] Starting extraction job {job_id}")
+    try:
+        from app.services.extraction_service import extraction_service
+        await extraction_service.run_extraction_pipeline(job_id, model_id, file_url, candidate_file_url, candidate_file_urls)
+        print(f"[Background] Completed extraction job {job_id}")
+    except Exception as e:
+        print(f"[Background] FATAL ERROR in job {job_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        # Update job with error status
+        try:
+            extraction_jobs.update_job(job_id, status="E400", error=str(e))
+        except:
+            pass
 
 
 @router.post("/start-job")
