@@ -75,6 +75,7 @@ async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-la
             output = {
                 "content": result.content,
                 "pages": _process_pages(result.pages),
+                "paragraphs": _process_paragraphs(result.paragraphs),
                 "tables": _process_tables(result.tables),
                 "key_value_pairs": _process_kv_pairs(result.key_value_pairs, result.pages),
                 "documents": _process_documents(result.documents, result.pages) # Pass pages for normalization
@@ -254,3 +255,14 @@ async def extract_content_from_url(file_url: str):
 
 async def extract_full_preview(file_url: str):
     return await extract_with_strategy(file_url, AzureModelType.LAYOUT)
+
+def _process_paragraphs(paragraphs):
+    if not paragraphs: return []
+    processed = []
+    for p in paragraphs:
+        processed.append({
+            "content": p.content,
+            "bounding_regions": [{"page_number": r.page_number, "polygon": r.polygon} for r in (p.bounding_regions or [])],
+            "role": getattr(p, "role", None)
+        })
+    return processed

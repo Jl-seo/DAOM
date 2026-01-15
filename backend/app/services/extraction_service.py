@@ -591,8 +591,8 @@ IMPORTANT:
         # DEBUG: Print to ensure logging works
         print(f"[DEBUG-LLM] Payload size: {payload_len}, Pages: {page_count}")
         
-        # Threshold: 20k chars for DEBUG (lowered from 80k to force chunking)
-        if payload_len > 20000 or page_count > 3:
+        # Threshold: 20k chars or 5 pages (Production Tuned)
+        if payload_len > 20000 or page_count > 5:
             print(f"[DEBUG-LLM] CHUNKING TRIGGERED! Size: {payload_len}, Pages: {page_count}")
             logger.info(f"[LLM] Payload too large (Size: {payload_len}, Pages: {page_count}), starting Pre-emptive Chunking...")
             try:
