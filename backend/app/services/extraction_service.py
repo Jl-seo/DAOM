@@ -874,11 +874,22 @@ IMPORTANT:
                 "page_number": page_number
             }
 
-        return {
+
+        result = {
             "guide_extracted": validated_extracted,
             "other_data": raw_data.get("other_data", []),
             "model_fields": [{"key": f.key, "label": f.label} for f in model.fields]
         }
+        
+        # Passthrough debug metadata if present
+        if "_debug_chunking" in raw_data:
+            result["_debug_chunking"] = raw_data["_debug_chunking"]
+        if "_chunked" in raw_data:
+            result["_chunked"] = raw_data["_chunked"]
+        if "_chunking_errors" in raw_data:
+            result["_chunking_errors"] = raw_data["_chunking_errors"]
+        
+        return result
     
     def _snap_bbox_to_words(self, value: str, approximate_bbox: Optional[List[float]], words: List[Dict[str, Any]]) -> Optional[List[float]]:
         """
