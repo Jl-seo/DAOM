@@ -165,9 +165,19 @@ async def process_chunk_with_retry(
             # Converted fields to list of descriptions
             field_descriptions = []
             for field in model_fields:
-                desc = f"- {field.get('key')}: {field.get('label')}"
-                if field.get('description'):
-                    desc += f" ({field.get('description')})"
+                # Handle both Pydantic FieldDefinition objects and dicts
+                if hasattr(field, 'key'):  # Pydantic model
+                    key = field.key
+                    label = field.label
+                    description = getattr(field, 'description', None)
+                else:  # Dict
+                    key = field.get('key')
+                    label = field.get('label')
+                    description = field.get('description')
+                
+                desc = f"- {key}: {label}"
+                if description:
+                    desc += f" ({description})"
                 field_descriptions.append(desc)
 
             fields_block = "\n".join(field_descriptions)
