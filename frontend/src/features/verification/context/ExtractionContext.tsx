@@ -14,6 +14,13 @@ import type {
 } from '../types'
 import { POLLING_INTERVAL_MS } from '../constants'
 
+// Development-only logging helper
+const devLog = (...args: any[]) => {
+    if (process.env.NODE_ENV === 'development') {
+        console.log(...args)
+    }
+}
+
 // Re-export types for backward compatibility
 export type { ViewStep, ExtractionStatus, SubDocument, PreviewData, ExtractionModel, Highlight, ExtractionLog }
 
@@ -361,7 +368,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         },
         onSuccess: (data) => {
             setResult(data.extracted_data)
-            console.log('[AutoSave] Historical log updated successfully')
+            devLog('[AutoSave] Historical log updated successfully')
         },
         onError: (err: any) => {
             toast.error('저장 실패: ' + (err?.message || '알 수 없는 오류'))
@@ -410,7 +417,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         onSuccess: (data) => {
             setResult(data.extracted_data)
             // Don't change step or show toast for auto-save
-            console.log('[AutoSave] Saved successfully')
+            devLog('[AutoSave] Saved successfully')
         },
         onError: (err: any) => {
             toast.error('저장 실패: ' + (err?.message || '알 수 없는 오류'))
@@ -424,7 +431,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
     ) => {
         // Guard: Skip if no active job AND no log ID
         if (!currentJobId && !currentLogId) {
-            console.log('[AutoSave] Skipped - no active job and no log ID')
+            devLog('[AutoSave] Skipped - no active job and no log ID')
             return
         }
 
@@ -492,7 +499,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
     }, [handleReset])
 
     const resumeJob = useCallback((jobId: string, url?: string, jobStatus?: ExtractionStatus) => {
-        console.log('[resumeJob] Resuming job:', jobId)
+        devLog('[resumeJob] Resuming job:', jobId)
         setCurrentJobId(jobId)
         if (url) setFileUrl(url)
 
@@ -510,7 +517,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
     }, [startPolling])
 
     const loadFromHistory = useCallback((log: ExtractionLog) => {
-        console.log('[loadFromHistory] Loading log:', { id: log.id, file_url: log.file_url, filename: log.filename })
+        devLog('[loadFromHistory] Loading log:', { id: log.id, file_url: log.file_url, filename: log.filename })
         setResult(log.extracted_data || null)
         setStatus(isSuccessStatus(log.status) ? EXTRACTION_STATUS.COMPLETE : EXTRACTION_STATUS.ERROR)
         setFileUrl(log.file_url || null)
@@ -521,8 +528,8 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
 
         // Use saved preview_data if available (preserves other_data structure)
         // Otherwise fall back to reconstructing from extracted_data
-        console.log('[loadFromHistory] preview_data:', JSON.stringify(log.preview_data, null, 2)?.slice(0, 500))
-        console.log('[loadFromHistory] extracted_data:', JSON.stringify(log.extracted_data, null, 2)?.slice(0, 500))
+        devLog('[loadFromHistory] preview_data:', JSON.stringify(log.preview_data, null, 2)?.slice(0, 500))
+        devLog('[loadFromHistory] extracted_data:', JSON.stringify(log.extracted_data, null, 2)?.slice(0, 500))
         if (log.preview_data) {
             setPreviewData({
                 ...log.preview_data,

@@ -74,7 +74,7 @@ export function ExtractionReviewView({
         if (!latestData) return
 
         const timer = setTimeout(() => {
-            console.log('[AutoSave] Saving data...', latestData)
+            process.env.NODE_ENV === 'development' && console.log('[AutoSave] Saving data...', latestData)
             onSaveRef.current(latestData.guide, latestData.other)
         }, 1000) // 1 second debounce
 

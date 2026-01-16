@@ -60,7 +60,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
         // Only process once per initialFile
         if (initialFile && model && !initialFileProcessedRef.current && status === 'idle') {
             initialFileProcessedRef.current = true
-            console.log('Quick Extraction: Processing initial file', initialFile.name)
+            process.env.NODE_ENV === 'development' && console.log('Quick Extraction: Processing initial file', initialFile.name)
             setActiveStep('upload')
             processFile(initialFile)
 

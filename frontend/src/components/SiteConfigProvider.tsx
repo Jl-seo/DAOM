@@ -32,7 +32,7 @@ export function SiteConfigProvider({ children }: { children: React.ReactNode }) 
                 }
             } catch {
                 // Use defaults if API fails
-                console.log('Using default site config')
+                process.env.NODE_ENV === 'development' && console.log('Using default site config')
             } finally {
                 setIsLoading(false)
             }
