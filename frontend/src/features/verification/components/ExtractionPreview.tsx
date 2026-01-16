@@ -452,7 +452,7 @@ export function ExtractionPreview({
                     <Button
                         size="sm"
                         onClick={() => {
-                            process.env.NODE_ENV === 'development' && console.log('[SaveButton] Clicked')
+                            import.meta.env.DEV && console.log('[SaveButton] Clicked')
                             toast.info('저장 중...')
                             const selectedEditedOtherData = editedOtherData.filter(item => {
                                 const columnName = typeof item.column === 'object'

@@ -16,7 +16,7 @@ import { POLLING_INTERVAL_MS } from '../constants'
 
 // Development-only logging helper
 const devLog = (...args: any[]) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.DEV) {
         console.log(...args)
     }
 }

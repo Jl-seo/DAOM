@@ -87,7 +87,7 @@ export function ExtractionGrid({ data: inputData, columns: externalColumns }: Ex
 
                     const onBlur = () => {
                         // In a real app, update data source here
-                        process.env.NODE_ENV === 'development' && console.log('Update', row.index, value)
+                        import.meta.env.DEV && console.log('Update', row.index, value)
                     }
 
                     return (
