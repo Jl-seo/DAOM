@@ -95,6 +95,56 @@ export function DataReviewPanel({
                 </div>
             </div>
 
+            {/* DEBUG INFO BANNER - Make it VERY visible */}
+            {debugData && Object.keys(debugData).length > 0 && (
+                <div className="mx-6 mt-3 mb-2 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                    <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                            <div className="font-semibold text-sm mb-2 flex items-center gap-2">
+                                <Bug className="w-4 h-4" />
+                                디버그 정보 (LLM 추출 상세)
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-mono">
+                                {debugData._chunked && (
+                                    <div><span className="text-muted-foreground">청킹 모드:</span> <span className="font-semibold text-blue-600">활성화</span></div>
+                                )}
+                                {debugData._debug_chunking?.total_chunks !== undefined && (
+                                    <div><span className="text-muted-foreground">처리된 청크:</span> <span className="font-semibold">{debugData._debug_chunking.total_chunks}</span></div>
+                                )}
+                                {debugData._debug_chunking?.successful_chunks !== undefined && (
+                                    <div><span className="text-muted-foreground">성공한 청크:</span> <span className="font-semibold text-green-600">{debugData._debug_chunking.successful_chunks}</span></div>
+                                )}
+                                {debugData._debug_chunking?.chunk_debug?.[0]?.tables_count !== undefined && (
+                                    <div><span className="text-muted-foreground">표 개수:</span> <span className="font-semibold">{debugData._debug_chunking.chunk_debug[0].tables_count}</span></div>
+                                )}
+                                {debugData._debug_chunking?.chunk_debug?.[0]?.prompt_size && (
+                                    <div><span className="text-muted-foreground">프롬프트 크기:</span> <span className="font-semibold">{debugData._debug_chunking.chunk_debug[0].prompt_size} chars</span></div>
+                                )}
+                                {debugData._debug_chunking?.chunk_debug?.[0]?.response_size && (
+                                    <div><span className="text-muted-foreground">LLM 응답 크기:</span> <span className="font-semibold">{debugData._debug_chunking.chunk_debug[0].response_size} chars</span></div>
+                                )}
+                            </div>
+                            {debugData._debug_chunking?.chunk_debug?.[0]?.response_preview && (
+                                <details className="mt-2">
+                                    <summary className="text-xs cursor-pointer text-blue-600 hover:underline">LLM 응답 미리보기 보기</summary>
+                                    <pre className="mt-2 p-2 bg-slate-900 text-slate-50 rounded text-xs overflow-x-auto">
+                                        {debugData._debug_chunking.chunk_debug[0].response_preview}
+                                    </pre>
+                                </details>
+                            )}
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowDebugModal(true)}
+                            className="ml-4"
+                        >
+                            전체 보기
+                        </Button>
+                    </div>
+                </div>
+            )}
+
             <Tabs defaultValue="fields" className="flex-1 flex flex-col min-h-0">
                 <div className="px-6 border-b bg-muted/40">
                     <TabsList className="bg-transparent h-12 p-0 space-x-6">

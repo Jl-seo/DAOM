@@ -236,6 +236,23 @@ class ExtractionService:
                     logger.error(f"[Pipeline] Failed to await debug upload: {dbg_err}")
             # -----------------------------------------
 
+            # Extract LLM debug info from sub_documents and merge into debug_data
+            llm_debug_info = {}
+            if sub_documents and len(sub_documents) > 0:
+                first_doc_data = sub_documents[0].get("data", {})
+                if "_debug_chunking" in first_doc_data:
+                    llm_debug_info["_debug_chunking"] = first_doc_data["_debug_chunking"]
+                if "_chunked" in first_doc_data:
+                    llm_debug_info["_chunked"] = first_doc_data["_chunked"]
+                if "_chunking_errors" in first_doc_data:
+                    llm_debug_info["_chunking_errors"] = first_doc_data["_chunking_errors"]
+            
+            # Merge OCR debug and LLM debug
+            if debug_info_final:
+                debug_info_final.update(llm_debug_info)
+            else:
+                debug_info_final = llm_debug_info if llm_debug_info else None
+
             preview_payload = {
                 "sub_documents": sub_documents,
                 "raw_content": doc_intel_output.get("content", ""),
