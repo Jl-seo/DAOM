@@ -96,7 +96,8 @@ async def load_json_from_blob(filename: str) -> Optional[dict]:
             if local_path.exists():
                 with open(local_path, "r", encoding="utf-8") as f:
                     return json.load(f)
-        except:
+        except Exception as e:
+            # Log at debug level for cache miss (expected behavior)
             pass
         return None
 

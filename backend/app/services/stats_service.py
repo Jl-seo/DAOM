@@ -85,7 +85,8 @@ def _calculate_daily_trend(logs: List[Any], days: int) -> List[Dict[str, Any]]:
             log_date = log.created_at.split('T')[0]
             if log_date in trend:
                 trend[log_date] += 1
-        except:
+        except Exception as e:
+            logger.debug(f"[StatsService] Failed to parse log date: {e}")
             continue
             
     # Sort by date

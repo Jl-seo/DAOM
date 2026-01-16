@@ -69,7 +69,8 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         # Update job with error status
         try:
             extraction_jobs.update_job(job_id, status="E400", error=str(e))
-        except:
+        except Exception as update_err:
+            logger.error(f"[Background] Failed to update job status: {update_err}")
             pass
 
 
@@ -568,7 +569,8 @@ async def save_extraction(
                 status=ExtractionStatus.ERROR.value,
                 error=str(e)
             )
-        except:
+        except Exception as log_err:
+            logger.warning(f"[SaveExtraction] Failed to save error log: {log_err}")
             pass
         
         raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
@@ -760,7 +762,8 @@ IMPORTANT:
                 status='error',
                 error=str(e)
             )
-        except:
+        except Exception as log_err:
+            logger.warning(f"[PreviewWithGuide] Failed to save error log: {log_err}")
             pass  # Don't fail if logging fails
         
         raise HTTPException(status_code=500, detail=f"Guide extraction failed: {str(e)}")
@@ -922,7 +925,8 @@ Return ONLY valid JSON, no markdown.
                 file_url=request.file_url,
                 error=str(e)
             )
-        except:
+        except Exception as log_err:
+            logger.warning(f"[Refine] Failed to save error log: {log_err}")
             pass  # Don't fail if logging fails
         
         raise HTTPException(status_code=500, detail=f"Refinement failed: {str(e)}")

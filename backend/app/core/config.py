@@ -20,7 +20,7 @@ class Settings(BaseSettings):
             try:
                 parsed = json.loads(self.BACKEND_CORS_ORIGINS)
                 return [str(origin) for origin in parsed]
-            except:
+            except (json.JSONDecodeError, TypeError):
                 return []
         return [str(origin) for origin in self.BACKEND_CORS_ORIGINS]
 
