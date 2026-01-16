@@ -763,7 +763,8 @@ IMPORTANT:
         CONFIDENCE_THRESHOLD = 0.7  # Flag values below this
         
         # Create a lookup for page dimensions
-        page_dims = {p["page_number"]: (p["width"], p["height"]) for p in pages_info}
+        # Create a lookup for page dimensions (handle both snake_case and camelCase)
+        page_dims = {(p.get("page_number") or p.get("pageNumber", i+1)): (p["width"], p["height"]) for i, p in enumerate(pages_info)}
 
         for field in model.fields:
             key = field.key
