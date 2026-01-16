@@ -87,13 +87,16 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
         # IMPORTANT: doc_intel.py uses snake_case "page_number", not camelCase "pageNumber"
         page_num = page.get("page_number") or page.get("pageNumber", 1)
         
-        # Get content for this page
-        page_paragraphs = [p for p in paragraphs 
-                          if any(br.get("page_number") == page_num 
-                                for br in p.get("bounding_regions", []))]
-        page_tables = [t for t in tables 
-                       if any(br.get("page_number") == page_num 
-                             for br in t.get("bounding_regions", []))]
+        # Get content for this page (handle both snake_case and camelCase keys)
+        def get_regions(obj):
+            return obj.get("bounding_regions") or obj.get("boundingRegions") or []
+            
+        def is_on_page(obj, p_num):
+            regions = get_regions(obj)
+            return any((br.get("page_number") or br.get("pageNumber")) == p_num for br in regions)
+
+        page_paragraphs = [p for p in paragraphs if is_on_page(p, page_num)]
+        page_tables = [t for t in tables if is_on_page(t, page_num)]
         
         page_content = "\n".join([p.get("content", "") for p in page_paragraphs])
         page_tokens = estimate_tokens(page_content)
