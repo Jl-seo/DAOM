@@ -1,9 +1,12 @@
 import uuid
+import logging
 from typing import List
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from app.schemas.model import ExtractionModel, ExtractionModelCreate
 from app.services.models import load_models, save_models, get_model_by_id
 from app.core.permissions import require_admin, verify_model_admin
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -153,7 +156,7 @@ async def analyze_sample(
                      pass
 
             except Exception as llm_error:
-                print(f"LLM Enrichment failed: {llm_error}")
+                logger.warning(f"LLM Enrichment failed: {llm_error}")
                 # Continue with just heuristic fields
 
         return {

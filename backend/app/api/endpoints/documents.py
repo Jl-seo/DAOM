@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+import logging
 from app.schemas.document import DocumentUploadResponse, AnalysisResponse, AnalysisRequest
 from app.services.storage import upload_file_to_blob
 from app.services.doc_intel import extract_content_from_url
@@ -7,6 +8,8 @@ from app.services.models import get_model_by_id
 from app.services.extraction_logs import save_extraction_log, get_logs_by_model, get_all_logs
 from app.core.enums import ExtractionStatus
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -70,7 +73,7 @@ async def analyze_document(request: AnalysisRequest):
                 error=str(e)
             )
         
-        print(f"Analysis failed: {e}")
+        logger.error(f"Analysis failed: {e}")
         return AnalysisResponse(
             status=ExtractionStatus.ERROR.value,
             extracted_text=str(e)

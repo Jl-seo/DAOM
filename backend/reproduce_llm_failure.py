@@ -3,10 +3,13 @@ import asyncio
 import os
 import json
 import logging
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
 # Load env vars
-load_dotenv(override=True)
+# load_dotenv(override=True)
+
+# Mock openai module before importing backend
+from unittest.mock import MagicMock
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

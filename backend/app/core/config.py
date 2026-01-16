@@ -80,11 +80,11 @@ class Settings(BaseSettings):
             missing.append("AZURE_OPENAI_API_KEY")
         
         if missing:
-             print(f"CRITICAL WARNING: Missing configuration for {missing}. Document processing will fail.")
+             logger.warning(f"CRITICAL WARNING: Missing configuration for {missing}. Document processing will fail.")
         else:
             mode = "AI Foundry" if has_foundry else "Legacy OpenAI"
-            print(f"[CONFIG] Mode: {mode}")
-            print(f"[CONFIG] CORS Origins: {self.cors_origins}")
+            logger.info(f"[CONFIG] Mode: {mode}")
+            logger.info(f"[CONFIG] CORS Origins: {self.cors_origins}")
              
 settings = Settings()
 settings.validate_setup()

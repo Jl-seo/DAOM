@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Optional, List
 from openai import AsyncAzureOpenAI
 import httpx
@@ -6,6 +7,8 @@ from app.core.config import settings
 from app.schemas.model import ExtractionModel
 from app.services.refiner import RefinerEngine
 from app.db.cosmos import get_config_container
+
+logger = logging.getLogger(__name__)
 
 # 동적 모델 설정 (어드민에서 변경 가능)
 _current_model = settings.AZURE_OPENAI_DEPLOYMENT_NAME
@@ -22,18 +25,18 @@ def initialize_llm_settings():
                 saved_model = item.get("model_name")
                 if saved_model:
                     _current_model = saved_model
-                    print(f"[LLM] Loaded configuration from DB: {_current_model}")
+                    logger.info(f"[LLM] Loaded configuration from DB: {_current_model}")
             except Exception:
                 # 설정이 없으면 기본값 사용 (조용히 넘어감)
-                print(f"[LLM] No saved configuration found, using default: {_current_model}")
+                logger.info(f"[LLM] No saved configuration found, using default: {_current_model}")
     except Exception as e:
-        print(f"[LLM] Failed to initialize settings: {e}")
+        logger.info(f"[LLM] Failed to initialize settings: {e}")
 
 def set_llm_model(model_name: str):
     """어드민에서 LLM 모델 변경 (DB 저장)"""
     global _current_model
     _current_model = model_name
-    print(f"[LLM] Model changed to: {_current_model}")
+    logger.info(f"[LLM] Model changed to: {_current_model}")
     
     # DB 저장
     try:
@@ -44,9 +47,9 @@ def set_llm_model(model_name: str):
                 "model_name": model_name,
                 "updated_at": "now"
             })
-            print("[LLM] Configuration saved to DB")
+            logger.info("[LLM] Configuration saved to DB")
     except Exception as e:
-        print(f"[LLM] Failed to save configuration to DB: {e}")
+        logger.info(f"[LLM] Failed to save configuration to DB: {e}")
 
 def get_current_model() -> str:
     return _current_model
@@ -74,10 +77,10 @@ async def fetch_available_models() -> List[str]:
                     m["id"] for m in data.get("data", [])
                     if m.get("capabilities", {}).get("chat_completion", False)
                 ]
-                print(f"[LLM] Found {len(models)} chat models: {models[:5]}...")
+                logger.info(f"[LLM] Found {len(models)} chat models: {models[:5]}...")
                 return models
     except Exception as e:
-        print(f"[LLM] Error fetching models: {e}")
+        logger.info(f"[LLM] Error fetching models: {e}")
     
     # Fallback - return empty list to force admin to configure properly
     return []
@@ -92,8 +95,8 @@ def get_openai_client() -> AsyncAzureOpenAI:
     if not endpoint or not api_key:
         raise ValueError("Azure AI endpoint and API key must be configured")
     
-    print(f"[LLM] Endpoint: {endpoint}")
-    print(f"[LLM] Model: {_current_model}")
+    logger.info(f"[LLM] Endpoint: {endpoint}")
+    logger.info(f"[LLM] Model: {_current_model}")
     
     return AsyncAzureOpenAI(
         azure_endpoint=endpoint,
@@ -123,7 +126,7 @@ async def analyze_document_content(
     user_prompt = f"Document Text:\n{content_text}"
 
     try:
-        print(f"[LLM] Calling: {_current_model}")
+        logger.info(f"[LLM] Calling: {_current_model}")
         
         response = await client.chat.completions.create(
             model=_current_model,
@@ -135,11 +138,11 @@ async def analyze_document_content(
         )
         
         result_content = response.choices[0].message.content
-        print(f"[LLM] Response received. Length: {len(result_content)}")
+        logger.info(f"[LLM] Response received. Length: {len(result_content)}")
         llm_json = json.loads(result_content)
         
         if model_info:
-            print("[LLM] Post-processing with RefinerEngine")
+            logger.info("[LLM] Post-processing with RefinerEngine")
             return RefinerEngine.post_process_result(llm_json, ocr_result)
         
         return llm_json
@@ -148,7 +151,7 @@ async def analyze_document_content(
         import traceback
         traceback.print_exc()
         error_msg = str(e)
-        print(f"[LLM] Error: {error_msg}")
+        logger.info(f"[LLM] Error: {error_msg}")
         return {"error": error_msg}
     
     finally:
@@ -200,7 +203,7 @@ async def generate_schema_from_content(content_text: str, tables: List[dict] = N
         return result.get("fields", [])
         
     except Exception as e:
-        print(f"[LLM] Schema generation failed: {e}")
+        logger.info(f"[LLM] Schema generation failed: {e}")
         return []
     finally:
         await client.close()
@@ -259,7 +262,7 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
         return result.get("fields", current_fields)
         
     except Exception as e:
-        print(f"[LLM] Schema refinement failed: {e}")
+        logger.info(f"[LLM] Schema refinement failed: {e}")
         return current_fields
     finally:
         await client.close()
@@ -320,7 +323,7 @@ async def compare_images(image_url_1: str, image_url_2: str) -> dict:
     ]
 
     try:
-        print(f"[LLM] Comparing images using {model}...")
+        logger.info(f"[LLM] Comparing images using {model}...")
         
         response = await client.chat.completions.create(
             model=model,
@@ -336,7 +339,7 @@ async def compare_images(image_url_1: str, image_url_2: str) -> dict:
         return json.loads(result_content)
         
     except Exception as e:
-        print(f"[LLM] Comparison failed: {e}")
+        logger.info(f"[LLM] Comparison failed: {e}")
         return {"differences": [], "error": str(e)}
     finally:
         await client.close()

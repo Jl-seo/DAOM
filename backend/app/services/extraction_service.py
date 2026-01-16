@@ -84,7 +84,7 @@ class ExtractionService:
                 all_candidates.insert(0, candidate_file_url) # Legacy takes precedence or is added
 
             if all_candidates:
-                print(f"[Pipeline] Starting 1:N Comparison for Job {job_id} on {len(all_candidates)} candidates")
+                logger.info(f"[Pipeline] Starting 1:N Comparison for Job {job_id} on {len(all_candidates)} candidates")
                 from app.services import llm
                 
                 comparison_results = []
@@ -93,7 +93,7 @@ class ExtractionService:
                 # Process in parallel for speed if possible, or sequential for safety
                 # Using simple loop for now to avoid complexity
                 for idx, c_url in enumerate(all_candidates):
-                    print(f"[Pipeline] Comparing Candidate {idx+1}/{len(all_candidates)}")
+                    logger.info(f"[Pipeline] Comparing Candidate {idx+1}/{len(all_candidates)}")
                     try:
                         res = await llm.compare_images(file_url, c_url)
                         comparison_results.append({
@@ -149,7 +149,7 @@ class ExtractionService:
                 return # Exit pipeline for comparison jobs
             # -----------------------------
 
-            print(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
+            logger.info(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
             
             doc_intel_output = await doc_intel.extract_with_strategy(file_url, azure_model)
             
@@ -213,7 +213,7 @@ class ExtractionService:
             sub_documents = list(sub_documents)  # Convert tuple to list
             
             # 4. Save Results
-            print(f"[Pipeline-Debug] All splits processed. Total sub_documents: {len(sub_documents)}")
+            logger.info(f"[Pipeline-Debug] All splits processed. Total sub_documents: {len(sub_documents)}")
             
             # --- DEBUG DATA MERGE (Parallel Await) ---
             debug_info_final = None
@@ -272,7 +272,7 @@ class ExtractionService:
                 return
             
             
-            print(f"[Pipeline-Debug] Job {job_id} completed successfully!")
+            logger.info(f"[Pipeline-Debug] Job {job_id} completed successfully!")
             
             # Sync status to ExtractionLog if linked
             job = extraction_jobs.get_job(job_id)
@@ -449,8 +449,8 @@ IMPORTANT:
                 response_format={"type": "json_object"}
             )
             raw_content = response.choices[0].message.content
-            print(f"[LLM-Universal-Debug] Success! Length: {len(raw_content)}")
-            print(f"[LLM-Universal-Debug] Preview: {raw_content[:200]}")
+            logger.info(f"[LLM-Universal-Debug] Success! Length: {len(raw_content)}")
+            logger.info(f"[LLM-Universal-Debug] Preview: {raw_content[:200]}")
             return json.loads(raw_content)
         except Exception as e:
             error_str = str(e).lower()
@@ -606,11 +606,11 @@ IMPORTANT:
         page_count = len(ocr_data_to_send.get("pages", []))
         
         # DEBUG: Print to ensure logging works
-        print(f"[DEBUG-LLM] Payload size: {payload_len}, Pages: {page_count}")
+        logger.debug(f"[DEBUG-LLM] Payload size: {payload_len}, Pages: {page_count}")
         
         # Threshold: 20k chars or 5 pages (Production Tuned)
         if payload_len > 20000 or page_count > 5:
-            print(f"[DEBUG-LLM] CHUNKING TRIGGERED! Size: {payload_len}, Pages: {page_count}")
+            logger.debug(f"[DEBUG-LLM] CHUNKING TRIGGERED! Size: {payload_len}, Pages: {page_count}")
             logger.info(f"[LLM] Payload too large (Size: {payload_len}, Pages: {page_count}), starting Pre-emptive Chunking...")
             try:
                 from app.services.chunked_extraction import extract_with_chunking
@@ -710,8 +710,8 @@ IMPORTANT:
             )
             raw_content = response.choices[0].message.content
             
-            print(f"[LLM-Custom-Debug] Success! Length: {len(raw_content)}")
-            print(f"[LLM-Custom-Debug] Preview: {raw_content[:200]}")
+            logger.info(f"[LLM-Custom-Debug] Success! Length: {len(raw_content)}")
+            logger.info(f"[LLM-Custom-Debug] Preview: {raw_content[:200]}")
             
             return json.loads(raw_content)
         except Exception as e:
