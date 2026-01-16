@@ -11,7 +11,7 @@ async def analyze_comparison(
     candidate: UploadFile = File(...),
 ):
     """
-    Compare two images using GPT-4.1 Vision.
+    Compare two images using the configured LLM.
     Returns a list of differences with bounding boxes.
     """
     try:

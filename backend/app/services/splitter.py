@@ -85,7 +85,7 @@ def _split_by_azure(result: Dict[str, Any]) -> List[Dict[str, Any]]:
     return splits
 
 async def _split_by_gpt(result: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Use GPT-5.1 to analyze page content and suggest splits"""
+    """Use configured LLM to analyze page content and suggest splits"""
     try:
         pages = result.get("pages", [])
         content = result.get("content", "")
@@ -130,8 +130,10 @@ async def _split_by_gpt(result: Dict[str, Any]) -> List[Dict[str, Any]]:
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
         )
         
+        from app.services.llm import get_current_model
+        
         response = await client.chat.completions.create(
-            model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
+            model=get_current_model(),
             messages=[
                 {"role": "system", "content": "You are a document splitting expert. Return valid JSON only."},
                 {"role": "user", "content": prompt}

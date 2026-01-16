@@ -182,7 +182,7 @@ async def process_chunk_with_retry(
             else:
                 logger.warning(f"[Chunk {chunk.index}] No tables in chunk! This may cause null extractions.")
 
-            prompt = f"""You are a document data extractor.
+            prompt = f"""You are a document data extractor capable of processing Korean and English documents.
 
 Given this document data extracted from pages {chunk.page_numbers}:
 {doc_context}
@@ -191,11 +191,11 @@ Extract values for these specific fields:
 {fields_block}
 
 INSTRUCTIONS:
-1. Analyze the document context.
-2. For specific fields like 'Item' or 'Amount', look for corresponding headers in the table.
-3. If a field represents a list of items (e.g. line items in a table), extract it as a JSON Array of objects with relevant keys.
-4. Distinguish between 'Item' (product code/name) and 'Description' (details).
-5. **Key-Value Tables**: If a table has a structure like [Field Name | Value], map the 'Value' column to the corresponding requested field. Do not treat it as a line item list.
+1. Analyze the document context. Content may be in Korean.
+2. For specific fields like 'Item' (품목) or 'Amount' (금액), look for corresponding headers in the table or text.
+3. If a field represents a list of items (e.g. line items in a table), extract it as a JSON Array.
+4. Distinguish between 'Item' (product code/name) and 'Description' (spec/details).
+5. **Key-Value Tables**: If a table has a structure like [Field Name | Value], map the 'Value' column to the corresponding requested field.
 6. **CRITICAL**: Extract values EXACTLY as they appear in the text.
 7. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value. Copy it exactly from source (ocr data) if available.
 8. **CRITICAL**: You MUST include the 'page_number' (1-based index) for every extracted value.

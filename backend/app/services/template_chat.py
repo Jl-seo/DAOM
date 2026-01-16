@@ -110,8 +110,10 @@ async def process_template_chat(
 
 위 요청에 맞게 템플릿을 수정해주세요."""
 
+        from app.services.llm import get_current_model
+        
         response = client.chat.completions.create(
-            model=settings.AZURE_OPENAI_DEPLOYMENT or "gpt-4.1",
+            model=get_current_model(),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}

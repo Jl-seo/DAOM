@@ -79,8 +79,8 @@ async def fetch_available_models() -> List[str]:
     except Exception as e:
         print(f"[LLM] Error fetching models: {e}")
     
-    # Fallback
-    return ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"]
+    # Fallback - return empty list to force admin to configure properly
+    return []
 
 def get_openai_client() -> AsyncAzureOpenAI:
     """Azure AI Foundry 클라이언트 생성"""
