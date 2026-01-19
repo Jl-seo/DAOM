@@ -1,4 +1,16 @@
 {
+    "menu": {
+        "upload": "Document Upload",
+        "history": "Extraction History",
+        "models": "Model Studio",
+        "settings": "Settings",
+        "settings_general": "General",
+        "settings_logs": "Logs",
+        "settings_permissions": "Permissions"
+    },
+    "errors": {
+        "DOCUMENT_CHUNKING_FAILED": "Document too large - chunking process failed"
+    },
     "common": {
         "actions": {
             "save": "Save",

@@ -44,7 +44,7 @@ class ColorConfig(BaseModel):
 
 class SiteConfig(BaseModel):
     siteName: str = "DAOM"
-    siteDescription: str = "문서 자동화"
+    siteDescription: str = "Document Automation"
     logoUrl: Optional[str] = None
     faviconUrl: Optional[str] = None
     theme: str = "system"

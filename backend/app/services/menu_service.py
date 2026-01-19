@@ -11,14 +11,15 @@ logger = logging.getLogger(__name__)
 MENUS_CONTAINER = "menus"
 
 # Default menus to seed on first run
+# Note: 'name' field uses i18n keys - frontend translates these via t('menu.{id}')
 DEFAULT_MENUS = [
-    {"id": "upload", "name": "문서 업로드", "icon": "Upload", "order": 1, "parent": None},
-    {"id": "history", "name": "추출 히스토리", "icon": "History", "order": 2, "parent": None},
-    {"id": "models", "name": "모델 스튜디오", "icon": "Layers", "order": 3, "parent": None},
-    {"id": "settings", "name": "설정", "icon": "Settings", "order": 4, "parent": None},
-    {"id": "settings-general", "name": "일반", "icon": "Settings", "order": 1, "parent": "settings"},
-    {"id": "settings-logs", "name": "로그", "icon": "ClipboardList", "order": 2, "parent": "settings"},
-    {"id": "settings-permissions", "name": "권한 관리", "icon": "Shield", "order": 3, "parent": "settings"},
+    {"id": "upload", "name": "menu.upload", "icon": "Upload", "order": 1, "parent": None},
+    {"id": "history", "name": "menu.history", "icon": "History", "order": 2, "parent": None},
+    {"id": "models", "name": "menu.models", "icon": "Layers", "order": 3, "parent": None},
+    {"id": "settings", "name": "menu.settings", "icon": "Settings", "order": 4, "parent": None},
+    {"id": "settings-general", "name": "menu.settings_general", "icon": "Settings", "order": 1, "parent": "settings"},
+    {"id": "settings-logs", "name": "menu.settings_logs", "icon": "ClipboardList", "order": 2, "parent": "settings"},
+    {"id": "settings-permissions", "name": "menu.settings_permissions", "icon": "Shield", "order": 3, "parent": "settings"},
 ]
 
 

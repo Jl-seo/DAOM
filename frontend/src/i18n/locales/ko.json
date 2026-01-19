@@ -1,4 +1,16 @@
 {
+    "menu": {
+        "upload": "문서 업로드",
+        "history": "추출 히스토리",
+        "models": "모델 스튜디오",
+        "settings": "설정",
+        "settings_general": "일반",
+        "settings_logs": "로그",
+        "settings_permissions": "권한 관리"
+    },
+    "errors": {
+        "DOCUMENT_CHUNKING_FAILED": "문서가 너무 커서 분할 처리를 시도했으나 실패했습니다"
+    },
     "common": {
         "actions": {
             "save": "저장",
