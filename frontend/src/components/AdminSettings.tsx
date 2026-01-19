@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react'
-import { Settings, Cpu, RefreshCw, Save, CheckCircle2, Plus, Palette, Building2 } from 'lucide-react'
+import { Settings, Cpu, RefreshCw, Save, CheckCircle2, Plus, Palette, Building2, FileText } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import axios from 'axios'
 import { API_CONFIG } from '../constants'
 import { ThemeCustomizer } from './settings/ThemeCustomizer'
 import { BrandingEditor } from './settings/BrandingEditor'
+import { PromptEditor } from './settings/PromptEditor'
 import { Button } from '@/components/ui/button'
 
 const API_BASE = API_CONFIG.BASE_URL
 
-type SettingsTab = 'llm' | 'branding' | 'theme'
+type SettingsTab = 'llm' | 'branding' | 'theme' | 'prompts'
 
 interface LLMSettings {
     current_model: string
@@ -76,8 +77,9 @@ export function AdminSettings() {
 
     const tabs = [
         { id: 'llm' as const, label: 'LLM 모델', icon: Cpu },
+        { id: 'prompts' as const, label: '프롬프트', icon: FileText },
         { id: 'branding' as const, label: '사이트 설정', icon: Building2 },
-        { id: 'theme' as const, label: '테마 커스터마이저', icon: Palette },
+        { id: 'theme' as const, label: '테마', icon: Palette },
     ]
 
     if (loading) {
@@ -216,6 +218,7 @@ export function AdminSettings() {
 
             {activeTab === 'branding' && <BrandingEditor />}
             {activeTab === 'theme' && <ThemeCustomizer />}
+            {activeTab === 'prompts' && <PromptEditor />}
 
             {/* Info */}
             {activeTab === 'llm' && (
