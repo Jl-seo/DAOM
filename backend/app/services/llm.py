@@ -55,34 +55,72 @@ def get_current_model() -> str:
     return _current_model
 
 async def fetch_available_models() -> List[str]:
-    """Azure AI Foundry에서 사용 가능한 채팅 모델 목록 가져오기"""
+    """Azure AI Foundry/OpenAI에서 사용 가능한 모델 목록 가져오기"""
     try:
         endpoint = settings.AZURE_OPENAI_ENDPOINT or settings.AZURE_AIPROJECT_ENDPOINT
         endpoint = endpoint.rstrip('/')
         api_key = settings.AZURE_OPENAI_API_KEY
+        api_version = settings.AZURE_OPENAI_API_VERSION
         
-        url = f"{endpoint}/openai/models?api-version={settings.AZURE_OPENAI_API_VERSION}"
+        models = []
         
         async with httpx.AsyncClient() as client:
-            response = await client.get(
-                url,
-                headers={"api-key": api_key},
-                timeout=10.0
-            )
+            # Try deployments endpoint first (Azure OpenAI standard)
+            try:
+                deployments_url = f"{endpoint}/openai/deployments?api-version={api_version}"
+                response = await client.get(
+                    deployments_url,
+                    headers={"api-key": api_key},
+                    timeout=10.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    # Get deployment names
+                    for dep in data.get("data", []):
+                        dep_id = dep.get("id") or dep.get("deployment_id") or dep.get("name")
+                        if dep_id:
+                            models.append(dep_id)
+                    
+                    if models:
+                        logger.info(f"[LLM] Found {len(models)} deployments: {models}")
+                        return models
+            except Exception as e:
+                logger.debug(f"[LLM] Deployments endpoint failed: {e}")
             
-            if response.status_code == 200:
-                data = response.json()
-                # chat_completion 가능한 모델만 필터링
-                models = [
-                    m["id"] for m in data.get("data", [])
-                    if m.get("capabilities", {}).get("chat_completion", False)
-                ]
-                logger.info(f"[LLM] Found {len(models)} chat models: {models[:5]}...")
-                return models
+            # Fallback to models endpoint
+            try:
+                models_url = f"{endpoint}/openai/models?api-version={api_version}"
+                response = await client.get(
+                    models_url,
+                    headers={"api-key": api_key},
+                    timeout=10.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    logger.debug(f"[LLM] Models API raw response: {data}")
+                    
+                    for m in data.get("data", []):
+                        model_id = m.get("id")
+                        caps = m.get("capabilities", {})
+                        
+                        # Include if it has chat_completion OR if no capabilities info (be permissive)
+                        if caps.get("chat_completion", False) or not caps:
+                            if model_id:
+                                models.append(model_id)
+                    
+                    if models:
+                        logger.info(f"[LLM] Found {len(models)} models: {models}")
+                        return models
+            except Exception as e:
+                logger.debug(f"[LLM] Models endpoint failed: {e}")
+        
     except Exception as e:
-        logger.info(f"[LLM] Error fetching models: {e}")
+        logger.error(f"[LLM] Error fetching models: {e}")
     
-    # Fallback - return empty list to force admin to configure properly
+    # Fallback - return empty list
+    logger.warning("[LLM] Could not fetch models from Azure API, returning empty list")
     return []
 
 def get_openai_client() -> AsyncAzureOpenAI:
