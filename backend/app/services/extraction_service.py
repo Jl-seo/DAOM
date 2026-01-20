@@ -731,8 +731,8 @@ IMPORTANT:
                     merged_result, errors = await extract_with_chunking(
                         ocr_data_to_send,
                         model_fields,
-                        max_tokens_per_chunk=4000,
-                        max_concurrent=5
+                        max_tokens_per_chunk=16000,  # Increased from 4000 for fewer LLM calls
+                        max_concurrent=8  # Increased from 5 for better parallelism
                     )
                     
                     if errors:
