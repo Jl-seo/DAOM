@@ -152,6 +152,10 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             return
         }
 
+        // Debug: Log the current data to trace bbox issues
+        devLog('[Highlights] currentData keys:', Object.keys(currentData))
+        devLog('[Highlights] Sample field data:', Object.entries(currentData).slice(0, 2).map(([k, v]) => ({ key: k, hasBbox: !!(v as any)?.bbox, bbox: (v as any)?.bbox, pageNum: (v as any)?.page_number })))
+
         const newHighlights: Highlight[] = []
 
         Object.entries(currentData).forEach(([key, item]: [string, any]) => {
@@ -211,6 +215,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             }
         })
 
+        devLog('[Highlights] Generated:', newHighlights.length, 'highlights')
         setHighlights(newHighlights)
 
     }, [previewData, selectedSubDocIndex])
