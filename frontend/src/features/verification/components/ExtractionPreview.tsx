@@ -198,7 +198,7 @@ function flattenNestedRows(data: any[]): { flattenedData: any[], keyColumn: stri
 // Enhanced Nested Table with Column Resizing
 function ResizableNestedTable({
     data,
-    onUpdate: _onUpdate, // Unused in flattened view, kept for API compatibility
+    onUpdate,
     isExpanded = true,
     onToggleExpand
 }: {
@@ -209,15 +209,17 @@ function ResizableNestedTable({
 }) {
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
     const [resizingColumn, setResizingColumn] = useState<string | null>(null)
+    const [isEditMode, setIsEditMode] = useState(false) // 편집 모드 토글
     const tableRef = useRef<HTMLDivElement>(null)
 
     if (!Array.isArray(data) || data.length === 0) {
         return <span className="text-muted-foreground italic text-xs">빈 배열</span>
     }
 
-    // 중첩 데이터를 풀어내기
+    // 중첩 데이터를 풀어내기 (편집 모드가 아닐 때만)
     const { flattenedData, keyColumn } = flattenNestedRows(data)
-    const displayData = flattenedData
+    const displayData = isEditMode ? data : flattenedData
+    const hasNestedData = keyColumn !== null // 플래터닝이 적용되었는지
 
     // 키 컬럼을 맨 앞에 배치하기 위해 컬럼 순서 조정
     const allKeysRaw = Array.from(new Set(displayData.flatMap(item =>
@@ -304,16 +306,35 @@ function ResizableNestedTable({
 
     return (
         <div ref={tableRef} className="border border-border rounded-lg overflow-hidden">
-            {/* Collapse button */}
-            {onToggleExpand && (
-                <button
-                    onClick={onToggleExpand}
-                    className="w-full flex items-center gap-2 px-3 py-1.5 bg-muted/50 hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-colors border-b border-border"
-                >
-                    <ChevronDown className="w-3 h-3" />
-                    <span>테이블 접기 ({displayData.length}행)</span>
-                </button>
-            )}
+            {/* Header with controls */}
+            <div className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border">
+                <div className="flex items-center gap-2">
+                    {onToggleExpand && (
+                        <button
+                            onClick={onToggleExpand}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <ChevronDown className="w-3 h-3" />
+                            <span>테이블 접기 ({displayData.length}행)</span>
+                        </button>
+                    )}
+                </div>
+                {/* 편집 모드 토글 버튼 (중첩 데이터가 있을 때만 표시) */}
+                {hasNestedData && onUpdate && (
+                    <button
+                        onClick={() => setIsEditMode(!isEditMode)}
+                        className={clsx(
+                            "flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors",
+                            isEditMode
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-muted hover:bg-accent text-muted-foreground hover:text-foreground"
+                        )}
+                    >
+                        <Edit2 className="w-3 h-3" />
+                        <span>{isEditMode ? '보기 모드' : '편집 모드'}</span>
+                    </button>
+                )}
+            </div>
 
             {/* Scrollable table container */}
             <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
@@ -364,9 +385,24 @@ function ResizableNestedTable({
                                             maxWidth: columnWidths[key] || 100
                                         }}
                                     >
-                                        <div className="px-3 py-2 truncate">
-                                            {renderValue(row?.[key])}
-                                        </div>
+                                        {isEditMode && onUpdate ? (
+                                            <input
+                                                type="text"
+                                                className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none px-3 py-2"
+                                                value={renderValue(row?.[key] ?? '')}
+                                                onChange={(e) => {
+                                                    const newData = [...data]
+                                                    if (typeof newData[rowIdx] === 'object') {
+                                                        newData[rowIdx] = { ...newData[rowIdx], [key]: e.target.value }
+                                                    }
+                                                    onUpdate(newData)
+                                                }}
+                                            />
+                                        ) : (
+                                            <div className="px-3 py-2 truncate">
+                                                {renderValue(row?.[key])}
+                                            </div>
+                                        )}
                                     </td>
                                 ))}
                             </tr>
