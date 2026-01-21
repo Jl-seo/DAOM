@@ -1,6 +1,6 @@
-import { Split, FileDiff, CheckCircle2, ChevronRight, AlertCircle, Download, RefreshCw, Loader2 } from 'lucide-react'
+import { Split, FileDiff, CheckCircle2, ChevronRight, AlertCircle, Download, RefreshCw, Loader2, ChevronLeft, Filter, ArrowUpDown, Eye, EyeOff } from 'lucide-react'
 import { clsx } from 'clsx'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -70,10 +70,36 @@ export function ComparisonWorkspace({
     const [selectedDiffId, setSelectedDiffId] = useState<string | number | null>(null)
     const [selectedCandidateIndex, setSelectedCandidateIndex] = useState<number>(0)
 
+    // UI 상태: 목록 접기, 정렬, 필터
+    const [isListCollapsed, setIsListCollapsed] = useState(false)
+    const [sortByDiffs, setSortByDiffs] = useState(false) // true = 차이점 많은 순
+    const [hideNoDiffs, setHideNoDiffs] = useState(false) // true = 차이점 없는 것 숨김
+
     // Reset selection when comparisons change
     useEffect(() => {
         setSelectedCandidateIndex(0)
     }, [comparisons])
+
+    // 정렬/필터된 목록 생성
+    const filteredComparisons = useMemo(() => {
+        if (!comparisons) return []
+
+        let result = comparisons.map((comp, originalIndex) => ({ ...comp, originalIndex }))
+
+        // 차이점 없는 것 필터링
+        if (hideNoDiffs) {
+            result = result.filter(comp => (comp.result?.differences?.length || 0) > 0)
+        }
+
+        // 차이점 순으로 정렬
+        if (sortByDiffs) {
+            result.sort((a, b) =>
+                (b.result?.differences?.length || 0) - (a.result?.differences?.length || 0)
+            )
+        }
+
+        return result
+    }, [comparisons, hideNoDiffs, sortByDiffs])
 
     // Excel Export Handler
     const handleExportExcel = () => {
@@ -184,33 +210,92 @@ export function ComparisonWorkspace({
                 </div>
             )}
 
-            {/* Optional: Candidate List (if multiple) */}
+            {/* Candidate List Panel */}
             {isMultiMode && (comparisons.length > 1) && (
-                <div className="w-[200px] flex flex-col gap-2 border-r pr-2 shrink-0 overflow-y-auto">
-                    <h3 className="text-sm font-bold text-muted-foreground mb-2 px-1">{t('comparison.workspace.candidates_list')}</h3>
-                    {comparisons.map((comp, idx) => (
-                        <div
-                            key={idx}
-                            onClick={() => setSelectedCandidateIndex(idx)}
-                            className={clsx(
-                                "p-2 rounded-lg text-sm cursor-pointer border hover:bg-muted/50 transition-colors flex items-center justify-between",
-                                selectedCandidateIndex === idx
-                                    ? "bg-primary/10 border-primary text-primary font-medium"
-                                    : "bg-card border-border text-foreground"
-                            )}
+                <div className={clsx(
+                    "flex flex-col gap-2 border-r shrink-0 overflow-hidden transition-all duration-200",
+                    isListCollapsed ? "w-10" : "w-[220px] pr-2"
+                )}>
+                    {/* 접기 버튼 */}
+                    <div className="flex items-center justify-between px-1">
+                        {!isListCollapsed && (
+                            <h3 className="text-sm font-bold text-muted-foreground">
+                                {t('comparison.workspace.candidates_list') || '후보 목록'} ({filteredComparisons.length})
+                            </h3>
+                        )}
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setIsListCollapsed(!isListCollapsed)}
+                            className="h-7 w-7 p-0"
+                            title={isListCollapsed ? '목록 펼치기' : '목록 접기'}
                         >
-                            <span className="truncate flex-1" title={getFilenameFromUrl(comp.file_url, idx)}>
-                                {comp.filename || getFilenameFromUrl(comp.file_url, idx)}
-                            </span>
-                            {comp.error ? (
-                                <AlertCircle className="w-4 h-4 text-red-500" />
-                            ) : (
-                                <div className="flex items-center gap-1 text-xs px-1.5 py-0.5 bg-muted rounded">
-                                    {comp.result?.differences?.length || 0} {t('comparison.workspace.diffs') || '차이점'}
+                            {isListCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                        </Button>
+                    </div>
+
+                    {/* 필터/정렬 버튼 (접혀있지 않을 때만) */}
+                    {!isListCollapsed && (
+                        <div className="flex gap-1 px-1">
+                            <Button
+                                variant={sortByDiffs ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setSortByDiffs(!sortByDiffs)}
+                                className="h-6 px-2 text-xs flex-1"
+                                title="차이점 많은 순 정렬"
+                            >
+                                <ArrowUpDown className="w-3 h-3 mr-1" />
+                                정렬
+                            </Button>
+                            <Button
+                                variant={hideNoDiffs ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setHideNoDiffs(!hideNoDiffs)}
+                                className="h-6 px-2 text-xs flex-1"
+                                title="차이점 없는 항목 숨기기"
+                            >
+                                {hideNoDiffs ? <Eye className="w-3 h-3 mr-1" /> : <EyeOff className="w-3 h-3 mr-1" />}
+                                필터
+                            </Button>
+                        </div>
+                    )}
+
+                    {/* 목록 아이템 */}
+                    {!isListCollapsed && (
+                        <div className="flex-1 overflow-y-auto space-y-1 px-1">
+                            {filteredComparisons.map((comp) => (
+                                <div
+                                    key={comp.originalIndex}
+                                    onClick={() => setSelectedCandidateIndex(comp.originalIndex)}
+                                    className={clsx(
+                                        "p-2 rounded-lg text-sm cursor-pointer border hover:bg-muted/50 transition-colors flex items-center justify-between",
+                                        selectedCandidateIndex === comp.originalIndex
+                                            ? "bg-primary/10 border-primary text-primary font-medium"
+                                            : "bg-card border-border text-foreground"
+                                    )}
+                                >
+                                    <span className="truncate flex-1" title={getFilenameFromUrl(candidateFileUrls?.[comp.originalIndex] || comp.file_url, comp.originalIndex)}>
+                                        {comp.filename || getFilenameFromUrl(candidateFileUrls?.[comp.originalIndex] || comp.file_url, comp.originalIndex)}
+                                    </span>
+                                    {comp.error ? (
+                                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                                    ) : (
+                                        <div className={clsx(
+                                            "flex items-center gap-1 text-xs px-1.5 py-0.5 rounded shrink-0",
+                                            (comp.result?.differences?.length || 0) > 0 ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"
+                                        )}>
+                                            {comp.result?.differences?.length || 0}
+                                        </div>
+                                    )}
                                 </div>
+                            ))}
+                            {filteredComparisons.length === 0 && (
+                                <p className="text-xs text-muted-foreground text-center py-4">
+                                    필터 조건에 맞는 항목이 없습니다
+                                </p>
                             )}
                         </div>
-                    ))}
+                    )}
                 </div>
             )}
 
