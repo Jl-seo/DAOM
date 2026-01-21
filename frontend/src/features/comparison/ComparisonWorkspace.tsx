@@ -1,4 +1,4 @@
-import { Split, FileDiff, CheckCircle2, ChevronRight, AlertCircle, Download, RefreshCw } from 'lucide-react'
+import { Split, FileDiff, CheckCircle2, ChevronRight, AlertCircle, Download, RefreshCw, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -34,6 +34,7 @@ interface ComparisonWorkspaceProps {
     comparisonResult: ComparisonResult | null // Legacy single result
     comparisons?: ComparisonData[] // Multi results
     onRetry?: () => void // Retry callback
+    isRefining?: boolean // 재시도 중 로딩 상태
 }
 
 export function ComparisonWorkspace({
@@ -42,7 +43,8 @@ export function ComparisonWorkspace({
     candidateFileUrls,
     comparisonResult,
     comparisons,
-    onRetry
+    onRetry,
+    isRefining = false
 }: ComparisonWorkspaceProps) {
     const { t } = useTranslation()
     const [selectedDiffId, setSelectedDiffId] = useState<string | number | null>(null)
@@ -150,7 +152,17 @@ export function ComparisonWorkspace({
     const [expandedImage, setExpandedImage] = useState<string | null>(null)
 
     return (
-        <div className="flex h-full gap-6 p-6">
+        <div className="flex h-full gap-6 p-6 relative">
+            {/* 재시도 중 로딩 오버레이 */}
+            {isRefining && (
+                <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3 text-center">
+                        <Loader2 className="w-10 h-10 animate-spin text-primary" />
+                        <p className="text-lg font-medium">{t('common.messages.refining') || '재추출 중...'}</p>
+                        <p className="text-sm text-muted-foreground">새로운 비교 결과가 곧 표시됩니다</p>
+                    </div>
+                </div>
+            )}
 
             {/* Optional: Candidate List (if multiple) */}
             {isMultiMode && (comparisons.length > 1) && (

@@ -457,9 +457,10 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         },
         onSuccess: (data) => {
             setCurrentJobId(data.job_id)
-            setFileUrl(data.file_url)
+            if (data.file_url) setFileUrl(data.file_url)
             setStatus(EXTRACTION_STATUS.REFINING)
-            setActiveStep('upload')  // Shows the loading/processing view
+            // 화면 전환 제거: 재시도 중에도 현재 결과를 보여주면서 로딩 상태만 표시
+            // setActiveStep('upload') 
             startPolling(data.job_id)
             toast.info('재추출을 시작합니다...')
         },

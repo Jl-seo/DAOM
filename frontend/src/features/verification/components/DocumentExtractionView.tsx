@@ -5,6 +5,7 @@ import { modelsApi } from '@/lib/api'
 
 // Context & Types
 import { ExtractionProvider, useExtraction } from '../context/ExtractionContext'
+import { EXTRACTION_STATUS } from '../constants/status'
 
 // Components
 import { ExtractionWizardHeader } from './ExtractionWizardHeader'
@@ -128,6 +129,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                             comparisonResult={previewData?.comparison_result || null}
                             comparisons={previewData?.comparisons || []}
                             onRetry={handleRetry}
+                            isRefining={status === EXTRACTION_STATUS.REFINING}
                         />
                     ) : (
                         <ExtractionReviewView
