@@ -458,6 +458,10 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         onSuccess: (data) => {
             setCurrentJobId(data.job_id)
             if (data.file_url) setFileUrl(data.file_url)
+            // 재시도 시 후보 파일 URL 유지 (백엔드에서 반환하면 업데이트)
+            if (data.candidate_file_urls) {
+                setCandidateFileUrls(data.candidate_file_urls)
+            }
             setStatus(EXTRACTION_STATUS.REFINING)
 
             // 비교 모델은 현재 화면 유지 (로딩 오버레이 표시)
