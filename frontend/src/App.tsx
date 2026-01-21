@@ -167,7 +167,7 @@ function App() {
         />
       </div>
 
-      <div className="flex-1 flex flex-col overflow-hidden relative">
+      <div className="flex-1 flex flex-col overflow-auto relative">
         <Suspense fallback={<PageLoader />}>
           {renderContent()}
         </Suspense>

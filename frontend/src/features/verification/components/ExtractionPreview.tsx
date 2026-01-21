@@ -72,6 +72,128 @@ function renderValue(value: any): string {
     return String(unwrapped)
 }
 
+/**
+ * 중첩 객체 데이터를 행으로 풀어내는 함수
+ * 가장 깊은 레벨의 공통 키를 기반으로 행을 분리합니다.
+ * 
+ * 예시 입력:
+ * [{ POD: "USCHS", "Approved Rate (USD)": { "20'DV": "1440", "40'DV": "1800" }, "Approved ADF (USD)": { "20'DV": "360", "40'DV": "450" } }]
+ * 
+ * 예시 출력:
+ * [
+ *   { POD: "USCHS", "_container_type": "20'DV", "Approved Rate (USD)": "1440", "Approved ADF (USD)": "360" },
+ *   { POD: "USCHS", "_container_type": "40'DV", "Approved Rate (USD)": "1800", "Approved ADF (USD)": "450" }
+ * ]
+ */
+function flattenNestedRows(data: any[]): { flattenedData: any[], keyColumn: string | null } {
+    if (!Array.isArray(data) || data.length === 0) {
+        return { flattenedData: data, keyColumn: null }
+    }
+
+    // 1. 모든 행에서 중첩 객체 컬럼과 그 키를 분석
+    const nestedColumns: Record<string, Set<string>> = {}
+    const simpleColumns: Set<string> = new Set()
+
+    data.forEach(row => {
+        if (typeof row !== 'object' || row === null) return
+        Object.entries(row).forEach(([key, rawValue]) => {
+            // Skip metadata columns
+            if (key === 'bbox' || key === 'confidence' || key === 'page_number') {
+                simpleColumns.add(key)
+                return
+            }
+
+            // 먼저 래핑된 값을 언래핑 (예: { value: {...}, confidence: 0.9 } → {...})
+            const value = extractValue(rawValue)
+
+            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                // 중첩 객체 발견 (예: { "20'DV": "1440", "40'DV": "1800" })
+                const subKeys = Object.keys(value)
+                if (subKeys.length > 0) {
+                    if (!nestedColumns[key]) {
+                        nestedColumns[key] = new Set()
+                    }
+                    subKeys.forEach(sk => nestedColumns[key].add(sk))
+                }
+            } else {
+                simpleColumns.add(key)
+            }
+        })
+    })
+
+    const nestedColumnKeys = Object.keys(nestedColumns)
+
+    // 중첩 컬럼이 없으면 원본 반환
+    if (nestedColumnKeys.length === 0) {
+        return { flattenedData: data, keyColumn: null }
+    }
+
+    // 2. 모든 중첩 컬럼에서 공통된 서브키 찾기 (예: "20'DV", "40'DV", "40'HC")
+    const allSubKeys: Set<string> = new Set()
+    Object.values(nestedColumns).forEach(subKeySet => {
+        subKeySet.forEach(sk => allSubKeys.add(sk))
+    })
+
+    const subKeysArray = Array.from(allSubKeys)
+    if (subKeysArray.length === 0) {
+        return { flattenedData: data, keyColumn: null }
+    }
+
+    // 3. 각 행을 서브키 기준으로 풀어내기
+    const flattenedData: any[] = []
+    const keyColumnName = '_container_type' // 키 컬럼 이름
+
+    data.forEach(row => {
+        if (typeof row !== 'object' || row === null) {
+            flattenedData.push(row)
+            return
+        }
+
+        // 이 행에 해당하는 서브키 수집
+        const rowSubKeys: Set<string> = new Set()
+        nestedColumnKeys.forEach(colKey => {
+            const rawNested = row[colKey]
+            const nested = extractValue(rawNested) // 언래핑
+            if (typeof nested === 'object' && nested !== null && !Array.isArray(nested)) {
+                Object.keys(nested).forEach(sk => rowSubKeys.add(sk))
+            }
+        })
+
+        if (rowSubKeys.size === 0) {
+            // 서브키가 없으면 원본 행 유지
+            flattenedData.push(row)
+            return
+        }
+
+        // 각 서브키에 대해 새 행 생성
+        rowSubKeys.forEach(subKey => {
+            const newRow: Record<string, any> = { [keyColumnName]: subKey }
+
+            // 단순 컬럼 복사 (언래핑해서 값만 복사)
+            simpleColumns.forEach(col => {
+                if (col in row) {
+                    newRow[col] = extractValue(row[col])
+                }
+            })
+
+            // 중첩 컬럼에서 해당 서브키 값 추출
+            nestedColumnKeys.forEach(colKey => {
+                const rawNested = row[colKey]
+                const nested = extractValue(rawNested) // 언래핑
+                if (typeof nested === 'object' && nested !== null && !Array.isArray(nested)) {
+                    newRow[colKey] = nested[subKey] ?? ''
+                } else {
+                    newRow[colKey] = nested
+                }
+            })
+
+            flattenedData.push(newRow)
+        })
+    })
+
+    return { flattenedData, keyColumn: keyColumnName }
+}
+
 // Enhanced Nested Table with Column Resizing
 function ResizableNestedTable({
     data,
@@ -92,9 +214,24 @@ function ResizableNestedTable({
         return <span className="text-muted-foreground italic text-xs">빈 배열</span>
     }
 
-    const allKeys = Array.from(new Set(data.flatMap(item =>
+    // 중첩 데이터를 풀어내기
+    const { flattenedData, keyColumn } = flattenNestedRows(data)
+    const displayData = flattenedData
+
+    // 키 컬럼을 맨 앞에 배치하기 위해 컬럼 순서 조정
+    const allKeysRaw = Array.from(new Set(displayData.flatMap(item =>
         typeof item === 'object' && item !== null ? Object.keys(item) : []
     )))
+
+    // bbox, confidence, page_number 제외 및 키 컬럼 맨 앞에 배치
+    const hiddenColumns = ['bbox', 'confidence', 'page_number']
+    const allKeys = allKeysRaw
+        .filter(k => !hiddenColumns.includes(k))
+        .sort((a, b) => {
+            if (a === keyColumn) return -1
+            if (b === keyColumn) return 1
+            return 0
+        })
 
     // Initialize column widths - only runs once when data changes and widths are empty
     useEffect(() => {
@@ -158,7 +295,7 @@ function ResizableNestedTable({
                 className="flex items-center gap-2 px-3 py-2 bg-muted/50 hover:bg-muted rounded-lg text-sm text-muted-foreground hover:text-foreground transition-colors w-full text-left"
             >
                 <ChevronRight className="w-4 h-4" />
-                <span className="font-medium">테이블 ({data.length}행 × {allKeys.length}열)</span>
+                <span className="font-medium">테이블 ({displayData.length}행 × {allKeys.length}열)</span>
                 <span className="text-xs">클릭하여 펼치기</span>
             </button>
         )
@@ -173,7 +310,7 @@ function ResizableNestedTable({
                     className="w-full flex items-center gap-2 px-3 py-1.5 bg-muted/50 hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-colors border-b border-border"
                 >
                     <ChevronDown className="w-3 h-3" />
-                    <span>테이블 접기 ({data.length}행)</span>
+                    <span>테이블 접기 ({displayData.length}행)</span>
                 </button>
             )}
 
@@ -192,7 +329,9 @@ function ResizableNestedTable({
                                         maxWidth: columnWidths[key] || 100
                                     }}
                                 >
-                                    <div className="px-3 py-2 truncate">{key}</div>
+                                    <div className="px-3 py-2 truncate">
+                                        {key === '_container_type' ? '컨테이너' : key}
+                                    </div>
                                     {/* Resize handle */}
                                     {idx < allKeys.length - 1 && (
                                         <div
@@ -209,36 +348,24 @@ function ResizableNestedTable({
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
-                        {data.map((row, rowIdx) => (
+                        {displayData.map((row, rowIdx) => (
                             <tr key={rowIdx} className="hover:bg-accent/50">
                                 {allKeys.map(key => (
                                     <td
                                         key={key}
-                                        className="text-muted-foreground"
+                                        className={clsx(
+                                            "text-muted-foreground",
+                                            key === keyColumn && "bg-muted/50 font-medium"
+                                        )}
                                         style={{
                                             width: columnWidths[key] || 100,
                                             minWidth: 60,
                                             maxWidth: columnWidths[key] || 100
                                         }}
                                     >
-                                        {onUpdate ? (
-                                            <input
-                                                type="text"
-                                                className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none px-3 py-2"
-                                                value={renderValue(row?.[key] ?? '')}
-                                                onChange={(e) => {
-                                                    const newData = [...data]
-                                                    if (typeof newData[rowIdx] === 'object') {
-                                                        newData[rowIdx] = { ...newData[rowIdx], [key]: e.target.value }
-                                                    }
-                                                    onUpdate(newData)
-                                                }}
-                                            />
-                                        ) : (
-                                            <div className="px-3 py-2 truncate">
-                                                {renderValue(row?.[key])}
-                                            </div>
-                                        )}
+                                        <div className="px-3 py-2 truncate">
+                                            {renderValue(row?.[key])}
+                                        </div>
                                     </td>
                                 ))}
                             </tr>
