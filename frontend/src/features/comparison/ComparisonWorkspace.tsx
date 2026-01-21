@@ -24,7 +24,27 @@ interface ComparisonData {
     candidate_index: number
     result: ComparisonResult
     file_url?: string
+    filename?: string // 파일명 (optional)
     error?: string
+}
+
+// 파일 URL에서 파일명 추출 헬퍼 함수
+function getFilenameFromUrl(url?: string, fallbackIndex?: number): string {
+    if (!url) return `파일 ${(fallbackIndex || 0) + 1}`
+    try {
+        const urlObj = new URL(url)
+        const pathname = urlObj.pathname
+        const filename = pathname.split('/').pop() || ''
+        // URL 디코딩하고 확장자 제거
+        const decoded = decodeURIComponent(filename)
+        // 너무 길면 자르기
+        if (decoded.length > 30) {
+            return decoded.slice(0, 27) + '...'
+        }
+        return decoded || `파일 ${(fallbackIndex || 0) + 1}`
+    } catch {
+        return `파일 ${(fallbackIndex || 0) + 1}`
+    }
 }
 
 interface ComparisonWorkspaceProps {
@@ -179,12 +199,14 @@ export function ComparisonWorkspace({
                                     : "bg-card border-border text-foreground"
                             )}
                         >
-                            <span className="truncate flex-1">File {idx + 1}</span>
+                            <span className="truncate flex-1" title={getFilenameFromUrl(comp.file_url, idx)}>
+                                {comp.filename || getFilenameFromUrl(comp.file_url, idx)}
+                            </span>
                             {comp.error ? (
                                 <AlertCircle className="w-4 h-4 text-red-500" />
                             ) : (
                                 <div className="flex items-center gap-1 text-xs px-1.5 py-0.5 bg-muted rounded">
-                                    {comp.result?.differences?.length || 0} diffs
+                                    {comp.result?.differences?.length || 0} {t('comparison.workspace.diffs') || '차이점'}
                                 </div>
                             )}
                         </div>
@@ -209,7 +231,7 @@ export function ComparisonWorkspace({
                                 <span className="text-lg font-bold leading-none mb-0.5">+</span>
                             </Button>
                             <Button variant="ghost" size="sm" onClick={handleResetZoom} disabled={zoom === 1} className="h-6 px-2 text-[10px] hover:bg-background">
-                                Reset
+                                {t('common.actions.reset') || '초기화'}
                             </Button>
                         </div>
                         <div className="text-xs text-muted-foreground">
@@ -239,8 +261,8 @@ export function ComparisonWorkspace({
 
                     {/* Candidate Image */}
                     <div className="flex-1 flex flex-col gap-2 relative">
-                        <div className="text-xs font-bold text-center bg-card py-1 rounded-t-lg border-b">
-                            {t('comparison.workspace.candidate')} {isMultiMode ? selectedCandidateIndex + 1 : ''}
+                        <div className="text-xs font-bold text-center bg-card py-1 rounded-t-lg border-b truncate px-2" title={isMultiMode ? getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex) : ''}>
+                            {t('comparison.workspace.candidate')}: {isMultiMode ? (comparisons?.[selectedCandidateIndex]?.filename || getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex)) : t('comparison.workspace.single_file') || '단일 파일'}
                         </div>
                         <div className="relative flex-1 bg-white rounded-lg border overflow-auto">
                             {currentCandidateUrl ? (
