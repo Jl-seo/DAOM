@@ -169,9 +169,10 @@ function flattenNestedRows(data: any[]): { flattenedData: any[], keyColumn: stri
         rowSubKeys.forEach(subKey => {
             const newRow: Record<string, any> = { [keyColumnName]: subKey }
 
-            // 단순 컬럼 복사 (언래핑해서 값만 복사)
+            // 단순 컬럼 복사 (언래핑해서 값만 복사, 메타데이터 제외)
+            const metadataColumns = ['bbox', 'confidence', 'page_number']
             simpleColumns.forEach(col => {
-                if (col in row) {
+                if (col in row && !metadataColumns.includes(col)) {
                     newRow[col] = extractValue(row[col])
                 }
             })
@@ -197,7 +198,7 @@ function flattenNestedRows(data: any[]): { flattenedData: any[], keyColumn: stri
 // Enhanced Nested Table with Column Resizing
 function ResizableNestedTable({
     data,
-    onUpdate,
+    onUpdate: _onUpdate, // Unused in flattened view, kept for API compatibility
     isExpanded = true,
     onToggleExpand
 }: {
