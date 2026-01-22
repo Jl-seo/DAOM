@@ -17,35 +17,37 @@ export function ExtractionHistoryView({
     onSelectHistory
 }: ExtractionHistoryViewProps) {
     return (
-        <div className="flex-1 flex flex-col bg-muted/30 h-full overflow-hidden">
-            <div className="p-8 pb-4">
-                <div className="flex justify-between items-end mb-6">
+        <div className="flex-1 flex flex-col bg-muted/30 min-h-0 overflow-auto">
+            {/* 헤더 - 모바일에서 축소 */}
+            <div className="p-4 md:p-8 pb-2 md:pb-4 shrink-0">
+                <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-4 mb-4 md:mb-6">
                     <div>
-                        <h1 className="text-3xl font-bold flex items-center gap-3">
+                        <h1 className="text-xl md:text-3xl font-bold flex items-center gap-2 md:gap-3 flex-wrap">
                             {model.name}
-                            <Badge variant="outline" className="text-base font-normal px-3 py-1">
+                            <Badge variant="outline" className="text-sm md:text-base font-normal px-2 md:px-3 py-0.5 md:py-1">
                                 {model.fields?.length || 0}개 필드
                             </Badge>
                         </h1>
-                        <p className="text-muted-foreground mt-2 text-lg">{model.description}</p>
+                        <p className="text-muted-foreground mt-1 md:mt-2 text-sm md:text-lg line-clamp-2">{model.description}</p>
                     </div>
                     <Button
-                        size="lg"
+                        size="default"
                         onClick={onNewExtraction}
-                        className="text-base px-8 h-12 shadow-lg shadow-primary/20 transition-transform hover:scale-105"
+                        className="text-sm md:text-base px-4 md:px-8 h-10 md:h-12 shadow-lg shadow-primary/20 transition-transform hover:scale-105 w-full md:w-auto shrink-0"
                     >
-                        <Upload className="w-5 h-5 mr-2" /> 새 문서 추출하기
+                        <Upload className="w-4 h-4 md:w-5 md:h-5 mr-2" /> 새 문서 추출하기
                     </Button>
                 </div>
             </div>
 
-            <div className="flex-1 px-8 pb-8 overflow-hidden">
-                <Card className="h-full flex flex-col shadow-sm border-muted-foreground/20">
-                    <div className="p-4 border-b bg-muted/5 flex items-center gap-2">
-                        <History className="w-5 h-5 text-muted-foreground" />
-                        <span className="font-semibold text-lg">최근 추출 기록</span>
+            {/* 테이블 컨테이너 */}
+            <div className="flex-1 px-4 md:px-8 pb-4 md:pb-8 min-h-0">
+                <Card className="h-full flex flex-col shadow-sm border-muted-foreground/20 min-h-[300px]">
+                    <div className="p-3 md:p-4 border-b bg-muted/5 flex items-center gap-2 shrink-0">
+                        <History className="w-4 h-4 md:w-5 md:h-5 text-muted-foreground" />
+                        <span className="font-semibold text-base md:text-lg">최근 추출 기록</span>
                     </div>
-                    <div className="flex-1 overflow-hidden">
+                    <div className="flex-1 overflow-auto min-h-0">
                         <ExtractionHistory
                             modelId={model.id}
                             embedded={true}
