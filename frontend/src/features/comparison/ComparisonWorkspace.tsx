@@ -1,4 +1,4 @@
-import { Split, FileDiff, CheckCircle2, ChevronRight, AlertCircle, Download, RefreshCw, Loader2, ChevronLeft, Filter, ArrowUpDown, Eye, EyeOff } from 'lucide-react'
+import { Split, FileDiff, CheckCircle2, ChevronRight, AlertCircle, Download, RefreshCw, Loader2, ChevronLeft, ArrowUpDown, Eye, EyeOff } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -74,6 +74,9 @@ export function ComparisonWorkspace({
     const [isListCollapsed, setIsListCollapsed] = useState(false)
     const [sortByDiffs, setSortByDiffs] = useState(false) // true = 차이점 많은 순
     const [hideNoDiffs, setHideNoDiffs] = useState(false) // true = 차이점 없는 것 숨김
+
+    // 모바일 탭 상태: 'images' | 'results'
+    const [mobileTab, setMobileTab] = useState<'images' | 'results'>('images')
 
     // Reset selection when comparisons change
     useEffect(() => {
@@ -210,6 +213,28 @@ export function ComparisonWorkspace({
                 </div>
             )}
 
+            {/* 모바일 탭 네비게이션 */}
+            <div className="md:hidden flex gap-2 shrink-0 mb-2">
+                <Button
+                    variant={mobileTab === 'images' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setMobileTab('images')}
+                    className="flex-1"
+                >
+                    <Split className="w-4 h-4 mr-1" />
+                    이미지 비교
+                </Button>
+                <Button
+                    variant={mobileTab === 'results' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setMobileTab('results')}
+                    className="flex-1"
+                >
+                    <FileDiff className="w-4 h-4 mr-1" />
+                    분석 결과 ({currentComparison?.differences?.length || 0})
+                </Button>
+            </div>
+
             {/* Candidate List Panel */}
             {isMultiMode && (comparisons.length > 1) && (
                 <div className={clsx(
@@ -299,90 +324,101 @@ export function ComparisonWorkspace({
                 </div>
             )}
 
-            {/* Left: Image Comparison View */}
-            <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-                <div className="flex items-center justify-between shrink-0 px-2">
-                    <h3 className="text-lg font-bold flex items-center gap-2">
-                        <Split className="w-5 h-5 text-primary" />
-                        {t('comparison.title.workspace')} ({isMultiMode ? t('comparison.workspace.subtitle_multi', { index: selectedCandidateIndex + 1 }) : t('comparison.workspace.subtitle_single')})
-                    </h3>
-                    <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1 bg-muted rounded-md p-1 mr-4">
-                            <Button variant="ghost" size="sm" onClick={handleZoomOut} disabled={zoom <= 1} className="h-6 w-6 p-0 hover:bg-background">
-                                <span className="text-lg font-bold leading-none mb-0.5">-</span>
-                            </Button>
-                            <span className="text-xs font-mono w-10 text-center">{Math.round(zoom * 100)}%</span>
-                            <Button variant="ghost" size="sm" onClick={handleZoomIn} disabled={zoom >= 5} className="h-6 w-6 p-0 hover:bg-background">
-                                <span className="text-lg font-bold leading-none mb-0.5">+</span>
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={handleResetZoom} disabled={zoom === 1} className="h-6 px-2 text-[10px] hover:bg-background">
-                                {t('common.actions.reset') || '초기화'}
-                            </Button>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                            {t('comparison.workspace.diffs_count', { count: currentComparison?.differences?.length || 0 })}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="flex-1 flex gap-2 overflow-hidden bg-muted/30 rounded-xl p-2">
-                    {/* Baseline Image */}
-                    <div className="flex-1 flex flex-col gap-2 relative">
-                        <div className="text-xs font-bold text-center bg-card py-1 rounded-t-lg border-b">
-                            {t('comparison.workspace.baseline')}
-                        </div>
-                        <div className="relative flex-1 bg-white rounded-lg border overflow-auto">
-                            <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: '100%', height: '100%' }}>
-                                <img
-                                    ref={baselineImgRef}
-                                    src={fileUrl}
-                                    alt="Baseline"
-                                    className="w-full h-full object-contain cursor-zoom-in"
-                                    onClick={() => setExpandedImage(fileUrl)}
-                                />
+            {/* Main Content - Desktop: side by side, Mobile: tab-based */}
+            <div className="flex-1 flex flex-col md:flex-row gap-4 overflow-hidden">
+                {/* Left: Image Comparison View - Desktop always, Mobile only when tab is 'images' */}
+                <div className={clsx(
+                    "flex flex-col gap-4 overflow-hidden",
+                    "md:flex-1",
+                    mobileTab === 'images' ? "flex-1" : "hidden md:flex"
+                )}>
+                    <div className="flex items-center justify-between shrink-0 px-2">
+                        <h3 className="text-lg font-bold flex items-center gap-2">
+                            <Split className="w-5 h-5 text-primary" />
+                            {t('comparison.title.workspace')} ({isMultiMode ? t('comparison.workspace.subtitle_multi', { index: selectedCandidateIndex + 1 }) : t('comparison.workspace.subtitle_single')})
+                        </h3>
+                        <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1 bg-muted rounded-md p-1 mr-4">
+                                <Button variant="ghost" size="sm" onClick={handleZoomOut} disabled={zoom <= 1} className="h-6 w-6 p-0 hover:bg-background">
+                                    <span className="text-lg font-bold leading-none mb-0.5">-</span>
+                                </Button>
+                                <span className="text-xs font-mono w-10 text-center">{Math.round(zoom * 100)}%</span>
+                                <Button variant="ghost" size="sm" onClick={handleZoomIn} disabled={zoom >= 5} className="h-6 w-6 p-0 hover:bg-background">
+                                    <span className="text-lg font-bold leading-none mb-0.5">+</span>
+                                </Button>
+                                <Button variant="ghost" size="sm" onClick={handleResetZoom} disabled={zoom === 1} className="h-6 px-2 text-[10px] hover:bg-background">
+                                    {t('common.actions.reset') || '초기화'}
+                                </Button>
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                                {t('comparison.workspace.diffs_count', { count: currentComparison?.differences?.length || 0 })}
                             </div>
                         </div>
                     </div>
 
-                    {/* Candidate Image */}
-                    <div className="flex-1 flex flex-col gap-2 relative">
-                        <div className="text-xs font-bold text-center bg-card py-1 rounded-t-lg border-b truncate px-2" title={isMultiMode ? getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex) : ''}>
-                            {t('comparison.workspace.candidate')}: {isMultiMode ? (comparisons?.[selectedCandidateIndex]?.filename || getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex)) : t('comparison.workspace.single_file') || '단일 파일'}
-                        </div>
-                        <div className="relative flex-1 bg-white rounded-lg border overflow-auto">
-                            {currentCandidateUrl ? (
+                    <div className="flex-1 flex gap-2 overflow-hidden bg-muted/30 rounded-xl p-2">
+                        {/* Baseline Image */}
+                        <div className="flex-1 flex flex-col gap-2 relative">
+                            <div className="text-xs font-bold text-center bg-card py-1 rounded-t-lg border-b">
+                                {t('comparison.workspace.baseline')}
+                            </div>
+                            <div className="relative flex-1 bg-white rounded-lg border overflow-auto">
                                 <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: '100%', height: '100%' }}>
                                     <img
-                                        ref={candidateImgRef}
-                                        src={currentCandidateUrl}
-                                        alt="Candidate"
+                                        ref={baselineImgRef}
+                                        src={fileUrl}
+                                        alt="Baseline"
                                         className="w-full h-full object-contain cursor-zoom-in"
-                                        onClick={() => setExpandedImage(currentCandidateUrl)}
+                                        onClick={() => setExpandedImage(fileUrl)}
                                     />
                                 </div>
-                            ) : (
-                                <div className="flex items-center justify-center h-full text-muted-foreground">
-                                    No Image
-                                </div>
-                            )}
+                            </div>
+                        </div>
 
-                            {/* Error Overlay */}
-                            {currentError && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white p-4 text-center">
-                                    <div>
-                                        <AlertCircle className="w-10 h-10 mx-auto mb-2 text-red-400" />
-                                        <p>{t('comparison.workspace.error')}</p>
-                                        <p className="text-sm opacity-80">{currentError}</p>
+                        {/* Candidate Image */}
+                        <div className="flex-1 flex flex-col gap-2 relative">
+                            <div className="text-xs font-bold text-center bg-card py-1 rounded-t-lg border-b truncate px-2" title={isMultiMode ? getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex) : ''}>
+                                {t('comparison.workspace.candidate')}: {isMultiMode ? (comparisons?.[selectedCandidateIndex]?.filename || getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex)) : t('comparison.workspace.single_file') || '단일 파일'}
+                            </div>
+                            <div className="relative flex-1 bg-white rounded-lg border overflow-auto">
+                                {currentCandidateUrl ? (
+                                    <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: '100%', height: '100%' }}>
+                                        <img
+                                            ref={candidateImgRef}
+                                            src={currentCandidateUrl}
+                                            alt="Candidate"
+                                            className="w-full h-full object-contain cursor-zoom-in"
+                                            onClick={() => setExpandedImage(currentCandidateUrl)}
+                                        />
                                     </div>
-                                </div>
-                            )}
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-muted-foreground">
+                                        No Image
+                                    </div>
+                                )}
+
+                                {/* Error Overlay */}
+                                {currentError && (
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white p-4 text-center">
+                                        <div>
+                                            <AlertCircle className="w-10 h-10 mx-auto mb-2 text-red-400" />
+                                            <p>{t('comparison.workspace.error')}</p>
+                                            <p className="text-sm opacity-80">{currentError}</p>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Right: Difference List */}
-            <div className="w-[400px] flex flex-col gap-4 overflow-hidden shrink-0 border-l pl-4">
+            {/* Right: Difference List - Desktop always, Mobile only when tab is 'results' */}
+            <div className={clsx(
+                "flex flex-col gap-4 overflow-hidden",
+                "md:w-[400px] md:shrink-0 md:border-l md:pl-4",
+                mobileTab === 'results' ? "flex-1" : "hidden md:flex"
+            )}>
                 <div className="flex items-center justify-between shrink-0">
                     <h3 className="text-lg font-bold flex items-center gap-2">
                         <FileDiff className="w-5 h-5" />
