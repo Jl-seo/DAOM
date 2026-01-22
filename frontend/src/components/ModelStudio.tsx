@@ -288,16 +288,41 @@ export function ModelStudio() {
 
                                 {/* Advanced Settings */}
                                 <Card icon={Sliders} title="고급 설정">
+                                    <div className="mb-2 flex flex-wrap gap-2">
+                                        {[
+                                            "폰트 크기 및 스타일 차이 무시",
+                                            "단순 텍스트 내용만 엄격하게 비교",
+                                            "레이아웃 위치 변경은 허용",
+                                            "이미지나 아이콘은 비교 제외",
+                                            "로고 유무 필수 확인"
+                                        ].map((rule) => (
+                                            <button
+                                                key={rule}
+                                                onClick={() => {
+                                                    const current = editingModel.global_rules || ""
+                                                    const newValue = current ? `${current}\n- ${rule}` : `- ${rule}`
+                                                    setEditingModel({ ...editingModel, global_rules: newValue })
+                                                }}
+                                                className="text-[10px] px-2 py-1 bg-primary/5 hover:bg-primary/10 text-primary border border-primary/20 rounded-full transition-colors"
+                                            >
+                                                + {rule}
+                                            </button>
+                                        ))}
+                                    </div>
                                     <textarea
                                         value={editingModel.global_rules}
                                         onChange={(e) => setEditingModel({ ...editingModel, global_rules: e.target.value })}
                                         disabled={!isEditing}
-                                        placeholder="전역 보정 규칙을 입력하세요..."
+                                        placeholder="전역 보정 규칙 또는 이미지 비교 규칙을 입력하세요... (예: '폰트 크기 차이 무시', '로고 유무 확인')"
                                         className={clsx(
                                             "w-full h-32 px-4 py-3 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary transition-all resize-none bg-background",
                                             !isEditing && "bg-muted cursor-not-allowed"
                                         )}
                                     />
+                                    <p className="mt-1 text-[10px] text-muted-foreground flex justify-between">
+                                        <span>추출 시에는 보정 규칙으로, 비교 시에는 차이점 판별 기준으로 사용됩니다.</span>
+                                        <span className="text-primary cursor-pointer hover:underline" onClick={() => setEditingModel({ ...editingModel, global_rules: "" })}>초기화</span>
+                                    </p>
                                     <div className="mt-4">
                                         <label className="block text-xs font-medium text-muted-foreground mb-2">
                                             🔗 Webhook URL (추출 완료 시 POST 전송)

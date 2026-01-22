@@ -305,27 +305,50 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
     finally:
         await client.close()
 
-async def compare_images(image_url_1: str, image_url_2: str) -> dict:
+async def compare_images(image_url_1: str, image_url_2: str, custom_instructions: Optional[str] = None) -> dict:
     """
     Compare two images using the globally configured LLM (e.g. GPT-4.1).
     Expects data uris or public urls.
+    
+    Args:
+        custom_instructions: Optional specific rules for comparison (e.g. "Ignore font size changes", "Focus on red text")
     """
     client = get_openai_client()
     
     # Use configured global model (Admin controlled)
     model = _current_model
     
-    system_prompt = """
+    # Inject Custom Rules if provided
+    custom_rules_text = ""
+    if custom_instructions:
+        custom_rules_text = f"\n\n**USER DEFINED COMPARISON RULES (MUST FOLLOW):**\n{custom_instructions}\n"
+    
+    system_prompt = f"""
     You are an expert QA and Visual Inspection AI.
     Compare the two provided images (Baseline vs Candidate) and identify semantic and visual differences.
-    
+
+    **Chain-of-Thought Process (Internal Monologue):**
+    1.  **Analyze Layout**: First, look at the overall structure (header, body, footer) of both images. note any shifts or resizing.
+    2.  **Scan for Content**: Read the text in both images. Identify changed numbers, typo fixes, or modified sentences.
+    3.  **Check Elements**: Look for missing or added UI elements (buttons, icons, lines).
+    4.  **Filter Noise**: Ignore minor pixel-level anti-aliasing differences, JPEG compression artifacts, or slight font rendering weight changes unless they affect legibility.
+    5.  **Apply Custom Rules**: Strictly apply the user-defined comparison rules if provided below.
+    6.  **Validation**: If a difference is too subtle or ambiguous, discard it. Do NOT hallucinate differences.
+    7.  **Formulate Output**: Create the JSON output for each valid difference.
+
+    {custom_rules_text}
+
     Return a JSON object with a key "differences" containing a list of objects.
     Each difference object must have:
     - "id": unique integer (1, 2, 3...)
-    - "description": concise text describing the change in **KOREAN** (한국어로 설명).
+    - "description": concise text describing the change in **KOREAN** (한국어로 설명). Example: "헤더의 'Invoice' 텍스트가 'Tax Invoice'로 변경됨" or "우측 상단에 '결재' 버튼이 추가됨".
     - "category": one of ["content", "layout", "style", "missing_element", "added_element"]
-    - "location_1": bounding box in Baseline image as [y_min, x_min, y_max, x_max]
-    - "location_2": bounding box in Candidate image as [y_min, x_min, y_max, x_max]
+    - "confidence": float between 0.0 and 1.0.
+      - **1.0**: Absolutely certain (text changed, element added/removed).
+      - **0.5 - 0.7**: Likely a difference but could be rendering artifact.
+      - **< 0.5**: Do not report unless critical.
+    - "location_1": bounding box in Baseline image as [y_min, x_min, y_max, x_max] (0-1000 scale). Null if added_element.
+    - "location_2": bounding box in Candidate image as [y_min, x_min, y_max, x_max] (0-1000 scale). Null if missing_element.
     - "page_number": integer (1-based), default to 1.
     
     **CRITICAL BOUNDING BOX FORMAT:**
@@ -336,16 +359,10 @@ async def compare_images(image_url_1: str, image_url_2: str) -> dict:
       - y_max: distance from TOP edge (must be > y_min)
       - x_max: distance from LEFT edge (must be > x_min)
     
-    **EXAMPLE:**
-    If a button is located in the center of the image:
-    - y_min ≈ 400, x_min ≈ 400, y_max ≈ 600, x_max ≈ 600
-    If text is at the top-left corner:
-    - y_min ≈ 50, x_min ≈ 50, y_max ≈ 100, x_max ≈ 300
-    
-    Focus on meaningful differences (text changes, missing buttons, layout shifts). Ignore minor rendering noise.
-    Be precise with bounding box coordinates - estimate the exact area where the difference occurs.
-    
-    IMPORTANT: Respond with valid JSON only. Descriptions MUST be in Korean.
+    **IMPORTANT RULES:**
+    1. **NO FORCED FINDING**: If the images are identical or differences are negligible, return an empty "differences" list.
+    2. **IGNORE NOISE**: Do not report differences that are invisible to the naked eye or are just compression artifacts.
+    3. **VALID JSON**: Respond with valid JSON only. Descriptions MUST be in Korean.
     """
     
     user_message_content = [

@@ -18,6 +18,7 @@ interface Difference {
     location_1: number[] | null // [ymin, xmin, ymax, xmax] 0-1000
     location_2: number[] | null
     page_number?: number
+    confidence?: number // 0.0 - 1.0 (신뢰도)
 }
 
 interface ComparisonData {
@@ -113,7 +114,7 @@ export function ComparisonWorkspace({
 
         try {
             // Collect all differences from all candidates
-            const rows: { no: number; candidate: number; page: number | string; category: string; description: string }[] = []
+            const rows: { no: number; candidate: number; page: number | string; category: string; description: string; confidence: string }[] = []
             let rowNum = 1
 
             comparisons.forEach((comp, idx) => {
@@ -124,7 +125,8 @@ export function ComparisonWorkspace({
                             candidate: idx + 1,
                             page: diff.page_number || '-',
                             category: diff.category || 'unknown',
-                            description: diff.description || ''
+                            description: diff.description || '',
+                            confidence: diff.confidence !== undefined ? `${Math.round(diff.confidence * 100)}%` : '-'
                         })
                     })
                 }
@@ -137,7 +139,7 @@ export function ComparisonWorkspace({
 
             // Create worksheet
             const ws = XLSX.utils.json_to_sheet(rows, {
-                header: ['no', 'candidate', 'page', 'category', 'description']
+                header: ['no', 'candidate', 'page', 'category', 'description', 'confidence']
             })
 
             // Set column headers in Korean
@@ -146,6 +148,7 @@ export function ComparisonWorkspace({
             ws['C1'] = { v: '페이지', t: 's' }
             ws['D1'] = { v: '유형', t: 's' }
             ws['E1'] = { v: '차이점 설명', t: 's' }
+            ws['F1'] = { v: '신뢰도', t: 's' }
 
             // Set column widths
             ws['!cols'] = [
@@ -153,7 +156,8 @@ export function ComparisonWorkspace({
                 { wch: 12 },  // candidate
                 { wch: 10 },  // page
                 { wch: 15 },  // category
-                { wch: 60 }   // description
+                { wch: 60 },  // description
+                { wch: 10 }   // confidence
             ]
 
             // Create workbook and export
@@ -479,6 +483,27 @@ export function ComparisonWorkspace({
                                         <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                                             {t('comparison.workspace.page')} {diff.page_number}
                                         </span>
+                                    )}
+                                    {/* 신뢰도 표시 (개선된 UI) */}
+                                    {diff.confidence !== undefined && (
+                                        <div
+                                            className={clsx(
+                                                "flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border shadow-sm",
+                                                diff.confidence >= 0.8 ? "bg-green-50 text-green-700 border-green-200" :
+                                                    diff.confidence >= 0.5 ? "bg-amber-50 text-amber-700 border-amber-200" :
+                                                        "bg-slate-50 text-slate-500 border-slate-200"
+                                            )}
+                                            title={`AI 신뢰도: ${Math.round(diff.confidence * 100)}%`}
+                                        >
+                                            {diff.confidence >= 0.8 ? <CheckCircle2 className="w-3 h-3" /> :
+                                                diff.confidence >= 0.5 ? <AlertCircle className="w-3 h-3" /> :
+                                                    <div className="w-3 h-3 rounded-full bg-slate-300" />}
+                                            <span>
+                                                {diff.confidence >= 0.8 ? '확실함' :
+                                                    diff.confidence >= 0.5 ? '검토 필요' :
+                                                        '낮은 가능성'}
+                                            </span>
+                                        </div>
                                     )}
                                 </div>
                                 <span className="text-xs text-muted-foreground">#{diff.id}</span>

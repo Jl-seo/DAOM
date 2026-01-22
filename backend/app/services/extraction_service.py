@@ -92,10 +92,15 @@ class ExtractionService:
                 # Run Comparison using GPT-4 Vision for EACH candidate
                 # Process in parallel for speed if possible, or sequential for safety
                 # Using simple loop for now to avoid complexity
+                # Prepare custom rules if model exists
+                custom_rules = model.global_rules if model and model.global_rules else None
+                if custom_rules:
+                    logger.info(f"[Pipeline] Applying custom comparison rules: {custom_rules[:50]}...")
+
                 for idx, c_url in enumerate(all_candidates):
                     logger.info(f"[Pipeline] Comparing Candidate {idx+1}/{len(all_candidates)}")
                     try:
-                        res = await llm.compare_images(file_url, c_url)
+                        res = await llm.compare_images(file_url, c_url, custom_instructions=custom_rules)
                         comparison_results.append({
                             "candidate_index": idx,
                             "file_url": c_url,
