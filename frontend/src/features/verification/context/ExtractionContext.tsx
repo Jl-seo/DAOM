@@ -248,13 +248,25 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                     // If we have preview data (standard flow), use it
                     // Always inject debug_data if available
                     // This ensures users can see raw OCR/LLM response even if extraction failed
-                    const basePreviewData = job.preview_data || { guide_extracted: {}, other_data: [] }
+                    // IMPORTANT: For retry, only update previewData if the new job has meaningful data
+                    // This prevents clearing existing comparison results while new job is processing
+                    const hasNewData = job.preview_data && (
+                        Object.keys(job.preview_data.guide_extracted || {}).length > 0 ||
+                        (job.preview_data.other_data && job.preview_data.other_data.length > 0) ||
+                        (job.preview_data.comparisons && job.preview_data.comparisons.length > 0) ||
+                        job.preview_data.comparison_result
+                    )
 
-                    setPreviewData({
-                        ...basePreviewData,
-                        debug_data: job.debug_data, // Inject debug_data ALWAYS
-                        model_fields: basePreviewData.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
-                    })
+                    if (hasNewData) {
+                        setPreviewData({
+                            ...job.preview_data,
+                            debug_data: job.debug_data,
+                            model_fields: job.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
+                        })
+                    } else if (job.debug_data) {
+                        // Update debug_data only, keep existing preview
+                        setPreviewData(prev => prev ? { ...prev, debug_data: job.debug_data } : null)
+                    }
 
                     setStatus(isSuccessStatus(job.status) ? EXTRACTION_STATUS.PREVIEW_READY : EXTRACTION_STATUS.SUCCESS)
 

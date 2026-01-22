@@ -189,8 +189,8 @@
             "multi_select": "여러 장 선택 가능"
         },
         "workspace": {
-            "baseline": "기준 문서 (Baseline)",
-            "candidate": "비교 문서 (Candidate)",
+            "baseline": "기준 문서",
+            "candidate": "비교 대상",
             "analysis_results": "분석 결과",
             "no_differences": "발견된 차이점이 없습니다.",
             "identical_docs": "두 문서가 동일합니다.",
@@ -199,8 +199,12 @@
             "page": "페이지",
             "candidates_list": "비교 목록",
             "subtitle_single": "기준 vs 비교 문서",
-            "subtitle_multi": "기준 vs 비교 문서 {index}",
-            "diffs_count": "{count}개의 차이점 발견"
+            "subtitle_multi": "기준 vs 비교 문서 #{index}",
+            "diffs_count": "{count}개의 차이점 발견",
+            "no_image": "이미지 없음",
+            "single_file": "단일 파일",
+            "image_comparison": "이미지 비교",
+            "select_candidate": "좌측에서 비교할 파일을 선택하세요"
         },
         "categories": {
             "content": "내용",

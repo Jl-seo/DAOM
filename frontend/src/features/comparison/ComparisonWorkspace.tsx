@@ -30,21 +30,29 @@ interface ComparisonData {
 }
 
 // 파일 URL에서 파일명 추출 헬퍼 함수
+// UUID 패턴이면 친화적 이름으로 변경
 function getFilenameFromUrl(url?: string, fallbackIndex?: number): string {
-    if (!url) return `파일 ${(fallbackIndex || 0) + 1}`
+    const fallbackName = `비교 대상 ${(fallbackIndex ?? 0) + 1}`
+    if (!url) return fallbackName
     try {
         const urlObj = new URL(url)
         const pathname = urlObj.pathname
         const filename = pathname.split('/').pop() || ''
-        // URL 디코딩하고 확장자 제거
         const decoded = decodeURIComponent(filename)
+
+        // UUID 패턴 감지 (8-4-4-4-12 형식)
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+        if (uuidPattern.test(decoded)) {
+            return fallbackName
+        }
+
         // 너무 길면 자르기
         if (decoded.length > 30) {
             return decoded.slice(0, 27) + '...'
         }
-        return decoded || `파일 ${(fallbackIndex || 0) + 1}`
+        return decoded || fallbackName
     } catch {
-        return `파일 ${(fallbackIndex || 0) + 1}`
+        return fallbackName
     }
 }
 
@@ -77,7 +85,6 @@ export function ComparisonWorkspace({
     const [hideNoDiffs, setHideNoDiffs] = useState(false) // true = 차이점 없는 것 숨김
 
     // 모바일 탭 상태: 'images' | 'results'
-    const [mobileTab, setMobileTab] = useState<'images' | 'results'>('images')
 
     // Reset selection when comparisons change
     useEffect(() => {
@@ -217,28 +224,6 @@ export function ComparisonWorkspace({
                 </div>
             )}
 
-            {/* 모바일 탭 네비게이션 */}
-            <div className="md:hidden flex gap-2 shrink-0 mb-2">
-                <Button
-                    variant={mobileTab === 'images' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setMobileTab('images')}
-                    className="flex-1"
-                >
-                    <Split className="w-4 h-4 mr-1" />
-                    이미지 비교
-                </Button>
-                <Button
-                    variant={mobileTab === 'results' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setMobileTab('results')}
-                    className="flex-1"
-                >
-                    <FileDiff className="w-4 h-4 mr-1" />
-                    분석 결과 ({currentComparison?.differences?.length || 0})
-                </Button>
-            </div>
-
             {/* Candidate List Panel */}
             {isMultiMode && (comparisons.length > 1) && (
                 <div className={clsx(
@@ -328,13 +313,12 @@ export function ComparisonWorkspace({
                 </div>
             )}
 
-            {/* Main Content - Desktop: side by side, Mobile: tab-based */}
             <div className="flex-1 flex flex-col md:flex-row gap-4 overflow-hidden">
                 {/* Left: Image Comparison View - Desktop always, Mobile only when tab is 'images' */}
                 <div className={clsx(
                     "flex flex-col gap-4 overflow-hidden",
                     "md:flex-1",
-                    mobileTab === 'images' ? "flex-1" : "hidden md:flex"
+                    "flex-1" // 모바일에서도 항상 표시 (상하 배치)
                 )}>
                     <div className="flex items-center justify-between shrink-0 px-2">
                         <h3 className="text-lg font-bold flex items-center gap-2">
@@ -397,7 +381,7 @@ export function ComparisonWorkspace({
                                     </div>
                                 ) : (
                                     <div className="flex items-center justify-center h-full text-muted-foreground">
-                                        No Image
+                                        {t('comparison.workspace.no_image') || '이미지 없음'}
                                     </div>
                                 )}
 
@@ -421,7 +405,7 @@ export function ComparisonWorkspace({
             <div className={clsx(
                 "flex flex-col gap-4 overflow-hidden",
                 "md:w-[400px] md:shrink-0 md:border-l md:pl-4",
-                mobileTab === 'results' ? "flex-1" : "hidden md:flex"
+                "flex-1 md:flex-none" // 모바일에서도 항상 표시 (상하 배치)
             )}>
                 <div className="flex items-center justify-between shrink-0">
                     <h3 className="text-lg font-bold flex items-center gap-2">

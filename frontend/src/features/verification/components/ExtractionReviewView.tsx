@@ -1,6 +1,8 @@
-import { useRef, useState, useEffect, useCallback } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { GripVertical } from 'lucide-react'
+import { GripVertical, GripHorizontal } from 'lucide-react'
+// Renamed exports in v4.4.1: PanelGroup -> Group, PanelResizeHandle -> Separator
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels'
 
 import { DocumentDeck } from './DocumentDeck'
 import { DocumentPreviewPanel } from './DocumentPreviewPanel'
@@ -48,13 +50,21 @@ export function ExtractionReviewView({
     onSave
 }: ExtractionReviewViewProps) {
     const pdfViewerRef = useRef<PDFViewerHandle>(null)
-    const containerRef = useRef<HTMLDivElement>(null)
-
     const [latestData, setLatestData] = useState<{ guide: any, other: any[] } | null>(null)
 
-    // Resizable state: left panel width percentage (0-100)
-    const [leftPanelWidth, setLeftPanelWidth] = useState(50)
-    const [isDragging, setIsDragging] = useState(false)
+    // Layout state
+    const [direction, setDirection] = useState<'horizontal' | 'vertical'>('horizontal')
+
+    useEffect(() => {
+        const checkLayout = () => {
+            const mobile = window.innerWidth < 768
+            setDirection(mobile ? 'vertical' : 'horizontal')
+        }
+
+        checkLayout()
+        window.addEventListener('resize', checkLayout)
+        return () => window.removeEventListener('resize', checkLayout)
+    }, [])
 
     // Get current document data based on sub-document selection
     const currentGuideExtracted = previewData?.sub_documents && previewData.sub_documents.length > 0
@@ -79,7 +89,7 @@ export function ExtractionReviewView({
         }, 1000) // 1 second debounce
 
         return () => clearTimeout(timer)
-    }, [latestData]) // Removed onSave from deps - use ref instead
+    }, [latestData])
 
     // Sync Scroll Effect: Data -> PDF
     useEffect(() => {
@@ -87,48 +97,6 @@ export function ExtractionReviewView({
             pdfViewerRef.current.scrollToHighlight(selectedFieldKey)
         }
     }, [selectedFieldKey])
-
-    // Drag handlers for resizer
-    const handleMouseDown = useCallback((e: React.MouseEvent) => {
-        e.preventDefault()
-        setIsDragging(true)
-    }, [])
-
-    const handleMouseMove = useCallback((e: MouseEvent) => {
-        if (!isDragging || !containerRef.current) return
-
-        const containerRect = containerRef.current.getBoundingClientRect()
-        const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100
-
-        // Clamp between 20% and 80%
-        setLeftPanelWidth(Math.min(80, Math.max(20, newWidth)))
-    }, [isDragging])
-
-    const handleMouseUp = useCallback(() => {
-        setIsDragging(false)
-    }, [])
-
-    // Attach/detach global mouse events for dragging
-    useEffect(() => {
-        if (isDragging) {
-            document.addEventListener('mousemove', handleMouseMove)
-            document.addEventListener('mouseup', handleMouseUp)
-            document.body.style.cursor = 'col-resize'
-            document.body.style.userSelect = 'none'
-        } else {
-            document.removeEventListener('mousemove', handleMouseMove)
-            document.removeEventListener('mouseup', handleMouseUp)
-            document.body.style.cursor = ''
-            document.body.style.userSelect = ''
-        }
-
-        return () => {
-            document.removeEventListener('mousemove', handleMouseMove)
-            document.removeEventListener('mouseup', handleMouseUp)
-            document.body.style.cursor = ''
-            document.body.style.userSelect = ''
-        }
-    }, [isDragging, handleMouseMove, handleMouseUp])
 
     const handleDownload = () => {
         // Use latest edited data if available, otherwise fall back to result or initial preview
@@ -150,7 +118,8 @@ export function ExtractionReviewView({
         >
             {/* Left: Document Deck (Multi-Doc) */}
             {previewData?.sub_documents && previewData.sub_documents.length > 1 && (
-                <div className="w-64 border-r shrink-0">
+                <div className="w-64 border-r shrink-0 hidden md:block">
+                    {/* Note: Document Deck hidden on mobile for now as it needs a better UI, or make it collapsible */}
                     <DocumentDeck
                         subDocuments={previewData.sub_documents}
                         selectedIndex={selectedSubDocIndex}
@@ -160,59 +129,55 @@ export function ExtractionReviewView({
             )}
 
             {/* Resizable Main Area */}
-            <div
-                ref={containerRef}
-                className="flex-1 min-w-0 h-full flex flex-row relative"
-            >
-                {/* Left Panel: PDF Viewer */}
-                <div
-                    className="h-full overflow-hidden"
-                    style={{ width: `${leftPanelWidth}%` }}
-                >
-                    <DocumentPreviewPanel
-                        ref={pdfViewerRef}
-                        file={file}
-                        fileUrl={fileUrl}
-                        highlights={highlights}
-                        selectedFieldKey={selectedFieldKey}
-                        onHighlightClick={onFieldSelect}
-                        onRetry={onRetry}
-                    />
-                </div>
+            <div className="flex-1 min-w-0 h-full flex flex-col relative bg-background">
+                <PanelGroup orientation={direction} className="!h-full !w-full">
+                    {/* PDF Viewer Panel */}
+                    <Panel defaultSize={50} minSize={20} className="relative">
+                        <div className="h-full w-full overflow-hidden">
+                            <DocumentPreviewPanel
+                                ref={pdfViewerRef}
+                                file={file}
+                                fileUrl={fileUrl}
+                                highlights={highlights}
+                                selectedFieldKey={selectedFieldKey}
+                                onHighlightClick={onFieldSelect}
+                                onRetry={onRetry}
+                            />
+                        </div>
+                    </Panel>
 
-                {/* Resizable Handle */}
-                <div
-                    onMouseDown={handleMouseDown}
-                    className={`
-                        w-2 h-full flex items-center justify-center cursor-col-resize
-                        bg-border hover:bg-primary/30 transition-colors
-                        ${isDragging ? 'bg-primary/50' : ''}
-                    `}
-                >
-                    <GripVertical className="w-3 h-3 text-muted-foreground" />
-                </div>
+                    <PanelResizeHandle className={direction === 'horizontal'
+                        ? "w-2 bg-border hover:bg-primary/20 transition-colors flex items-center justify-center outline-none"
+                        : "h-2 bg-border hover:bg-primary/20 transition-colors flex items-center justify-center outline-none"
+                    }>
+                        <div className="z-10 bg-background border rounded-sm p-0.5">
+                            {direction === 'horizontal'
+                                ? <GripVertical className="h-4 w-4 text-muted-foreground" />
+                                : <GripHorizontal className="h-4 w-4 text-muted-foreground" />}
+                        </div>
+                    </PanelResizeHandle>
 
-                {/* Right Panel: Data Review */}
-                <div
-                    className="h-full overflow-hidden"
-                    style={{ width: `calc(${100 - leftPanelWidth}% - 8px)` }}
-                >
-                    <DataReviewPanel
-                        currentGuideExtracted={currentGuideExtracted || {}}
-                        currentOtherData={currentOtherData || []}
-                        model={model}
-                        previewData={previewData}
-                        selectedFieldKey={selectedFieldKey}
-                        onFieldSelect={onFieldSelect}
-                        onDataChange={setLatestData}
-                        onSave={onSave}
-                        onReset={onReset}
-                        onRetry={onRetry}
-                        onDownload={handleDownload}
-                        documentId={fileUrl} // Pass fileUrl as stable identifier
-                        debugData={previewData?.debug_data}
-                    />
-                </div>
+                    {/* Data Review Panel */}
+                    <Panel minSize={20}>
+                        <div className="h-full w-full overflow-hidden">
+                            <DataReviewPanel
+                                currentGuideExtracted={currentGuideExtracted || {}}
+                                currentOtherData={currentOtherData || []}
+                                model={model}
+                                previewData={previewData}
+                                selectedFieldKey={selectedFieldKey}
+                                onFieldSelect={onFieldSelect}
+                                onDataChange={setLatestData}
+                                onSave={onSave}
+                                onReset={onReset}
+                                onRetry={onRetry}
+                                onDownload={handleDownload}
+                                documentId={fileUrl}
+                                debugData={previewData?.debug_data}
+                            />
+                        </div>
+                    </Panel>
+                </PanelGroup>
             </div>
         </motion.div>
     )
