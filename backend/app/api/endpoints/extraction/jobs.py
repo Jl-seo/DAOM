@@ -149,6 +149,8 @@ async def get_job_status(
         "error": job.error,
         "filename": job.filename,
         "file_url": job.file_url,
+        "candidate_file_url": job.candidate_file_url,
+        "candidate_file_urls": job.candidate_file_urls,
         "created_at": job.created_at,
         "updated_at": job.updated_at
     }
@@ -210,6 +212,7 @@ async def retry_extraction(
     """
     Retry an extraction from a previous log (success or error).
     Updates the existing log status to processing and re-runs extraction.
+    For comparison models, preserves candidate_file_urls from the original job.
     """
     # 1. Get original log
     log = extraction_logs.get_log(log_id)
@@ -224,17 +227,28 @@ async def retry_extraction(
     if not model:
          raise HTTPException(status_code=404, detail=f"Model {log.model_id} not found")
     
-    # 3. Create new job with reference to original log
+    # 3. Get previous job to recover candidate_file_urls (for comparison models)
+    previous_job = extraction_jobs.get_latest_job_by_log_id(log_id)
+    candidate_file_urls = None
+    candidate_file_url = None
+    if previous_job:
+        candidate_file_urls = previous_job.candidate_file_urls
+        candidate_file_url = previous_job.candidate_file_url
+        logger.info(f"[Retry] Recovered candidate_file_urls from previous job: {len(candidate_file_urls) if candidate_file_urls else 0} files")
+    
+    # 4. Create new job with reference to original log AND preserved candidate files
     job = extraction_jobs.create_job(
         model_id=log.model_id,
         user_id=current_user.id if current_user else "unknown",
         filename=log.filename,
         file_url=log.file_url,
+        candidate_file_url=candidate_file_url,
+        candidate_file_urls=candidate_file_urls,
         original_log_id=log_id,
         tenant_id=current_user.tenant_id if current_user else None
     )
 
-    # 4. Update original log status to pending AND update job_id
+    # 5. Update original log status to pending AND update job_id
     extraction_logs.save_extraction_log(
         model_id=log.model_id,
         user_id=current_user.id if current_user else log.user_id,
@@ -250,7 +264,7 @@ async def retry_extraction(
         tenant_id=current_user.tenant_id if current_user else None
     )
     
-    # 5. Start background task
+    # 6. Start background task
     background_tasks.add_task(
         process_extraction_job,
         job.id,
@@ -262,7 +276,10 @@ async def retry_extraction(
         "job_id": job.id,
         "status": job.status,
         "file_url": job.file_url,
+        "candidate_file_url": candidate_file_url,
+        "candidate_file_urls": candidate_file_urls,
         "filename": job.filename,
         "original_log_id": log_id,
         "message": "Retry job started - existing record updated"
     }
+

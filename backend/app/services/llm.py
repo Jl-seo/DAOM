@@ -323,7 +323,22 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     if custom_instructions:
         custom_rules_text = f"\n\n**USER DEFINED COMPARISON RULES (MUST FOLLOW):**\n{custom_instructions}\n"
     
-    system_prompt = f"""
+    # Try to load custom system prompt from site settings
+    custom_system_prompt = None
+    try:
+        from app.api.endpoints.site_settings import load_config
+        site_config = load_config()
+        custom_system_prompt = site_config.get("comparisonSystemPrompt")
+        if custom_system_prompt:
+            logger.info("[LLM] Using custom comparison system prompt from site settings")
+    except Exception as e:
+        logger.debug(f"[LLM] Could not load site settings: {e}")
+    
+    # If custom system prompt exists in site settings, use it; otherwise use default
+    if custom_system_prompt:
+        system_prompt = custom_system_prompt + custom_rules_text
+    else:
+        system_prompt = f"""
     You are an expert QA and Visual Inspection AI.
     Compare the two provided images (Baseline vs Candidate) and identify semantic and visual differences.
 
@@ -344,9 +359,9 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     - "description": concise text describing the change in **KOREAN** (한국어로 설명). Example: "헤더의 'Invoice' 텍스트가 'Tax Invoice'로 변경됨" or "우측 상단에 '결재' 버튼이 추가됨".
     - "category": one of ["content", "layout", "style", "missing_element", "added_element"]
     - "confidence": float between 0.0 and 1.0.
-      - **1.0**: Absolutely certain (text changed, element added/removed).
-      - **0.5 - 0.7**: Likely a difference but could be rendering artifact.
-      - **< 0.5**: Do not report unless critical.
+      - **0.9 - 1.0**: Absolutely certain (text clearly changed, element clearly added/removed).
+      - **0.7 - 0.89**: Very likely a real difference.
+      - **< 0.7**: DO NOT REPORT. Discard these entirely.
     - "location_1": bounding box in Baseline image as [y_min, x_min, y_max, x_max] (0-1000 scale). Null if added_element.
     - "location_2": bounding box in Candidate image as [y_min, x_min, y_max, x_max] (0-1000 scale). Null if missing_element.
     - "page_number": integer (1-based), default to 1.
@@ -359,10 +374,17 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
       - y_max: distance from TOP edge (must be > y_min)
       - x_max: distance from LEFT edge (must be > x_min)
     
-    **IMPORTANT RULES:**
-    1. **NO FORCED FINDING**: If the images are identical or differences are negligible, return an empty "differences" list.
-    2. **IGNORE NOISE**: Do not report differences that are invisible to the naked eye or are just compression artifacts.
-    3. **VALID JSON**: Respond with valid JSON only. Descriptions MUST be in Korean.
+    **CRITICAL RULES - READ CAREFULLY:**
+    1. **ABSOLUTELY NO HALLUCINATION**: If the images look identical or nearly identical, return EMPTY "differences" list. Do NOT invent differences.
+    2. **IDENTICAL = EMPTY LIST**: If after careful analysis you find NO meaningful differences, respond with: {{"differences": []}}
+    3. **HIGH CONFIDENCE ONLY**: Only report differences with confidence >= 0.7. Anything below is NOISE.
+    4. **IGNORE NOISE**: Do not report:
+       - Slight color variations due to image compression
+       - Anti-aliasing differences on text edges
+       - Minor font weight/rendering differences
+       - Subtle shadow or gradient differences
+    5. **REAL DIFFERENCES ONLY**: Only report if you can clearly describe WHAT text changed, WHAT element was added/removed.
+    6. **VALIDATE BEFORE REPORTING**: Ask yourself "Can a human clearly see this difference?" If no, DO NOT REPORT.
     """
     
     user_message_content = [

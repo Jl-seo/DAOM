@@ -31,8 +31,8 @@ interface ComparisonData {
 
 // 파일 URL에서 파일명 추출 헬퍼 함수
 // UUID 패턴이면 친화적 이름으로 변경
-function getFilenameFromUrl(url?: string, fallbackIndex?: number): string {
-    const fallbackName = `비교 대상 ${(fallbackIndex ?? 0) + 1}`
+function getFilenameFromUrl(url?: string, fallbackIndex?: number, fallbackPrefix?: string): string {
+    const fallbackName = `${fallbackPrefix || 'Candidate'} ${(fallbackIndex ?? 0) + 1}`
     if (!url) return fallbackName
     try {
         const urlObj = new URL(url)
@@ -115,7 +115,7 @@ export function ComparisonWorkspace({
     // Excel Export Handler
     const handleExportExcel = () => {
         if (!comparisons || comparisons.length === 0) {
-            toast.error('내보낼 데이터가 없습니다')
+            toast.error(t('extraction.errors.no_data_to_download'))
             return
         }
 
@@ -140,7 +140,7 @@ export function ComparisonWorkspace({
             })
 
             if (rows.length === 0) {
-                toast.info('차이점이 없습니다')
+                toast.info(t('comparison.export.no_diffs'))
                 return
             }
 
@@ -149,13 +149,13 @@ export function ComparisonWorkspace({
                 header: ['no', 'candidate', 'page', 'category', 'description', 'confidence']
             })
 
-            // Set column headers in Korean
-            ws['A1'] = { v: 'No.', t: 's' }
-            ws['B1'] = { v: '비교 대상', t: 's' }
-            ws['C1'] = { v: '페이지', t: 's' }
-            ws['D1'] = { v: '유형', t: 's' }
-            ws['E1'] = { v: '차이점 설명', t: 's' }
-            ws['F1'] = { v: '신뢰도', t: 's' }
+            // Set column headers (i18n)
+            ws['A1'] = { v: t('comparison.export.no_header'), t: 's' }
+            ws['B1'] = { v: t('comparison.export.candidate_header'), t: 's' }
+            ws['C1'] = { v: t('comparison.export.page_header'), t: 's' }
+            ws['D1'] = { v: t('comparison.export.category_header'), t: 's' }
+            ws['E1'] = { v: t('comparison.export.description_header'), t: 's' }
+            ws['F1'] = { v: t('comparison.export.confidence_header'), t: 's' }
 
             // Set column widths
             ws['!cols'] = [
@@ -169,13 +169,13 @@ export function ComparisonWorkspace({
 
             // Create workbook and export
             const wb = XLSX.utils.book_new()
-            XLSX.utils.book_append_sheet(wb, ws, '비교 결과')
+            XLSX.utils.book_append_sheet(wb, ws, t('comparison.export.sheet_name'))
             XLSX.writeFile(wb, `comparison_results_${new Date().toISOString().slice(0, 10)}.xlsx`)
 
-            toast.success('Excel 파일이 다운로드되었습니다')
+            toast.success(t('comparison.export.success'))
         } catch (err) {
             console.error('Excel export error:', err)
-            toast.error('Excel 내보내기 실패')
+            toast.error(t('comparison.export.failed'))
         }
     }
 

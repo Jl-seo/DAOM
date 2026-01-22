@@ -86,34 +86,51 @@ class ExtractionService:
             if all_candidates:
                 logger.info(f"[Pipeline] Starting 1:N Comparison for Job {job_id} on {len(all_candidates)} candidates")
                 from app.services import llm
+                import asyncio
                 
-                comparison_results = []
-                
-                # Run Comparison using GPT-4 Vision for EACH candidate
-                # Process in parallel for speed if possible, or sequential for safety
-                # Using simple loop for now to avoid complexity
                 # Prepare custom rules if model exists
                 custom_rules = model.global_rules if model and model.global_rules else None
                 if custom_rules:
                     logger.info(f"[Pipeline] Applying custom comparison rules: {custom_rules[:50]}...")
 
-                for idx, c_url in enumerate(all_candidates):
+                # Define comparison task for a single candidate
+                async def compare_single(idx: int, c_url: str) -> dict:
                     logger.info(f"[Pipeline] Comparing Candidate {idx+1}/{len(all_candidates)}")
                     try:
                         res = await llm.compare_images(file_url, c_url, custom_instructions=custom_rules)
-                        comparison_results.append({
+                        # Extract filename from URL or use index
+                        filename = None
+                        try:
+                            from urllib.parse import urlparse, unquote
+                            parsed = urlparse(c_url)
+                            path_part = parsed.path.split('/')[-1]
+                            decoded = unquote(path_part)
+                            # Check if it's a UUID pattern, if so skip
+                            import re
+                            if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}', decoded, re.I):
+                                filename = decoded
+                        except:
+                            pass
+                        return {
                             "candidate_index": idx,
                             "file_url": c_url,
+                            "filename": filename,  # Original filename
                             "result": res
-                        })
+                        }
                     except Exception as comp_error:
                         logger.error(f"[Pipeline] Comparison failed for candidate {c_url}: {comp_error}")
-                        comparison_results.append({
+                        return {
                             "candidate_index": idx,
                             "file_url": c_url,
+                            "filename": None,
                             "error": str(comp_error),
                             "result": {}
-                        })
+                        }
+                
+                # Run all comparisons in PARALLEL using asyncio.gather
+                comparison_tasks = [compare_single(idx, c_url) for idx, c_url in enumerate(all_candidates)]
+                comparison_results = await asyncio.gather(*comparison_tasks)
+                comparison_results = list(comparison_results)  # Convert tuple to list
 
                 # Save results
                 # We store differences in 'preview_data'

@@ -53,6 +53,8 @@ class SiteConfig(BaseModel):
     customCss: Optional[str] = None
     radius: Optional[float] = 0.5
     density: Optional[str] = "normal"
+    # AI Prompt Settings
+    comparisonSystemPrompt: Optional[str] = None  # Custom system prompt for image comparison
 
 def load_config() -> dict:
     """Load site config from Cosmos DB"""

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { FileText, RefreshCw, Save, RotateCcw, Info } from 'lucide-react'
+import { FileText, RefreshCw, Save, RotateCcw, Info, GitCompareArrows } from 'lucide-react'
 import { toast } from 'sonner'
 import axios from 'axios'
 import { API_CONFIG } from '../../constants'
@@ -25,9 +25,52 @@ export function PromptEditor() {
     const [loading, setLoading] = useState(true)
     const [saving, setSaving] = useState(false)
 
+    // Site Settings: Comparison Prompt
+    const [comparisonPrompt, setComparisonPrompt] = useState('')
+    const [originalComparisonPrompt, setOriginalComparisonPrompt] = useState('')
+    const [savingComparison, setSavingComparison] = useState(false)
+
     useEffect(() => {
         fetchPrompts()
+        fetchComparisonPrompt()
     }, [])
+
+    const fetchComparisonPrompt = async () => {
+        try {
+            const res = await axios.get(`${API_BASE}/settings/site`)
+            setComparisonPrompt(res.data.comparisonSystemPrompt || '')
+            setOriginalComparisonPrompt(res.data.comparisonSystemPrompt || '')
+        } catch (error) {
+            console.error('Failed to load site settings:', error)
+        }
+    }
+
+    const handleSaveComparisonPrompt = async () => {
+        setSavingComparison(true)
+        try {
+            // Get current site settings first
+            const currentRes = await axios.get(`${API_BASE}/settings/site`)
+            const currentSettings = currentRes.data
+
+            // Update with new comparison prompt
+            await axios.put(`${API_BASE}/settings/site`, {
+                ...currentSettings,
+                comparisonSystemPrompt: comparisonPrompt || null
+            })
+            setOriginalComparisonPrompt(comparisonPrompt)
+            toast.success('비교 프롬프트가 저장되었습니다')
+        } catch (error) {
+            console.error('Failed to save comparison prompt:', error)
+            toast.error('비교 프롬프트 저장 실패')
+        } finally {
+            setSavingComparison(false)
+        }
+    }
+
+    const handleResetComparisonPrompt = () => {
+        setComparisonPrompt('')
+        // Will save as null to use default
+    }
 
     const fetchPrompts = async () => {
         try {
@@ -209,6 +252,54 @@ export function PromptEditor() {
                             프롬프트를 선택하세요
                         </div>
                     )}
+                </div>
+            </div>
+
+            {/* Comparison Prompt Editor Section */}
+            <div className="border-t border-border mt-4 pt-4">
+                <div className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                        <div className="bg-gradient-to-r from-chart-2 to-chart-3 p-2 rounded-lg">
+                            <GitCompareArrows className="w-4 h-4 text-primary-foreground" />
+                        </div>
+                        <div>
+                            <h4 className="font-bold text-base text-foreground">비교 시스템 프롬프트</h4>
+                            <p className="text-xs text-muted-foreground">
+                                이미지 비교 시 LLM에 전달되는 시스템 프롬프트입니다. 비워두면 기본 프롬프트가 사용됩니다.
+                            </p>
+                        </div>
+                    </div>
+
+                    <textarea
+                        value={comparisonPrompt}
+                        onChange={(e) => setComparisonPrompt(e.target.value)}
+                        className="w-full h-48 px-3 py-2 border border-border rounded-lg text-sm font-mono bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                        placeholder="예: You are an expert QA and Visual Inspection AI. Compare the two provided images..."
+                    />
+
+                    <div className="flex gap-2 mt-3">
+                        <Button
+                            onClick={handleSaveComparisonPrompt}
+                            disabled={comparisonPrompt === originalComparisonPrompt || savingComparison}
+                            className="flex-1"
+                        >
+                            {savingComparison ? (
+                                <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                            ) : (
+                                <Save className="w-4 h-4 mr-2" />
+                            )}
+                            {savingComparison ? '저장 중...' : comparisonPrompt !== originalComparisonPrompt ? '비교 프롬프트 저장' : '변경 없음'}
+                        </Button>
+
+                        <Button
+                            variant="outline"
+                            onClick={handleResetComparisonPrompt}
+                            disabled={savingComparison || !comparisonPrompt}
+                        >
+                            <RotateCcw className="w-4 h-4 mr-2" />
+                            기본값으로
+                        </Button>
+                    </div>
                 </div>
             </div>
         </div>

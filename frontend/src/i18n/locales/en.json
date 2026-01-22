@@ -200,7 +200,23 @@
             "candidates_list": "Candidates",
             "subtitle_single": "Baseline vs Candidate",
             "subtitle_multi": "Baseline vs Candidate {index}",
-            "diffs_count": "{count} diffs found"
+            "diffs_count": "{count} diffs found",
+            "no_image": "No Image",
+            "single_file": "Single File",
+            "image_comparison": "Image Comparison",
+            "select_candidate": "Select a file to compare from the left"
+        },
+        "export": {
+            "no_header": "No.",
+            "candidate_header": "Candidate",
+            "page_header": "Page",
+            "category_header": "Category",
+            "description_header": "Description",
+            "confidence_header": "Confidence",
+            "sheet_name": "Comparison Results",
+            "no_diffs": "No differences found",
+            "success": "Excel file downloaded",
+            "failed": "Excel export failed"
         },
         "categories": {
             "content": "Content",
