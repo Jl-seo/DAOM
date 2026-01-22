@@ -219,45 +219,45 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
     if (embedded) {
         return (
             <div className="h-full flex flex-col">
-                {/* Stats Dashboard */}
-                <div className="p-4 bg-muted">
+                {/* Stats Dashboard - 모바일에서 숨김 */}
+                <div className="hidden md:block p-4 bg-muted">
                     <StatsDashboard stats={stats} />
                 </div>
 
                 {/* Filter toolbar */}
-                {/* Modern Filter Toolbar */}
-                <div className="px-6 py-4 border-b border-border bg-card flex flex-col xl:flex-row items-start xl:items-center gap-4 justify-between sticky top-0 z-20 shadow-sm">
+                {/* Modern Filter Toolbar - 모바일 컴팩트 */}
+                <div className="px-3 md:px-6 py-2 md:py-4 border-b border-border bg-card flex flex-col xl:flex-row items-start xl:items-center gap-2 md:gap-4 justify-between sticky top-0 z-20 shadow-sm">
                     {/* Left: Search & Ownership */}
-                    <div className="flex flex-1 items-center gap-3 w-full xl:w-auto">
+                    <div className="flex flex-1 items-center gap-2 md:gap-3 w-full xl:w-auto">
                         <div className="relative flex-1 max-w-md">
                             <SearchRegular className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <Input
                                 type="text"
-                                placeholder="파일명으로 검색..."
+                                placeholder="검색..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="pl-10 bg-muted/50 border-transparent focus:bg-background focus:border-primary transition-all rounded-full"
+                                className="pl-10 h-8 md:h-10 text-sm bg-muted/50 border-transparent focus:bg-background focus:border-primary transition-all rounded-full"
                             />
                         </div>
                         <div className="h-8 w-px bg-border mx-2 hidden xl:block" />
-                        <div className="flex bg-muted rounded-full p-1">
+                        <div className="flex bg-muted rounded-full p-0.5 md:p-1">
                             <button
                                 onClick={() => setOwnershipTab('my')}
-                                className={`px-4 py-1 rounded-full text-xs font-semibold transition-all ${ownershipTab === 'my' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                                className={`px-2 md:px-4 py-0.5 md:py-1 rounded-full text-xs font-semibold transition-all ${ownershipTab === 'my' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                             >
                                 내 기록
                             </button>
                             <button
                                 onClick={() => setOwnershipTab('group')}
-                                className={`px-4 py-1 rounded-full text-xs font-semibold transition-all ${ownershipTab === 'group' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                                className={`px-2 md:px-4 py-0.5 md:py-1 rounded-full text-xs font-semibold transition-all ${ownershipTab === 'group' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                             >
                                 팀 전체
                             </button>
                         </div>
                     </div>
 
-                    {/* Right: Filters & Actions */}
-                    <div className="flex items-center gap-3 w-full xl:w-auto justify-end">
+                    {/* Right: Filters & Actions - 모바일에서 숨김 */}
+                    <div className="hidden md:flex items-center gap-3 w-full xl:w-auto justify-end">
                         <div className="flex items-center gap-2">
                             <StatusFilter value={statusFilter} onChange={setStatusFilter} />
                             <DateRangePicker value={dateFilter} onChange={setDateFilter} />
@@ -270,8 +270,8 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
                 {/* Records count + New Extraction button */}
 
 
-                {/* Table content */}
-                <Card className="flex-1 overflow-auto mx-4 mb-4 border-none shadow-none bg-transparent">
+                {/* Table content - 모바일 마진 축소 */}
+                <Card className="flex-1 overflow-auto mx-2 md:mx-4 mb-2 md:mb-4 border-none shadow-none bg-transparent">
                     {isLoading && (
                         <div className="flex items-center justify-center py-8">
                             <ClockRegular className="w-8 h-8 animate-pulse text-primary" />
