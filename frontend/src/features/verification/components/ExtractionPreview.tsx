@@ -471,11 +471,19 @@ function EditableValueCell({
     }
 
     if (isObject) {
+        // Wrap single object in array to render as 1-row table
         return (
-            <div className="space-y-1">
-                <pre className="text-xs bg-muted p-2 rounded overflow-auto max-h-32">
-                    {JSON.stringify(parsedValue, null, 2)}
-                </pre>
+            <div className="w-full overflow-hidden">
+                <NestedArrayTable
+                    data={[parsedValue]}
+                    onUpdate={(newData) => {
+                        // Extract the single object back from array
+                        onChange(newData[0] || {})
+                    }}
+                />
+                <div className="text-[10px] text-muted-foreground mt-1 text-right">
+                    * 단일 객체를 테이블로 표시
+                </div>
             </div>
         )
     }
