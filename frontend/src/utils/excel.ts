@@ -3,14 +3,48 @@ import * as XLSX from 'xlsx'
 /**
  * Helper to recursively extract value from { value, confidence } wrapper
  * Returns the inner value or the original if not wrapped
+ * Filters out internal fields like bbox, confidence, source_text, page_number, page
  */
+const INTERNAL_FIELDS = new Set(['bbox', 'confidence', 'source_text', 'page_number', 'page', 'bounding_box'])
+
 function extractValue(val: any): any {
     if (val === null || val === undefined) return val
 
-    // If it's a wrapper object with 'value' property
-    if (typeof val === 'object' && 'value' in val) {
-        return extractValue(val.value) // Recursive unwrapping (e.g. { value: { value: "A" } })
+    // If it's a wrapper object with 'value' property, extract just the value
+    if (typeof val === 'object' && !Array.isArray(val) && 'value' in val) {
+        return extractValue(val.value) // Recursive unwrapping
     }
+
+    // If it's an object that only contains internal fields + value, extract value
+    if (typeof val === 'object' && !Array.isArray(val)) {
+        const keys = Object.keys(val)
+        const nonInternalKeys = keys.filter(k => !INTERNAL_FIELDS.has(k))
+
+        // If all non-internal keys are just 'value', extract it
+        if (nonInternalKeys.length === 1 && nonInternalKeys[0] === 'value') {
+            return extractValue(val.value)
+        }
+
+        // If object contains internal fields mixed with other data, filter them out
+        if (keys.some(k => INTERNAL_FIELDS.has(k))) {
+            const filtered: Record<string, any> = {}
+            for (const k of keys) {
+                if (!INTERNAL_FIELDS.has(k)) {
+                    filtered[k] = extractValue(val[k])
+                }
+            }
+            // If filtered object only has one key 'value', extract it
+            if (Object.keys(filtered).length === 1 && 'value' in filtered) {
+                return filtered.value
+            }
+            // If empty after filtering, return empty string
+            if (Object.keys(filtered).length === 0) {
+                return ''
+            }
+            return filtered
+        }
+    }
+
     return val
 }
 
