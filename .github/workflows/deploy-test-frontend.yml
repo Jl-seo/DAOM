@@ -71,6 +71,13 @@ jobs:
             echo "Image: $IMAGE"
             echo "============================================"
 
+            # Remove ghcr.io registry if exists (cleanup from wrong workflow)
+            echo ">> Cleaning up old ghcr.io registry..."
+            az containerapp registry remove \
+              --name $APP_NAME --resource-group $RG \
+              --server ghcr.io 2>/dev/null || echo "No ghcr.io registry to remove"
+
+            echo ">> Setting ACR registry..."
             az containerapp registry set \
               --name $APP_NAME --resource-group $RG \
               --server ${{ env.REGISTRY }} \
