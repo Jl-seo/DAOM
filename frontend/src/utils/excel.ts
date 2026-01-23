@@ -5,7 +5,21 @@ import * as XLSX from 'xlsx'
  * Returns the inner value or the original if not wrapped
  * Filters out internal fields like bbox, confidence, source_text, page_number, page
  */
-const INTERNAL_FIELDS = new Set(['bbox', 'confidence', 'source_text', 'page_number', 'page', 'bounding_box'])
+const INTERNAL_FIELDS = new Set([
+    'bbox', 'bounding_box', 'confidence', 'source_text',
+    'page_number', 'page', 'ocr_text', 'raw_text', 'debug_data',
+    'other_data', 'sub_documents', 'field_meta', 'extraction_meta'
+])
+
+/**
+ * Check if a key is an internal/debug field that should be excluded from Excel
+ */
+function isInternalField(key: string): boolean {
+    // Keys starting with underscore are internal
+    if (key.startsWith('_')) return true
+    // Check against known internal fields
+    return INTERNAL_FIELDS.has(key)
+}
 
 function extractValue(val: any): any {
     if (val === null || val === undefined) return val
@@ -18,7 +32,7 @@ function extractValue(val: any): any {
     // If it's an object that only contains internal fields + value, extract value
     if (typeof val === 'object' && !Array.isArray(val)) {
         const keys = Object.keys(val)
-        const nonInternalKeys = keys.filter(k => !INTERNAL_FIELDS.has(k))
+        const nonInternalKeys = keys.filter(k => !isInternalField(k))
 
         // If all non-internal keys are just 'value', extract it
         if (nonInternalKeys.length === 1 && nonInternalKeys[0] === 'value') {
@@ -26,10 +40,10 @@ function extractValue(val: any): any {
         }
 
         // If object contains internal fields mixed with other data, filter them out
-        if (keys.some(k => INTERNAL_FIELDS.has(k))) {
+        if (keys.some(k => isInternalField(k))) {
             const filtered: Record<string, any> = {}
             for (const k of keys) {
-                if (!INTERNAL_FIELDS.has(k)) {
+                if (!isInternalField(k)) {
                     filtered[k] = extractValue(val[k])
                 }
             }
@@ -72,6 +86,9 @@ function flattenDataToRows(data: Record<string, any>): Record<string, any>[] {
 
     // 1. Analyze and Separate Data
     Object.entries(data).forEach(([key, rawVal]) => {
+        // Skip internal/debug fields entirely
+        if (isInternalField(key)) return
+
         const val = extractValue(rawVal)
 
         if (Array.isArray(val) && val.length > 0) {
