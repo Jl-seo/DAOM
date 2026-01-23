@@ -49,6 +49,19 @@ function extractValue(val: any): any {
 }
 
 /**
+ * Truncate cell value to Excel's max character limit (32767)
+ * Leave some room for safety
+ */
+const MAX_CELL_LENGTH = 32000
+
+function truncateCellValue(value: any): any {
+    if (typeof value === 'string' && value.length > MAX_CELL_LENGTH) {
+        return value.substring(0, MAX_CELL_LENGTH) + '... (truncated)'
+    }
+    return value
+}
+
+/**
  * Flattens a single data object into multiple rows (Master-Detail)
  * - Single values (Head) are repeated on every row
  * - Array values (Line Items) create new rows
@@ -70,7 +83,7 @@ function flattenDataToRows(data: Record<string, any>): Record<string, any>[] {
             // Single value (or object that isn't an array)
             // Flatten objects if needed, but for now stringify complex objects
             if (val !== null && val !== undefined) {
-                singleData[key] = typeof val === 'object' ? JSON.stringify(val) : val
+                singleData[key] = truncateCellValue(typeof val === 'object' ? JSON.stringify(val) : val)
             } else {
                 singleData[key] = ""
             }
@@ -103,11 +116,11 @@ function flattenDataToRows(data: Record<string, any>): Record<string, any>[] {
                             ? JSON.stringify(extractedSubVal)
                             : extractedSubVal
 
-                        row[`${key}.${subKey}`] = cellValue
+                        row[`${key}.${subKey}`] = truncateCellValue(cellValue)
                     })
                 } else {
                     // Primitive value
-                    row[key] = item
+                    row[key] = truncateCellValue(item)
                 }
             }
         })
