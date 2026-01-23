@@ -17,6 +17,45 @@ import { FieldEditorTable } from './studio/FieldEditorTable'
 import { TemplateChat } from './template/TemplateChat'
 import { TemplatePreview } from './template/TemplatePreview'
 import { SampleAnalysisPanel } from './studio/SampleAnalysisPanel'
+import { ComparisonSettingsPanel } from './studio/ComparisonSettingsPanel'
+import { ExcelColumnEditor } from './studio/ExcelColumnEditor'
+
+export interface ComparisonSettings {
+    confidence_threshold: number; // 0.85
+    ignore_position_changes: boolean; // true
+    ignore_color_changes: boolean; // false
+    ignore_font_changes: boolean; // true
+    ignore_compression_noise?: boolean; // true - JPEG artifacts
+    custom_ignore_rules?: string; // custom instructions
+    allowed_categories?: string[]; // Whitelist
+    excluded_categories?: string[]; // Blacklist
+}
+
+export interface ExcelExportColumn {
+    key: string;
+    label: string;
+    width: number;
+    enabled: boolean;
+}
+
+export interface ExtractionModel {
+    id: string;
+    name: string;
+    description?: string;
+    global_rules?: string;
+    data_structure?: 'data' | 'table' | 'report'; // data=JSON, table=Grid
+    model_type?: 'extraction' | 'comparison';
+    azure_model_id?: string;
+    webhook_url?: string;
+    allowedGroups?: string[];
+    fields: FieldDefinition[];
+    is_active: boolean;
+    created_at?: string;
+    updated_at?: string;
+    // New Settings
+    comparison_settings?: ComparisonSettings;
+    excel_columns?: ExcelExportColumn[];
+}
 
 export function ModelStudio() {
     const { models, loading, saveModel, deleteModel, refineSchema } = useModels()
@@ -274,7 +313,23 @@ export function ModelStudio() {
                                             </button>
                                         )}
                                     </Card>
+                                )}
 
+                                {/* Comparison Settings - Only show for Comparison Models */}
+                                {editingModel.model_type === 'comparison' && (
+                                    <>
+                                        <ComparisonSettingsPanel
+                                            settings={editingModel.comparison_settings}
+                                            onChange={(settings) => setEditingModel({ ...editingModel, comparison_settings: settings })}
+                                            disabled={!isEditing}
+                                        />
+
+                                        <ExcelColumnEditor
+                                            columns={editingModel.excel_columns}
+                                            onChange={(columns) => setEditingModel({ ...editingModel, excel_columns: columns })}
+                                            disabled={!isEditing}
+                                        />
+                                    </>
                                 )}
 
                                 {/* Data Structure */}

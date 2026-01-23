@@ -8,6 +8,25 @@ class FieldDefinition(BaseModel):
     rules: Optional[str] = None  # 출력 보정/형태 정의 (자연어)
     type: str = "string"
 
+class ComparisonSettings(BaseModel):
+    """비교 설정 (comparison 모델 전용)"""
+    confidence_threshold: float = 0.85  # 0.0-1.0 신뢰도 임계값
+    ignore_position_changes: bool = True  # 위치 변경 무시
+    ignore_color_changes: bool = False  # 색상 변경 무시
+    ignore_font_changes: bool = True  # 폰트 변경 무시
+    ignore_compression_noise: bool = True  # JPEG/이미지 압축 노이즈 무시 (기본 활성화)
+    custom_ignore_rules: Optional[str] = None  # 추가 무시 규칙 (자연어)
+    # 카테고리 커스터마이징
+    allowed_categories: Optional[List[str]] = None  # 허용할 카테고리 목록 (설정 시 이것만 사용)
+    excluded_categories: Optional[List[str]] = None  # 제외할 카테고리 목록
+
+class ExcelExportColumn(BaseModel):
+    """엑셀 내보내기 열 정의"""
+    key: str  # 내부 키 (e.g., "candidate", "description")
+    label: str  # 헤더 표시명
+    width: int = 15  # 열 너비
+    enabled: bool = True  # 내보내기 포함 여부
+
 class ExtractionModel(BaseModel):
     id: str
     name: str
@@ -20,6 +39,9 @@ class ExtractionModel(BaseModel):
     allowedGroups: Optional[List[str]] = None # Access control groups
     fields: List[FieldDefinition]
     is_active: bool = True
+    # Comparison-specific settings
+    comparison_settings: Optional[ComparisonSettings] = None
+    excel_columns: Optional[List[ExcelExportColumn]] = None
 
 class ExtractionModelCreate(BaseModel):
     name: str
@@ -30,3 +52,6 @@ class ExtractionModelCreate(BaseModel):
     webhook_url: Optional[str] = None  # POST URL for automation
     allowedGroups: Optional[List[str]] = None
     fields: List[FieldDefinition]
+    # Comparison-specific settings
+    comparison_settings: Optional[ComparisonSettings] = None
+    excel_columns: Optional[List[ExcelExportColumn]] = None

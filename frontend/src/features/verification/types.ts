@@ -60,6 +60,26 @@ export interface PreviewData {
     }>
 }
 
+// Comparison Settings Types
+export interface ComparisonSettings {
+    confidence_threshold: number; // 0.85
+    ignore_position_changes: boolean; // true
+    ignore_color_changes: boolean; // false
+    ignore_font_changes: boolean; // true
+    ignore_compression_noise: boolean; // true - JPEG/image compression artifacts
+    custom_ignore_rules?: string; // custom instructions
+    // Category customization
+    allowed_categories?: string[]; // If set, only use these categories
+    excluded_categories?: string[]; // If set, exclude these categories
+}
+
+export interface ExcelExportColumn {
+    key: string;
+    label: string;
+    width: number;
+    enabled: boolean;
+}
+
 /**
  * Extraction model definition
  */
@@ -70,6 +90,8 @@ export interface ExtractionModel {
     fields: Array<{ key: string; label: string; type?: string }>
     allowedGroups?: string[]
     model_type?: 'extraction' | 'comparison'
+    comparison_settings?: ComparisonSettings
+    excel_columns?: ExcelExportColumn[]
 }
 
 /**

@@ -55,12 +55,12 @@ class StartExtractionRequest(BaseModel):
 
 
 # Background task to process extraction
-async def process_extraction_job(job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None):
+async def process_extraction_job(job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None, candidate_filenames: Optional[List[str]] = None):
     """Background task to run full extraction pipeline"""
     logger.info(f"[Background] Starting extraction job {job_id}")
     try:
         from app.services.extraction_service import extraction_service
-        await extraction_service.run_extraction_pipeline(job_id, model_id, file_url, candidate_file_url, candidate_file_urls)
+        await extraction_service.run_extraction_pipeline(job_id, model_id, file_url, candidate_file_url, candidate_file_urls, candidate_filenames)
         logger.info(f"[Background] Completed extraction job {job_id}")
     except Exception as e:
         logger.info(f"[Background] FATAL ERROR in job {job_id}: {e}")
@@ -95,12 +95,14 @@ async def start_job_with_upload(
         file_url = await upload_file_to_blob(file)
         
         candidate_file_urls = []
+        candidate_filenames = []  # NEW: Store original filenames
         candidate_file_url = None # Legacy support
 
         if candidate_files:
             for c_file in candidate_files:
                 url = await upload_file_to_blob(c_file)
                 candidate_file_urls.append(url)
+                candidate_filenames.append(c_file.filename)  # NEW: Store original filename
             
             # Set legacy single URL to the first one for backward compatibility
             if candidate_file_urls:
@@ -148,7 +150,8 @@ async def start_job_with_upload(
         model_id,
         file_url,
         candidate_file_url,
-        candidate_file_urls # Pass list
+        candidate_file_urls,
+        candidate_filenames  # NEW: Pass original filenames
     )
 
     return {

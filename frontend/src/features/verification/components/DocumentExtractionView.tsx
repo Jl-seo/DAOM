@@ -130,6 +130,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                             comparisons={previewData?.comparisons || []}
                             onRetry={handleRetry}
                             isRefining={status === EXTRACTION_STATUS.REFINING}
+                            excelColumns={model?.excel_columns}
                         />
                     ) : (
                         <ExtractionReviewView

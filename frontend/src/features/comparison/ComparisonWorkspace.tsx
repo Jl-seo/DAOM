@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import * as XLSX from 'xlsx'
+import type { ExcelExportColumn } from '../verification/types'
 
 interface ComparisonResult {
     differences: Difference[]
@@ -30,7 +31,7 @@ interface ComparisonData {
 }
 
 // 파일 URL에서 파일명 추출 헬퍼 함수
-// UUID 패턴이면 친화적 이름으로 변경
+// UUID_originalfilename 패턴이면 원본 파일명 추출, UUID만 있으면 친화적 이름으로 변경
 function getFilenameFromUrl(url?: string, fallbackIndex?: number, fallbackPrefix?: string): string {
     const fallbackName = `${fallbackPrefix || 'Candidate'} ${(fallbackIndex ?? 0) + 1}`
     if (!url) return fallbackName
@@ -40,9 +41,21 @@ function getFilenameFromUrl(url?: string, fallbackIndex?: number, fallbackPrefix
         const filename = pathname.split('/').pop() || ''
         const decoded = decodeURIComponent(filename)
 
-        // UUID 패턴 감지 (8-4-4-4-12 형식)
-        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
-        if (uuidPattern.test(decoded)) {
+        // UUID_originalfilename 패턴 감지 (uuid_filename.ext 형식)
+        const uuidPrefixPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_(.+)$/i
+        const match = decoded.match(uuidPrefixPattern)
+        if (match) {
+            // UUID 뒤의 원본 파일명 추출
+            const originalFilename = match[1]
+            if (originalFilename.length > 30) {
+                return originalFilename.slice(0, 27) + '...'
+            }
+            return originalFilename
+        }
+
+        // 순수 UUID 패턴 감지 (8-4-4-4-12 형식, 파일명 없음)
+        const pureUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        if (pureUuidPattern.test(decoded)) {
             return fallbackName
         }
 
@@ -64,6 +77,7 @@ interface ComparisonWorkspaceProps {
     comparisons?: ComparisonData[] // Multi results
     onRetry?: () => void // Retry callback
     isRefining?: boolean // 재시도 중 로딩 상태
+    excelColumns?: ExcelExportColumn[] // Custom Excel columns
 }
 
 export function ComparisonWorkspace({
@@ -73,7 +87,8 @@ export function ComparisonWorkspace({
     comparisonResult,
     comparisons,
     onRetry,
-    isRefining = false
+    isRefining = false,
+    excelColumns
 }: ComparisonWorkspaceProps) {
     const { t } = useTranslation()
     const [selectedDiffId, setSelectedDiffId] = useState<string | number | null>(null)
@@ -145,27 +160,51 @@ export function ComparisonWorkspace({
             }
 
             // Create worksheet
-            const ws = XLSX.utils.json_to_sheet(rows, {
-                header: ['no', 'candidate', 'page', 'category', 'description', 'confidence']
+            // Default columns if not provided
+            const defaultCols: ExcelExportColumn[] = [
+                { key: 'no', label: t('comparison.export.no_header') || 'No', width: 8, enabled: true },
+                { key: 'candidate', label: t('comparison.export.candidate_header') || 'Candidate', width: 12, enabled: true },
+                { key: 'page', label: t('comparison.export.page_header') || 'Page', width: 10, enabled: true },
+                { key: 'category', label: t('comparison.export.category_header') || 'Category', width: 15, enabled: true },
+                { key: 'description', label: t('comparison.export.description_header') || 'Description', width: 60, enabled: true },
+                { key: 'confidence', label: t('comparison.export.confidence_header') || 'Confidence', width: 10, enabled: true }
+            ]
+
+            const activeCols = (excelColumns?.length ? excelColumns : defaultCols).filter(c => c.enabled)
+
+            const rowData = rows.map(r => {
+                const row: any = {}
+                activeCols.forEach(col => {
+                    // Map internal keys to data keys if needed, currently they match roughly
+                    // But 'page_number' in schema vs 'page' in defaults. Let's align.
+                    let val: any = ''
+                    if (col.key === 'page_number') val = r.page
+                    else if (col.key === 'page') val = r.page
+                    else val = (r as any)[col.key]
+
+                    row[col.key] = val
+                })
+                return row
             })
 
-            // Set column headers (i18n)
-            ws['A1'] = { v: t('comparison.export.no_header'), t: 's' }
-            ws['B1'] = { v: t('comparison.export.candidate_header'), t: 's' }
-            ws['C1'] = { v: t('comparison.export.page_header'), t: 's' }
-            ws['D1'] = { v: t('comparison.export.category_header'), t: 's' }
-            ws['E1'] = { v: t('comparison.export.description_header'), t: 's' }
-            ws['F1'] = { v: t('comparison.export.confidence_header'), t: 's' }
+            // Create worksheet
+            const ws = XLSX.utils.json_to_sheet(rowData, {
+                header: activeCols.map(c => c.key)
+            })
 
-            // Set column widths
-            ws['!cols'] = [
-                { wch: 8 },   // id
-                { wch: 12 },  // candidate
-                { wch: 10 },  // page
-                { wch: 15 },  // category
-                { wch: 60 },  // description
-                { wch: 10 }   // confidence
-            ]
+            // Set column headers and widths
+            const colWidths: { wch: number }[] = []
+            activeCols.forEach((col, idx) => {
+                // Header cell address (e.g. A1, B1...)
+                const cellAddr = XLSX.utils.encode_cell({ r: 0, c: idx })
+                if (ws[cellAddr]) {
+                    ws[cellAddr].v = col.label
+                    ws[cellAddr].t = 's'
+                }
+                colWidths.push({ wch: col.width || 15 })
+            })
+
+            ws['!cols'] = colWidths
 
             // Create workbook and export
             const wb = XLSX.utils.book_new()
@@ -288,8 +327,8 @@ export function ComparisonWorkspace({
                                             : "bg-card border-border text-foreground"
                                     )}
                                 >
-                                    <span className="truncate flex-1" title={getFilenameFromUrl(candidateFileUrls?.[comp.originalIndex] || comp.file_url, comp.originalIndex)}>
-                                        {comp.filename || getFilenameFromUrl(candidateFileUrls?.[comp.originalIndex] || comp.file_url, comp.originalIndex)}
+                                    <span className="truncate flex-1" title={comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex)}>
+                                        {comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex)}
                                     </span>
                                     {comp.error ? (
                                         <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />

@@ -24,7 +24,7 @@ class ExtractionService:
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
         )
 
-    async def run_extraction_pipeline(self, job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None):
+    async def run_extraction_pipeline(self, job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None, candidate_filenames: Optional[List[str]] = None):
         """
         Orchestrates the full extraction pipeline with Multi-Document Support:
         1. OCR (Doc Intelligence)
@@ -94,27 +94,32 @@ class ExtractionService:
                     logger.info(f"[Pipeline] Applying custom comparison rules: {custom_rules[:50]}...")
 
                 # Define comparison task for a single candidate
-                async def compare_single(idx: int, c_url: str) -> dict:
-                    logger.info(f"[Pipeline] Comparing Candidate {idx+1}/{len(all_candidates)}")
+                async def compare_single(idx: int, c_url: str, c_filename: Optional[str] = None) -> dict:
+                    logger.info(f"[Pipeline] Comparing Candidate {idx+1}/{len(all_candidates)}: {c_filename or 'unnamed'}")
                     try:
                         res = await llm.compare_images(file_url, c_url, custom_instructions=custom_rules)
-                        # Extract filename from URL or use index
-                        filename = None
-                        try:
-                            from urllib.parse import urlparse, unquote
-                            parsed = urlparse(c_url)
-                            path_part = parsed.path.split('/')[-1]
-                            decoded = unquote(path_part)
-                            # Check if it's a UUID pattern, if so skip
-                            import re
-                            if not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}', decoded, re.I):
-                                filename = decoded
-                        except:
-                            pass
+                        # Use provided filename directly (from upload time)
+                        # Fallback to URL parsing if not provided
+                        filename = c_filename
+                        if not filename:
+                            try:
+                                from urllib.parse import urlparse, unquote
+                                parsed = urlparse(c_url)
+                                path_part = parsed.path.split('/')[-1]
+                                decoded = unquote(path_part)
+                                import re
+                                uuid_prefix_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}_(.+)$'
+                                match = re.match(uuid_prefix_pattern, decoded, re.I)
+                                if match:
+                                    filename = match.group(1)
+                                elif not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}', decoded, re.I):
+                                    filename = decoded
+                            except:
+                                pass
                         return {
                             "candidate_index": idx,
                             "file_url": c_url,
-                            "filename": filename,  # Original filename
+                            "filename": filename,  # Original filename from upload
                             "result": res
                         }
                     except Exception as comp_error:
@@ -122,13 +127,19 @@ class ExtractionService:
                         return {
                             "candidate_index": idx,
                             "file_url": c_url,
-                            "filename": None,
+                            "filename": c_filename,  # Still return provided filename
                             "error": str(comp_error),
                             "result": {}
                         }
                 
+                # Build filename lookup (safely handle None or mismatched lengths)
+                all_filenames = candidate_filenames or []
+                
                 # Run all comparisons in PARALLEL using asyncio.gather
-                comparison_tasks = [compare_single(idx, c_url) for idx, c_url in enumerate(all_candidates)]
+                comparison_tasks = [
+                    compare_single(idx, c_url, all_filenames[idx] if idx < len(all_filenames) else None) 
+                    for idx, c_url in enumerate(all_candidates)
+                ]
                 comparison_results = await asyncio.gather(*comparison_tasks)
                 comparison_results = list(comparison_results)  # Convert tuple to list
 

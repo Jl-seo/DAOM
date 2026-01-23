@@ -305,23 +305,52 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
     finally:
         await client.close()
 
-async def compare_images(image_url_1: str, image_url_2: str, custom_instructions: Optional[str] = None) -> dict:
+async def compare_images(image_url_1: str, image_url_2: str, custom_instructions: Optional[str] = None, comparison_settings: Optional[dict] = None) -> dict:
     """
     Compare two images using the globally configured LLM (e.g. GPT-4.1).
     Expects data uris or public urls.
     
     Args:
         custom_instructions: Optional specific rules for comparison (e.g. "Ignore font size changes", "Focus on red text")
+        comparison_settings: Optional structured settings dict with keys:
+            - confidence_threshold: float (0.0-1.0)
+            - ignore_position_changes: bool
+            - ignore_color_changes: bool
+            - ignore_font_changes: bool
+            - custom_ignore_rules: Optional[str]
     """
     client = get_openai_client()
     
     # Use configured global model (Admin controlled)
     model = _current_model
     
+    # Extract settings with defaults
+    conf_threshold = 0.85
+    ignore_position = True
+    ignore_color = False
+    ignore_font = True
+    ignore_compression = True  # New: default to ignoring compression noise
+    custom_ignore = None
+    allowed_cats = None
+    excluded_cats = None
+    
+    if comparison_settings:
+        conf_threshold = comparison_settings.get("confidence_threshold", 0.85)
+        ignore_position = comparison_settings.get("ignore_position_changes", True)
+        ignore_color = comparison_settings.get("ignore_color_changes", False)
+        ignore_font = comparison_settings.get("ignore_font_changes", True)
+        ignore_compression = comparison_settings.get("ignore_compression_noise", True)
+        custom_ignore = comparison_settings.get("custom_ignore_rules")
+        allowed_cats = comparison_settings.get("allowed_categories")
+        excluded_cats = comparison_settings.get("excluded_categories")
+        logger.info(f"[LLM] Using model comparison settings: threshold={conf_threshold}, ignore_position={ignore_position}, categories={allowed_cats or 'default'}")
+    
     # Inject Custom Rules if provided
     custom_rules_text = ""
     if custom_instructions:
         custom_rules_text = f"\n\n**USER DEFINED COMPARISON RULES (MUST FOLLOW):**\n{custom_instructions}\n"
+    if custom_ignore:
+        custom_rules_text += f"\n**ADDITIONAL IGNORE RULES:**\n{custom_ignore}\n"
     
     # Try to load custom system prompt from site settings
     custom_system_prompt = None
@@ -333,6 +362,36 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
             logger.info("[LLM] Using custom comparison system prompt from site settings")
     except Exception as e:
         logger.debug(f"[LLM] Could not load site settings: {e}")
+    
+    # Build dynamic ignore rules based on settings
+    dynamic_ignore_rules = []
+    if ignore_position:
+        dynamic_ignore_rules.append("- **POSITION/LAYOUT SHIFTS**: If the SAME element exists in BOTH images but at slightly different positions, THIS IS NOT A DIFFERENCE.")
+    if ignore_color:
+        dynamic_ignore_rules.append("- **COLOR CHANGES**: Ignore color differences unless they significantly change meaning.")
+    if ignore_font:
+        dynamic_ignore_rules.append("- **FONT CHANGES**: Ignore minor font weight, size, or style differences.")
+    if ignore_compression:
+        dynamic_ignore_rules.append("""- **IMAGE COMPRESSION ARTIFACTS**: IGNORE any visual differences that could be explained by:
+      - JPEG compression artifacts (blocky edges, color banding)
+      - Slight RGB value shifts (within ~10 values difference)
+      - Anti-aliasing differences on text/element edges
+      - Subtle brightness/contrast variations
+      - Image re-encoding noise
+      - **RULE**: If the difference looks like the SAME color with slight variation, IGNORE IT. Only report if the color is OBVIOUSLY INTENTIONALLY DIFFERENT (e.g., blue→red, yellow→green).""")
+    
+    dynamic_ignore_text = "\n".join(dynamic_ignore_rules) if dynamic_ignore_rules else ""
+    
+    # Build category list dynamically
+    default_categories = ["content", "layout", "style", "missing_element", "added_element"]
+    if allowed_cats:
+        active_categories = allowed_cats
+    elif excluded_cats:
+        active_categories = [c for c in default_categories if c not in excluded_cats]
+    else:
+        active_categories = default_categories
+    
+    categories_str = json.dumps(active_categories)
     
     # If custom system prompt exists in site settings, use it; otherwise use default
     if custom_system_prompt:
@@ -357,11 +416,11 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     Each difference object must have:
     - "id": unique integer (1, 2, 3...)
     - "description": concise text describing the change in **KOREAN** (한국어로 설명). Example: "헤더의 'Invoice' 텍스트가 'Tax Invoice'로 변경됨" or "우측 상단에 '결재' 버튼이 추가됨".
-    - "category": one of ["content", "layout", "style", "missing_element", "added_element"]
+    - "category": one of {categories_str}
     - "confidence": float between 0.0 and 1.0.
       - **0.9 - 1.0**: Absolutely certain (text clearly changed, element clearly added/removed).
-      - **0.7 - 0.89**: Very likely a real difference.
-      - **< 0.7**: DO NOT REPORT. Discard these entirely.
+      - **0.85 - 0.89**: Very likely a real difference.
+      - **< 0.85**: DO NOT REPORT. Discard these entirely.
     - "location_1": bounding box in Baseline image as [y_min, x_min, y_max, x_max] (0-1000 scale). Null if added_element.
     - "location_2": bounding box in Candidate image as [y_min, x_min, y_max, x_max] (0-1000 scale). Null if missing_element.
     - "page_number": integer (1-based), default to 1.
@@ -377,14 +436,17 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     **CRITICAL RULES - READ CAREFULLY:**
     1. **ABSOLUTELY NO HALLUCINATION**: If the images look identical or nearly identical, return EMPTY "differences" list. Do NOT invent differences.
     2. **IDENTICAL = EMPTY LIST**: If after careful analysis you find NO meaningful differences, respond with: {{"differences": []}}
-    3. **HIGH CONFIDENCE ONLY**: Only report differences with confidence >= 0.7. Anything below is NOISE.
+    3. **HIGH CONFIDENCE ONLY**: Only report differences with confidence >= 0.85. Anything below is NOISE.
     4. **IGNORE NOISE**: Do not report:
        - Slight color variations due to image compression
        - Anti-aliasing differences on text edges
        - Minor font weight/rendering differences
        - Subtle shadow or gradient differences
-    5. **REAL DIFFERENCES ONLY**: Only report if you can clearly describe WHAT text changed, WHAT element was added/removed.
-    6. **VALIDATE BEFORE REPORTING**: Ask yourself "Can a human clearly see this difference?" If no, DO NOT REPORT.
+       - **POSITION/LAYOUT SHIFTS**: If the SAME element exists in BOTH images but at slightly different positions, THIS IS NOT A DIFFERENCE. Do NOT report it.
+       - **Alignment variations**: Same content with minor alignment or spacing differences is NOT a difference.
+    5. **REAL DIFFERENCES ONLY**: Only report if you can clearly describe WHAT text changed, WHAT element was added/removed. Position shifts of identical content are NOT real differences.
+    6. **VALIDATE BEFORE REPORTING**: Ask yourself "Can a human clearly see this difference?" and "Is the CONTENT actually different, not just the position?" If no to either, DO NOT REPORT.
+    7. **POSITION IS NOT CONTENT**: Moving an element from left to right, or top to bottom, is NOT a content difference. Only report if the TEXT, IMAGE, or MEANING has changed.
     """
     
     user_message_content = [
