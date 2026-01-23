@@ -2,7 +2,7 @@ name: Deploy Frontend to Azure Container Apps
 
 on:
   push:
-    branches: [master, 'feature/*', 'fix/*']
+    branches: [master, 'feature/*']
     paths:
       - 'frontend/**'
       - '.github/workflows/deploy-frontend.yml'
