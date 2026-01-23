@@ -1,5 +1,4 @@
 
-import { clsx } from 'clsx'
 import { Card } from '@/components/ui/icon-card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -83,7 +82,7 @@ export function ExcelColumnEditor({ columns, onChange, disabled }: ExcelColumnEd
                                 <div className="col-span-2 flex items-center justify-end gap-2">
                                     <Switch
                                         checked={col.enabled}
-                                        onCheckedChange={(checked) => handleColumnChange(idx, 'enabled', checked)}
+                                        onCheckedChange={(checked: boolean) => handleColumnChange(idx, 'enabled', checked)}
                                         disabled={disabled}
                                         className="scale-75"
                                     />

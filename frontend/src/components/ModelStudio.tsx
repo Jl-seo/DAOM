@@ -7,7 +7,7 @@ import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import { DEFAULTS, MESSAGES } from '../constants'
 import { useModels } from '../hooks/useModels'
-import type { Model } from '../types/model'
+import type { Model, Field } from '../types/model'
 import type { TemplateConfig } from '../types/template'
 import { defaultTemplateConfig } from '../types/template'
 import { Card } from '@/components/ui/icon-card'
@@ -25,7 +25,7 @@ export interface ComparisonSettings {
     ignore_position_changes: boolean; // true
     ignore_color_changes: boolean; // false
     ignore_font_changes: boolean; // true
-    ignore_compression_noise?: boolean; // true - JPEG artifacts
+    ignore_compression_noise: boolean; // true - JPEG artifacts
     custom_ignore_rules?: string; // custom instructions
     allowed_categories?: string[]; // Whitelist
     excluded_categories?: string[]; // Blacklist
@@ -48,7 +48,7 @@ export interface ExtractionModel {
     azure_model_id?: string;
     webhook_url?: string;
     allowedGroups?: string[];
-    fields: FieldDefinition[];
+    fields: Field[];
     is_active: boolean;
     created_at?: string;
     updated_at?: string;

@@ -11,6 +11,24 @@ export interface Field {
     type: FieldType
 }
 
+export interface ComparisonSettings {
+    confidence_threshold: number
+    ignore_position_changes: boolean
+    ignore_color_changes: boolean
+    ignore_font_changes: boolean
+    ignore_compression_noise: boolean
+    custom_ignore_rules?: string
+    allowed_categories?: string[]
+    excluded_categories?: string[]
+}
+
+export interface ExcelExportColumn {
+    key: string
+    label: string
+    width: number
+    enabled: boolean
+}
+
 export interface Model {
     id: string
     name: string
@@ -20,4 +38,6 @@ export interface Model {
     model_type?: 'extraction' | 'comparison'
     webhook_url?: string  // POST URL for automation after extraction
     fields: Field[]
+    comparison_settings?: ComparisonSettings
+    excel_columns?: ExcelExportColumn[]
 }

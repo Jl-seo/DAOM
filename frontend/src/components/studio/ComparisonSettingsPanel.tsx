@@ -3,7 +3,7 @@ import { clsx } from 'clsx'
 import { Card } from '@/components/ui/icon-card'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
-import { Settings, EyeOff, LayoutTemplate, Tags } from 'lucide-react'
+import { Settings, Tags } from 'lucide-react'
 import type { ComparisonSettings } from '../ModelStudio'
 
 const ALL_CATEGORIES = [
@@ -68,7 +68,7 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
                         </div>
                         <Slider
                             value={[currentSettings.confidence_threshold]}
-                            onValueChange={(val) => handleChange('confidence_threshold', val[0])}
+                            onValueChange={(val: number[]) => handleChange('confidence_threshold', val[0])}
                             min={0.5}
                             max={1.0}
                             step={0.01}
@@ -90,7 +90,7 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
                             <span className="text-sm">이미지 압축 노이즈</span>
                             <Switch
                                 checked={currentSettings.ignore_compression_noise ?? true}
-                                onCheckedChange={(checked) => handleChange('ignore_compression_noise', checked)}
+                                onCheckedChange={(checked: boolean) => handleChange('ignore_compression_noise', checked)}
                                 disabled={disabled}
                             />
                         </div>
@@ -99,7 +99,7 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
                             <span className="text-sm">위치/레이아웃 이동</span>
                             <Switch
                                 checked={currentSettings.ignore_position_changes}
-                                onCheckedChange={(checked) => handleChange('ignore_position_changes', checked)}
+                                onCheckedChange={(checked: boolean) => handleChange('ignore_position_changes', checked)}
                                 disabled={disabled}
                             />
                         </div>
@@ -108,7 +108,7 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
                             <span className="text-sm">폰트 스타일</span>
                             <Switch
                                 checked={currentSettings.ignore_font_changes}
-                                onCheckedChange={(checked) => handleChange('ignore_font_changes', checked)}
+                                onCheckedChange={(checked: boolean) => handleChange('ignore_font_changes', checked)}
                                 disabled={disabled}
                             />
                         </div>
@@ -117,7 +117,7 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
                             <span className="text-sm">색상 변경</span>
                             <Switch
                                 checked={currentSettings.ignore_color_changes}
-                                onCheckedChange={(checked) => handleChange('ignore_color_changes', checked)}
+                                onCheckedChange={(checked: boolean) => handleChange('ignore_color_changes', checked)}
                                 disabled={disabled}
                             />
                         </div>
