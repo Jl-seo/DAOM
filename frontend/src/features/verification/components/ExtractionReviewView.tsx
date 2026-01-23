@@ -132,7 +132,7 @@ export function ExtractionReviewView({
             <div className="flex-1 min-w-0 h-full flex flex-col relative bg-background">
                 <PanelGroup orientation={direction} className="!h-full !w-full">
                     {/* PDF Viewer Panel */}
-                    <Panel defaultSize={50} minSize={20} className="relative">
+                    <Panel defaultSize={50} minSize={25} collapsible={false} className="relative">
                         <div className="h-full w-full overflow-hidden">
                             <DocumentPreviewPanel
                                 ref={pdfViewerRef}
