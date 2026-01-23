@@ -84,9 +84,11 @@ jobs:
               --username ${{ secrets.ACR_USERNAME }} \
               --password ${{ secrets.ACR_PASSWORD }}
 
+            echo ">> Updating container image..."
             az containerapp update \
               --name $APP_NAME --resource-group $RG \
               --image $IMAGE \
+              --container-name $APP_NAME \
               --revision-suffix $SUFFIX
 
             echo ">> Routing 100% traffic to revision: $REVISION"
