@@ -148,7 +148,7 @@ export function ComparisonWorkspace({
 
         try {
             // Collect all differences from all candidates
-            const rows: { no: number; candidate: number; page: number | string; category: string; description: string; confidence: string }[] = []
+            const rows: { no: number; candidate: string; page: number | string; category: string; description: string; confidence: string }[] = []
             let rowNum = 1
 
             comparisons.forEach((comp, idx) => {
@@ -156,7 +156,9 @@ export function ComparisonWorkspace({
                     comp.result.differences.forEach(diff => {
                         rows.push({
                             no: rowNum++,
-                            candidate: idx + 1,
+                            candidate: candidateFileUrls?.[idx]
+                                ? decodeURIComponent(candidateFileUrls[idx].split('/').pop() || '').split('?')[0]
+                                : `Candidate ${idx + 1}`,
                             page: diff.page_number || '-',
                             category: diff.category || 'unknown',
                             description: diff.description || '',
