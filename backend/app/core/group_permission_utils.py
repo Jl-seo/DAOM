@@ -58,3 +58,28 @@ async def get_model_role_by_group(user_id: str, tenant_id: str, model_id: str) -
                 if perm_model_id == model_id:
                     return model_perm.role if hasattr(model_perm, 'role') else model_perm.get('role')
     return None
+
+async def get_accessible_model_ids(user_id: str, tenant_id: str) -> set[str]:
+    """
+    사용자가 속한 그룹들의 권한을 확인하여 접근 가능한 모든 모델 ID 집합 반환
+    """
+    from app.services import group_service
+    
+    accessible_models = set()
+    groups = await group_service.get_groups_by_tenant(tenant_id)
+    
+    for group in groups:
+        is_member = any(m.id == user_id for m in group.members)
+        if is_member:
+            models_list = []
+            if hasattr(group.permissions, 'models'):
+                models_list = group.permissions.models
+            elif isinstance(group.permissions, dict):
+                models_list = group.permissions.get('models', [])
+            
+            for model_perm in models_list:
+                perm_model_id = model_perm.modelId if hasattr(model_perm, 'modelId') else model_perm.get('modelId')
+                if perm_model_id:
+                    accessible_models.add(perm_model_id)
+                    
+    return accessible_models

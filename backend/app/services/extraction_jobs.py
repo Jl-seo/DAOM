@@ -215,6 +215,37 @@ def get_jobs_by_model(model_id: str, limit: int = 50) -> List[ExtractionJob]:
     return []
 
 
+def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 50) -> List[ExtractionJob]:
+    """Get jobs for a specific model and user"""
+    container = get_extractions_container()
+    if not container:
+        return []
+    
+    try:
+        query = """
+            SELECT * FROM c 
+            WHERE c.model_id = @model_id 
+            AND c.user_id = @user_id
+            AND c.type = 'extraction_job'
+            ORDER BY c.created_at DESC
+            OFFSET 0 LIMIT @limit
+        """
+        items = list(container.query_items(
+            query=query,
+            parameters=[
+                {"name": "@model_id", "value": model_id},
+                {"name": "@user_id", "value": user_id},
+                {"name": "@limit", "value": limit}
+            ],
+            enable_cross_partition_query=True
+        ))
+        return [ExtractionJob(**item) for item in items]
+    except Exception as e:
+        logger.info(f"[ExtractionJobs] Failed to get model user jobs: {e}")
+    
+    return []
+
+
 def get_jobs_by_user(user_id: str, limit: int = 50) -> List[ExtractionJob]:
     """Get all jobs for a user"""
     container = get_extractions_container()

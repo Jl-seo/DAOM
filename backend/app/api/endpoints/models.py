@@ -10,11 +10,24 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+from app.core.auth import get_current_user, CurrentUser
+
 @router.get("/", response_model=List[ExtractionModel])
-def list_models():
-    # Filter for active models only
-    all_models = load_models()
-    return [m for m in all_models if getattr(m, "is_active", True)]
+async def list_models(current_user: CurrentUser = Depends(get_current_user)):
+    # 1. Load active models
+    all_models = [m for m in load_models() if getattr(m, "is_active", True)]
+    
+    # 2. Check permissions
+    from app.core.auth import is_super_admin
+    from app.core.group_permission_utils import get_accessible_model_ids
+    
+    # Super Admin sees all
+    if await is_super_admin(current_user):
+        return all_models
+        
+    # Standard User / Model Admin sees only accessible models
+    accessible_ids = await get_accessible_model_ids(current_user.id, current_user.tenant_id)
+    return [m for m in all_models if m.id in accessible_ids]
 
 @router.post("/", response_model=ExtractionModel, dependencies=[Depends(require_admin)])
 def create_model(model_in: ExtractionModelCreate):

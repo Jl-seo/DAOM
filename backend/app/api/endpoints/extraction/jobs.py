@@ -181,14 +181,41 @@ def cancel_extraction_job(
 
 
 @router.get("/jobs")
-def get_jobs(
+async def get_jobs(
     model_id: Optional[str] = None,
+    scope: str = "mine",  # mine, team
     current_user: CurrentUser = Depends(get_current_user),
     limit: int = 50
 ):
-    """Get jobs for current user or model"""
-    if model_id:
-        jobs = extraction_jobs.get_jobs_by_model(model_id, limit=limit)
+    """Get jobs for current user or model with scope control"""
+    from app.core.group_permission_utils import is_super_admin_by_group, get_model_role_by_group
+
+    jobs = []
+
+    # 1. Team View (Require Model Admin or Super Admin)
+    if scope == "team" and model_id:
+        is_super = await is_super_admin_by_group(current_user.id, current_user.tenant_id)
+        has_permission = False
+        
+        if is_super:
+            has_permission = True
+        else:
+            role = await get_model_role_by_group(current_user.id, current_user.tenant_id, model_id)
+            if role == "Admin":
+                has_permission = True
+        
+        if has_permission:
+            jobs = extraction_jobs.get_jobs_by_model(model_id, limit=limit)
+            # If permission denied, fall through to 'mine' scope logic safely
+        else:
+            # Fallback to mine if no permission for team view
+            jobs = extraction_jobs.get_jobs_by_model_and_user(model_id, current_user.id, limit=limit)
+
+    # 2. Mine View (My jobs in specific model)
+    elif model_id:
+        jobs = extraction_jobs.get_jobs_by_model_and_user(model_id, current_user.id, limit=limit)
+        
+    # 3. Global My View (All my jobs across models)
     else:
         jobs = extraction_jobs.get_jobs_by_user(current_user.id if current_user else "unknown", limit=limit)
     
