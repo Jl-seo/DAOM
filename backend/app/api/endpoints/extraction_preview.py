@@ -251,6 +251,7 @@ def get_job_status(
         "error": job.error,
         "filename": job.filename,
         "file_url": job.file_url,
+        "candidate_file_urls": job.candidate_file_urls,  # NEW: For comparison models
         "log_id": job.original_log_id or job.log_id,  # For retry functionality
         "created_at": job.created_at,
         "updated_at": job.updated_at
