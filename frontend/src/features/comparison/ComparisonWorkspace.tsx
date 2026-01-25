@@ -187,12 +187,28 @@ export function ComparisonWorkspace({
             const rowData = rows.map(r => {
                 const row: any = {}
                 activeCols.forEach(col => {
-                    // Map internal keys to data keys if needed, currently they match roughly
-                    // But 'page_number' in schema vs 'page' in defaults. Let's align.
+                    // Map internal keys to data keys
+                    // Robust mapping: try exact match first, then falling back to keyword matching
+                    // because users might change the 'key' in model settings which breaks exact matching
+
+                    const key = col.key.toLowerCase().replace(/_/g, '').replace(/ /g, '')
                     let val: any = ''
-                    if (col.key === 'page_number') val = r.page
-                    else if (col.key === 'page') val = r.page
-                    else val = (r as any)[col.key]
+
+                    // 1. Direct match
+                    if ((r as any)[col.key] !== undefined) {
+                        val = (r as any)[col.key]
+                    }
+                    // 2. Known keys mapping (fallback)
+                    else if (key.includes('page')) val = r.page
+                    else if (key.includes('candidate') || key.includes('file')) val = r.candidate
+                    else if (key.includes('desc') || key.includes('content')) val = r.description
+                    else if (key.includes('cat') || key.includes('type')) val = r.category
+                    else if (key.includes('conf') || key.includes('score')) val = r.confidence
+                    else if (key.includes('no') || key.includes('idx') || key.includes('index')) val = r.no
+                    // 3. Last attempt with raw key
+                    else {
+                        val = (r as any)[col.key]
+                    }
 
                     row[col.key] = val
                 })

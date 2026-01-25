@@ -63,10 +63,10 @@ export function ExcelColumnEditor({ columns, onChange, disabled }: ExcelColumnEd
                                     <input
                                         type="text"
                                         value={col.key}
-                                        onChange={(e) => handleColumnChange(idx, 'key', e.target.value)}
-                                        placeholder="데이터 키"
-                                        disabled={disabled}
-                                        className="w-full px-2 py-1 text-xs font-mono text-muted-foreground bg-transparent border-b border-transparent focus:border-primary focus:outline-none"
+                                        readOnly
+                                        disabled
+                                        className="w-full px-2 py-1 text-xs font-mono text-muted-foreground bg-muted/50 border-b border-transparent cursor-not-allowed"
+                                        title="시스템 키는 수정할 수 없습니다"
                                     />
                                 </div>
                                 <div className="col-span-2 flex items-center">
@@ -86,6 +86,8 @@ export function ExcelColumnEditor({ columns, onChange, disabled }: ExcelColumnEd
                                         disabled={disabled}
                                         className="scale-75"
                                     />
+                                    {/* 삭제 버튼 비활성화 (필요 시 enabled로 제어) */}
+                                    {/* 
                                     <button
                                         onClick={() => handleDeleteColumn(idx)}
                                         disabled={disabled}
@@ -93,12 +95,15 @@ export function ExcelColumnEditor({ columns, onChange, disabled }: ExcelColumnEd
                                     >
                                         <Trash2 className="w-3.5 h-3.5" />
                                     </button>
+                                    */}
                                 </div>
                             </div>
                         </div>
                     ))}
                 </div>
 
+                {/* 열 추가 비활성화 - 데이터 소스가 고정되어 있으므로 임의 키 추가 불가 */}
+                {/* 
                 <Button
                     variant="outline"
                     size="sm"
@@ -109,6 +114,7 @@ export function ExcelColumnEditor({ columns, onChange, disabled }: ExcelColumnEd
                     <Plus className="w-3.5 h-3.5 mr-1" />
                     열 추가
                 </Button>
+                */}
             </div>
         </Card>
     )
