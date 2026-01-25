@@ -1,4 +1,5 @@
-import { Split, FileDiff, CheckCircle2, ChevronRight, AlertCircle, Download, RefreshCw, Loader2, ChevronLeft, ArrowUpDown, Eye, EyeOff } from 'lucide-react'
+import { Split, FileDiff, CheckCircle2, ChevronRight, AlertCircle, Download, RefreshCw, ChevronLeft, ArrowUpDown, Eye, EyeOff } from 'lucide-react'
+import { CircleNotch } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -269,9 +270,9 @@ export function ComparisonWorkspace({
             {isRefining && (
                 <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
                     <div className="flex flex-col items-center gap-3 text-center">
-                        <Loader2 className="w-10 h-10 animate-spin text-primary" />
-                        <p className="text-lg font-medium">{t('common.messages.refining') || '재추출 중...'}</p>
-                        <p className="text-sm text-muted-foreground">새로운 비교 결과가 곧 표시됩니다</p>
+                        <CircleNotch weight="bold" className="w-10 h-10 animate-spin text-primary" />
+                        <p className="text-lg font-medium">{t('common.messages.refining')}</p>
+                        <p className="text-sm text-muted-foreground">{t('common.messages.refining_desc')}</p>
                     </div>
                 </div>
             )}

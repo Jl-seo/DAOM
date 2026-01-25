@@ -83,7 +83,9 @@
             "creating": "Creating...",
             "unknown_error": "Unknown error",
             "no_changes": "No changes",
-            "no_permission": "No permission"
+            "no_permission": "No permission",
+            "refining": "Refining...",
+            "refining_desc": "New comparison results will appear soon"
         },
         "placeholders": {
             "enter_value": "Enter a value",
