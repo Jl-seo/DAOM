@@ -1,5 +1,5 @@
 # Build Stage
-FROM node:20-slim as build
+FROM node:20-slim AS build
 
 WORKDIR /app
 
@@ -14,6 +14,8 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
+# Increase memory limit for build process
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN npm run build
 
 # Production Stage

@@ -1,8 +1,8 @@
 
 import { Card } from '@/components/ui/icon-card'
-import { Button } from '@/components/ui/button'
+// import { Button } from '@/components/ui/button' -> Removed unused import
 import { Switch } from '@/components/ui/switch'
-import { FileSpreadsheet, GripVertical, Trash2, Plus } from 'lucide-react'
+import { FileSpreadsheet, GripVertical } from 'lucide-react'
 import type { ExcelExportColumn } from '../ModelStudio'
 
 interface ExcelColumnEditorProps {
@@ -27,14 +27,10 @@ export function ExcelColumnEditor({ columns, onChange, disabled }: ExcelColumnEd
         onChange(newColumns)
     }
 
-    const handleAddColumn = () => {
-        onChange([...currentColumns, { key: 'new_col', label: '새 열', width: 15, enabled: true }])
-    }
+    // Unused functions removed
+    // const handleAddColumn...
 
-    const handleDeleteColumn = (index: number) => {
-        const newColumns = currentColumns.filter((_, i) => i !== index)
-        onChange(newColumns)
-    }
+    // const handleDeleteColumn...
 
     return (
         <Card icon={FileSpreadsheet} title="Excel 내보내기 설정">
