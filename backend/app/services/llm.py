@@ -334,6 +334,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     allowed_cats = None
     excluded_cats = None
     
+    custom_cats = None
     if comparison_settings:
         conf_threshold = comparison_settings.get("confidence_threshold", 0.85)
         ignore_position = comparison_settings.get("ignore_position_changes", True)
@@ -343,15 +344,18 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         custom_ignore = comparison_settings.get("custom_ignore_rules")
         allowed_cats = comparison_settings.get("allowed_categories")
         excluded_cats = comparison_settings.get("excluded_categories")
-        logger.info(f"[LLM] Using model comparison settings: threshold={conf_threshold}, ignore_position={ignore_position}, categories={allowed_cats or 'default'}")
+        custom_cats = comparison_settings.get("custom_categories") # List[dict]
+        logger.info(f"[LLM] Using model comparison settings: threshold={conf_threshold}, ignore_position={ignore_position}, categories={allowed_cats or 'default'}, custom_cats={len(custom_cats) if custom_cats else 0}")
     
     # Inject Custom Rules if provided
+    # ... (omitted standard rules injection, keeping existing flow) ...
     custom_rules_text = ""
     if custom_instructions:
         custom_rules_text = f"\n\n**USER DEFINED COMPARISON RULES (MUST FOLLOW):**\n{custom_instructions}\n"
     if custom_ignore:
         custom_rules_text += f"\n**ADDITIONAL IGNORE RULES:**\n{custom_ignore}\n"
     
+    # ... (omitted site settings load) ...
     # Try to load custom system prompt from site settings
     custom_system_prompt = None
     try:
@@ -362,7 +366,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
             logger.info("[LLM] Using custom comparison system prompt from site settings")
     except Exception as e:
         logger.debug(f"[LLM] Could not load site settings: {e}")
-    
+
     # Build dynamic ignore rules based on settings
     dynamic_ignore_rules = []
     if ignore_position:
@@ -382,18 +386,153 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     
     dynamic_ignore_text = "\n".join(dynamic_ignore_rules) if dynamic_ignore_rules else ""
     
-    # Build category list dynamically
+    # Build category list dynamically with Custom Definitions
     default_categories = ["content", "layout", "style", "missing_element", "added_element"]
+    
+    # Merge custom categories if present
+    custom_cat_keys = []
+    custom_cat_defs = []
+    if custom_cats:
+        for cc in custom_cats:
+            key = cc.get("key")
+            desc = cc.get("description", "")
+            if key:
+                custom_cat_keys.append(key)
+                custom_cat_defs.append(f"- **{key}**: {desc}")
+
+    all_potential_cats = default_categories + custom_cat_keys
+
     if allowed_cats:
         active_categories = allowed_cats
     elif excluded_cats:
-        active_categories = [c for c in default_categories if c not in excluded_cats]
+        active_categories = [c for c in all_potential_cats if c not in excluded_cats]
     else:
-        active_categories = default_categories
+        active_categories = all_potential_cats
     
     categories_str = json.dumps(active_categories)
+
+    # Add custom category definitions to rules text so LLM understands them
+    if custom_cat_defs:
+         custom_rules_text += "\n**CUSTOM CATEGORY DEFINITIONS:**\n" + "\n".join(custom_cat_defs) + "\n"
     
-    # If custom system prompt exists in site settings, use it; otherwise use default
+    
+    # 1. Detect pixel-level differences to get accurate bboxes
+    from app.services import pixel_diff
+    
+    pixel_diffs = []
+    try:
+        pixel_diffs = await pixel_diff.detect_pixel_differences(image_url_1, image_url_2)
+        logger.info(f"[LLM] Detected {len(pixel_diffs)} pixel differences")
+    except Exception as e:
+        logger.error(f"[LLM] Pixel diff detection failed: {e}")
+        # Fallback to full image comparison without precise bboxes if pixel diff fails
+    
+    # If pixel diffs found, we can use them to guide the LLM or structure the output.
+    # Current strategy: Use the CROPS from pixel diffs to ask LLM what changed.
+    
+    comparison_results = []
+    
+    if pixel_diffs:
+        # Batch analysis or individual analysis per diff
+        # For better accuracy, we analyze each meaningful difference individually
+        
+        for i, diff in enumerate(pixel_diffs):
+            bbox = diff["bbox"] # [x1, y1, x2, y2] normalized
+            crop1 = diff["crop_1"]
+            crop2 = diff["crop_2"]
+            
+            # Region analysis prompt
+            region_prompt = f"""
+            Analyze the difference between these two image crops (Baseline vs Candidate).
+            They are crops from the same document at the same position.
+            
+            Identify what changed in this specific region.
+            - If text changed, specify "Change from 'Old' to 'New'".
+            - If element is missing/added, specify that.
+            - If it's just noise/compression artifact, say "NO_MEANINGFUL_CHANGE".
+            
+            {custom_rules_text}
+
+            Return JSON:
+            {{
+                "is_meaningful": boolean,
+                "category": one of {categories_str} | "noise",
+                "description": "Short description of the change"
+            }}
+            """
+            
+            try:
+                # We need a synchronous-like call or using the same client
+                # To save tokens/time, we can potentially batch them, but let's do sequential for now or gather
+                # Ideally we want valid JSON.
+                
+                # Re-using the client for this specific crop comparison
+                # Note: `analyze_image` not exposed here directly, using direct client call
+                
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a visual inspection expert. Analyze the difference between two image crops. Return strictly JSON."
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": region_prompt},
+                                {"type": "image_url", "image_url": {"url": crop1}},
+                                {"type": "image_url", "image_url": {"url": crop2}}
+                            ]
+                        }
+                    ],
+                    max_tokens=300,
+                    response_format={"type": "json_object"}
+                )
+                
+                result_text = response.choices[0].message.content
+                analysis = json.loads(result_text)
+                
+                if analysis.get("is_meaningful", False) and analysis.get("category") != "noise":
+                    # Map to frontend Difference format
+                    comparison_results.append({
+                        "id": f"diff_{i}",
+                        "category": analysis.get("category", "content"),
+                        "description": analysis.get("description", "Detected difference"),
+                        "location_1": bbox, # Using precise bbox from pixel diff
+                        "location_2": bbox,
+                        "confidence": 0.95 # High confidence because pixel diff confirmed it
+                    })
+            except Exception as e:
+                logger.error(f"[LLM] Error analyzing diff region {i}: {e}")
+                
+        # If no meaningful changes found but we had pixel diffs, check if we need fallback
+        if not comparison_results and pixel_diffs:
+             logger.info("[LLM] Pixel differences found but LLM dismissed them as not meaningful (noise).")
+
+    # If pixel diff failed or returned no results (perfect match), or LLM filtered everything out
+    # We might still want to do a full pass IF the user suspects something, 
+    # but "Hybrid" usually relies on pixel diff for ROI.
+    
+    # Fallback to global comparison if pixel_diff returned nothing AND we are not sure?
+    # No, if pixel diff says identical, it's identical usually.
+    # But if pixel diff failed (exception), we should fallback.
+    
+    # Return if we found differences via pixel analysis
+    if comparison_results:
+        return {
+            "differences": comparison_results,
+            "raw_response": "Hybrid analysis performed (Pixel + LLM)",
+            "metadata": {
+                "model": model,
+                "method": "hybrid_pixel_llm",
+                "rules_applied": True if custom_instructions else False,
+                "pixel_diff_count": len(pixel_diffs)
+            }
+        }
+
+    # FALLBACK: Full Image Comparison
+    logger.info("[LLM] Falling back to Full Image Comparison")
+    
     if custom_system_prompt:
         system_prompt = custom_system_prompt + custom_rules_text
     else:
@@ -409,61 +548,32 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     5.  **Apply Custom Rules**: Strictly apply the user-defined comparison rules if provided below.
     6.  **Validation**: If a difference is too subtle or ambiguous, discard it. Do NOT hallucinate differences.
     7.  **Formulate Output**: Create the JSON output for each valid difference.
-
+    
     {custom_rules_text}
 
     Return a JSON object with a key "differences" containing a list of objects.
     Each difference object must have:
-    - "id": unique integer (1, 2, 3...)
-    - "description": concise text describing the change in **KOREAN** (한국어로 설명). Example: "헤더의 'Invoice' 텍스트가 'Tax Invoice'로 변경됨" or "우측 상단에 '결재' 버튼이 추가됨".
+    - "id": unique string/int
+    - "description": concise text describing the change in **KOREAN**.
     - "category": one of {categories_str}
-    - "confidence": float between 0.0 and 1.0.
-      - **0.9 - 1.0**: Absolutely certain (text clearly changed, element clearly added/removed).
-      - **0.85 - 0.89**: Very likely a real difference.
-      - **< 0.85**: DO NOT REPORT. Discard these entirely.
-    - "location_1": bounding box in Baseline image as [y_min, x_min, y_max, x_max] (0-1000 scale). Null if added_element.
-    - "location_2": bounding box in Candidate image as [y_min, x_min, y_max, x_max] (0-1000 scale). Null if missing_element.
-    - "page_number": integer (1-based), default to 1.
+    - "confidence": float between 0.0 and 1.0 (>= 0.85).
+    - "location_1": bounding box in Baseline image [y_min, x_min, y_max, x_max] (0-1000 scale).
+    - "location_2": bounding box in Candidate image [y_min, x_min, y_max, x_max] (0-1000 scale).
     
-    **CRITICAL BOUNDING BOX FORMAT:**
-    - Coordinates are normalized to 0-1000 scale (0=top-left origin, 1000=bottom-right).
-    - Format: [y_min, x_min, y_max, x_max] where:
-      - y_min: distance from TOP edge (0 = very top)
-      - x_min: distance from LEFT edge (0 = very left)
-      - y_max: distance from TOP edge (must be > y_min)
-      - x_max: distance from LEFT edge (must be > x_min)
-    
-    **CRITICAL RULES - READ CAREFULLY:**
-    1. **ABSOLUTELY NO HALLUCINATION**: If the images look identical or nearly identical, return EMPTY "differences" list. Do NOT invent differences.
-    2. **IDENTICAL = EMPTY LIST**: If after careful analysis you find NO meaningful differences, respond with: {{"differences": []}}
-    3. **HIGH CONFIDENCE ONLY**: Only report differences with confidence >= 0.85. Anything below is NOISE.
-    4. **IGNORE NOISE**: Do not report:
-       - Slight color variations due to image compression
-       - Anti-aliasing differences on text edges
-       - Minor font weight/rendering differences
-       - Subtle shadow or gradient differences
-       - **POSITION/LAYOUT SHIFTS**: If the SAME element exists in BOTH images but at slightly different positions, THIS IS NOT A DIFFERENCE. Do NOT report it.
-       - **Alignment variations**: Same content with minor alignment or spacing differences is NOT a difference.
-    5. **REAL DIFFERENCES ONLY**: Only report if you can clearly describe WHAT text changed, WHAT element was added/removed. Position shifts of identical content are NOT real differences.
-    6. **VALIDATE BEFORE REPORTING**: Ask yourself "Can a human clearly see this difference?" and "Is the CONTENT actually different, not just the position?" If no to either, DO NOT REPORT.
-    7. **POSITION IS NOT CONTENT**: Moving an element from left to right, or top to bottom, is NOT a content difference. Only report if the TEXT, IMAGE, or MEANING has changed.
+    **CRITICAL RULES**:
+    1. **ABSOLUTELY NO HALLUCINATION**: If identical, return empty differences list.
+    2. **HIGH CONFIDENCE ONLY**: >= 0.85.
+    3. **IGNORE NOISE**: Compression, anti-aliasing, minor font weight.
+    4. **POSITION IS NOT CONTENT**: Do not report pure position shifts of identical elements.
     """
-    
+
     user_message_content = [
         {"type": "text", "text": "Compare these two images. Image 1 is Baseline. Image 2 is Candidate."},
-        {
-            "type": "image_url",
-            "image_url": {"url": image_url_1}
-        },
-        {
-            "type": "image_url",
-            "image_url": {"url": image_url_2}
-        }
+        {"type": "image_url", "image_url": {"url": image_url_1}},
+        {"type": "image_url", "image_url": {"url": image_url_2}}
     ]
 
     try:
-        logger.info(f"[LLM] Comparing images using {model}...")
-        
         response = await client.chat.completions.create(
             model=model,
             messages=[
@@ -475,10 +585,18 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         )
         
         result_content = response.choices[0].message.content
-        return json.loads(result_content)
+        data = json.loads(result_content)
+        
+        # Inject metadata into full comparison result too
+        data["metadata"] = {
+            "model": model,
+            "method": "full_image_scan",
+            "rules_applied": True if custom_instructions else False
+        }
+        return data
         
     except Exception as e:
-        logger.info(f"[LLM] Comparison failed: {e}")
+        logger.info(f"[LLM] Full Comparison failed: {e}")
         return {"differences": [], "error": str(e)}
     finally:
         await client.close()

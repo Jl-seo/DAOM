@@ -177,7 +177,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                                 )}
                             >
                                 <ClipboardList className="w-4 h-4" />
-                                <span className="flex-1 text-left">모델 관리 스튜디오</span>
+                                <span className="flex-1 text-left">모델 스튜디오</span>
                             </button>
                             <button
                                 onClick={() => handleMenuChange('model-gallery')}

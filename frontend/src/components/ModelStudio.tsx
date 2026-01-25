@@ -29,6 +29,7 @@ export interface ComparisonSettings {
     custom_ignore_rules?: string; // custom instructions
     allowed_categories?: string[]; // Whitelist
     excluded_categories?: string[]; // Blacklist
+    custom_categories?: { key: string; label: string; description: string }[]; // User defined
 }
 
 export interface ExcelExportColumn {

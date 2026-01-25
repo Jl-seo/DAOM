@@ -10,7 +10,44 @@ import type { ExcelExportColumn } from '../verification/types'
 interface ComparisonResult {
     differences: Difference[]
     error?: string
+    metadata?: {
+        model?: string
+        method?: string
+        rules_applied?: boolean
+        pixel_diff_count?: number
+    }
 }
+
+// ... existing code ...
+
+// In render:
+// Header section (around line 364)
+<h3 className="text-lg font-bold flex items-center gap-2">
+    <Split className="w-5 h-5 text-primary" />
+    {t('comparison.title.workspace')}
+    <span className="text-sm font-normal text-muted-foreground ml-2">
+        ({isMultiMode ? t('comparison.workspace.subtitle_multi', { index: selectedCandidateIndex + 1 }) : t('comparison.workspace.subtitle_single')})
+    </span>
+
+    {/* Metadata Badge */}
+    {currentComparison?.result?.metadata && (
+        <div className="ml-4 flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium border border-blue-200">
+                {currentComparison.result.metadata.model || 'Model'}
+            </span>
+            {currentComparison.result.metadata.rules_applied && (
+                <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[10px] font-medium border border-purple-200" title="사용자 정의 규칙이 적용됨">
+                    Custom Rules
+                </span>
+            )}
+            {currentComparison.result.metadata.method === 'hybrid_pixel_llm' && (
+                <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-medium border border-green-200" title={`Pixel Diff detected ${currentComparison.result.metadata.pixel_diff_count} changes`}>
+                    Hybrid
+                </span>
+            )}
+        </div>
+    )}
+</h3>
 
 interface Difference {
     id: string | number
@@ -362,7 +399,10 @@ export function ComparisonWorkspace({
                     <div className="flex items-center justify-between shrink-0 px-2">
                         <h3 className="text-lg font-bold flex items-center gap-2">
                             <Split className="w-5 h-5 text-primary" />
-                            {t('comparison.title.workspace')} ({isMultiMode ? t('comparison.workspace.subtitle_multi', { index: selectedCandidateIndex + 1 }) : t('comparison.workspace.subtitle_single')})
+                            {t('comparison.title.workspace')}
+                            <span className="text-sm font-normal text-muted-foreground ml-2">
+                                ({isMultiMode ? t('comparison.workspace.subtitle_multi', { index: selectedCandidateIndex + 1 }) : t('comparison.workspace.subtitle_single')})
+                            </span>
                         </h3>
                         <div className="flex items-center gap-2">
                             <div className="flex items-center gap-1 bg-muted rounded-md p-1 mr-4">
@@ -390,7 +430,7 @@ export function ComparisonWorkspace({
                                 {t('comparison.workspace.baseline')}
                             </div>
                             <div className="relative flex-1 bg-white rounded-lg border overflow-auto">
-                                <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: '100%', height: '100%' }}>
+                                <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: '100%', height: '100%', position: 'relative' }}>
                                     <img
                                         ref={baselineImgRef}
                                         src={fileUrl}
@@ -398,6 +438,42 @@ export function ComparisonWorkspace({
                                         className="w-full h-full object-contain cursor-zoom-in"
                                         onClick={() => setExpandedImage(fileUrl)}
                                     />
+                                    {/* Overlay for diffs */}
+                                    <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                                        {currentComparison?.differences?.map((diff, idx) => {
+                                            const loc = diff.location_1; // [y1, x1, y2, x2] normalized 0-1
+                                            if (!loc) return null;
+                                            const [y1, x1, y2, x2] = loc;
+                                            // Backend returns 0-1. If logic says 0-1000, verify. 
+                                            // Assuming 0-1 based on my pixel_diff implementation.
+                                            // If the values are > 1, assume 0-1000 and divide.
+                                            let ny1 = y1, nx1 = x1, ny2 = y2, nx2 = x2;
+                                            if (y1 > 1 || x1 > 1) { ny1 /= 1000; nx1 /= 1000; ny2 /= 1000; nx2 /= 1000; }
+
+                                            const isSelected = selectedDiffId === diff.id;
+
+                                            return (
+                                                <rect
+                                                    key={diff.id || idx}
+                                                    x={`${nx1 * 100}%`}
+                                                    y={`${ny1 * 100}%`}
+                                                    width={`${(nx2 - nx1) * 100}%`}
+                                                    height={`${(ny2 - ny1) * 100}%`}
+                                                    fill={isSelected ? "rgba(255, 0, 0, 0.2)" : "rgba(255, 0, 0, 0.05)"}
+                                                    stroke={isSelected ? "red" : "rgba(255, 0, 0, 0.5)"}
+                                                    strokeWidth={isSelected ? (2 / zoom) : (1 / zoom)}
+                                                    className="pointer-events-auto cursor-pointer hover:fill-red-500/30 transition-all"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedDiffId(diff.id);
+                                                        // Scroll to list item? Need ref
+                                                    }}
+                                                >
+                                                    <title>{diff.description}</title>
+                                                </rect>
+                                            );
+                                        })}
+                                    </svg>
                                 </div>
                             </div>
                         </div>
@@ -409,7 +485,7 @@ export function ComparisonWorkspace({
                             </div>
                             <div className="relative flex-1 bg-white rounded-lg border overflow-auto">
                                 {currentCandidateUrl ? (
-                                    <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: '100%', height: '100%' }}>
+                                    <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: '100%', height: '100%', position: 'relative' }}>
                                         <img
                                             ref={candidateImgRef}
                                             src={currentCandidateUrl}
@@ -417,6 +493,44 @@ export function ComparisonWorkspace({
                                             className="w-full h-full object-contain cursor-zoom-in"
                                             onClick={() => setExpandedImage(currentCandidateUrl)}
                                         />
+                                        {/* Overlay for diffs */}
+                                        <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                                            {currentComparison?.differences?.map((diff, idx) => {
+                                                // Try location_2 first, fallback to location_1 if null (e.g. missing element in 2)
+                                                // Actually missing element logic: location_2 is null. We might show it ghosted?
+                                                // Or just show location_1 on image 1 ??
+                                                // Logic: Added element has loc2, missing element has loc1.
+                                                // Content change has both.
+
+                                                const loc = diff.location_2 || diff.location_1;
+                                                if (!loc) return null;
+                                                const [y1, x1, y2, x2] = loc;
+                                                let ny1 = y1, nx1 = x1, ny2 = y2, nx2 = x2;
+                                                if (y1 > 1 || x1 > 1) { ny1 /= 1000; nx1 /= 1000; ny2 /= 1000; nx2 /= 1000; }
+
+                                                const isSelected = selectedDifferenceId === diff.id;
+
+                                                return (
+                                                    <rect
+                                                        key={diff.id || idx}
+                                                        x={`${nx1 * 100}%`}
+                                                        y={`${ny1 * 100}%`}
+                                                        width={`${(nx2 - nx1) * 100}%`}
+                                                        height={`${(ny2 - ny1) * 100}%`}
+                                                        fill={isSelected ? "rgba(255, 0, 0, 0.2)" : "rgba(255, 0, 0, 0.05)"}
+                                                        stroke={isSelected ? "red" : "rgba(255, 0, 0, 0.5)"}
+                                                        strokeWidth={isSelected ? (2 / zoom) : (1 / zoom)}
+                                                        className="pointer-events-auto cursor-pointer hover:fill-red-500/30 transition-all"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setSelectedDifferenceId(diff.id);
+                                                        }}
+                                                    >
+                                                        <title>{diff.description}</title>
+                                                    </rect>
+                                                );
+                                            })}
+                                        </svg>
                                     </div>
                                 ) : (
                                     <div className="flex items-center justify-center h-full text-muted-foreground">

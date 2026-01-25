@@ -1,17 +1,21 @@
 
+import React from 'react'
 import { clsx } from 'clsx'
 import { Card } from '@/components/ui/icon-card'
 import { Switch } from '@/components/ui/switch'
 import { Slider } from '@/components/ui/slider'
-import { Settings, Tags } from 'lucide-react'
+import { Settings, Eye, EyeOff, CheckCircle2, XCircle } from 'lucide-react'
 import type { ComparisonSettings } from '../ModelStudio'
 
-const ALL_CATEGORIES = [
-    { key: 'content', label: '내용 변경', description: '텍스트, 숫자 등 내용 변경' },
-    { key: 'layout', label: '레이아웃', description: '구조, 배치 변경' },
-    { key: 'style', label: '스타일', description: '색상, 폰트 등 시각적 변경' },
-    { key: 'missing_element', label: '누락된 요소', description: '원본에 있던 것이 없어짐' },
-    { key: 'added_element', label: '추가된 요소', description: '원본에 없던 것이 추가됨' }
+const CHECK_CATEGORIES = [
+    { key: 'content', label: '텍스트 내용 (Content)', description: '글자, 숫자, 기호의 변경' },
+    { key: 'added_element', label: '추가된 요소 (Added)', description: '새로 생긴 이미지나 UI 요소' },
+    { key: 'missing_element', label: '누락된 요소 (Missing)', description: '사라진 이미지나 UI 요소' },
+]
+
+const OPTIONAL_CATEGORIES = [
+    { key: 'layout', label: '레이아웃 (Layout)', description: '위치 이동이나 크기 변경' },
+    { key: 'style', label: '스타일 (Style)', description: '폰트, 색상, 테두리 등 스타일 변경' },
 ]
 
 interface ComparisonSettingsPanelProps {
@@ -21,14 +25,22 @@ interface ComparisonSettingsPanelProps {
 }
 
 export function ComparisonSettingsPanel({ settings, onChange, disabled }: ComparisonSettingsPanelProps) {
-    // Default values if undefined
+    // Default values
     const currentSettings: ComparisonSettings = settings || {
         confidence_threshold: 0.85,
         ignore_position_changes: true,
         ignore_color_changes: false,
         ignore_font_changes: true,
-        ignore_compression_noise: true
+        ignore_compression_noise: true,
+        excluded_categories: [],
+        custom_categories: []
     }
+
+    // Local state for new category input
+    const [newCatKey, setNewCatKey] = React.useState('')
+    const [newCatLabel, setNewCatLabel] = React.useState('')
+    const [newCatDesc, setNewCatDesc] = React.useState('')
+    const [isAddingCat, setIsAddingCat] = React.useState(false)
 
     const handleChange = (key: keyof ComparisonSettings, value: any) => {
         onChange({
@@ -37,137 +49,216 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
         })
     }
 
-    // Category exclusion toggle
     const toggleCategoryExclusion = (categoryKey: string) => {
         const currentExcluded = currentSettings.excluded_categories || []
         const isExcluded = currentExcluded.includes(categoryKey)
-
         if (isExcluded) {
-            // Remove from exclusion
             handleChange('excluded_categories', currentExcluded.filter(c => c !== categoryKey))
         } else {
-            // Add to exclusion
             handleChange('excluded_categories', [...currentExcluded, categoryKey])
         }
     }
 
-    const isCategoryEnabled = (categoryKey: string) => {
-        const excluded = currentSettings.excluded_categories || []
-        return !excluded.includes(categoryKey)
+    const handleAddCustomCategory = () => {
+        if (!newCatKey || !newCatLabel) return
+
+        // Key validation: no duplicates, simplified chars
+        const safeKey = newCatKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')
+        const existingKeys = [...CHECK_CATEGORIES, ...OPTIONAL_CATEGORIES, ...(currentSettings.custom_categories || [])].map(c => c.key)
+
+        if (existingKeys.includes(safeKey)) {
+            // Toast or visual error? For now just return
+            return
+        }
+
+        const newCat = {
+            key: safeKey,
+            label: newCatLabel,
+            description: newCatDesc
+        }
+
+        const updatedCustom = [...(currentSettings.custom_categories || []), newCat]
+        handleChange('custom_categories', updatedCustom)
+
+        // Reset form
+        setNewCatKey('')
+        setNewCatLabel('')
+        setNewCatDesc('')
+        setIsAddingCat(false)
     }
 
+    const handleDeleteCustomCategory = (key: string) => {
+        const updatedCustom = (currentSettings.custom_categories || []).filter(c => c.key !== key)
+        handleChange('custom_categories', updatedCustom)
+
+        // Also remove from exclusion list if it was there (cleanup)
+        if ((currentSettings.excluded_categories || []).includes(key)) {
+            handleChange('excluded_categories', (currentSettings.excluded_categories || []).filter(c => c !== key))
+        }
+    }
+
+    const isEnabled = (key: string) => !(currentSettings.excluded_categories || []).includes(key)
+
+    // Combine standard and custom categories for display
+    const allDisplayCategories = [
+        ...CHECK_CATEGORIES,
+        ...OPTIONAL_CATEGORIES,
+        ...(currentSettings.custom_categories || []).map(c => ({ ...c, isCustom: true }))
+    ]
+
     return (
-        <div className="space-y-4">
-            <Card icon={Settings} title="비교 민감도 설정">
-                <div className="space-y-6">
-                    {/* Confidence Threshold */}
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                            <label className="text-sm font-medium">신뢰도 임계값</label>
-                            <span className="text-sm font-bold text-primary">{Math.round(currentSettings.confidence_threshold * 100)}%</span>
-                        </div>
-                        <Slider
-                            value={[currentSettings.confidence_threshold]}
-                            onValueChange={(val: number[]) => handleChange('confidence_threshold', val[0])}
-                            min={0.5}
-                            max={1.0}
-                            step={0.01}
-                            disabled={disabled}
-                            className="py-2"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            높을수록 확실한 차이만 리포트 (오탐지 감소)
-                        </p>
+        <Card icon={Settings} title="비교 규칙 설정 (Comparison Rules)">
+            <p className="text-sm text-muted-foreground mb-4">
+                AI가 두 이미지를 비교할 때 <b>무엇을 찾고, 무엇을 무시할지</b> 결정합니다.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* 1. 검사할 항목 (What to Retrieve) */}
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold flex items-center gap-2 text-primary">
+                            <Eye className="w-4 h-4" />
+                            반드시 찾아낼 항목 (Categories)
+                        </h3>
+                        {!isAddingCat && !disabled && (
+                            <button
+                                onClick={() => setIsAddingCat(true)}
+                                className="text-xs text-primary hover:underline flex items-center gap-1"
+                            >
+                                + 카테고리 추가
+                            </button>
+                        )}
                     </div>
 
-                    <div className="h-px bg-border" />
-
-                    {/* Ignore Toggles */}
-                    <div className="space-y-3">
-                        <label className="text-sm font-medium text-muted-foreground">무시할 차이 유형</label>
-
-                        <div className="flex items-center justify-between py-1">
-                            <span className="text-sm">이미지 압축 노이즈</span>
-                            <Switch
-                                checked={currentSettings.ignore_compression_noise ?? true}
-                                onCheckedChange={(checked: boolean) => handleChange('ignore_compression_noise', checked)}
-                                disabled={disabled}
+                    {isAddingCat && (
+                        <div className="bg-muted/50 p-3 rounded-lg space-y-2 border border-primary/20">
+                            <div className="grid grid-cols-2 gap-2">
+                                <input
+                                    placeholder="키 (예: logo_change)"
+                                    className="text-xs p-1.5 rounded border"
+                                    value={newCatKey}
+                                    onChange={e => setNewCatKey(e.target.value)}
+                                />
+                                <input
+                                    placeholder="라벨 (예: 로고 변경)"
+                                    className="text-xs p-1.5 rounded border"
+                                    value={newCatLabel}
+                                    onChange={e => setNewCatLabel(e.target.value)}
+                                />
+                            </div>
+                            <input
+                                placeholder="설명 (AI가 이해할 수 있게)"
+                                className="w-full text-xs p-1.5 rounded border"
+                                value={newCatDesc}
+                                onChange={e => setNewCatDesc(e.target.value)}
                             />
-                        </div>
-
-                        <div className="flex items-center justify-between py-1">
-                            <span className="text-sm">위치/레이아웃 이동</span>
-                            <Switch
-                                checked={currentSettings.ignore_position_changes}
-                                onCheckedChange={(checked: boolean) => handleChange('ignore_position_changes', checked)}
-                                disabled={disabled}
-                            />
-                        </div>
-
-                        <div className="flex items-center justify-between py-1">
-                            <span className="text-sm">폰트 스타일</span>
-                            <Switch
-                                checked={currentSettings.ignore_font_changes}
-                                onCheckedChange={(checked: boolean) => handleChange('ignore_font_changes', checked)}
-                                disabled={disabled}
-                            />
-                        </div>
-
-                        <div className="flex items-center justify-between py-1">
-                            <span className="text-sm">색상 변경</span>
-                            <Switch
-                                checked={currentSettings.ignore_color_changes}
-                                onCheckedChange={(checked: boolean) => handleChange('ignore_color_changes', checked)}
-                                disabled={disabled}
-                            />
-                        </div>
-                    </div>
-
-                    <div className="h-px bg-border" />
-
-                    {/* Category Filter */}
-                    <div className="space-y-3">
-                        <label className="text-sm font-medium flex items-center gap-2">
-                            <Tags className="w-4 h-4" />
-                            감지할 카테고리
-                        </label>
-                        <div className="grid grid-cols-2 gap-2">
-                            {ALL_CATEGORIES.map(cat => (
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => setIsAddingCat(false)} className="text-xs px-2 py-1 text-muted-foreground">취소</button>
                                 <button
-                                    key={cat.key}
-                                    onClick={() => !disabled && toggleCategoryExclusion(cat.key)}
-                                    disabled={disabled}
-                                    className={clsx(
-                                        "px-3 py-2 text-left text-sm rounded-md border transition-colors",
-                                        isCategoryEnabled(cat.key)
-                                            ? "bg-primary/10 border-primary text-primary"
-                                            : "bg-muted/50 border-transparent text-muted-foreground line-through"
-                                    )}
+                                    onClick={handleAddCustomCategory}
+                                    disabled={!newCatKey || !newCatLabel}
+                                    className="text-xs px-3 py-1 bg-primary text-primary-foreground rounded disabled:opacity-50"
                                 >
-                                    {cat.label}
+                                    추가
                                 </button>
-                            ))}
+                            </div>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                            비활성화된 카테고리는 아예 감지하지 않습니다. 예: style을 끄면 색상/스타일 관련 차이 미감지
-                        </p>
-                    </div>
+                    )}
 
-                    <div className="h-px bg-border" />
+                    <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                        {allDisplayCategories.map((cat) => (
+                            <div
+                                key={cat.key}
+                                className={clsx(
+                                    "relative group flex items-start gap-3 p-3 rounded-lg border transition-all select-none",
+                                    isEnabled(cat.key)
+                                        ? "bg-primary/5 border-primary shadow-sm"
+                                        : "bg-muted/30 border-transparent opacity-60 grayscale"
+                                )}
+                            >
+                                <div
+                                    className="flex-1 flex items-start gap-3 cursor-pointer"
+                                    onClick={() => !disabled && toggleCategoryExclusion(cat.key)}
+                                >
+                                    <div className={clsx(
+                                        "mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 transition-colors",
+                                        isEnabled(cat.key) ? "text-primary" : "text-muted-foreground"
+                                    )}>
+                                        {isEnabled(cat.key) ? <CheckCircle2 className="w-5 h-5" /> : <XCircle className="w-5 h-5" />}
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <div className={clsx("text-sm font-bold", isEnabled(cat.key) ? "text-foreground" : "text-muted-foreground")}>
+                                                {cat.label}
+                                            </div>
+                                            {(cat as any).isCustom && (
+                                                <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full">Custom</span>
+                                            )}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground mt-0.5">{cat.description}</div>
+                                    </div>
+                                </div>
 
-                    {/* Custom Rules */}
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium">추가 무시 규칙 (자연어)</label>
-                        <textarea
-                            value={currentSettings.custom_ignore_rules || ''}
-                            onChange={(e) => handleChange('custom_ignore_rules', e.target.value)}
-                            placeholder="예: 'QR코드 변경은 무시해', '바코드 위치는 중요하지 않아'"
-                            disabled={disabled}
-                            className="w-full h-20 px-3 py-2 text-sm border rounded-md resize-none bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                        />
+                                {/* Delete button for custom categories */}
+                                {(cat as any).isCustom && !disabled && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleDeleteCustomCategory(cat.key)
+                                        }}
+                                        className="absolute top-2 right-2 p-1 text-muted-foreground hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        <XCircle className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
+                        ))}
                     </div>
                 </div>
-            </Card>
-        </div>
+
+                {/* 2. 세부 민감도 (Noise Filter) */}
+                <div className="space-y-4">
+                    <h3 className="text-sm font-bold flex items-center gap-2 text-muted-foreground">
+                        <EyeOff className="w-4 h-4" />
+                        무시할 노이즈 (Sensitivity)
+                    </h3>
+
+                    <div className="bg-muted/30 p-4 rounded-lg space-y-4">
+                        <div className="flex items-center justify-between">
+                            <label className="text-sm">미세 픽셀 노이즈 무시</label>
+                            <Switch
+                                checked={currentSettings.ignore_compression_noise}
+                                onCheckedChange={(c) => handleChange('ignore_compression_noise', c)}
+                                disabled={disabled}
+                            />
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                            <label className="text-sm">단순 위치 이동 무시 (Position)</label>
+                            <Switch
+                                checked={currentSettings.ignore_position_changes}
+                                onCheckedChange={(c) => handleChange('ignore_position_changes', c)}
+                                disabled={disabled}
+                            />
+                        </div>
+
+                        <div className="space-y-2 pt-2 border-t">
+                            <label className="text-sm font-medium">추가 무시 규칙 (자연어)</label>
+                            <textarea
+                                value={currentSettings.custom_ignore_rules || ''}
+                                onChange={(e) => handleChange('custom_ignore_rules', e.target.value)}
+                                placeholder="예: 'QR 코드는 변경되어도 상관없음', '전화번호 변경은 무시해'"
+                                className="w-full text-xs h-20 p-2 border rounded-md resize-none"
+                                disabled={disabled}
+                            />
+                            <p className="text-[10px] text-muted-foreground">
+                                * AI가 이 규칙을 해석하여 하이브리드 검사 시 반영합니다.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </Card>
     )
 }
+
