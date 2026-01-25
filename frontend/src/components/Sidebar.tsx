@@ -158,7 +158,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                 <div>
                     <SidebarItem
                         icon={Palette}
-                        label="모델"
+                        label="모델 관리"
                         isActive={activeGroup === 'admin-model'}
                         hasSubmenu
                         isExpanded={expandedGroups.includes('admin-model')}
@@ -199,7 +199,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                 <div>
                     <SidebarItem
                         icon={Users}
-                        label="관리자"
+                        label="시스템 설정"
                         isActive={activeGroup === 'admin'}
                         hasSubmenu
                         isExpanded={expandedGroups.includes('admin')}

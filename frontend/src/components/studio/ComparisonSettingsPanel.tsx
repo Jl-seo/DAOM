@@ -3,7 +3,6 @@ import React from 'react'
 import { clsx } from 'clsx'
 import { Card } from '@/components/ui/icon-card'
 import { Switch } from '@/components/ui/switch'
-import { Slider } from '@/components/ui/slider'
 import { Settings, Eye, EyeOff, CheckCircle2, XCircle } from 'lucide-react'
 import type { ComparisonSettings } from '../ModelStudio'
 

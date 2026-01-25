@@ -20,34 +20,7 @@ interface ComparisonResult {
 
 // ... existing code ...
 
-// In render:
-// Header section (around line 364)
-<h3 className="text-lg font-bold flex items-center gap-2">
-    <Split className="w-5 h-5 text-primary" />
-    {t('comparison.title.workspace')}
-    <span className="text-sm font-normal text-muted-foreground ml-2">
-        ({isMultiMode ? t('comparison.workspace.subtitle_multi', { index: selectedCandidateIndex + 1 }) : t('comparison.workspace.subtitle_single')})
-    </span>
 
-    {/* Metadata Badge */}
-    {currentComparison?.result?.metadata && (
-        <div className="ml-4 flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium border border-blue-200">
-                {currentComparison.result.metadata.model || 'Model'}
-            </span>
-            {currentComparison.result.metadata.rules_applied && (
-                <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[10px] font-medium border border-purple-200" title="사용자 정의 규칙이 적용됨">
-                    Custom Rules
-                </span>
-            )}
-            {currentComparison.result.metadata.method === 'hybrid_pixel_llm' && (
-                <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-[10px] font-medium border border-green-200" title={`Pixel Diff detected ${currentComparison.result.metadata.pixel_diff_count} changes`}>
-                    Hybrid
-                </span>
-            )}
-        </div>
-    )}
-</h3>
 
 interface Difference {
     id: string | number
@@ -128,7 +101,7 @@ export function ComparisonWorkspace({
     excelColumns
 }: ComparisonWorkspaceProps) {
     const { t } = useTranslation()
-    const [selectedDiffId, setSelectedDiffId] = useState<string | number | null>(null)
+    const [selectedDifferenceId, setSelectedDifferenceId] = useState<string | number | null>(null)
     const [selectedCandidateIndex, setSelectedCandidateIndex] = useState<number>(0)
 
     // UI 상태: 목록 접기, 정렬, 필터
@@ -450,7 +423,7 @@ export function ComparisonWorkspace({
                                             let ny1 = y1, nx1 = x1, ny2 = y2, nx2 = x2;
                                             if (y1 > 1 || x1 > 1) { ny1 /= 1000; nx1 /= 1000; ny2 /= 1000; nx2 /= 1000; }
 
-                                            const isSelected = selectedDiffId === diff.id;
+                                            const isSelected = selectedDifferenceId === diff.id;
 
                                             return (
                                                 <rect
@@ -465,7 +438,7 @@ export function ComparisonWorkspace({
                                                     className="pointer-events-auto cursor-pointer hover:fill-red-500/30 transition-all"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setSelectedDiffId(diff.id);
+                                                        setSelectedDifferenceId(diff.id);
                                                         // Scroll to list item? Need ref
                                                     }}
                                                 >
@@ -600,10 +573,10 @@ export function ComparisonWorkspace({
                     {currentComparison?.differences.map((diff) => (
                         <div
                             key={diff.id}
-                            onClick={() => setSelectedDiffId(selectedDiffId === diff.id ? null : diff.id)}
+                            onClick={() => setSelectedDifferenceId(selectedDifferenceId === diff.id ? null : diff.id)}
                             className={clsx(
                                 "group bg-card border rounded-lg p-3 cursor-pointer transition-all hover:shadow-md",
-                                selectedDiffId === diff.id ? "ring-2 ring-primary border-transparent" : "hover:border-primary/50"
+                                selectedDifferenceId === diff.id ? "ring-2 ring-primary border-transparent" : "hover:border-primary/50"
                             )}
                         >
                             <div className="flex items-start justify-between mb-2">
