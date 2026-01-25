@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { FileText, ArrowRight, CircleNotch, SquaresFour, PlusCircle, Sparkle, MagnifyingGlass, GitDiff, Stack } from '@phosphor-icons/react'
 import axios from 'axios'
 import { API_CONFIG } from '../constants'
@@ -25,6 +26,7 @@ interface ModelGalleryProps {
 type TabType = 'all' | 'extraction' | 'comparison'
 
 export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
+    const { t } = useTranslation()
     const [models, setModels] = useState<Model[]>([])
     const [loading, setLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState('')
@@ -39,8 +41,8 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
         try {
             const res = await axios.get(`${API_BASE}/models`)
             setModels(res.data)
-        } catch (error) {
-            toast.error('모델 목록을 불러올 수 없습니다')
+        } catch {
+            toast.error(t('gallery.errors.load_failed'))
         } finally {
             setLoading(false)
         }
@@ -57,18 +59,17 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
     const filteredModels = useMemo(() => {
         let result = models
 
-        // Tab filter
         if (activeTab === 'extraction') {
             result = result.filter(m => m.model_type !== 'comparison')
         } else if (activeTab === 'comparison') {
             result = result.filter(m => m.model_type === 'comparison')
         }
 
-        // Search filter
         if (searchQuery) {
-            result = result.filter(model =>
-                model.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                model.description?.toLowerCase().includes(searchQuery.toLowerCase())
+            const query = searchQuery.toLowerCase()
+            result = result.filter(m =>
+                m.name.toLowerCase().includes(query) ||
+                m.description?.toLowerCase().includes(query)
             )
         }
 
@@ -83,11 +84,18 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
         )
     }
 
-    const tabs: { key: TabType; label: string; icon: React.ReactNode; color: string }[] = [
-        { key: 'all', label: '전체', icon: <Stack size={16} weight="duotone" />, color: 'text-foreground' },
-        { key: 'extraction', label: '추출', icon: <FileText size={16} weight="duotone" />, color: 'text-primary' },
-        { key: 'comparison', label: '비교', icon: <GitDiff size={16} weight="duotone" />, color: 'text-chart-5' },
+    const tabs: { key: TabType; icon: React.ReactNode; color: string }[] = [
+        { key: 'all', icon: <Stack size={16} weight="duotone" />, color: 'text-foreground' },
+        { key: 'extraction', icon: <FileText size={16} weight="duotone" />, color: 'text-primary' },
+        { key: 'comparison', icon: <GitDiff size={16} weight="duotone" />, color: 'text-chart-5' },
     ]
+
+    const getEmptyMessage = () => {
+        if (searchQuery) return t('gallery.empty.no_results')
+        if (activeTab === 'comparison') return t('gallery.empty.no_models_filtered', { type: t('gallery.tabs.comparison') })
+        if (activeTab === 'extraction') return t('gallery.empty.no_models_filtered', { type: t('gallery.tabs.extraction') })
+        return t('gallery.empty.no_models')
+    }
 
     return (
         <div className="flex-1 overflow-auto">
@@ -106,7 +114,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                                 {config.siteName}
                             </h1>
                             <p className="text-muted-foreground text-sm">
-                                AI 기반 문서 분석 플랫폼
+                                {t('gallery.hero.subtitle')}
                             </p>
                         </div>
 
@@ -115,7 +123,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                             className="inline-flex items-center px-5 py-2.5 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
                         >
                             <PlusCircle size={16} weight="bold" className="mr-2" />
-                            새 모델
+                            {t('gallery.actions.new_model')}
                         </button>
                     </div>
                 </div>
@@ -141,7 +149,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                                 <span className={activeTab === tab.key ? tab.color : undefined}>
                                     {tab.icon}
                                 </span>
-                                {tab.label}
+                                {t(`gallery.tabs.${tab.key}`)}
                                 <span className={clsx(
                                     "ml-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold",
                                     activeTab === tab.key
@@ -159,7 +167,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                         <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <input
                             type="text"
-                            placeholder="모델 검색..."
+                            placeholder={t('gallery.search.placeholder')}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
@@ -174,10 +182,10 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                             <SquaresFour size={32} weight="duotone" className="text-muted-foreground" />
                         </div>
                         <h3 className="text-lg font-semibold text-foreground mb-1">
-                            {searchQuery ? '검색 결과가 없습니다' : `${activeTab === 'comparison' ? '비교' : activeTab === 'extraction' ? '추출' : ''} 모델이 없습니다`}
+                            {getEmptyMessage()}
                         </h3>
                         <p className="text-muted-foreground text-sm mb-6">
-                            {searchQuery ? '다른 검색어를 시도해보세요' : '새 모델을 만들어보세요'}
+                            {searchQuery ? t('gallery.empty.try_different') : t('gallery.empty.create_first')}
                         </p>
                         {!searchQuery && (
                             <button
@@ -185,7 +193,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                                 className="inline-flex items-center px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-primary/90"
                             >
                                 <PlusCircle size={16} weight="bold" className="mr-2" />
-                                모델 만들기
+                                {t('gallery.actions.create_model')}
                             </button>
                         )}
                     </div>
@@ -224,7 +232,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                                                 ? "bg-chart-5/10 text-chart-5 border border-chart-5/20"
                                                 : "bg-primary/10 text-primary border border-primary/20"
                                         )}>
-                                            {isComparison ? '비교' : '추출'}
+                                            {t(`gallery.tabs.${isComparison ? 'comparison' : 'extraction'}`)}
                                         </span>
                                     </div>
 
@@ -236,19 +244,19 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                                         {model.name}
                                     </h3>
                                     <p className="text-xs text-muted-foreground line-clamp-2 mb-3 min-h-[2rem]">
-                                        {model.description || '설명 없음'}
+                                        {model.description || t('gallery.card.no_description')}
                                     </p>
 
                                     {/* Footer */}
                                     <div className="flex items-center justify-between mt-auto pt-3 border-t border-border/50">
                                         <span className="text-[10px] text-muted-foreground bg-muted/50 px-2 py-1 rounded-md">
-                                            {model.fields?.length || 0}개 필드
+                                            {t('gallery.card.field_count', { count: model.fields?.length || 0 })}
                                         </span>
                                         <span className={clsx(
                                             "text-xs font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
                                             isComparison ? "text-chart-5" : "text-primary"
                                         )}>
-                                            시작
+                                            {t('gallery.actions.start')}
                                             <ArrowRight size={12} />
                                         </span>
                                     </div>

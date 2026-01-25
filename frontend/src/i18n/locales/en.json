@@ -440,5 +440,37 @@
             "deployment_name": "e.g., my-gpt-4o-deployment"
         },
         "advanced_settings": "Advanced Settings"
+    },
+    "gallery": {
+        "hero": {
+            "subtitle": "AI-powered Document Analysis Platform"
+        },
+        "tabs": {
+            "all": "All",
+            "extraction": "Extraction",
+            "comparison": "Comparison"
+        },
+        "actions": {
+            "new_model": "New Model",
+            "create_model": "Create Model",
+            "start": "Start"
+        },
+        "search": {
+            "placeholder": "Search models..."
+        },
+        "errors": {
+            "load_failed": "Could not load model list"
+        },
+        "empty": {
+            "no_results": "No search results",
+            "no_models": "No models yet",
+            "no_models_filtered": "No {type} models",
+            "try_different": "Try a different search term",
+            "create_first": "Create your first model"
+        },
+        "card": {
+            "no_description": "No description",
+            "field_count": "{count} fields"
+        }
     }
 }

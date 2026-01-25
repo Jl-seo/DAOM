@@ -441,5 +441,37 @@
             "deployment_name": "예: my-gpt-4o-deployment"
         },
         "advanced_settings": "고급 설정"
+    },
+    "gallery": {
+        "hero": {
+            "subtitle": "AI 기반 문서 분석 플랫폼"
+        },
+        "tabs": {
+            "all": "전체",
+            "extraction": "추출",
+            "comparison": "비교"
+        },
+        "actions": {
+            "new_model": "새 모델",
+            "create_model": "모델 만들기",
+            "start": "시작"
+        },
+        "search": {
+            "placeholder": "모델 검색..."
+        },
+        "errors": {
+            "load_failed": "모델 목록을 불러올 수 없습니다"
+        },
+        "empty": {
+            "no_results": "검색 결과가 없습니다",
+            "no_models": "모델이 없습니다",
+            "no_models_filtered": "{type} 모델이 없습니다",
+            "try_different": "다른 검색어를 시도해보세요",
+            "create_first": "새 모델을 만들어보세요"
+        },
+        "card": {
+            "no_description": "설명 없음",
+            "field_count": "{count}개 필드"
+        }
     }
 }
