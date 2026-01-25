@@ -77,8 +77,29 @@ def _to_response(group) -> GroupResponse:
 
 @router.get("/", response_model=list[GroupResponse])
 async def list_groups(current_user: CurrentUser = Depends(get_current_user)):
-    """List all groups in tenant"""
+    """List all groups in tenant. Filter out Super Admin groups for non-super admins."""
+    from app.core.auth import is_super_admin
+    is_super = await is_super_admin(current_user)
+    
     groups = await group_service.get_groups_by_tenant(current_user.tenant_id)
+    
+    # Filter out Super Admin groups for non-super admins
+    if not is_super:
+        filtered_groups = []
+        for g in groups:
+            # Check superAdmin flag safely (similar to _to_response logic)
+            perm_super = False
+            if hasattr(g, 'permissions'):
+                perms = g.permissions
+                if hasattr(perms, 'superAdmin'):
+                    perm_super = perms.superAdmin
+                elif isinstance(perms, dict):
+                    perm_super = perms.get('superAdmin', False)
+            
+            if not perm_super:
+                filtered_groups.append(g)
+        groups = filtered_groups
+
     return [_to_response(g) for g in groups]
 
 
