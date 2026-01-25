@@ -544,27 +544,28 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     1.  **Analyze Layout**: First, look at the overall structure (header, body, footer) of both images. note any shifts or resizing.
     2.  **Scan for Content**: Read the text in both images. Identify changed numbers, typo fixes, or modified sentences.
     3.  **Check Elements**: Look for missing or added UI elements (buttons, icons, lines).
-    4.  **Filter Noise**: Ignore minor pixel-level anti-aliasing differences, JPEG compression artifacts, or slight font rendering weight changes unless they affect legibility.
+    4.  **Filter Noise**: Ignore minor pixel-level anti-aliasing differences, JPEG compression artifacts, or slight font rendering weight changes unless they affect legibility. IF THE IMAGES LOOK ALMOST IDENTICAL, RETURN EMPTY LIST.
     5.  **Apply Custom Rules**: Strictly apply the user-defined comparison rules if provided below.
     6.  **Validation**: If a difference is too subtle or ambiguous, discard it. Do NOT hallucinate differences.
-    7.  **Formulate Output**: Create the JSON output for each valid difference.
+    7.  **Formulate Output**: Create the JSON output for each valid difference. **ALL DESCRIPTIONS MUST BE IN KOREAN.**
     
     {custom_rules_text}
 
     Return a JSON object with a key "differences" containing a list of objects.
     Each difference object must have:
     - "id": unique string/int
-    - "description": concise text describing the change in **KOREAN**.
+    - "description": concise text describing the change in **KOREAN** (한국어). Example: "헤더의 텍스트가 변경되었습니다."
     - "category": one of {categories_str}
     - "confidence": float between 0.0 and 1.0 (>= 0.85).
     - "location_1": bounding box in Baseline image [y_min, x_min, y_max, x_max] (0-1000 scale).
     - "location_2": bounding box in Candidate image [y_min, x_min, y_max, x_max] (0-1000 scale).
     
     **CRITICAL RULES**:
-    1. **ABSOLUTELY NO HALLUCINATION**: If identical, return empty differences list.
-    2. **HIGH CONFIDENCE ONLY**: >= 0.85.
-    3. **IGNORE NOISE**: Compression, anti-aliasing, minor font weight.
-    4. **POSITION IS NOT CONTENT**: Do not report pure position shifts of identical elements.
+    1. **LANGUAGE**: Output descriptions ONLY in **KOREAN**.
+    2. **ABSOLUTELY NO HALLUCINATION**: If identical, return empty differences list.
+    3. **HIGH CONFIDENCE ONLY**: >= 0.85.
+    4. **IGNORE NOISE**: Compression, anti-aliasing, minor font weight.
+    5. **POSITION IS NOT CONTENT**: Do not report pure position shifts of identical elements.
     """
 
     user_message_content = [
