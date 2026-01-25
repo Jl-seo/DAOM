@@ -230,6 +230,8 @@ export function ComparisonWorkspace({
     }
 
     // Determine current comparison data
+    // Use candidateFileUrls as fallback for panel visibility during retry
+    const hasMultipleCandidates = (candidateFileUrls && candidateFileUrls.length > 1) || (comparisons && comparisons.length > 1)
     const isMultiMode = comparisons && comparisons.length > 0
 
     // Get current candidate data
@@ -274,8 +276,8 @@ export function ComparisonWorkspace({
                 </div>
             )}
 
-            {/* Candidate List Panel */}
-            {isMultiMode && (comparisons.length > 1) && (
+            {/* Candidate List Panel - Show if we have multiple candidates OR multiple candidateFileUrls */}
+            {hasMultipleCandidates && (
                 <div className={clsx(
                     "flex flex-col gap-2 border-r shrink-0 overflow-hidden transition-all duration-200",
                     isListCollapsed ? "w-10" : "w-[220px] pr-2"

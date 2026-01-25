@@ -131,8 +131,8 @@ export function ExtractionReviewView({
             {/* Resizable Main Area */}
             <div className="flex-1 min-w-0 h-full flex flex-col relative bg-background">
                 <PanelGroup orientation={direction} className="!h-full !w-full">
-                    {/* PDF Viewer Panel */}
-                    <Panel defaultSize={50} minSize={25} collapsible={false} className="relative">
+                    {/* PDF Viewer Panel - Ensure reasonable minimum width */}
+                    <Panel defaultSize={50} minSize={35} collapsible={false} className="relative">
                         <div className="h-full w-full overflow-hidden">
                             <DocumentPreviewPanel
                                 ref={pdfViewerRef}

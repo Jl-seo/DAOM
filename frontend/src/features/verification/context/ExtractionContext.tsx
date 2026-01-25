@@ -467,13 +467,23 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             const res = await apiClient.post(`/extraction/retry/${currentLogId}`)
             return res.data
         },
-        onSuccess: (data) => {
+        onMutate: () => {
+            // 재시도 전 현재 candidateFileUrls 저장
+            return { previousCandidateUrls: candidateFileUrls }
+        },
+        onSuccess: (data, _, context) => {
             setCurrentJobId(data.job_id)
             if (data.file_url) setFileUrl(data.file_url)
-            // 재시도 시 후보 파일 URL 유지 (백엔드에서 반환하면 업데이트)
-            if (data.candidate_file_urls) {
+
+            // 재시도 시 후보 파일 URL 유지
+            // 백엔드에서 반환하면 업데이트, 없으면 기존 값 유지
+            if (data.candidate_file_urls && data.candidate_file_urls.length > 0) {
                 setCandidateFileUrls(data.candidate_file_urls)
+            } else if (context?.previousCandidateUrls && context.previousCandidateUrls.length > 0) {
+                // 백엔드에서 반환하지 않았으면 이전 값 복구
+                devLog('[Retry] Preserving previous candidateFileUrls:', context.previousCandidateUrls.length)
             }
+
             setStatus(EXTRACTION_STATUS.REFINING)
 
             // 비교 모델은 현재 화면 유지 (로딩 오버레이 표시)
