@@ -142,6 +142,31 @@ async def get_users_by_tenant(tenant_id: str, search_term: str = None) -> list[U
         return []
 
 
+async def get_all_users(search_term: str = None) -> list[User]:
+    """Get all users across all tenants (Super Admin only)"""
+    container = get_container(USERS_CONTAINER, "/tenant_id")
+    if not container:
+        return []
+    
+    try:
+        query = "SELECT * FROM c"
+        parameters = []
+        
+        if search_term:
+            query += " WHERE CONTAINS(LOWER(c.name), @search) OR CONTAINS(LOWER(c.email), @search)"
+            parameters.append({"name": "@search", "value": search_term.lower()})
+            
+        items = list(container.query_items(
+            query=query,
+            parameters=parameters if parameters else None,
+            enable_cross_partition_query=True
+        ))
+        return [User.from_dict(item) for item in items]
+    except Exception as e:
+        logger.error(f"Error getting all users: {e}")
+        return []
+
+
 async def update_user_role(user_id: str, new_role: str, tenant_id: str) -> bool:
     """Update user's role (Admin only)"""
     if new_role not in ["Admin", "Editor", "Viewer"]:

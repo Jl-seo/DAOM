@@ -436,7 +436,7 @@ export function ModelStudio() {
         <div className="h-[calc(100vh-80px)] p-6 font-sans overflow-y-auto custom-scrollbar">
             <div className="mb-6 flex items-center justify-between">
                 <div>
-                    <h2 className="text-2xl font-black text-foreground mb-1">모델 갤러리</h2>
+                    <h2 className="text-2xl font-black text-foreground mb-1">모델 스튜디오</h2>
                     <p className="text-sm text-muted-foreground">추출 모델을 생성하고 관리하세요</p>
                 </div>
                 <Button onClick={handleNewModel} className="gap-2">

@@ -63,12 +63,24 @@ async def get_current_user_info(current_user: CurrentUser = Depends(get_current_
 @router.get("/", response_model=list[UserResponse])
 async def list_users(
     search: Optional[str] = None,
+    all_tenants: bool = False,
     current_user: CurrentUser = Depends(require_admin)
 ):
     """
-    List all users in tenant (Admin only)
+    List users (Admin only)
+    - all_tenants=False: 현재 테넌트의 사용자만 (기본)
+    - all_tenants=True: 모든 테넌트의 사용자 (Super Admin 전용)
     """
-    users = await user_service.get_users_by_tenant(current_user.tenant_id, search_term=search)
+    from app.core.auth import is_super_admin
+    
+    if all_tenants:
+        # Super Admin 권한 체크
+        if not await is_super_admin(current_user):
+            raise HTTPException(status_code=403, detail="Super Admin 권한이 필요합니다")
+        users = await user_service.get_all_users(search_term=search)
+    else:
+        users = await user_service.get_users_by_tenant(current_user.tenant_id, search_term=search)
+    
     return [
         UserResponse(
             id=u.id,

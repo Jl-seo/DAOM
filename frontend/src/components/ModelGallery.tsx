@@ -46,11 +46,11 @@ export function ModelGallery({ onSelectModel }: ModelGalleryProps) {
     }
 
     return (
-        <div className="flex-1 p-8 overflow-auto bg-background">
+        <div className="flex-1 p-4 md:p-8 overflow-auto bg-background">
             <div className="max-w-6xl mx-auto">
                 {/* Header */}
                 <div className="mb-8">
-                    <h2 className="text-3xl font-black text-foreground mb-2">문서 추출</h2>
+                    <h2 className="text-3xl font-black text-foreground mb-2">모델 갤러리</h2>
                     <p className="text-muted-foreground">모델을 선택하여 문서에서 데이터를 추출하세요</p>
                 </div>
 
