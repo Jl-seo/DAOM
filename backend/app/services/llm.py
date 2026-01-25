@@ -345,7 +345,10 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         allowed_cats = comparison_settings.get("allowed_categories")
         excluded_cats = comparison_settings.get("excluded_categories")
         custom_cats = comparison_settings.get("custom_categories") # List[dict]
-        logger.info(f"[LLM] Using model comparison settings: threshold={conf_threshold}, ignore_position={ignore_position}, categories={allowed_cats or 'default'}, custom_cats={len(custom_cats) if custom_cats else 0}")
+        output_language = comparison_settings.get("output_language", "Korean")
+        logger.info(f"[LLM] Using model comparison settings: threshold={conf_threshold}, ignore_position={ignore_position}, lang={output_language}, categories={allowed_cats or 'default'}, custom_cats={len(custom_cats) if custom_cats else 0}")
+    else:
+        output_language = "Korean"
     
     # Inject Custom Rules if provided
     # ... (omitted standard rules injection, keeping existing flow) ...
@@ -461,7 +464,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
             {{
                 "is_meaningful": boolean,
                 "category": one of {categories_str} | "noise",
-                "description": "Short description of the change in **KOREAN** (한국어)"
+                "description": "Short description of the change in **{output_language}**"
             }}
             """
             
@@ -551,21 +554,21 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     4.  **Filter Noise**: Apply the **IGNORE RULES** provided below. If the images look almost identical and the rules say ignore minor changes, then return empty list.
     5.  **Apply Custom Rules**: Strictly apply the user-defined comparison rules if provided below.
     6.  **Validation**: If a difference is too subtle or ambiguous, discard it. Do NOT hallucinate differences.
-    7.  **Formulate Output**: Create the JSON output for each valid difference. **ALL DESCRIPTIONS MUST BE IN KOREAN.**
+    7.  **Formulate Output**: Create the JSON output for each valid difference. **ALL DESCRIPTIONS MUST BE IN {output_language}.**
     
     {custom_rules_text}
 
     Return a JSON object with a key "differences" containing a list of objects.
     Each difference object must have:
     - "id": unique string/int
-    - "description": concise text describing the change in **KOREAN** (한국어). Example: "헤더의 텍스트가 변경되었습니다."
+    - "description": concise text describing the change in **{output_language}**.
     - "category": one of {categories_str}
     - "confidence": float between 0.0 and 1.0 (>= 0.85).
     - "location_1": bounding box in Baseline image [y_min, x_min, y_max, x_max] (0-1000 scale).
     - "location_2": bounding box in Candidate image [y_min, x_min, y_max, x_max] (0-1000 scale).
     
     **CRITICAL RULES**:
-    1. **LANGUAGE**: Output descriptions ONLY in **KOREAN**.
+    1. **LANGUAGE**: Output descriptions ONLY in **{output_language}**.
     2. **ABSOLUTELY NO HALLUCINATION**: If identical, return empty differences list.
     3. **HIGH CONFIDENCE ONLY**: >= 0.85.
     4. **FOLLOW IGNORE RULES**: Strictly follow the ignore/noise rules provided above.
