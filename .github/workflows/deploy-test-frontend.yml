@@ -45,6 +45,7 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test-${{ steps.vars.outputs.SHORT_SHA }}
           build-args: |
             VITE_API_BASE_URL=https://daom-backend.greenpebble-00aa1dc4.koreacentral.azurecontainerapps.io/api/v1
+            VITE_AZURE_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}
 
       - name: Azure Login
         uses: azure/login@v1
