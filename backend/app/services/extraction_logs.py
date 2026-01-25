@@ -23,7 +23,8 @@ class ExtractionLog(BaseModel):
     user_email: Optional[str] = None
     filename: str
     file_url: Optional[str] = None
-    candidate_file_url: Optional[str] = None  # Comparison target file URL
+    candidate_file_url: Optional[str] = None  # Comparison target file URL (legacy single)
+    candidate_file_urls: Optional[List[str]] = None  # Comparison target file URLs (multi)
     status: str  # 'success' | 'error'
     extracted_data: Optional[dict] = None
     preview_data: Optional[dict] = None  # Full extraction structure with other_data
@@ -48,6 +49,7 @@ def save_extraction_log(
     status: str,
     file_url: Optional[str] = None,
     candidate_file_url: Optional[str] = None,
+    candidate_file_urls: Optional[List[str]] = None,  # NEW: Multi candidate files
     extracted_data: Optional[dict] = None,
     preview_data: Optional[dict] = None,
     error: Optional[str] = None,
@@ -86,6 +88,7 @@ def save_extraction_log(
         filename=filename,
         file_url=file_url,
         candidate_file_url=candidate_file_url,
+        candidate_file_urls=candidate_file_urls,
         status=status,
         extracted_data=extracted_data,
         preview_data=preview_data,

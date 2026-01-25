@@ -26,6 +26,8 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
         activeStep, setActiveStep,
         status,
         file, fileUrl,
+        candidateFileUrl,
+        candidateFileUrls,
         previewData,
         result,
         selectedSubDocIndex, setSelectedSubDocIndex,
@@ -124,8 +126,8 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                     model?.model_type === 'comparison' ? (
                         <ComparisonWorkspace
                             fileUrl={fileUrl || ''}
-                            candidateFileUrl={useExtraction().candidateFileUrl || ''}
-                            candidateFileUrls={useExtraction().candidateFileUrls || []}
+                            candidateFileUrl={candidateFileUrl || ''}
+                            candidateFileUrls={candidateFileUrls || []}
                             comparisonResult={previewData?.comparison_result || null}
                             comparisons={previewData?.comparisons || []}
                             onRetry={handleRetry}

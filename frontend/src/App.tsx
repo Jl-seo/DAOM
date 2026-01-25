@@ -111,7 +111,10 @@ function App() {
 
       case 'model-gallery':
         return (
-          <ModelGallery onSelectModel={(modelId) => setActiveMenu(`model-${modelId}` as MenuId)} />
+          <ModelGallery
+            onSelectModel={(modelId) => setActiveMenu(`model-${modelId}` as MenuId)}
+            onNavigate={handleNavigate}
+          />
         )
 
       case 'extraction-history':

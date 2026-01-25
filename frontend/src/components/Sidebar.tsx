@@ -71,7 +71,10 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
         <aside className={clsx("bg-sidebar text-sidebar-foreground flex flex-col h-full", className || "w-64")}>
             {/* Logo */}
             <div className="p-6 border-b border-sidebar-border">
-                <div className="flex items-center gap-3">
+                <button
+                    onClick={() => handleMenuChange('model-gallery')}
+                    className="flex items-center gap-3 w-full text-left hover:opacity-80 transition-opacity"
+                >
                     {config.logoUrl ? (
                         <img
                             src={config.logoUrl}
@@ -87,7 +90,7 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                         <h1 className="text-xl font-bold">{config.siteName}</h1>
                         <p className="text-xs text-sidebar-foreground/60">{config.siteDescription}</p>
                     </div>
-                </div>
+                </button>
 
                 <button
                     onClick={() => {

@@ -125,6 +125,7 @@ export interface ExtractionLog {
     user_email?: string
     filename: string
     file_url?: string
+    candidate_file_urls?: string[] // For comparison models
     status: ExtractionStatusType | string // Allow dynamic string fallback but prefer typed
     extracted_data?: Record<string, any>
     preview_data?: PreviewData // For in-progress jobs

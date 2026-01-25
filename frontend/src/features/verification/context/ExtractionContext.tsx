@@ -552,6 +552,11 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         setFilename(log.filename)
         setCurrentLogId(log.id)
 
+        // Restore candidate file URLs for comparison models
+        if (log.candidate_file_urls && log.candidate_file_urls.length > 0) {
+            devLog('[loadFromHistory] Restoring candidate_file_urls:', log.candidate_file_urls)
+            setCandidateFileUrls(log.candidate_file_urls)
+        }
 
         // Use saved preview_data if available (preserves other_data structure)
         // Otherwise fall back to reconstructing from extracted_data
