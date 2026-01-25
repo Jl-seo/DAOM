@@ -1,73 +1,35 @@
-# React + TypeScript + Vite
+# DAOM Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Daom (Doc Analysis & Object Mapper) Frontend Application built with React, Vite, and Tailwind CSS.
 
-Currently, two official plugins are available:
+## 🚀 Environment Configuration
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### Authentication (Important for Guest Users)
+To enable **Azure AD Guest Login** (B2B), you must explicitly configure the Host Tenant ID.
+If this is missing, the app defaults to `common`, which forces users to login to their home tenant, causing access errors for guest accounts.
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+**Required Environment Variable:**
+```bash
+VITE_AZURE_TENANT_ID=your-company-tenant-uuid
 ```
+*In GitHub Actions/Deployment, set this via `AZURE_TENANT_ID` secret.*
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## ✨ Features & Usage Guide
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### 1. Comparison Analysis Settings
+You can customize the comparison behavior in **Model Settings**:
+- **Output Language**: Defines the language of AI-generated descriptions (e.g., "Korean", "English").
+- **Noise Filtering**: Automatically ignores compression artifacts, anti-aliasing, and minor position shifts.
+  - Options: `Ignore Color Changes`, `Ignore Position Shifts`, etc.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+### 2. Excel Export
+- **Candidate Column**: Automatically displays the **filename** extracted from the uploaded URL.
+- **Key Safety**: The Data Key in Excel Settings is now **Read-Only** to prevent configuration errors. Only Labels and Widths can be modified.
+
+### 3. Localization (i18n)
+- Supports dynamic switching (Korean/English).
+- UI Text and API Error messages are localized.
+
+## 🛠 Deployment
+Builds are handled via GitHub Actions (`deploy-frontend.yml`).
+Make sure to set `AZURE_TENANT_ID` to support guest logins.

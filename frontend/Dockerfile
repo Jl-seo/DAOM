@@ -7,6 +7,9 @@ WORKDIR /app
 ARG VITE_API_BASE_URL=https://daom-backend.greenpebble-00aa1dc4.koreacentral.azurecontainerapps.io/api/v1
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
+ARG VITE_AZURE_TENANT_ID
+ENV VITE_AZURE_TENANT_ID=$VITE_AZURE_TENANT_ID
+
 COPY package*.json ./
 RUN npm install
 
