@@ -106,6 +106,7 @@ export function ComparisonWorkspace({
 
     // UI 상태: 목록 접기, 정렬, 필터
     const [isListCollapsed, setIsListCollapsed] = useState(false)
+    const [isResultsCollapsed, setIsResultsCollapsed] = useState(false)
     const [sortByDiffs, setSortByDiffs] = useState(false) // true = 차이점 많은 순
     const [hideNoDiffs, setHideNoDiffs] = useState(false) // true = 차이점 없는 것 숨김
 
@@ -402,17 +403,19 @@ export function ComparisonWorkspace({
                             <div className="text-xs font-bold text-center bg-card py-1 rounded-t-lg border-b">
                                 {t('comparison.workspace.baseline')}
                             </div>
-                            <div className="relative flex-1 bg-white rounded-lg border overflow-auto">
-                                <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: '100%', height: '100%', position: 'relative' }}>
+                            <div className="relative flex-1 bg-white rounded-lg border overflow-auto flex items-center justify-center">
+                                <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', position: 'relative', display: 'inline-block' }}>
                                     <img
                                         ref={baselineImgRef}
                                         src={fileUrl}
                                         alt="Baseline"
-                                        className="w-full h-full object-contain cursor-zoom-in"
+                                        className="max-w-full max-h-full cursor-zoom-in block"
+                                        loading="lazy"
+                                        decoding="async"
                                         onClick={() => setExpandedImage(fileUrl)}
                                     />
-                                    {/* Overlay for diffs */}
-                                    <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                                    {/* Overlay for diffs - positioned absolutely over the image */}
+                                    <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
                                         {currentComparison?.differences?.map((diff, idx) => {
                                             const loc = diff.location_1; // [y1, x1, y2, x2] normalized 0-1
                                             if (!loc) return null;
@@ -439,7 +442,6 @@ export function ComparisonWorkspace({
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         setSelectedDifferenceId(diff.id);
-                                                        // Scroll to list item? Need ref
                                                     }}
                                                 >
                                                     <title>{diff.description}</title>
@@ -456,25 +458,21 @@ export function ComparisonWorkspace({
                             <div className="text-xs font-bold text-center bg-card py-1 rounded-t-lg border-b truncate px-2" title={isMultiMode ? getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex) : ''}>
                                 {t('comparison.workspace.candidate')}: {isMultiMode ? (comparisons?.[selectedCandidateIndex]?.filename || getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex)) : t('comparison.workspace.single_file') || '단일 파일'}
                             </div>
-                            <div className="relative flex-1 bg-white rounded-lg border overflow-auto">
+                            <div className="relative flex-1 bg-white rounded-lg border overflow-auto flex items-center justify-center">
                                 {currentCandidateUrl ? (
-                                    <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', width: '100%', height: '100%', position: 'relative' }}>
+                                    <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', position: 'relative', display: 'inline-block' }}>
                                         <img
                                             ref={candidateImgRef}
                                             src={currentCandidateUrl}
                                             alt="Candidate"
-                                            className="w-full h-full object-contain cursor-zoom-in"
+                                            className="max-w-full max-h-full cursor-zoom-in block"
+                                            loading="lazy"
+                                            decoding="async"
                                             onClick={() => setExpandedImage(currentCandidateUrl)}
                                         />
-                                        {/* Overlay for diffs */}
-                                        <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                                        {/* Overlay for diffs - positioned absolutely over the image */}
+                                        <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
                                             {currentComparison?.differences?.map((diff, idx) => {
-                                                // Try location_2 first, fallback to location_1 if null (e.g. missing element in 2)
-                                                // Actually missing element logic: location_2 is null. We might show it ghosted?
-                                                // Or just show location_1 on image 1 ??
-                                                // Logic: Added element has loc2, missing element has loc1.
-                                                // Content change has both.
-
                                                 const loc = diff.location_2 || diff.location_1;
                                                 if (!loc) return null;
                                                 const [y1, x1, y2, x2] = loc;
@@ -529,106 +527,122 @@ export function ComparisonWorkspace({
 
             {/* Right: Difference List - Desktop always, Mobile only when tab is 'results' */}
             <div className={clsx(
-                "flex flex-col gap-4 overflow-hidden",
-                "md:w-[400px] md:shrink-0 md:border-l md:pl-4",
+                "flex flex-col gap-4 overflow-hidden transition-all duration-200",
+                isResultsCollapsed ? "w-10 md:w-12" : "md:w-[400px]",
+                "md:shrink-0 md:border-l",
+                isResultsCollapsed ? "" : "md:pl-4",
                 "flex-1 md:flex-none" // 모바일에서도 항상 표시 (상하 배치)
             )}>
                 <div className="flex items-center justify-between shrink-0">
-                    <h3 className="text-lg font-bold flex items-center gap-2">
-                        <FileDiff className="w-5 h-5" />
-                        {t('comparison.workspace.analysis_results')}
-                    </h3>
+                    {!isResultsCollapsed && (
+                        <h3 className="text-lg font-bold flex items-center gap-2">
+                            <FileDiff className="w-5 h-5" />
+                            {t('comparison.workspace.analysis_results')}
+                        </h3>
+                    )}
                     <div className="flex gap-2">
-                        {onRetry && (
+                        {!isResultsCollapsed && onRetry && (
                             <Button variant="outline" size="sm" onClick={onRetry}>
                                 <RefreshCw className="w-4 h-4 mr-1" />
                                 {t('common.actions.retry') || '재시도'}
                             </Button>
                         )}
-                        <Button variant="outline" size="sm" onClick={handleExportExcel}>
-                            <Download className="w-4 h-4 mr-1" />
-                            Excel
+                        {!isResultsCollapsed && (
+                            <Button variant="outline" size="sm" onClick={handleExportExcel}>
+                                <Download className="w-4 h-4 mr-1" />
+                                Excel
+                            </Button>
+                        )}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setIsResultsCollapsed(!isResultsCollapsed)}
+                            className="shrink-0"
+                        >
+                            {isResultsCollapsed ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </Button>
                     </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2">
-                    {/* Empty State */}
-                    {(!currentComparison || currentComparison.differences?.length === 0) && !currentError && (
-                        <div className="text-center py-10 text-muted-foreground">
-                            <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                            <p>{t('comparison.workspace.no_differences')}</p>
-                            <p className="text-xs">{t('comparison.workspace.identical_docs')}</p>
-                        </div>
-                    )}
+                {!isResultsCollapsed && (
+                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2">
+                        {/* Empty State */}
+                        {(!currentComparison || currentComparison.differences?.length === 0) && !currentError && (
+                            <div className="text-center py-10 text-muted-foreground">
+                                <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                                <p>{t('comparison.workspace.no_differences')}</p>
+                                <p className="text-xs">{t('comparison.workspace.identical_docs')}</p>
+                            </div>
+                        )}
 
-                    {/* Error State */}
-                    {currentError && (
-                        <div className="text-center py-10 text-red-500">
-                            <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-50" />
-                            <p>{t('comparison.workspace.error')}</p>
-                        </div>
-                    )}
+                        {/* Error State */}
+                        {currentError && (
+                            <div className="text-center py-10 text-red-500">
+                                <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-50" />
+                                <p>{t('comparison.workspace.error')}</p>
+                            </div>
+                        )}
 
-                    {currentComparison?.differences.map((diff) => (
-                        <div
-                            key={diff.id}
-                            onClick={() => setSelectedDifferenceId(selectedDifferenceId === diff.id ? null : diff.id)}
-                            className={clsx(
-                                "group bg-card border rounded-lg p-3 cursor-pointer transition-all hover:shadow-md",
-                                selectedDifferenceId === diff.id ? "ring-2 ring-primary border-transparent" : "hover:border-primary/50"
-                            )}
-                        >
-                            <div className="flex items-start justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                    <span className={clsx(
-                                        "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase",
-                                        diff.category === 'content' ? "bg-red-100 text-red-600" :
-                                            diff.category === 'layout' ? "bg-blue-100 text-blue-600" :
-                                                "bg-gray-100 text-gray-600"
-                                    )}>
-                                        {t(`comparison.categories.${diff.category}`) || diff.category}
-                                    </span>
-                                    {diff.page_number && (
-                                        <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                                            {t('comparison.workspace.page')} {diff.page_number}
+                        {currentComparison?.differences.map((diff) => (
+                            <div
+                                key={diff.id}
+                                onClick={() => setSelectedDifferenceId(selectedDifferenceId === diff.id ? null : diff.id)}
+                                className={clsx(
+                                    "group bg-card border rounded-lg p-3 cursor-pointer transition-all hover:shadow-md",
+                                    selectedDifferenceId === diff.id ? "ring-2 ring-primary border-transparent" : "hover:border-primary/50"
+                                )}
+                            >
+                                <div className="flex items-start justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className={clsx(
+                                            "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase",
+                                            diff.category === 'content' ? "bg-red-100 text-red-600" :
+                                                diff.category === 'layout' ? "bg-blue-100 text-blue-600" :
+                                                    "bg-gray-100 text-gray-600"
+                                        )}>
+                                            {t(`comparison.categories.${diff.category}`) || diff.category}
                                         </span>
-                                    )}
-                                    {/* 신뢰도 표시 (개선된 UI) */}
-                                    {diff.confidence !== undefined && (
-                                        <div
-                                            className={clsx(
-                                                "flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border shadow-sm",
-                                                diff.confidence >= 0.8 ? "bg-green-50 text-green-700 border-green-200" :
-                                                    diff.confidence >= 0.5 ? "bg-amber-50 text-amber-700 border-amber-200" :
-                                                        "bg-slate-50 text-slate-500 border-slate-200"
-                                            )}
-                                            title={`AI 신뢰도: ${Math.round(diff.confidence * 100)}%`}
-                                        >
-                                            {diff.confidence >= 0.8 ? <CheckCircle2 className="w-3 h-3" /> :
-                                                diff.confidence >= 0.5 ? <AlertCircle className="w-3 h-3" /> :
-                                                    <div className="w-3 h-3 rounded-full bg-slate-300" />}
-                                            <span>
-                                                {diff.confidence >= 0.8 ? '확실함' :
-                                                    diff.confidence >= 0.5 ? '검토 필요' :
-                                                        '낮은 가능성'}
+                                        {diff.page_number && (
+                                            <span className="text-[10px] font-medium text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                                                {t('comparison.workspace.page')} {diff.page_number}
                                             </span>
-                                        </div>
-                                    )}
+                                        )}
+                                        {/* 신뢰도 표시 (개선된 UI) */}
+                                        {diff.confidence !== undefined && (
+                                            <div
+                                                className={clsx(
+                                                    "flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border shadow-sm",
+                                                    diff.confidence >= 0.8 ? "bg-green-50 text-green-700 border-green-200" :
+                                                        diff.confidence >= 0.5 ? "bg-amber-50 text-amber-700 border-amber-200" :
+                                                            "bg-slate-50 text-slate-500 border-slate-200"
+                                                )}
+                                                title={`AI 신뢰도: ${Math.round(diff.confidence * 100)}%`}
+                                            >
+                                                {diff.confidence >= 0.8 ? <CheckCircle2 className="w-3 h-3" /> :
+                                                    diff.confidence >= 0.5 ? <AlertCircle className="w-3 h-3" /> :
+                                                        <div className="w-3 h-3 rounded-full bg-slate-300" />}
+                                                <span>
+                                                    {diff.confidence >= 0.8 ? '확실함' :
+                                                        diff.confidence >= 0.5 ? '검토 필요' :
+                                                            '낮은 가능성'}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <span className="text-xs text-muted-foreground">#{diff.id}</span>
                                 </div>
-                                <span className="text-xs text-muted-foreground">#{diff.id}</span>
+                                <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                                    {diff.description}
+                                </p>
+                                <div className="mt-2 flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <span className="text-xs text-primary font-medium flex items-center">
+                                        {t('comparison.workspace.check_location')} <ChevronRight className="w-3 h-3 ml-1" />
+                                    </span>
+                                </div>
                             </div>
-                            <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
-                                {diff.description}
-                            </p>
-                            <div className="mt-2 flex items-center justify-end opacity-0 group-hover:opacity-100 transition-opacity">
-                                <span className="text-xs text-primary font-medium flex items-center">
-                                    {t('comparison.workspace.check_location')} <ChevronRight className="w-3 h-3 ml-1" />
-                                </span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Expanded Image Modal */}
