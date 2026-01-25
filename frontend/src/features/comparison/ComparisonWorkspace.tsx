@@ -583,7 +583,7 @@ export function ComparisonWorkspace({
                             </div>
                         )}
 
-                        {currentComparison?.differences.map((diff) => (
+                        {currentComparison?.differences?.map((diff) => (
                             <div
                                 key={diff.id}
                                 onClick={() => setSelectedDifferenceId(selectedDifferenceId === diff.id ? null : diff.id)}
