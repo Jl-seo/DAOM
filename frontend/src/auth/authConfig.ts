@@ -4,8 +4,9 @@ import type { Configuration } from '@azure/msal-browser'
 // Azure AD App Registration Client ID
 const AZURE_CLIENT_ID = '689d0170-0576-4563-8a24-a323625196ca'
 
-// Multi-tenant: Use 'common' to accept any organization
-const AZURE_AUTHORITY = 'https://login.microsoftonline.com/common'
+// Multi-tenant vs Guest: Use explicit Tenant ID if provided (for Guest login), otherwise common
+const AZURE_TENANT_ID = import.meta.env.VITE_AZURE_TENANT_ID || 'common'
+const AZURE_AUTHORITY = `https://login.microsoftonline.com/${AZURE_TENANT_ID}`
 
 export const msalConfig: Configuration = {
     auth: {
