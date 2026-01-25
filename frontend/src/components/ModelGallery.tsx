@@ -33,7 +33,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
     const [searchQuery, setSearchQuery] = useState('')
     const [activeTab, setActiveTab] = useState<TabType>('all')
     const { config } = useSiteConfig()
-    const { isSuperAdmin } = useAuth()
+    const { isSuperAdmin, getAccessToken } = useAuth()
 
     useEffect(() => {
         loadModels()
@@ -41,7 +41,10 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
 
     const loadModels = async () => {
         try {
-            const res = await axios.get(`${API_BASE}/models`)
+            const token = await getAccessToken()
+            const res = await axios.get(`${API_BASE}/models`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+            })
             setModels(res.data)
         } catch {
             toast.error(t('gallery.errors.load_failed'))
