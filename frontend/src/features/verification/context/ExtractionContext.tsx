@@ -243,7 +243,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
 
                     // Update URLs if present in job (important for candidate file)
                     if (job.file_url) setFileUrl(job.file_url)
-                    if (job.candidate_file_urls) setCandidateFileUrls(job.candidate_file_urls) // Expecting array from backend now
+                    if (job.candidate_file_urls && job.candidate_file_urls.length > 0) setCandidateFileUrls(job.candidate_file_urls) // Expecting array from backend now
 
                     // If we have preview data (standard flow), use it
                     // Always inject debug_data if available

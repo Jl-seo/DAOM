@@ -28,7 +28,7 @@ const PageLoader = () => (
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
-  const [activeMenu, setActiveMenu] = useState<MenuId>('home' as MenuId)
+  const [activeMenu, setActiveMenu] = useState<MenuId>('model-gallery' as MenuId)
 
   // Mobile Menu State
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)

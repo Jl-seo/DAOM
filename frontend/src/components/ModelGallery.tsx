@@ -64,7 +64,7 @@ export function ModelGallery({ onSelectModel }: ModelGalleryProps) {
                         <p className="text-muted-foreground mb-6">먼저 모델 스튜디오에서 추출 모델을 만들어보세요</p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                         {models.map((model) => (
                             <button
                                 key={model.id}

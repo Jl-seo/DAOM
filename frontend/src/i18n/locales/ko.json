@@ -83,7 +83,8 @@
             "creating": "생성 중...",
             "unknown_error": "알 수 없는 오류",
             "no_changes": "변경 없음",
-            "no_permission": "권한 없음"
+            "no_permission": "권한 없음",
+            "refining": "재추출 중..."
         },
         "placeholders": {
             "enter_value": "값을 입력하세요",
