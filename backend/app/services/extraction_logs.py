@@ -2,7 +2,7 @@
 Extraction Logs Service - Stores extraction results in Azure Cosmos DB
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from pydantic import BaseModel, field_validator
 from app.db.cosmos import get_extractions_container
@@ -78,7 +78,7 @@ def save_extraction_log(
         except Exception:
             pass
     
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     log = ExtractionLog(
         id=log_id if log_id else str(uuid.uuid4()),
         model_id=model_id,
@@ -147,7 +147,7 @@ def save_extraction_log(
             if audit_container:
                  audit_entry = {
                     "id": str(uuid.uuid4()),
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                     "user_id": user_id,
                     "user_email": user_email or "system@daom.ai",
                     "tenant_id": tenant_id or "default",
@@ -304,7 +304,7 @@ def update_log_status(log_id: str, status: str, preview_data: Optional[dict] = N
         # Update fields
         log_dict = log.model_dump()
         log_dict["status"] = status
-        log_dict["updated_at"] = datetime.utcnow().isoformat()
+        log_dict["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         log_dict["type"] = ExtractionType.LOG.value
         
         if preview_data:

@@ -2,7 +2,7 @@
 Extraction Jobs Service
 Job-based async extraction processing with status tracking
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 import uuid
@@ -48,7 +48,7 @@ def create_job(
 ) -> ExtractionJob:
     """Create a new extraction job with pending status"""
     job_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     
     job = ExtractionJob(
         id=job_id,
@@ -139,7 +139,7 @@ def update_job(
             job_data["debug_data"] = debug_data
         if error is not None:
             job_data["error"] = error
-        job_data["updated_at"] = datetime.utcnow().isoformat()
+        job_data["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         
         # Upsert
         container.upsert_item(body=job_data)
