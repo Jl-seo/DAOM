@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, ArrowRight, Loader2, LayoutTemplate, PlusCircle, Sparkles, Search, GitCompare, Layers } from 'lucide-react'
+import { FileText, ArrowRight, CircleNotch, SquaresFour, PlusCircle, Sparkle, MagnifyingGlass, GitDiff, Stack } from '@phosphor-icons/react'
 import axios from 'axios'
 import { API_CONFIG } from '../constants'
 import { toast } from 'sonner'
@@ -78,15 +78,15 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
     if (loading) {
         return (
             <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                <CircleNotch size={32} className="animate-spin text-primary" />
             </div>
         )
     }
 
     const tabs: { key: TabType; label: string; icon: React.ReactNode; color: string }[] = [
-        { key: 'all', label: '전체', icon: <Layers className="w-4 h-4" />, color: 'text-foreground' },
-        { key: 'extraction', label: '추출', icon: <FileText className="w-4 h-4" />, color: 'text-primary' },
-        { key: 'comparison', label: '비교', icon: <GitCompare className="w-4 h-4" />, color: 'text-chart-5' },
+        { key: 'all', label: '전체', icon: <Stack size={16} weight="duotone" />, color: 'text-foreground' },
+        { key: 'extraction', label: '추출', icon: <FileText size={16} weight="duotone" />, color: 'text-primary' },
+        { key: 'comparison', label: '비교', icon: <GitDiff size={16} weight="duotone" />, color: 'text-chart-5' },
     ]
 
     return (
@@ -98,7 +98,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                 <div className="relative max-w-6xl mx-auto px-4 md:px-8 py-8">
                     <div className="flex flex-col md:flex-row items-center gap-6">
                         <div className="w-16 h-16 bg-gradient-to-br from-primary via-chart-5 to-chart-2 rounded-2xl flex items-center justify-center shadow-xl">
-                            <Sparkles className="w-8 h-8 text-white" />
+                            <Sparkle size={32} weight="fill" className="text-white" />
                         </div>
 
                         <div className="text-center md:text-left flex-1">
@@ -114,7 +114,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                             onClick={() => onNavigate('model-studio')}
                             className="inline-flex items-center px-5 py-2.5 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
                         >
-                            <PlusCircle className="w-4 h-4 mr-2" />
+                            <PlusCircle size={16} weight="bold" className="mr-2" />
                             새 모델
                         </button>
                     </div>
@@ -156,7 +156,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
 
                     {/* Search */}
                     <div className="relative max-w-xs w-full">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <input
                             type="text"
                             placeholder="모델 검색..."
@@ -171,7 +171,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                 {filteredModels.length === 0 ? (
                     <div className="text-center py-16 bg-muted/30 rounded-2xl border-2 border-dashed border-border">
                         <div className="w-16 h-16 mx-auto mb-4 bg-background rounded-2xl flex items-center justify-center">
-                            <LayoutTemplate className="w-8 h-8 text-muted-foreground" />
+                            <SquaresFour size={32} weight="duotone" className="text-muted-foreground" />
                         </div>
                         <h3 className="text-lg font-semibold text-foreground mb-1">
                             {searchQuery ? '검색 결과가 없습니다' : `${activeTab === 'comparison' ? '비교' : activeTab === 'extraction' ? '추출' : ''} 모델이 없습니다`}
@@ -184,7 +184,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                                 onClick={() => onNavigate('model-studio')}
                                 className="inline-flex items-center px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-primary/90"
                             >
-                                <PlusCircle className="w-4 h-4 mr-2" />
+                                <PlusCircle size={16} weight="bold" className="mr-2" />
                                 모델 만들기
                             </button>
                         )}
@@ -214,8 +214,8 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                                                 : "bg-primary/10 group-hover:bg-primary/20"
                                         )}>
                                             {isComparison
-                                                ? <GitCompare className="w-5 h-5 text-chart-5" />
-                                                : <FileText className="w-5 h-5 text-primary" />
+                                                ? <GitDiff size={20} weight="duotone" className="text-chart-5" />
+                                                : <FileText size={20} weight="duotone" className="text-primary" />
                                             }
                                         </div>
                                         <span className={clsx(
@@ -249,7 +249,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                                             isComparison ? "text-chart-5" : "text-primary"
                                         )}>
                                             시작
-                                            <ArrowRight className="w-3 h-3" />
+                                            <ArrowRight size={12} />
                                         </span>
                                     </div>
                                 </button>
