@@ -23,6 +23,7 @@ class UserResponse(BaseModel):
     created_at: str
     last_login: str
     groups: list[str]
+    isSuperAdmin: bool = False  # Whether user has Super Admin privileges
 
 
 class UpdateRoleRequest(BaseModel):
@@ -48,6 +49,11 @@ async def get_current_user_info(current_user: CurrentUser = Depends(get_current_
         logger.error(f"Failed to run startup tasks: {e}")
     
     user = await user_service.get_or_create_user(current_user)
+    
+    # Check if user is Super Admin
+    from app.core.auth import is_super_admin
+    is_super = await is_super_admin(current_user)
+    
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -56,7 +62,8 @@ async def get_current_user_info(current_user: CurrentUser = Depends(get_current_
         tenant_id=user.tenant_id,
         created_at=user.created_at,
         last_login=user.last_login,
-        groups=user.groups
+        groups=user.groups,
+        isSuperAdmin=is_super
     )
 
 

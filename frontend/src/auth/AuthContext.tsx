@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
@@ -9,6 +9,7 @@ interface AuthContextType {
     user: AccountInfo | null
     isAuthenticated: boolean
     isLoading: boolean
+    isSuperAdmin: boolean
     login: () => Promise<void>
     logout: () => void
     getAccessToken: () => Promise<string | null>
@@ -20,14 +21,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { instance, accounts, inProgress } = useMsal()
     const isAuthenticated = useIsAuthenticated()
     const [user, setUser] = useState<AccountInfo | null>(null)
+    const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 
+    const getAccessToken = useCallback(async (): Promise<string | null> => {
+        const account = accounts[0]
+        if (!account) return null
+
+        try {
+            const response = await instance.acquireTokenSilent({
+                ...loginRequest,
+                account: account
+            })
+            return response.accessToken
+        } catch (error) {
+            console.error('Token error:', error)
+            try {
+                const response = await instance.acquireTokenPopup(loginRequest)
+                return response.accessToken
+            } catch {
+                return null
+            }
+        }
+    }, [instance, accounts])
+
+    // Fetch user permissions from backend
     useEffect(() => {
         if (accounts.length > 0) {
             setUser(accounts[0])
+
+            // Fetch /users/me to get isSuperAdmin
+            const fetchPermissions = async () => {
+                const token = await getAccessToken()
+                if (!token) return
+
+                try {
+                    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002/api/v1'
+                    const response = await fetch(`${apiBase}/users/me`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    })
+                    if (response.ok) {
+                        const data = await response.json()
+                        setIsSuperAdmin(data.isSuperAdmin ?? false)
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch user permissions:', e)
+                }
+            }
+            fetchPermissions()
         } else {
             setUser(null)
+            setIsSuperAdmin(false)
         }
-    }, [accounts])
+    }, [accounts, getAccessToken])
 
     const login = async () => {
         try {
@@ -43,27 +88,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })
     }
 
-    const getAccessToken = async (): Promise<string | null> => {
-        if (!user) return null
-
-        try {
-            const response = await instance.acquireTokenSilent({
-                ...loginRequest,
-                account: user
-            })
-            return response.accessToken
-        } catch (error) {
-            console.error('Token error:', error)
-            // Try popup if silent fails
-            try {
-                const response = await instance.acquireTokenPopup(loginRequest)
-                return response.accessToken
-            } catch {
-                return null
-            }
-        }
-    }
-
     const isLoading = inProgress !== InteractionStatus.None
 
     return (
@@ -72,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 user,
                 isAuthenticated,
                 isLoading,
+                isSuperAdmin,
                 login,
                 logout,
                 getAccessToken

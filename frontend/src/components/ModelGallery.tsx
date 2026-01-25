@@ -5,6 +5,7 @@ import axios from 'axios'
 import { API_CONFIG } from '../constants'
 import { toast } from 'sonner'
 import { useSiteConfig } from './SiteConfigProvider'
+import { useAuth } from '../auth/AuthContext'
 import clsx from 'clsx'
 
 const API_BASE = API_CONFIG.BASE_URL
@@ -32,6 +33,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
     const [searchQuery, setSearchQuery] = useState('')
     const [activeTab, setActiveTab] = useState<TabType>('all')
     const { config } = useSiteConfig()
+    const { isSuperAdmin } = useAuth()
 
     useEffect(() => {
         loadModels()
@@ -118,13 +120,15 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                             </p>
                         </div>
 
-                        <button
-                            onClick={() => onNavigate('model-studio')}
-                            className="inline-flex items-center px-5 py-2.5 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
-                        >
-                            <PlusCircle size={16} weight="bold" className="mr-2" />
-                            {t('gallery.actions.new_model')}
-                        </button>
+                        {isSuperAdmin && (
+                            <button
+                                onClick={() => onNavigate('model-studio')}
+                                className="inline-flex items-center px-5 py-2.5 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
+                            >
+                                <PlusCircle size={16} weight="bold" className="mr-2" />
+                                {t('gallery.actions.new_model')}
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>
@@ -187,7 +191,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                         <p className="text-muted-foreground text-sm mb-6">
                             {searchQuery ? t('gallery.empty.try_different') : t('gallery.empty.create_first')}
                         </p>
-                        {!searchQuery && (
+                        {!searchQuery && isSuperAdmin && (
                             <button
                                 onClick={() => onNavigate('model-studio')}
                                 className="inline-flex items-center px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-primary/90"
