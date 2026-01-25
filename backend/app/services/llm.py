@@ -414,6 +414,10 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     # Add custom category definitions to rules text so LLM understands them
     if custom_cat_defs:
          custom_rules_text += "\n**CUSTOM CATEGORY DEFINITIONS:**\n" + "\n".join(custom_cat_defs) + "\n"
+
+    # Add dynamic ignore rules (from Model Settings)
+    if dynamic_ignore_text:
+        custom_rules_text += "\n**IGNORE RULES (STRICTLY FOLLOW):**\n" + dynamic_ignore_text + "\n"
     
     
     # 1. Detect pixel-level differences to get accurate bboxes
@@ -457,7 +461,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
             {{
                 "is_meaningful": boolean,
                 "category": one of {categories_str} | "noise",
-                "description": "Short description of the change"
+                "description": "Short description of the change in **KOREAN** (한국어)"
             }}
             """
             
@@ -544,7 +548,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     1.  **Analyze Layout**: First, look at the overall structure (header, body, footer) of both images. note any shifts or resizing.
     2.  **Scan for Content**: Read the text in both images. Identify changed numbers, typo fixes, or modified sentences.
     3.  **Check Elements**: Look for missing or added UI elements (buttons, icons, lines).
-    4.  **Filter Noise**: Ignore minor pixel-level anti-aliasing differences, JPEG compression artifacts, or slight font rendering weight changes unless they affect legibility. IF THE IMAGES LOOK ALMOST IDENTICAL, RETURN EMPTY LIST.
+    4.  **Filter Noise**: Apply the **IGNORE RULES** provided below. If the images look almost identical and the rules say ignore minor changes, then return empty list.
     5.  **Apply Custom Rules**: Strictly apply the user-defined comparison rules if provided below.
     6.  **Validation**: If a difference is too subtle or ambiguous, discard it. Do NOT hallucinate differences.
     7.  **Formulate Output**: Create the JSON output for each valid difference. **ALL DESCRIPTIONS MUST BE IN KOREAN.**
@@ -564,7 +568,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     1. **LANGUAGE**: Output descriptions ONLY in **KOREAN**.
     2. **ABSOLUTELY NO HALLUCINATION**: If identical, return empty differences list.
     3. **HIGH CONFIDENCE ONLY**: >= 0.85.
-    4. **IGNORE NOISE**: Compression, anti-aliasing, minor font weight.
+    4. **FOLLOW IGNORE RULES**: Strictly follow the ignore/noise rules provided above.
     5. **POSITION IS NOT CONTENT**: Do not report pure position shifts of identical elements.
     """
 
