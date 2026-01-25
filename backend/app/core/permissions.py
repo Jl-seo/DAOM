@@ -21,20 +21,38 @@ require_editor = require_admin
 require_viewer = require_admin
 
 
-async def verify_model_admin(model_id: str, user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-    """Dependency: Require Model Admin privileges for a specific model"""
-    # 1. Super Admin is always allowed
+# ... imports
+
+async def check_model_permission(user: CurrentUser, model_id: str, required_role: str = "User") -> bool:
+    """
+    Check if user has required permissions for a model.
+    Super Admins are always allowed.
+    required_role: "Admin" (for write/team view) or "User" (for read)
+    """
     from app.core.group_permission_utils import check_initial_admin, is_super_admin_by_group, get_model_role_by_group
     
+    # 1. Super Admin / Initial Admin is always allowed
     if check_initial_admin(user.email):
-        return user
-        
+        return True
     if await is_super_admin_by_group(user.id, user.tenant_id):
-        return user
+        return True
 
     # 2. Check granular model permission
     role = await get_model_role_by_group(user.id, user.tenant_id, model_id)
-    if role == "Admin":
+    if not role:
+        return False
+        
+    if required_role == "Admin":
+        return role == "Admin"
+    elif required_role == "User":
+        return role in ["Admin", "User"]
+        
+    return False
+
+
+async def verify_model_admin(model_id: str, user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Dependency: Require Model Admin privileges"""
+    if await check_model_permission(user, model_id, "Admin"):
         return user
 
     raise HTTPException(
@@ -44,18 +62,8 @@ async def verify_model_admin(model_id: str, user: CurrentUser = Depends(get_curr
 
 
 async def verify_model_access(model_id: str, user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
-    """Dependency: Require at least User privileges for a specific model"""
-    from app.core.group_permission_utils import check_initial_admin, is_super_admin_by_group, get_model_role_by_group
-    
-    # 1. Super Admin is always allowed
-    if check_initial_admin(user.email):
-        return user
-    if await is_super_admin_by_group(user.id, user.tenant_id):
-        return user
-
-    # 2. Check granular model permission (Admin or User)
-    role = await get_model_role_by_group(user.id, user.tenant_id, model_id)
-    if role in ["Admin", "User"]:
+    """Dependency: Require at least User privileges (Read Access)"""
+    if await check_model_permission(user, model_id, "User"):
         return user
 
     raise HTTPException(

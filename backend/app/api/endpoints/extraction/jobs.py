@@ -188,25 +188,17 @@ async def get_jobs(
     limit: int = 50
 ):
     """Get jobs for current user or model with scope control"""
-    from app.core.group_permission_utils import is_super_admin_by_group, get_model_role_by_group
+    from app.core.permissions import check_model_permission
 
     jobs = []
 
     # 1. Team View (Require Model Admin or Super Admin)
+    # We use check_model_permission("Admin") which handles Super Admin logic internally
     if scope == "team" and model_id:
-        is_super = await is_super_admin_by_group(current_user.id, current_user.tenant_id)
-        has_permission = False
-        
-        if is_super:
-            has_permission = True
-        else:
-            role = await get_model_role_by_group(current_user.id, current_user.tenant_id, model_id)
-            if role == "Admin":
-                has_permission = True
+        has_permission = await check_model_permission(current_user, model_id, "Admin")
         
         if has_permission:
             jobs = extraction_jobs.get_jobs_by_model(model_id, limit=limit)
-            # If permission denied, fall through to 'mine' scope logic safely
         else:
             # Fallback to mine if no permission for team view
             jobs = extraction_jobs.get_jobs_by_model_and_user(model_id, current_user.id, limit=limit)
