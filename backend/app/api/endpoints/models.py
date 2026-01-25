@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from app.schemas.model import ExtractionModel, ExtractionModelCreate
 from app.services.models import load_models, save_models, get_model_by_id
-from app.core.permissions import require_admin, verify_model_admin
+from app.core.permissions import require_admin, verify_model_admin, verify_model_access
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def create_model(model_in: ExtractionModelCreate):
     save_models(models)
     return new_model
 
-@router.get("/{model_id}", response_model=ExtractionModel)
+@router.get("/{model_id}", response_model=ExtractionModel, dependencies=[Depends(verify_model_access)])
 def get_model(model_id: str):
     model = get_model_by_id(model_id)
     if not model:
@@ -75,13 +75,13 @@ def delete_model(model_id: str):
             
     raise HTTPException(status_code=404, detail="Model not found")
 
-@router.get("/options/list")
+@router.get("/options/list", dependencies=[Depends(require_admin)])
 def list_model_options():
     """Get available Azure model types"""
     from app.services.doc_intel import get_supported_models
     return get_supported_models()
 
-@router.post("/analyze-sample")
+@router.post("/analyze-sample", dependencies=[Depends(require_admin)])
 async def analyze_sample(
     file: UploadFile = File(...),
     model_type: str = Form("prebuilt-layout")
@@ -180,7 +180,7 @@ async def analyze_sample(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/schema/refine")
+@router.post("/schema/refine", dependencies=[Depends(require_admin)])
 async def refine_schema_endpoint(
     payload: dict = {
         "fields": [],

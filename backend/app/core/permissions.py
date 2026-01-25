@@ -41,3 +41,24 @@ async def verify_model_admin(model_id: str, user: CurrentUser = Depends(get_curr
         status_code=status.HTTP_403_FORBIDDEN,
         detail=f"Admin access required for model {model_id}"
     )
+
+
+async def verify_model_access(model_id: str, user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """Dependency: Require at least User privileges for a specific model"""
+    from app.core.group_permission_utils import check_initial_admin, is_super_admin_by_group, get_model_role_by_group
+    
+    # 1. Super Admin is always allowed
+    if check_initial_admin(user.email):
+        return user
+    if await is_super_admin_by_group(user.id, user.tenant_id):
+        return user
+
+    # 2. Check granular model permission (Admin or User)
+    role = await get_model_role_by_group(user.id, user.tenant_id, model_id)
+    if role in ["Admin", "User"]:
+        return user
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"Access denied for model {model_id}"
+    )
