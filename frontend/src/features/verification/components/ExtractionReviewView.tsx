@@ -52,13 +52,24 @@ export function ExtractionReviewView({
     const pdfViewerRef = useRef<PDFViewerHandle>(null)
     // Layout persistent state
     const [defaultLayout] = useState(() => {
+        const defaultValue = [55, 45] // Default: 55% Preview, 45% Data
         try {
             const saved = localStorage.getItem('extraction-review-layout')
-            if (saved) return JSON.parse(saved)
+            if (saved) {
+                const parsed = JSON.parse(saved)
+                // Validate: Preview panel should be at least 45%
+                // If stored layout has preview too narrow, reset to default
+                if (Array.isArray(parsed) && parsed.length >= 2 && parsed[0] >= 45) {
+                    return parsed
+                }
+                // Clear invalid saved layout
+                localStorage.removeItem('extraction-review-layout')
+                console.log('[Layout] Reset narrow preview layout to default')
+            }
         } catch (e) {
             console.error('Failed to load layout', e)
         }
-        return [60, 40] // Default: 60% Preview, 40% Data
+        return defaultValue
     })
 
     const [latestData, setLatestData] = useState<{ guide: any, other: any[] } | null>(null)
