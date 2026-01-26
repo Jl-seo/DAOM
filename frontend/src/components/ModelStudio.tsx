@@ -27,6 +27,9 @@ export interface ComparisonSettings {
     ignore_font_changes: boolean; // true
     ignore_compression_noise: boolean; // true - JPEG artifacts
     custom_ignore_rules?: string; // custom instructions
+    // Method Toggles (Component-Based Architecture)
+    use_ssim_analysis?: boolean; // true - Physical layer
+    use_vision_analysis?: boolean; // true - Visual layer
     allowed_categories?: string[]; // Whitelist
     excluded_categories?: string[]; // Blacklist
     custom_categories?: { key: string; label: string; description: string }[]; // User defined

@@ -138,3 +138,102 @@ async def detect_pixel_differences(
     except Exception as e:
         logger.error(f"[PixelDiff] Error detecting differences: {e}")
         return []
+
+from skimage.metrics import structural_similarity as ssim
+
+async def calculate_ssim(
+    image_url_1: str, 
+    image_url_2: str,
+    min_area: int = 50
+) -> list[dict]:
+    """
+    Detect structural differences using SSIM (Structural Similarity Index).
+    Robust against global lighting changes and minor noise.
+    """
+    try:
+        # Download images
+        img1, img2 = await asyncio.gather(
+            download_image_as_cv2(image_url_1),
+            download_image_as_cv2(image_url_2)
+        )
+        
+        if img1 is None or img2 is None:
+            raise ValueError("Failed to download or decode images")
+
+        # Resize img2 to match img1 if dimensions differ
+        h1, w1 = img1.shape[:2]
+        h2, w2 = img2.shape[:2]
+        
+        if (h1, w1) != (h2, w2):
+            img2 = cv2.resize(img2, (w1, h1))
+
+        # Convert to grayscale
+        gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+        gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+
+        # Compute SSIM
+        # full=True returns the score and the diff image
+        score, diff_map = ssim(gray1, gray2, full=True)
+        
+        # diff_map is in range -1 to 1 (float) or 0-1 depending on implementation? 
+        # skimage usually returns -1..1 or 0..1. Let's convert to uint8.
+        # usually (diff * 255).astype("uint8") for 0-1 range.
+        # But ssim diff can be negative? No, similarity is -1 to 1.
+        # Actually diff map from ssim is the local ssim value.
+        # We want "Difference", so (1 - ssim).
+        
+        diff_u8 = ((1 - diff_map) * 255).astype("uint8")
+        
+        # Threshold: We only care about significant structural differences
+        # SSIM < 0.9 => diff > 0.1 => pixel value > 25
+        _, thresh = cv2.threshold(diff_u8, 50, 255, cv2.THRESH_BINARY)
+        
+        # Morphological clean up
+        kernel = np.ones((5,5), np.uint8)
+        processed_diff = cv2.dilate(thresh, kernel, iterations=2)
+        processed_diff = cv2.erode(processed_diff, kernel, iterations=1)
+        
+        # Find contours
+        contours, _ = cv2.findContours(processed_diff, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        diffs = []
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area < min_area:
+                continue
+                
+            x, y, w, h = cv2.boundingRect(contour)
+            
+            # Padding
+            pad = 10
+            x_pad = max(0, x - pad)
+            y_pad = max(0, y - pad)
+            w_pad = min(w1 - x_pad, w + 2*pad)
+            h_pad = min(h1 - y_pad, h + 2*pad)
+            
+            # Crop
+            crop1 = img1[y_pad:y_pad+h_pad, x_pad:x_pad+w_pad]
+            crop2 = img2[y_pad:y_pad+h_pad, x_pad:x_pad+w_pad]
+            
+            # Normalize bbox (0-1)
+            norm_bbox = [
+                x / w1,
+                y / h1,
+                (x + w) / w1,
+                (y + h) / h1
+            ]
+            
+            diffs.append({
+                "bbox": norm_bbox,
+                "crop_1": encode_cv2_image_to_base64(crop1),
+                "crop_2": encode_cv2_image_to_base64(crop2),
+                "diff_score": area,  # Area size
+                "ssim_score": score # Global score (optional context)
+            })
+            
+        diffs.sort(key=lambda x: x["diff_score"], reverse=True)
+        return diffs[:15] # Top 15
+        
+    except Exception as e:
+        logger.error(f"[PixelDiff] SSIM Error: {e}")
+        return []

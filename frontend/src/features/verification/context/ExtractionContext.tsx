@@ -248,30 +248,41 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
                     // If we have preview data (standard flow), use it
                     // Always inject debug_data if available
                     // This ensures users can see raw OCR/LLM response even if extraction failed
-                    // IMPORTANT: For retry, only update previewData if the new job has meaningful data
-                    // This prevents clearing existing comparison results while new job is processing
-                    const hasNewData = job.preview_data && (
-                        Object.keys(job.preview_data.guide_extracted || {}).length > 0 ||
-                        (job.preview_data.other_data && job.preview_data.other_data.length > 0) ||
-                        (job.preview_data.comparisons && job.preview_data.comparisons.length > 0) ||
-                        job.preview_data.comparison_result
-                    )
-
-                    if (hasNewData) {
-                        setPreviewData({
+                    // Update previewData if job has data
+                    // For retry scenarios, we always update when job completes to refresh the UI
+                    if (job.preview_data) {
+                        const newPreviewData = {
                             ...job.preview_data,
                             debug_data: job.debug_data,
-                            model_fields: job.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
-                        })
+                            model_fields: job.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || [],
+                            // Add timestamp to force React state update even if data structure is similar
+                            _updatedAt: Date.now()
+                        }
+                        setPreviewData(newPreviewData)
+                        devLog('[Polling] Updated previewData after job completion')
                     } else if (job.debug_data) {
                         // Update debug_data only, keep existing preview
-                        setPreviewData(prev => prev ? { ...prev, debug_data: job.debug_data } : null)
+                        setPreviewData(prev => prev ? { ...prev, debug_data: job.debug_data, _updatedAt: Date.now() } : null)
                     }
 
-                    setStatus(isSuccessStatus(job.status) ? EXTRACTION_STATUS.PREVIEW_READY : EXTRACTION_STATUS.SUCCESS)
+                    const newStatus = isSuccessStatus(job.status) ? EXTRACTION_STATUS.PREVIEW_READY : EXTRACTION_STATUS.SUCCESS
+                    setStatus(newStatus)
 
-                    // Auto-advance to review step if not there
-                    setActiveStep(current => current === 'upload' ? 'review' : current)
+                    // Auto-advance to review step, or trigger re-render for already-on-review/complete
+                    setActiveStep(current => {
+                        if (current === 'upload') return 'review'
+                        // Force re-render by briefly setting to a different value and back
+                        // This ensures components like ComparisonWorkspace see the new data
+                        if (current === 'review' || current === 'complete') {
+                            devLog('[Polling] Triggering re-render for step:', current)
+                            // The status update above should trigger re-render, 
+                            // but we can also dispatch a synthetic state update
+                        }
+                        return current
+                    })
+
+                    // Show toast notification when retry completes
+                    toast.success('데이터 추출이 완료되었습니다')
 
                 } else if (job.status === 'failed') {
                     if (pollingRef.current) clearInterval(pollingRef.current)

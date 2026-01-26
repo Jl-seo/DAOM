@@ -256,6 +256,40 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
                         </div>
                     </div>
                 </div>
+
+                {/* 3. 검사 아키텍처 (Architecture) */}
+                <div className="space-y-4 md:col-span-2 border-t pt-4">
+                    <h3 className="text-sm font-bold flex items-center gap-2 text-primary">
+                        <Settings className="w-4 h-4" />
+                        Component-Based Architecture (3-Layer Pipeline)
+                    </h3>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-muted/30 p-4 rounded-lg flex items-center justify-between">
+                            <div>
+                                <div className="text-sm font-medium">Physical Layer (SSIM)</div>
+                                <div className="text-xs text-muted-foreground">물리적 구조 변경 감지 (미세 픽셀 차이)</div>
+                            </div>
+                            <Switch
+                                checked={currentSettings.use_ssim_analysis !== false} // Default to true if undefined
+                                onCheckedChange={(c) => handleChange('use_ssim_analysis', c)}
+                                disabled={disabled}
+                            />
+                        </div>
+
+                        <div className="bg-muted/30 p-4 rounded-lg flex items-center justify-between">
+                            <div>
+                                <div className="text-sm font-medium">Visual Layer (Azure Vision)</div>
+                                <div className="text-xs text-muted-foreground">시각적 의미 분석 (색상, 로고, 객체)</div>
+                            </div>
+                            <Switch
+                                checked={currentSettings.use_vision_analysis !== false} // Default to true if undefined
+                                onCheckedChange={(c) => handleChange('use_vision_analysis', c)}
+                                disabled={disabled}
+                            />
+                        </div>
+                    </div>
+                </div>
             </div>
         </Card>
     )

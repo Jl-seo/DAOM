@@ -305,278 +305,125 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
     finally:
         await client.close()
 
+
 async def compare_images(image_url_1: str, image_url_2: str, custom_instructions: Optional[str] = None, comparison_settings: Optional[dict] = None) -> dict:
     """
-    Compare two images using the globally configured LLM (e.g. GPT-4.1).
-    Expects data uris or public urls.
-    
-    Args:
-        custom_instructions: Optional specific rules for comparison (e.g. "Ignore font size changes", "Focus on red text")
-        comparison_settings: Optional structured settings dict with keys:
-            - confidence_threshold: float (0.0-1.0)
-            - ignore_position_changes: bool
-            - ignore_color_changes: bool
-            - ignore_font_changes: bool
-            - custom_ignore_rules: Optional[str]
+    Compare two images using the 3-Layer Component-Based Architecture:
+    1. Physical Layer: SSIM (Structural Similarity)
+    2. Visual Layer: Azure AI Vision (Color, Objects)
+    3. Structural/Semantic Layer: GPT-4o Synthesis
     """
     client = get_openai_client()
-    
-    # Use configured global model (Admin controlled)
     model = _current_model
     
-    # Extract settings with defaults
+    # Defaults
     conf_threshold = 0.85
     ignore_position = True
-    ignore_color = False
-    ignore_font = True
-    ignore_compression = True  # New: default to ignoring compression noise
-    custom_ignore = None
-    allowed_cats = None
-    excluded_cats = None
+    output_language = "Korean"
+    use_ssim = True
+    use_vision = True
     
-    custom_cats = None
     if comparison_settings:
         conf_threshold = comparison_settings.get("confidence_threshold", 0.85)
         ignore_position = comparison_settings.get("ignore_position_changes", True)
-        ignore_color = comparison_settings.get("ignore_color_changes", False)
-        ignore_font = comparison_settings.get("ignore_font_changes", True)
-        ignore_compression = comparison_settings.get("ignore_compression_noise", True)
-        custom_ignore = comparison_settings.get("custom_ignore_rules")
-        allowed_cats = comparison_settings.get("allowed_categories")
-        excluded_cats = comparison_settings.get("excluded_categories")
-        custom_cats = comparison_settings.get("custom_categories") # List[dict]
         output_language = comparison_settings.get("output_language", "Korean")
-        logger.info(f"[LLM] Using model comparison settings: threshold={conf_threshold}, ignore_position={ignore_position}, lang={output_language}, categories={allowed_cats or 'default'}, custom_cats={len(custom_cats) if custom_cats else 0}")
-    else:
-        output_language = "Korean"
-    
-    # Inject Custom Rules if provided
-    # ... (omitted standard rules injection, keeping existing flow) ...
-    custom_rules_text = ""
-    if custom_instructions:
-        custom_rules_text = f"\n\n**USER DEFINED COMPARISON RULES (MUST FOLLOW):**\n{custom_instructions}\n"
-    if custom_ignore:
-        custom_rules_text += f"\n**ADDITIONAL IGNORE RULES:**\n{custom_ignore}\n"
-    
-    # ... (omitted site settings load) ...
-    # Try to load custom system prompt from site settings
-    custom_system_prompt = None
-    try:
-        from app.api.endpoints.site_settings import load_config
-        site_config = load_config()
-        custom_system_prompt = site_config.get("comparisonSystemPrompt")
-        if custom_system_prompt:
-            logger.info("[LLM] Using custom comparison system prompt from site settings")
-    except Exception as e:
-        logger.debug(f"[LLM] Could not load site settings: {e}")
+        use_ssim = comparison_settings.get("use_ssim_analysis", True)
+        use_vision = comparison_settings.get("use_vision_analysis", True)
 
-    # Build dynamic ignore rules based on settings
-    dynamic_ignore_rules = []
-    if ignore_position:
-        dynamic_ignore_rules.append("- **POSITION/LAYOUT SHIFTS**: If the SAME element exists in BOTH images but at slightly different positions, THIS IS NOT A DIFFERENCE.")
-    if ignore_color:
-        dynamic_ignore_rules.append("- **COLOR CHANGES**: Ignore color differences unless they significantly change meaning.")
-    if ignore_font:
-        dynamic_ignore_rules.append("- **FONT CHANGES**: Ignore minor font weight, size, or style differences.")
-    if ignore_compression:
-        dynamic_ignore_rules.append("""- **IMAGE COMPRESSION ARTIFACTS**: IGNORE any visual differences that could be explained by:
-      - JPEG compression artifacts (blocky edges, color banding)
-      - Slight RGB value shifts (within ~10 values difference)
-      - Anti-aliasing differences on text/element edges
-      - Subtle brightness/contrast variations
-      - Image re-encoding noise
-      - **RULE**: If the difference looks like the SAME color with slight variation, IGNORE IT. Only report if the color is OBVIOUSLY INTENTIONALLY DIFFERENT (e.g., blue→red, yellow→green).""")
-    
-    dynamic_ignore_text = "\n".join(dynamic_ignore_rules) if dynamic_ignore_rules else ""
-    
-    # Build category list dynamically with Custom Definitions
-    default_categories = ["content", "layout", "style", "missing_element", "added_element"]
-    
-    # Merge custom categories if present
-    custom_cat_keys = []
-    custom_cat_defs = []
-    if custom_cats:
-        for cc in custom_cats:
-            key = cc.get("key")
-            desc = cc.get("description", "")
-            if key:
-                custom_cat_keys.append(key)
-                custom_cat_defs.append(f"- **{key}**: {desc}")
+    logger.info(f"[LLM] Comparison {model} | SSIM={use_ssim} | Vision={use_vision}")
 
-    all_potential_cats = default_categories + custom_cat_keys
-
-    if allowed_cats:
-        active_categories = allowed_cats
-    elif excluded_cats:
-        active_categories = [c for c in all_potential_cats if c not in excluded_cats]
-    else:
-        active_categories = all_potential_cats
-    
-    categories_str = json.dumps(active_categories)
-
-    # Add custom category definitions to rules text so LLM understands them
-    if custom_cat_defs:
-         custom_rules_text += "\n**CUSTOM CATEGORY DEFINITIONS:**\n" + "\n".join(custom_cat_defs) + "\n"
-
-    # Add dynamic ignore rules (from Model Settings)
-    if dynamic_ignore_text:
-        custom_rules_text += "\n**IGNORE RULES (STRICTLY FOLLOW):**\n" + dynamic_ignore_text + "\n"
-    
-    
-    # 1. Detect pixel-level differences to get accurate bboxes
+    # 1. Parallel Data Collection (SSIM + Vision)
     from app.services import pixel_diff
-    
-    pixel_diffs = []
-    try:
-        pixel_diffs = await pixel_diff.detect_pixel_differences(image_url_1, image_url_2)
-        logger.info(f"[LLM] Detected {len(pixel_diffs)} pixel differences")
-    except Exception as e:
-        logger.error(f"[LLM] Pixel diff detection failed: {e}")
-        # Fallback to full image comparison without precise bboxes if pixel diff fails
-    
-    # If pixel diffs found, we can use them to guide the LLM or structure the output.
-    # Current strategy: Use the CROPS from pixel diffs to ask LLM what changed.
-    
-    comparison_results = []
-    
-    if pixel_diffs:
-        # Batch analysis or individual analysis per diff
-        # For better accuracy, we analyze each meaningful difference individually
-        
-        for i, diff in enumerate(pixel_diffs):
-            bbox = diff["bbox"] # [x1, y1, x2, y2] normalized
-            crop1 = diff["crop_1"]
-            crop2 = diff["crop_2"]
-            
-            # Region analysis prompt
-            region_prompt = f"""
-            Analyze the difference between these two image crops (Baseline vs Candidate).
-            They are crops from the same document at the same position.
-            
-            Identify what changed in this specific region.
-            - If text changed, specify "Change from 'Old' to 'New'".
-            - If element is missing/added, specify that.
-            - If it's just noise/compression artifact, say "NO_MEANINGFUL_CHANGE".
-            
-            {custom_rules_text}
+    from app.services.vision_service import VisionService
+    import asyncio
 
-            Return JSON:
-            {{
-                "is_meaningful": boolean,
-                "category": one of {categories_str} | "noise",
-                "description": "Short description of the change in **{output_language}**"
-            }}
-            """
-            
-            try:
-                # We need a synchronous-like call or using the same client
-                # To save tokens/time, we can potentially batch them, but let's do sequential for now or gather
-                # Ideally we want valid JSON.
-                
-                # Re-using the client for this specific crop comparison
-                # Note: `analyze_image` not exposed here directly, using direct client call
-                
-                response = await client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a visual inspection expert. Analyze the difference between two image crops. Return strictly JSON."
-                        },
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": region_prompt},
-                                {"type": "image_url", "image_url": {"url": crop1}},
-                                {"type": "image_url", "image_url": {"url": crop2}}
-                            ]
-                        }
-                    ],
-                    max_tokens=300,
-                    response_format={"type": "json_object"}
-                )
-                
-                result_text = response.choices[0].message.content
-                analysis = json.loads(result_text)
-                
-                if analysis.get("is_meaningful", False) and analysis.get("category") != "noise":
-                    # Map to frontend Difference format
-                    comparison_results.append({
-                        "id": f"diff_{i}",
-                        "category": analysis.get("category", "content"),
-                        "description": analysis.get("description", "Detected difference"),
-                        "location_1": bbox, # Using precise bbox from pixel diff
-                        "location_2": bbox,
-                        "confidence": 0.95 # High confidence because pixel diff confirmed it
-                    })
-            except Exception as e:
-                logger.error(f"[LLM] Error analyzing diff region {i}: {e}")
-                
-        # If no meaningful changes found but we had pixel diffs, check if we need fallback
-        if not comparison_results and pixel_diffs:
-             logger.info("[LLM] Pixel differences found but LLM dismissed them as not meaningful (noise).")
-
-    # If pixel diff failed or returned no results (perfect match), or LLM filtered everything out
-    # We might still want to do a full pass IF the user suspects something, 
-    # but "Hybrid" usually relies on pixel diff for ROI.
+    tasks = []
     
-    # Fallback to global comparison if pixel_diff returned nothing AND we are not sure?
-    # No, if pixel diff says identical, it's identical usually.
-    # But if pixel diff failed (exception), we should fallback.
-    
-    # Return if we found differences via pixel analysis
-    if comparison_results:
-        return {
-            "differences": comparison_results,
-            "raw_response": "Hybrid analysis performed (Pixel + LLM)",
-            "metadata": {
-                "model": model,
-                "method": "hybrid_pixel_llm",
-                "rules_applied": True if custom_instructions else False,
-                "pixel_diff_count": len(pixel_diffs)
-            }
-        }
-
-    # FALLBACK: Full Image Comparison
-    logger.info("[LLM] Falling back to Full Image Comparison")
-    
-    if custom_system_prompt:
-        system_prompt = custom_system_prompt + custom_rules_text
+    # Task A: SSIM Analysis (Physical)
+    if use_ssim:
+        tasks.append(pixel_diff.calculate_ssim(image_url_1, image_url_2))
     else:
-        system_prompt = f"""
-    You are an expert QA and Visual Inspection AI.
-    Compare the two provided images (Baseline vs Candidate) and identify semantic and visual differences.
+        # Dummy task returning []
+        async def no_op(): return []
+        tasks.append(no_op())
 
-    **Chain-of-Thought Process (Internal Monologue):**
-    1.  **Analyze Layout**: First, look at the overall structure (header, body, footer) of both images. note any shifts or resizing.
-    2.  **Scan for Content**: Read the text in both images. Identify changed numbers, typo fixes, or modified sentences.
-    3.  **Check Elements**: Look for missing or added UI elements (buttons, icons, lines).
-    4.  **Filter Noise**: Apply the **IGNORE RULES** provided below. If the images look almost identical and the rules say ignore minor changes, then return empty list.
-    5.  **Apply Custom Rules**: Strictly apply the user-defined comparison rules if provided below.
-    6.  **Validation**: If a difference is too subtle or ambiguous, discard it. Do NOT hallucinate differences.
-    7.  **Formulate Output**: Create the JSON output for each valid difference. **ALL DESCRIPTIONS MUST BE IN {output_language}.**
-    
-    {custom_rules_text}
+    # Task B: Vision Analysis (Visual Semantics)
+    # Wrap sync call in thread or async wrapper
+    async def analyze_vision(url):
+        if not use_vision: return "Vision Analysis Disabled"
+        return await asyncio.to_thread(VisionService.analyze_image, url)
 
-    Return a JSON object with a key "differences" containing a list of objects.
-    Each difference object must have:
-    - "id": unique string/int
-    - "description": concise text describing the change in **{output_language}**.
-    - "category": one of {categories_str}
-    - "confidence": float between 0.0 and 1.0 (>= 0.85).
-    - "location_1": bounding box in Baseline image [y_min, x_min, y_max, x_max] (0-1000 scale).
-    - "location_2": bounding box in Candidate image [y_min, x_min, y_max, x_max] (0-1000 scale).
+    tasks.append(analyze_vision(image_url_1))
+    tasks.append(analyze_vision(image_url_2))
+
+    # Execute Parallel
+    results = await asyncio.gather(*tasks, return_exceptions=True)
     
-    **CRITICAL RULES**:
-    1. **LANGUAGE**: Output descriptions ONLY in **{output_language}**.
-    2. **ABSOLUTELY NO HALLUCINATION**: If identical, return empty differences list.
-    3. **HIGH CONFIDENCE ONLY**: >= 0.85.
-    4. **FOLLOW IGNORE RULES**: Strictly follow the ignore/noise rules provided above.
-    5. **POSITION IS NOT CONTENT**: Do not report pure position shifts of identical elements.
+    ssim_diffs = results[0] if isinstance(results[0], list) else []
+    vision_1 = results[1] if isinstance(results[1], str) else "Error"
+    vision_2 = results[2] if isinstance(results[2], str) else "Error"
+    
+    # 2. Construct Synthesis Context
+    ssim_context = ""
+    if ssim_diffs:
+        ssim_context = f"**PHYSICAL LAYER (SSIM)**: Detected {len(ssim_diffs)} areas with low structural similarity. These indicate POTENTIAL changes.\n"
+        for i, d in enumerate(ssim_diffs[:5]):
+            ssim_context += f"- Diff #{i}: score={d.get('diff_score',0)}, bbox={d['bbox']}\n"
+    else:
+         ssim_context = "**PHYSICAL LAYER (SSIM)**: Images are structurally IDENTICAL (High Similarity).\n"
+
+    vision_context = f"""
+    **VISUAL LAYER (Azure Vision)**:
+    - Baseline Image Details:
+    {vision_1}
+    
+    - Candidate Image Details:
+    {vision_2}
     """
 
-    user_message_content = [
-        {"type": "text", "text": "Compare these two images. Image 1 is Baseline. Image 2 is Candidate."},
+    # 3. GPT-4o Synthesis Prompt
+    category_list = ["content", "layout", "style", "missing_element", "added_element"]
+    categories_str = json.dumps(category_list)
+    
+    system_prompt = f"""
+    You are an expert Visual QA Auditor utilizing a 3-Layer Analysis Pipeline.
+    
+    **INPUT DATA**:
+    1. {ssim_context}
+    2. {vision_context}
+    3. **VISUAL INSPECTION**: You will see the two images directly.
+
+    **GOAL**: Synthesize these signals to find verifyable differences.
+    
+    **LOGIC CHAIN**:
+    1. **Check SSIM**: If SSIM says "IDENTICAL", be very skeptical of any hallucinated differences.
+    2. **Check Vision**: Compare Tags/Captions. If Baseline has "Red Logo" and Candidate has "Blue Logo", that is a CONFIRMED diff.
+    3. **Visual Audit**: Look at the images yourself.
+       - If SSIM highlights a region, zoom in on that region.
+       - If Text matches but SSIM failed, check for **Color/Style** changes (which SSIM detects but OCR might ignore).
+    
+    **IGNORE RULES**:
+    - Ignore position shifts if text is identical (unless `ignore_position_changes` is False).
+    - Ignore compression noise.
+    
+    {custom_instructions or ""}
+
+    Return JSON:
+    {{
+        "differences": [
+            {{
+                "id": "1",
+                "description": "Description in {output_language}",
+                "category": "category",
+                "confidence": 0.95,
+                "location_1": [y1, x1, y2, x2] (0-1000 scale)
+            }}
+        ]
+    }}
+    """
+
+    user_message = [
+        {"type": "text", "text": "Compare these images using the 3-Layer Pipeline."},
         {"type": "image_url", "image_url": {"url": image_url_1}},
         {"type": "image_url", "image_url": {"url": image_url_2}}
     ]
@@ -586,7 +433,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message_content}
+                {"role": "user", "content": user_message}
             ],
             response_format={"type": "json_object"},
             max_tokens=2000
@@ -595,16 +442,18 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         result_content = response.choices[0].message.content
         data = json.loads(result_content)
         
-        # Inject metadata into full comparison result too
+        # Inject metadata
         data["metadata"] = {
             "model": model,
-            "method": "full_image_scan",
-            "rules_applied": True if custom_instructions else False
+            "method": "3_layer_component_arch",
+            "ssim_count": len(ssim_diffs),
+            "vision_enabled": use_vision
         }
         return data
-        
+
     except Exception as e:
-        logger.info(f"[LLM] Full Comparison failed: {e}")
+        logger.error(f"[LLM] Comparison synthesis failed: {e}")
         return {"differences": [], "error": str(e)}
     finally:
         await client.close()
+

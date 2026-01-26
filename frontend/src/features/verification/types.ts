@@ -68,6 +68,9 @@ export interface ComparisonSettings {
     ignore_font_changes: boolean; // true
     ignore_compression_noise: boolean; // true - JPEG/image compression artifacts
     custom_ignore_rules?: string; // custom instructions
+    // Method Toggles
+    use_ssim_analysis?: boolean; // Default true
+    use_vision_analysis?: boolean; // Default true
     // Category customization
     allowed_categories?: string[]; // If set, only use these categories
     excluded_categories?: string[]; // If set, exclude these categories

@@ -50,6 +50,17 @@ export function ExtractionReviewView({
     onSave
 }: ExtractionReviewViewProps) {
     const pdfViewerRef = useRef<PDFViewerHandle>(null)
+    // Layout persistent state
+    const [defaultLayout] = useState(() => {
+        try {
+            const saved = localStorage.getItem('extraction-review-layout')
+            if (saved) return JSON.parse(saved)
+        } catch (e) {
+            console.error('Failed to load layout', e)
+        }
+        return [60, 40] // Default: 60% Preview, 40% Data
+    })
+
     const [latestData, setLatestData] = useState<{ guide: any, other: any[] } | null>(null)
 
     // Layout state
@@ -130,9 +141,20 @@ export function ExtractionReviewView({
 
             {/* Resizable Main Area */}
             <div className="flex-1 min-w-0 h-full flex flex-col relative bg-background">
-                <PanelGroup orientation={direction} className="!h-full !w-full">
-                    {/* PDF Viewer Panel - Ensure reasonable minimum width */}
-                    <Panel defaultSize={50} minSize={35} collapsible={false} className="relative">
+                <PanelGroup
+                    orientation={direction}
+                    className="!h-full !w-full"
+                    // @ts-ignore
+                    onLayout={(sizes: number[]) => {
+                        try {
+                            localStorage.setItem('extraction-review-layout', JSON.stringify(sizes))
+                        } catch (e) {
+                            console.error('Failed to save layout', e)
+                        }
+                    }}
+                >
+                    {/* PDF Viewer Panel - Increased default size to 60% for better visibility */}
+                    <Panel defaultSize={defaultLayout[0]} minSize={30} collapsible={false} className="relative">
                         <div className="h-full w-full overflow-hidden">
                             <DocumentPreviewPanel
                                 ref={pdfViewerRef}
@@ -158,7 +180,7 @@ export function ExtractionReviewView({
                     </PanelResizeHandle>
 
                     {/* Data Review Panel */}
-                    <Panel minSize={20}>
+                    <Panel defaultSize={defaultLayout[1]} minSize={20}>
                         <div className="h-full w-full overflow-hidden">
                             <DataReviewPanel
                                 currentGuideExtracted={currentGuideExtracted || {}}

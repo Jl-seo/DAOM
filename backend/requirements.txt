@@ -65,3 +65,6 @@ yarl==1.22.0
 opencv-python-headless
 numpy
 Pillow
+scikit-image
+azure-ai-vision-imageanalysis
+
