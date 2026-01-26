@@ -50,27 +50,31 @@ export function ExtractionReviewView({
     onSave
 }: ExtractionReviewViewProps) {
     const pdfViewerRef = useRef<PDFViewerHandle>(null)
-    // Layout persistent state
+    // Layout persistent state - using v2 key to reset any previously narrow layouts
+    const LAYOUT_STORAGE_KEY = 'extraction-review-layout-v2'
     const [defaultLayout] = useState(() => {
         const defaultValue = [55, 45] // Default: 55% Preview, 45% Data
         try {
-            const saved = localStorage.getItem('extraction-review-layout')
+            const saved = localStorage.getItem(LAYOUT_STORAGE_KEY)
             if (saved) {
                 const parsed = JSON.parse(saved)
-                // Validate: Preview panel should be at least 45%
-                // If stored layout has preview too narrow, reset to default
-                if (Array.isArray(parsed) && parsed.length >= 2 && parsed[0] >= 45) {
+                if (Array.isArray(parsed) && parsed.length >= 2) {
                     return parsed
                 }
-                // Clear invalid saved layout
-                localStorage.removeItem('extraction-review-layout')
-                console.log('[Layout] Reset narrow preview layout to default')
             }
         } catch (e) {
             console.error('Failed to load layout', e)
         }
         return defaultValue
     })
+
+    const saveLayout = (sizes: number[]) => {
+        try {
+            localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(sizes))
+        } catch (e) {
+            console.error('Failed to save layout', e)
+        }
+    }
 
     const [latestData, setLatestData] = useState<{ guide: any, other: any[] } | null>(null)
 
@@ -156,13 +160,7 @@ export function ExtractionReviewView({
                     orientation={direction}
                     className="!h-full !w-full"
                     // @ts-ignore
-                    onLayout={(sizes: number[]) => {
-                        try {
-                            localStorage.setItem('extraction-review-layout', JSON.stringify(sizes))
-                        } catch (e) {
-                            console.error('Failed to save layout', e)
-                        }
-                    }}
+                    onLayout={(sizes: number[]) => saveLayout(sizes)}
                 >
                     {/* PDF Viewer Panel - Increased default size to 60% for better visibility */}
                     <Panel defaultSize={defaultLayout[0]} minSize={30} collapsible={false} className="relative">
