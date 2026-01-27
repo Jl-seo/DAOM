@@ -20,6 +20,12 @@ export function useModels() {
     }, [])
 
     const saveModel = useCallback(async (model: Partial<Model>) => {
+        // 중복 저장 방지: 이미 저장 중이면 무시
+        if (loading) {
+            console.log('[useModels] Save already in progress, ignoring duplicate call')
+            return { success: false, message: '저장 중입니다...', data: null }
+        }
+
         setLoading(true)
         try {
             let savedModel: Model
@@ -39,7 +45,7 @@ export function useModels() {
         } finally {
             setLoading(false)
         }
-    }, [fetchModels])
+    }, [fetchModels, loading])
 
     const deleteModel = useCallback(async (id: string) => {
         try {
