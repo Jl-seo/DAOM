@@ -306,7 +306,6 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
     finally:
         await client.close()
 
-
 async def compare_images(image_url_1: str, image_url_2: str, custom_instructions: Optional[str] = None, comparison_settings: Optional[dict] = None) -> dict:
     """
     Compare two images using the 3-Layer Component-Based Architecture:
@@ -317,23 +316,44 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     client = get_openai_client()
     model = _current_model
     
-    # Defaults - confidence threshold를 높여서 hallucination 방지
-    conf_threshold = 0.90
+    # 설정값 기본값 (UI에서 전달되지 않으면 사용)
+    conf_threshold = 0.85
     ignore_position = True
+    ignore_color = False
+    ignore_font = True
+    ignore_compression_noise = True
     output_language = "Korean"
     use_ssim = True
     use_vision = True
     align_images = True
+    custom_ignore_rules = None  # 추가 무시 규칙 (자연어)
     
+    # comparison_settings에서 설정값 읽기 (UI에서 전달된 값 우선)
     if comparison_settings:
-        conf_threshold = comparison_settings.get("confidence_threshold", 0.90)
+        conf_threshold = comparison_settings.get("confidence_threshold", 0.85)
         ignore_position = comparison_settings.get("ignore_position_changes", True)
+        ignore_color = comparison_settings.get("ignore_color_changes", False)
+        ignore_font = comparison_settings.get("ignore_font_changes", True)
+        ignore_compression_noise = comparison_settings.get("ignore_compression_noise", True)
         output_language = comparison_settings.get("output_language", "Korean")
         use_ssim = comparison_settings.get("use_ssim_analysis", True)
         use_vision = comparison_settings.get("use_vision_analysis", True)
         align_images = comparison_settings.get("align_images", True)
-
-    logger.info(f"[LLM] Comparison {model} | SSIM={use_ssim} | Vision={use_vision} | Align={align_images}")
+        custom_ignore_rules = comparison_settings.get("custom_ignore_rules")
+    
+    # custom_instructions (global_rules)와 custom_ignore_rules 합치기
+    combined_instructions = []
+    if custom_instructions:
+        combined_instructions.append(f"GLOBAL RULES: {custom_instructions}")
+    if custom_ignore_rules:
+        combined_instructions.append(f"CUSTOM IGNORE RULES (자연어): {custom_ignore_rules}")
+    
+    final_custom_instructions = "\n".join(combined_instructions) if combined_instructions else None
+    
+    logger.info(f"[LLM] Comparison {model} | SSIM={use_ssim} | Vision={use_vision}")
+    logger.info(f"[LLM] Settings: ignore_position={ignore_position}, ignore_color={ignore_color}, ignore_font={ignore_font}, ignore_noise={ignore_compression_noise}")
+    if final_custom_instructions:
+        logger.info(f"[LLM] Custom instructions: {final_custom_instructions[:100]}...")
 
     # 1. Parallel Data Collection (SSIM + Vision)
     from app.services import pixel_diff
@@ -454,6 +474,20 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
     Only report a difference if you can see an UNMISTAKABLE change with your own visual inspection.
     When in doubt, do NOT report it."""
     
+    # IGNORE RULES를 설정값에 따라 동적으로 생성
+    ignore_rules_list = []
+    if ignore_position:
+        ignore_rules_list.append("- IGNORE position shifts if text content is identical")
+    if ignore_color:
+        ignore_rules_list.append("- IGNORE color changes (배경 색, 글자 색 차이 무시)")
+    if ignore_font:
+        ignore_rules_list.append("- IGNORE font style changes (폰트 크기, 굵기 차이 무시)")
+    if ignore_compression_noise:
+        ignore_rules_list.append("- IGNORE compression artifacts and minor pixel noise")
+    ignore_rules_list.append("- IGNORE anything you are not certain about")
+    
+    ignore_rules_text = "\n    ".join(ignore_rules_list)
+    
     system_prompt = f"""
     You are an expert Visual QA Auditor utilizing a 3-Layer Analysis Pipeline.
     
@@ -467,13 +501,9 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
     {category_instruction}
     {anti_hallucination_instruction}
     
-    **⚠️ TEXT/NUMBER ACCURACY WARNING ⚠️**
-    When reading text and numbers from images:
-    - READ VERY CAREFULLY. Do not skip digits. "140" is NOT the same as "40".
-    - Compare the EXACT text in both images character by character.
-    - If both images show "140 kcal", they are IDENTICAL - do NOT report a difference.
-    - Do NOT misread numbers - pay attention to all digits including leading digits.
-    - If you are not 100% certain you read the text correctly, do NOT report it as a difference.
+    **TEXT/NUMBER ACCURACY**:
+    - Read text and numbers carefully. Do not skip digits (e.g., "140" ≠ "40").
+    - If both images show the same text, do NOT report it as a difference.
     
     **LOGIC CHAIN**:
     1. **Check SSIM**: If SSIM says "IDENTICAL", you should almost certainly return an empty differences array.
@@ -482,12 +512,10 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
        - If SSIM highlights a region, zoom in on that region.
        - If you're not 100% sure about a difference, DO NOT REPORT IT.
     
-    **IGNORE RULES**:
-    - Ignore position shifts if text is identical (unless `ignore_position_changes` is False).
-    - Ignore compression noise.
-    - Ignore anything you're not certain about.
+    **IGNORE RULES** (MUST FOLLOW):
+    {ignore_rules_text}
     
-    {custom_instructions or ""}
+    {final_custom_instructions or ""}
 
     Return JSON:
     {{
