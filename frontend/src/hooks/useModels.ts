@@ -48,6 +48,13 @@ export function useModels() {
     }, [fetchModels, loading])
 
     const deleteModel = useCallback(async (id: string) => {
+        // 중복 삭제 방지
+        if (loading) {
+            console.log('[useModels] Delete already in progress, ignoring')
+            return { success: false, error: '처리 중입니다...' }
+        }
+
+        setLoading(true)
         try {
             await modelsApi.delete(id)
             await fetchModels()
@@ -56,8 +63,10 @@ export function useModels() {
             console.error(err)
             setError('삭제에 실패했습니다.')
             return { success: false, error: err }
+        } finally {
+            setLoading(false)
         }
-    }, [fetchModels])
+    }, [fetchModels, loading])
 
     // Restore useEffect for initial load
     useEffect(() => {
@@ -75,6 +84,12 @@ export function useModels() {
     }, [])
 
     const analyzeSample = async (file: File, modelType: string) => {
+        // 중복 분석 방지
+        if (loading) {
+            console.log('[useModels] Analysis already in progress, ignoring')
+            return null
+        }
+
         setLoading(true)
         setError(null)
         try {
@@ -92,6 +107,12 @@ export function useModels() {
     }
 
     const refineSchema = async (fields: any[], instruction: string) => {
+        // 중복 스키마 정제 방지
+        if (loading) {
+            console.log('[useModels] Refinement already in progress, ignoring')
+            return null
+        }
+
         setLoading(true)
         try {
             const response = await modelsApi.refineSchema(fields, instruction)

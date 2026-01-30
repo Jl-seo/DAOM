@@ -38,6 +38,7 @@ export interface Model {
     model_type?: 'extraction' | 'comparison'
     webhook_url?: string  // POST URL for automation after extraction
     fields: Field[]
+    is_active?: boolean  // 메뉴에서 숨기기 (false면 숨김)
     comparison_settings?: ComparisonSettings
     excel_columns?: ExcelExportColumn[]
 }

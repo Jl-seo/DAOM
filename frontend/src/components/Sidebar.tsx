@@ -28,6 +28,7 @@ interface Model {
     id: string
     name: string
     description: string
+    is_active?: boolean
 }
 
 export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className, onClose }: SidebarProps & { className?: string, onClose?: () => void }) {
@@ -134,24 +135,26 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                                     등록된 모델이 없습니다
                                 </div>
                             ) : (
-                                models.map(model => (
-                                    <button
-                                        key={model.id}
-                                        onClick={() => handleMenuChange(`model-${model.id}` as MenuId)}
-                                        className={clsx(
-                                            "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                                            activeMenu === `model-${model.id}`
-                                                ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
-                                                : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
-                                        )}
-                                    >
-                                        <span className="text-lg">📄</span>
-                                        <span className="flex-1 text-left truncate">{model.name}</span>
-                                        {activeMenu === `model-${model.id}` && (
-                                            <div className="w-1.5 h-1.5 rounded-full bg-sidebar-primary-foreground" />
-                                        )}
-                                    </button>
-                                ))
+                                models
+                                    .filter(model => model.is_active !== false)
+                                    .map(model => (
+                                        <button
+                                            key={model.id}
+                                            onClick={() => handleMenuChange(`model-${model.id}` as MenuId)}
+                                            className={clsx(
+                                                "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
+                                                activeMenu === `model-${model.id}`
+                                                    ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
+                                                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                                            )}
+                                        >
+                                            <span className="text-lg">📄</span>
+                                            <span className="flex-1 text-left truncate">{model.name}</span>
+                                            {activeMenu === `model-${model.id}` && (
+                                                <div className="w-1.5 h-1.5 rounded-full bg-sidebar-primary-foreground" />
+                                            )}
+                                        </button>
+                                    ))
                             )}
                         </div>
                     )}

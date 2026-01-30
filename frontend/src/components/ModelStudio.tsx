@@ -401,6 +401,42 @@ export function ModelStudio() {
                                             추출 확정 시 이 URL로 결과 데이터가 POST 됩니다.
                                         </p>
                                     </div>
+
+                                    {/* 모델 활성화/비활성화 토글 */}
+                                    <div className="mt-4 pt-4 border-t border-border">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <label className="block text-xs font-medium text-foreground">
+                                                    👁️ 메뉴에서 보이기
+                                                </label>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5">
+                                                    비활성화하면 사이드바 메뉴에서 숨겨집니다 (삭제되지 않음)
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                disabled={!isEditing}
+                                                onClick={() => setEditingModel({
+                                                    ...editingModel,
+                                                    is_active: editingModel.is_active === false ? true : false
+                                                })}
+                                                className={clsx(
+                                                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                                                    editingModel.is_active !== false
+                                                        ? "bg-primary"
+                                                        : "bg-muted-foreground/30",
+                                                    !isEditing && "opacity-50 cursor-not-allowed"
+                                                )}
+                                            >
+                                                <span
+                                                    className={clsx(
+                                                        "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
+                                                        editingModel.is_active !== false ? "translate-x-6" : "translate-x-1"
+                                                    )}
+                                                />
+                                            </button>
+                                        </div>
+                                    </div>
                                 </Card>
                             </div>
                         )
@@ -457,26 +493,54 @@ export function ModelStudio() {
                     {models.map((model) => (
                         <div
                             key={model.id}
-                            className="group cursor-pointer h-full"
+                            className={clsx(
+                                "group cursor-pointer h-full",
+                                model.is_active === false && "opacity-60"
+                            )}
                             onClick={() => handleEditModel(model)}
                         >
-                            <div className="relative p-[2px] rounded-2xl bg-gradient-to-br from-border to-border hover:from-primary hover:to-chart-5 transition-all duration-300">
+                            <div className={clsx(
+                                "relative p-[2px] rounded-2xl transition-all duration-300",
+                                model.is_active === false
+                                    ? "bg-muted-foreground/30"
+                                    : "bg-gradient-to-br from-border to-border hover:from-primary hover:to-chart-5"
+                            )}>
                                 <div className="bg-card rounded-2xl p-5 h-full transition-all duration-300 group-hover:shadow-xl">
                                     <div className="flex items-start justify-between mb-3">
-                                        <div className="bg-gradient-to-br from-primary/20 to-chart-5/20 p-2.5 rounded-xl group-hover:scale-110 transition-transform">
-                                            <LayoutTemplate className="w-5 h-5 text-primary" />
+                                        <div className={clsx(
+                                            "p-2.5 rounded-xl group-hover:scale-110 transition-transform",
+                                            model.is_active === false
+                                                ? "bg-muted-foreground/20"
+                                                : "bg-gradient-to-br from-primary/20 to-chart-5/20"
+                                        )}>
+                                            <LayoutTemplate className={clsx(
+                                                "w-5 h-5",
+                                                model.is_active === false ? "text-muted-foreground" : "text-primary"
+                                            )} />
                                         </div>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                handleDeleteModel(model.id)
-                                            }}
-                                            className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-destructive/10 rounded-lg transition-all"
-                                        >
-                                            <Trash2 className="w-4 h-4 text-destructive" />
-                                        </button>
+                                        <div className="flex items-center gap-1">
+                                            {model.is_active === false && (
+                                                <span className="px-2 py-0.5 text-[10px] bg-muted-foreground/20 text-muted-foreground rounded-full">
+                                                    숨김
+                                                </span>
+                                            )}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    handleDeleteModel(model.id)
+                                                }}
+                                                className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-destructive/10 rounded-lg transition-all"
+                                            >
+                                                <Trash2 className="w-4 h-4 text-destructive" />
+                                            </button>
+                                        </div>
                                     </div>
-                                    <h3 className="font-bold text-base text-foreground mb-2 group-hover:text-primary transition-colors">
+                                    <h3 className={clsx(
+                                        "font-bold text-base mb-2 transition-colors",
+                                        model.is_active === false
+                                            ? "text-muted-foreground"
+                                            : "text-foreground group-hover:text-primary"
+                                    )}>
                                         {model.name}
                                     </h3>
                                     <p className="text-xs text-muted-foreground mb-4 line-clamp-2">
@@ -484,7 +548,12 @@ export function ModelStudio() {
                                     </p>
                                     <div className="flex items-center justify-between text-xs">
                                         <span className="text-muted-foreground">{model.fields?.length || 0}개 필드</span>
-                                        <span className="px-2 py-1 bg-primary/10 text-primary rounded-full font-medium">
+                                        <span className={clsx(
+                                            "px-2 py-1 rounded-full font-medium",
+                                            model.is_active === false
+                                                ? "bg-muted-foreground/10 text-muted-foreground"
+                                                : "bg-primary/10 text-primary"
+                                        )}>
                                             {model.data_structure?.toUpperCase() || 'DATA'}
                                         </span>
                                     </div>

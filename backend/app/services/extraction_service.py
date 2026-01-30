@@ -97,7 +97,15 @@ class ExtractionService:
                 async def compare_single(idx: int, c_url: str, c_filename: Optional[str] = None) -> dict:
                     logger.info(f"[Pipeline] Comparing Candidate {idx+1}/{len(all_candidates)}: {c_filename or 'unnamed'}")
                     try:
-                        res = await llm.compare_images(file_url, c_url, custom_instructions=custom_rules)
+                        # Extract comparison settings safely
+                        comp_settings = model.comparison_settings.dict() if model and model.comparison_settings else None
+                        
+                        res = await llm.compare_images(
+                            file_url, 
+                            c_url, 
+                            custom_instructions=custom_rules,
+                            comparison_settings=comp_settings # PASS SETTINGS HERE
+                        )
                         # Use provided filename directly (from upload time)
                         # Fallback to URL parsing if not provided
                         filename = c_filename

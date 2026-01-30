@@ -463,6 +463,12 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             return
         }
 
+        // 중복 저장 방지
+        if (confirmJobMutation.isPending || saveLogMutation.isPending) {
+            console.log('[ExtractionContext] Save already in progress, ignoring')
+            return
+        }
+
         if (currentJobId) {
             confirmJobMutation.mutate({ editedGuideData, editedOtherData })
         } else {
@@ -514,6 +520,12 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
     })
 
     const handleRetry = useCallback(() => {
+        // 중복 재시도 방지
+        if (retryMutation.isPending) {
+            console.log('[ExtractionContext] Retry already in progress, ignoring')
+            return
+        }
+
         if (currentLogId) {
             retryMutation.mutate()
         } else if (file) {

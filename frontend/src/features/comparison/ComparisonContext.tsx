@@ -247,6 +247,12 @@ export function ComparisonProvider({ children, modelId }: ComparisonProviderProp
     })
 
     const handleRetry = useCallback(() => {
+        // 중복 재시도 방지
+        if (retryMutation.isPending) {
+            console.log('[ComparisonContext] Retry already in progress, ignoring')
+            return
+        }
+
         if (currentLogId) {
             retryMutation.mutate()
         } else if (baselineFile && candidateFiles) {

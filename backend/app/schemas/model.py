@@ -21,6 +21,7 @@ class ComparisonSettings(BaseModel):
     # Method Toggles (Component-Based Architecture)
     use_ssim_analysis: bool = True # 물리적 구조 분석 (Pixel/SSIM)
     use_vision_analysis: bool = True # 시각적 의미 분석 (Azure AI Vision)
+    align_images: bool = True # 이미지 정렬 (Registration) 활성화 여부
     
     # 카테고리 커스터마이징
     allowed_categories: Optional[List[str]] = None  # 허용할 카테고리 목록 (설정 시 이것만 사용)

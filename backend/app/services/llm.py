@@ -322,6 +322,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     output_language = "Korean"
     use_ssim = True
     use_vision = True
+    align_images = True
     
     if comparison_settings:
         conf_threshold = comparison_settings.get("confidence_threshold", 0.85)
@@ -329,8 +330,9 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         output_language = comparison_settings.get("output_language", "Korean")
         use_ssim = comparison_settings.get("use_ssim_analysis", True)
         use_vision = comparison_settings.get("use_vision_analysis", True)
+        align_images = comparison_settings.get("align_images", True)
 
-    logger.info(f"[LLM] Comparison {model} | SSIM={use_ssim} | Vision={use_vision}")
+    logger.info(f"[LLM] Comparison {model} | SSIM={use_ssim} | Vision={use_vision} | Align={align_images}")
 
     # 1. Parallel Data Collection (SSIM + Vision)
     from app.services import pixel_diff
@@ -341,7 +343,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     
     # Task A: SSIM Analysis (Physical)
     if use_ssim:
-        tasks.append(pixel_diff.calculate_ssim(image_url_1, image_url_2))
+        tasks.append(pixel_diff.calculate_ssim(image_url_1, image_url_2, align=align_images))
     else:
         # Dummy task returning []
         async def no_op(): return []
@@ -414,12 +416,16 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
             {{
                 "id": "1",
                 "description": "Description in {output_language}",
-                "category": "category",
+    "category": "One of [content, layout, style, missing_element, added_element] (ALWAYS English)",
                 "confidence": 0.95,
                 "location_1": [y1, x1, y2, x2] (0-1000 scale)
             }}
         ]
     }}
+    
+    IMPORTANT: 
+    - "category" MUST be one of the English keys provided. DO NOT translate the category.
+    - "description" MUST be in {output_language}.
     """
 
     user_message = [
