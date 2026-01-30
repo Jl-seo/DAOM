@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { X, GripVertical } from 'lucide-react'
 import { FIELD_TYPES } from '../../constants'
 import type { Field } from '../../types/model'
@@ -134,11 +133,6 @@ function SortableRow({ field, index, id, updateField, removeField, disabled }: S
 }
 
 export function FieldEditorTable({ fields, onChange, disabled = false }: FieldEditorTableProps) {
-    // Generate stable IDs for sortable items
-    const [fieldIds] = useState(() =>
-        fields.map((_, idx) => `field-${idx}-${Date.now()}`)
-    )
-
     // Keep IDs in sync with fields length
     const ids = fields.map((field, idx) => field.key || `field-${idx}`)
 
