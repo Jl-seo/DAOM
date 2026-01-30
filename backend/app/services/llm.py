@@ -467,6 +467,14 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
     {category_instruction}
     {anti_hallucination_instruction}
     
+    **⚠️ TEXT/NUMBER ACCURACY WARNING ⚠️**
+    When reading text and numbers from images:
+    - READ VERY CAREFULLY. Do not skip digits. "140" is NOT the same as "40".
+    - Compare the EXACT text in both images character by character.
+    - If both images show "140 kcal", they are IDENTICAL - do NOT report a difference.
+    - Do NOT misread numbers - pay attention to all digits including leading digits.
+    - If you are not 100% certain you read the text correctly, do NOT report it as a difference.
+    
     **LOGIC CHAIN**:
     1. **Check SSIM**: If SSIM says "IDENTICAL", you should almost certainly return an empty differences array.
     2. **Check Vision**: Compare Tags/Captions. Only report if there's a CLEAR mismatch.
@@ -498,6 +506,7 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
     - "category" MUST be one of the English keys in {categories_str}. DO NOT translate the category.
     - "description" MUST be in {output_language}.
     - If images are identical, return {{"differences": []}}
+    - DO NOT report text differences unless you are 100% certain you read both texts correctly.
     """
 
     user_message = [
