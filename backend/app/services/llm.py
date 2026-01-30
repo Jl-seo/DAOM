@@ -366,14 +366,37 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     vision_1 = results[1] if isinstance(results[1], str) else "Error"
     vision_2 = results[2] if isinstance(results[2], str) else "Error"
     
+    # Fast path: SSIM이 동일하면 LLM 호출 없이 즉시 빈 결과 반환 (hallucination 방지)
+    # 설정에서 skip_llm_if_identical 옵션으로 제어 가능 (기본: True)
+    skip_llm_if_identical = comparison_settings.get("skip_llm_if_identical", True) if comparison_settings else True
+    
+    if not ssim_diffs and use_ssim and skip_llm_if_identical:
+        logger.info("[LLM] SSIM confirms images are IDENTICAL. Skipping LLM call to prevent hallucination.")
+        return {
+            "differences": [],
+            "metadata": {
+                "model": model,
+                "method": "ssim_fast_path",
+                "ssim_count": 0,
+                "vision_enabled": use_vision,
+                "skipped_llm": True,
+                "reason": "Images are identical (SSIM)"
+            }
+        }
+    
     # 2. Construct Synthesis Context
     ssim_context = ""
+    ssim_identical = False
     if ssim_diffs:
         ssim_context = f"**PHYSICAL LAYER (SSIM)**: Detected {len(ssim_diffs)} areas with low structural similarity. These indicate POTENTIAL changes.\n"
         for i, d in enumerate(ssim_diffs[:5]):
             ssim_context += f"- Diff #{i}: score={d.get('diff_score',0)}, bbox={d['bbox']}\n"
     else:
-         ssim_context = "**PHYSICAL LAYER (SSIM)**: Images are structurally IDENTICAL (High Similarity).\n"
+        ssim_identical = True
+        ssim_context = """**PHYSICAL LAYER (SSIM)**: Images are structurally IDENTICAL (High Similarity).
+        
+⚠️ CRITICAL: Since SSIM analysis confirms the images are IDENTICAL, you should NOT report any differences.
+If you cannot find clear, obvious, and verifiable differences, return an EMPTY differences array."""
 
     vision_context = f"""
     **VISUAL LAYER (Azure Vision)**:
@@ -413,6 +436,24 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     else:
         category_instruction = f"You may report differences in any of these categories: {categories_str}."
     
+    # 추가: SSIM이 동일하면 hallucination 방지 강화
+    anti_hallucination_instruction = ""
+    if ssim_identical:
+        anti_hallucination_instruction = """
+    
+    ⚠️ ANTI-HALLUCINATION WARNING ⚠️
+    The SSIM analysis has CONFIRMED these images are IDENTICAL at the pixel level.
+    
+    DO NOT invent or imagine differences that don't exist.
+    DO NOT report minor variations that are likely compression artifacts.
+    DO NOT report differences you are not 100% certain about.
+    
+    If you cannot find CLEAR, OBVIOUS, and VERIFIABLE differences, you MUST return:
+    {"differences": []}
+    
+    Only report a difference if you can see an UNMISTAKABLE change with your own visual inspection.
+    When in doubt, do NOT report it."""
+    
     system_prompt = f"""
     You are an expert Visual QA Auditor utilizing a 3-Layer Analysis Pipeline.
     
@@ -421,20 +462,22 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     2. {vision_context}
     3. **VISUAL INSPECTION**: You will see the two images directly.
 
-    **GOAL**: Synthesize these signals to find verifyable differences.
+    **GOAL**: Synthesize these signals to find verifiable differences. Do NOT hallucinate or invent differences.
     
     {category_instruction}
+    {anti_hallucination_instruction}
     
     **LOGIC CHAIN**:
-    1. **Check SSIM**: If SSIM says "IDENTICAL", be very skeptical of any hallucinated differences.
-    2. **Check Vision**: Compare Tags/Captions. If Baseline has "Red Logo" and Candidate has "Blue Logo", that is a CONFIRMED diff.
+    1. **Check SSIM**: If SSIM says "IDENTICAL", you should almost certainly return an empty differences array.
+    2. **Check Vision**: Compare Tags/Captions. Only report if there's a CLEAR mismatch.
     3. **Visual Audit**: Look at the images yourself.
        - If SSIM highlights a region, zoom in on that region.
-       - If Text matches but SSIM failed, check for **Color/Style** changes (which SSIM detects but OCR might ignore).
+       - If you're not 100% sure about a difference, DO NOT REPORT IT.
     
     **IGNORE RULES**:
     - Ignore position shifts if text is identical (unless `ignore_position_changes` is False).
     - Ignore compression noise.
+    - Ignore anything you're not certain about.
     
     {custom_instructions or ""}
 
@@ -454,6 +497,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     IMPORTANT: 
     - "category" MUST be one of the English keys in {categories_str}. DO NOT translate the category.
     - "description" MUST be in {output_language}.
+    - If images are identical, return {{"differences": []}}
     """
 
     user_message = [
