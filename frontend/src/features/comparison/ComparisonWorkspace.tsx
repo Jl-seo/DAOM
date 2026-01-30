@@ -359,8 +359,8 @@ export function ComparisonWorkspace({
                                             : "bg-card border-border text-foreground"
                                     )}
                                 >
-                                    <span className="truncate flex-1" title={comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex)}>
-                                        {comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex)}
+                                    <span className="truncate flex-1" title={comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex, t('comparison.workspace.candidate'))}>
+                                        {comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex, t('comparison.workspace.candidate'))}
                                     </span>
                                     {comp.error ? (
                                         <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
@@ -476,8 +476,8 @@ export function ComparisonWorkspace({
 
                         {/* Candidate Image */}
                         <div className="flex-1 flex flex-col gap-2 relative">
-                            <div className="text-xs font-bold text-center bg-card py-1 rounded-t-lg border-b truncate px-2" title={isMultiMode ? getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex) : ''}>
-                                {t('comparison.workspace.candidate')}: {isMultiMode ? (comparisons?.[selectedCandidateIndex]?.filename || getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex)) : t('comparison.workspace.single_file') || '단일 파일'}
+                            <div className="text-xs font-bold text-center bg-card py-1 rounded-t-lg border-b truncate px-2" title={isMultiMode ? getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex, t('comparison.workspace.candidate')) : ''}>
+                                {t('comparison.workspace.candidate')}: {isMultiMode ? (comparisons?.[selectedCandidateIndex]?.filename || getFilenameFromUrl(currentCandidateUrl, selectedCandidateIndex, t('comparison.workspace.candidate'))) : t('comparison.workspace.single_file')}
                             </div>
                             <div className="relative flex-1 bg-white rounded-lg border overflow-auto flex items-center justify-center">
                                 {currentCandidateUrl ? (

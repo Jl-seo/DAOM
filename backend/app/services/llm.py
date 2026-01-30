@@ -4,6 +4,7 @@ from typing import Optional, List
 from openai import AsyncAzureOpenAI
 import httpx
 from app.core.config import settings
+from app.core.enums import DEFAULT_COMPARISON_CATEGORIES
 from app.schemas.model import ExtractionModel
 from app.services.refiner import RefinerEngine
 from app.db.cosmos import get_config_container
@@ -384,8 +385,33 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     """
 
     # 3. GPT-4o Synthesis Prompt
-    category_list = ["content", "layout", "style", "missing_element", "added_element"]
+    # Build dynamic category list based on user settings
+    default_categories = DEFAULT_COMPARISON_CATEGORIES
+    allowed_categories = comparison_settings.get("allowed_categories") if comparison_settings else None
+    excluded_categories = comparison_settings.get("excluded_categories") if comparison_settings else None
+    
+    if allowed_categories:
+        # Only use specified categories
+        category_list = [c for c in allowed_categories if c in default_categories]
+    elif excluded_categories:
+        # Remove excluded categories
+        category_list = [c for c in default_categories if c not in excluded_categories]
+    else:
+        # Use all defaults
+        category_list = default_categories
+    
     categories_str = json.dumps(category_list)
+    
+    # Build category instruction (강화된 지시)
+    if allowed_categories:
+        category_instruction = f"""**ABSOLUTE REQUIREMENT**: You MUST ONLY report differences in these categories: {categories_str}. 
+        ANY difference not in this list MUST be completely ignored - do NOT include them in your response under any circumstances."""
+    elif excluded_categories:
+        category_instruction = f"""**ABSOLUTE REQUIREMENT**: You MUST COMPLETELY IGNORE and NEVER report differences in these categories: {json.dumps(excluded_categories)}. 
+        Even if you detect changes in {json.dumps(excluded_categories)}, you MUST NOT include them in your response. 
+        ONLY report differences in: {categories_str}."""
+    else:
+        category_instruction = f"You may report differences in any of these categories: {categories_str}."
     
     system_prompt = f"""
     You are an expert Visual QA Auditor utilizing a 3-Layer Analysis Pipeline.
@@ -396,6 +422,8 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     3. **VISUAL INSPECTION**: You will see the two images directly.
 
     **GOAL**: Synthesize these signals to find verifyable differences.
+    
+    {category_instruction}
     
     **LOGIC CHAIN**:
     1. **Check SSIM**: If SSIM says "IDENTICAL", be very skeptical of any hallucinated differences.
@@ -416,7 +444,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
             {{
                 "id": "1",
                 "description": "Description in {output_language}",
-    "category": "One of [content, layout, style, missing_element, added_element] (ALWAYS English)",
+                "category": "One of {categories_str} (ALWAYS English)",
                 "confidence": 0.95,
                 "location_1": [y1, x1, y2, x2] (0-1000 scale)
             }}
@@ -424,7 +452,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     }}
     
     IMPORTANT: 
-    - "category" MUST be one of the English keys provided. DO NOT translate the category.
+    - "category" MUST be one of the English keys in {categories_str}. DO NOT translate the category.
     - "description" MUST be in {output_language}.
     """
 
@@ -448,12 +476,35 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         result_content = response.choices[0].message.content
         data = json.loads(result_content)
         
+        # Post-process: Filter out excluded categories (LLM 지시 무시 대비 안전장치)
+        if "differences" in data and isinstance(data["differences"], list):
+            original_count = len(data["differences"])
+            
+            if allowed_categories:
+                # Only keep differences in allowed categories
+                data["differences"] = [
+                    d for d in data["differences"] 
+                    if d.get("category", "").lower() in [c.lower() for c in category_list]
+                ]
+            elif excluded_categories:
+                # Remove differences in excluded categories
+                excluded_lower = [c.lower() for c in excluded_categories]
+                data["differences"] = [
+                    d for d in data["differences"] 
+                    if d.get("category", "").lower() not in excluded_lower
+                ]
+            
+            filtered_count = len(data["differences"])
+            if original_count != filtered_count:
+                logger.info(f"[LLM] Post-filter: {original_count} -> {filtered_count} differences (excluded categories filtered)")
+        
         # Inject metadata
         data["metadata"] = {
             "model": model,
             "method": "3_layer_component_arch",
             "ssim_count": len(ssim_diffs),
-            "vision_enabled": use_vision
+            "vision_enabled": use_vision,
+            "category_filter_applied": bool(allowed_categories or excluded_categories)
         }
         return data
 

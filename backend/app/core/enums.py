@@ -27,3 +27,14 @@ class UserRole(str, Enum):
     ADMIN = "Admin"
     MODEL_ADMIN = "ModelAdmin"
     USER = "User"
+
+class ComparisonCategory(str, Enum):
+    """비교 분석에서 사용되는 차이점 카테고리"""
+    CONTENT = "content"
+    LAYOUT = "layout"
+    STYLE = "style"
+    MISSING_ELEMENT = "missing_element"
+    ADDED_ELEMENT = "added_element"
+
+# Helper: 기본 카테고리 목록
+DEFAULT_COMPARISON_CATEGORIES = [c.value for c in ComparisonCategory]
