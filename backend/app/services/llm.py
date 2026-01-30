@@ -317,8 +317,8 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     client = get_openai_client()
     model = _current_model
     
-    # Defaults
-    conf_threshold = 0.85
+    # Defaults - confidence threshold를 높여서 hallucination 방지
+    conf_threshold = 0.90
     ignore_position = True
     output_language = "Korean"
     use_ssim = True
@@ -326,7 +326,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     align_images = True
     
     if comparison_settings:
-        conf_threshold = comparison_settings.get("confidence_threshold", 0.85)
+        conf_threshold = comparison_settings.get("confidence_threshold", 0.90)
         ignore_position = comparison_settings.get("ignore_position_changes", True)
         output_language = comparison_settings.get("output_language", "Korean")
         use_ssim = comparison_settings.get("use_ssim_analysis", True)
@@ -520,7 +520,18 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
         result_content = response.choices[0].message.content
         data = json.loads(result_content)
         
-        # Post-process: Filter out excluded categories (LLM 지시 무시 대비 안전장치)
+        # Post-process 1: Filter by confidence threshold (낮은 확신도 차이점 제거)
+        if "differences" in data and isinstance(data["differences"], list):
+            before_conf_count = len(data["differences"])
+            data["differences"] = [
+                d for d in data["differences"] 
+                if d.get("confidence", 0) >= conf_threshold
+            ]
+            after_conf_count = len(data["differences"])
+            if before_conf_count != after_conf_count:
+                logger.info(f"[LLM] Confidence filter: {before_conf_count} -> {after_conf_count} (threshold: {conf_threshold})")
+        
+        # Post-process 2: Filter out excluded categories (LLM 지시 무시 대비 안전장치)
         if "differences" in data and isinstance(data["differences"], list):
             original_count = len(data["differences"])
             
@@ -540,7 +551,7 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
             
             filtered_count = len(data["differences"])
             if original_count != filtered_count:
-                logger.info(f"[LLM] Post-filter: {original_count} -> {filtered_count} differences (excluded categories filtered)")
+                logger.info(f"[LLM] Category filter: {original_count} -> {filtered_count} differences")
         
         # Inject metadata
         data["metadata"] = {
@@ -548,7 +559,8 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
             "method": "3_layer_component_arch",
             "ssim_count": len(ssim_diffs),
             "vision_enabled": use_vision,
-            "category_filter_applied": bool(allowed_categories or excluded_categories)
+            "category_filter_applied": bool(allowed_categories or excluded_categories),
+            "confidence_threshold": conf_threshold
         }
         return data
 
