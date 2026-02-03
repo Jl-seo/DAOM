@@ -39,6 +39,7 @@ export interface Model {
     webhook_url?: string  // POST URL for automation after extraction
     fields: Field[]
     is_active?: boolean  // 메뉴에서 숨기기 (false면 숨김)
+    reference_data?: Record<string, unknown>  // 참고 데이터 (고객코드 매핑, 유효성 규칙 등)
     comparison_settings?: ComparisonSettings
     excel_columns?: ExcelExportColumn[]
 }

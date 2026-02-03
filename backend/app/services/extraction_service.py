@@ -702,6 +702,19 @@ IMPORTANT:
         if model.global_rules:
             global_rules_instruction = f"\nGLOBAL EXTRACTION RULES (MUST FOLLOW):\n{model.global_rules}\n"
 
+        # Inject Reference Data if present (Phase 1: structured JSON)
+        reference_data_instruction = ""
+        if model.reference_data:
+            reference_data_instruction = f"""
+REFERENCE DATA (Use for value mapping and validation):
+{json.dumps(model.reference_data, ensure_ascii=False, indent=2)}
+
+Use this reference data to:
+- Map codes to names (e.g., customer_code → customer_name)
+- Validate extracted values against expected patterns
+- Apply transformation rules as specified
+"""
+
         prompt = f"""You are a document data extractor.
 
 Given this document data extracted by Document Intelligence (Pages: {focus_pages}):
@@ -709,7 +722,7 @@ Given this document data extracted by Document Intelligence (Pages: {focus_pages
 
 Extract values for these specific fields:
 {chr(10).join(field_descriptions)}
-{global_rules_instruction}
+{global_rules_instruction}{reference_data_instruction}
 INSTRUCTIONS:
 1. Analyze the document structure. If it looks like a table/grid, respect the columns.
 2. For specific fields like 'Item' or 'Amount', look for corresponding headers in the table.

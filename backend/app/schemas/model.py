@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 class FieldDefinition(BaseModel):
     key: str
@@ -47,6 +47,8 @@ class ExtractionModel(BaseModel):
     allowedGroups: Optional[List[str]] = None # Access control groups
     fields: List[FieldDefinition]
     is_active: bool = True
+    # Reference data for LLM context (Phase 1: structured JSON data)
+    reference_data: Optional[Dict[str, Any]] = None  # 참고 데이터 (고객코드 매핑, 유효성 규칙 등)
     # Comparison-specific settings
     comparison_settings: Optional[ComparisonSettings] = None
     excel_columns: Optional[List[ExcelExportColumn]] = None
@@ -60,6 +62,8 @@ class ExtractionModelCreate(BaseModel):
     webhook_url: Optional[str] = None  # POST URL for automation
     allowedGroups: Optional[List[str]] = None
     fields: List[FieldDefinition]
+    # Reference data for LLM context (Phase 1: structured JSON data)
+    reference_data: Optional[Dict[str, Any]] = None  # 참고 데이터 (고객코드 매핑, 유효성 규칙 등)
     # Comparison-specific settings
     comparison_settings: Optional[ComparisonSettings] = None
     excel_columns: Optional[List[ExcelExportColumn]] = None

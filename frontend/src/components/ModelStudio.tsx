@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
     Plus, Trash2, Save, ArrowLeft, Wand2,
-    LayoutTemplate, RefreshCw, Edit, Sliders
+    LayoutTemplate, RefreshCw, Edit, Sliders, Database
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
@@ -19,6 +19,7 @@ import { TemplatePreview } from './template/TemplatePreview'
 import { SampleAnalysisPanel } from './studio/SampleAnalysisPanel'
 import { ComparisonSettingsPanel } from './studio/ComparisonSettingsPanel'
 import { ExcelColumnEditor } from './studio/ExcelColumnEditor'
+import { ReferenceDataEditor } from './studio/ReferenceDataEditor'
 
 export interface ComparisonSettings {
     confidence_threshold: number; // 0.85
@@ -59,6 +60,7 @@ export interface ExtractionModel {
     // New Settings
     comparison_settings?: ComparisonSettings;
     excel_columns?: ExcelExportColumn[];
+    reference_data?: Record<string, unknown>;  // Phase 1: 참고 데이터
 }
 
 export function ModelStudio() {
@@ -341,6 +343,15 @@ export function ModelStudio() {
                                     <DataStructureSelector
                                         value={editingModel.data_structure || 'data'}
                                         onChange={(structure) => setEditingModel({ ...editingModel, data_structure: structure })}
+                                        disabled={!isEditing}
+                                    />
+                                </Card>
+
+                                {/* Reference Data (Phase 1) */}
+                                <Card icon={Database} title="참고 데이터 (Reference Data)">
+                                    <ReferenceDataEditor
+                                        value={editingModel.reference_data}
+                                        onChange={(data) => setEditingModel({ ...editingModel, reference_data: data })}
                                         disabled={!isEditing}
                                     />
                                 </Card>

@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any, List
+import json
 from app.schemas.model import ExtractionModel
 
 class RefinerEngine:
@@ -13,7 +14,8 @@ class RefinerEngine:
         1. Model Context (Description)
         2. Field-level Definitions & Rules
         3. Global Output Rules
-        4. Output Format Instructions
+        4. Reference Data (Phase 1)
+        5. Output Format Instructions
         """
         
         # 1. Base Context
@@ -25,6 +27,19 @@ Context: {model_info.description or 'General Document'}
         # 2. Global Rules
         if model_info.global_rules:
             prompt += f"\nGLOBAL REFINEMENT RULES:\n{model_info.global_rules}\n"
+
+        # 3. Reference Data (Phase 1: Structured JSON for mapping/validation)
+        if model_info.reference_data:
+            prompt += f"""
+REFERENCE DATA (Use for value mapping, validation, and context):
+{json.dumps(model_info.reference_data, ensure_ascii=False, indent=2)}
+
+INSTRUCTIONS FOR REFERENCE DATA:
+- Use codes/mappings from reference_data for value transformation (e.g., customer code → name)
+- Apply validation rules specified in reference_data
+- If extracted value doesn't match reference_data patterns, flag with lower confidence
+- Reference data takes precedence over guessing
+"""
 
         # 3. Field Instructions
         prompt += "\nREQUIRED EXTRACTION FIELDS:\n"
