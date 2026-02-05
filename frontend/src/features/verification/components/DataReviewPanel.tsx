@@ -123,6 +123,14 @@ export function DataReviewPanel({
                                 {debugData._debug_chunking?.chunk_debug?.[0]?.response_size && (
                                     <div><span className="text-muted-foreground">LLM 응답 크기:</span> <span className="font-semibold">{debugData._debug_chunking.chunk_debug[0].response_size} chars</span></div>
                                 )}
+                                {/* Token Usage Display */}
+                                {debugData.token_usage && (
+                                    <>
+                                        <div><span className="text-muted-foreground">입력 토큰:</span> <span className="font-semibold text-purple-600">{debugData.token_usage.prompt_tokens?.toLocaleString()}</span></div>
+                                        <div><span className="text-muted-foreground">출력 토큰:</span> <span className="font-semibold text-purple-600">{debugData.token_usage.completion_tokens?.toLocaleString()}</span></div>
+                                        <div><span className="text-muted-foreground">총 토큰:</span> <span className="font-semibold text-orange-600">{debugData.token_usage.total_tokens?.toLocaleString()}</span></div>
+                                    </>
+                                )}
                             </div>
                             {debugData._debug_chunking?.chunk_debug?.[0]?.response_preview && (
                                 <details className="mt-2">

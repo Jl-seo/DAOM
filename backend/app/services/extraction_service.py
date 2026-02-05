@@ -287,6 +287,9 @@ class ExtractionService:
                     llm_debug_info["_chunked"] = first_doc_data["_chunked"]
                 if "_chunking_errors" in first_doc_data:
                     llm_debug_info["_chunking_errors"] = first_doc_data["_chunking_errors"]
+                # Extract token usage
+                if "_token_usage" in first_doc_data:
+                    llm_debug_info["token_usage"] = first_doc_data["_token_usage"]
             
             # Merge OCR debug and LLM debug
             if debug_info_final:
@@ -764,10 +767,22 @@ IMPORTANT:
             )
             raw_content = response.choices[0].message.content
             
+            # Capture token usage
+            token_usage = None
+            if response.usage:
+                token_usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+                logger.info(f"[LLM-Token] Usage: {token_usage}")
+            
             logger.info(f"[LLM-Custom-Debug] Success! Length: {len(raw_content)}")
             logger.info(f"[LLM-Custom-Debug] Preview: {raw_content[:200]}")
             
-            return json.loads(raw_content)
+            result = json.loads(raw_content)
+            result["_token_usage"] = token_usage  # Include token usage in result
+            return result
         except Exception as e:
             error_str = str(e).lower()
             
