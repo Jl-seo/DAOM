@@ -211,6 +211,9 @@ export function AuditLogViewer() {
                                 ID
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                토큰
+                            </th>
+                            <th className="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                 IP
                             </th>
                         </tr>
@@ -218,14 +221,14 @@ export function AuditLogViewer() {
                     <tbody className="divide-y divide-border">
                         {loading ? (
                             <tr>
-                                <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
+                                <td colSpan={7} className="px-6 py-12 text-center text-muted-foreground">
                                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
                                     로딩 중...
                                 </td>
                             </tr>
                         ) : logs.length === 0 ? (
                             <tr>
-                                <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
+                                <td colSpan={7} className="px-6 py-12 text-center text-muted-foreground">
                                     감사 로그가 없습니다
                                 </td>
                             </tr>
@@ -248,6 +251,15 @@ export function AuditLogViewer() {
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground font-mono">
                                         {log.resource_id.slice(0, 8)}...
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        {(log.details as any)?.token_usage?.total_tokens ? (
+                                            <span className="text-purple-600 font-semibold">
+                                                {(log.details as any).token_usage.total_tokens.toLocaleString()}
+                                            </span>
+                                        ) : (
+                                            <span className="text-muted-foreground">-</span>
+                                        )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                                         {log.ip_address || '-'}

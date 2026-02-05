@@ -164,7 +164,8 @@ def save_extraction_log(
                         "filename": filename,
                         "job_id": job_id,
                         "error": error,
-                        "llm_model": llm_model
+                        "llm_model": llm_model,
+                        "token_usage": token_usage  # Token usage tracking
                     },
                     "ip_address": "system",
                     "user_agent": "DaomBackend/ExtractionLogs"
