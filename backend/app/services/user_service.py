@@ -228,3 +228,85 @@ async def add_user_to_group(user_id: str, group_id: str, tenant_id: str) -> bool
     except Exception as e:
         logger.error(f"Error adding user to group: {e}")
         return False
+
+
+async def get_user_by_email(email: str, tenant_id: str) -> Optional[User]:
+    """Get user by email within a tenant"""
+    container = get_container(USERS_CONTAINER, "/tenant_id")
+    if not container:
+        return None
+    
+    try:
+        items = list(container.query_items(
+            query="SELECT * FROM c WHERE LOWER(c.email) = @email AND c.tenant_id = @tenant_id",
+            parameters=[
+                {"name": "@email", "value": email.lower()},
+                {"name": "@tenant_id", "value": tenant_id}
+            ],
+            enable_cross_partition_query=True
+        ))
+        return User.from_dict(items[0]) if items else None
+    except Exception as e:
+        logger.error(f"Error getting user by email: {e}")
+        return None
+
+
+async def update_user_groups(user_id: str, group_ids: list[str], tenant_id: str) -> bool:
+    """Update user's group memberships (replaces existing groups)"""
+    container = get_container(USERS_CONTAINER, "/tenant_id")
+    if not container:
+        return False
+    
+    try:
+        items = list(container.query_items(
+            query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
+            parameters=[
+                {"name": "@id", "value": user_id},
+                {"name": "@tenant_id", "value": tenant_id}
+            ],
+            enable_cross_partition_query=True
+        ))
+        
+        if not items:
+            return False
+        
+        user_data = items[0]
+        user_data["groups"] = group_ids
+        container.upsert_item(body=user_data)
+        logger.info(f"Updated groups for user {user_id}: {group_ids}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error updating user groups: {e}")
+        return False
+
+
+async def pre_register_user(email: str, name: str, tenant_id: str, groups: list[str] = None) -> User:
+    """
+    Pre-register a user (before they log in).
+    Creates a placeholder user record that will be updated on first login.
+    """
+    import uuid
+    
+    container = get_container(USERS_CONTAINER, "/tenant_id")
+    if not container:
+        raise Exception("Users container not available")
+    
+    # Generate temporary ID (will be replaced with oid on first login)
+    temp_id = f"pre-{uuid.uuid4().hex[:12]}"
+    
+    new_user = User(
+        id=temp_id,
+        email=email.lower(),
+        name=name,
+        role="Viewer",
+        tenant_id=tenant_id,
+        created_at=datetime.utcnow().isoformat(),
+        last_login="",  # Empty = never logged in
+        groups=groups or []
+    )
+    
+    container.create_item(body=new_user.to_dict())
+    logger.info(f"Pre-registered user: {email}")
+    return new_user
+

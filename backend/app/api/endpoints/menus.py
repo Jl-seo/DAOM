@@ -41,16 +41,39 @@ async def list_menus(current_user: CurrentUser = Depends(get_current_user)):
 @router.get("/accessible", response_model=list[MenuResponse])
 async def get_accessible_menus(current_user: CurrentUser = Depends(get_current_user)):
     """Get menus accessible by the current user based on their group permissions"""
-    # For now, return all menus (will be filtered by frontend based on user's groups)
-    # In production, aggregate user's group permissions server-side
+    from app.core.auth import is_super_admin
+    from app.core.group_permission_utils import get_accessible_menu_ids
+    
+    # Super Admin sees all menus
+    is_super = await is_super_admin(current_user)
+    if is_super:
+        menus = await menu_service.get_all_menus(current_user.tenant_id)
+        return [MenuResponse(
+            id=m.id, name=m.name, icon=m.icon, order=m.order, parent=m.parent
+        ) for m in menus]
+    
+    # Get user's accessible menu IDs from group permissions
+    accessible_menu_ids = await get_accessible_menu_ids(
+        current_user.id, 
+        current_user.tenant_id
+    )
+    
+    # Get all menus and filter
     menus = await menu_service.get_all_menus(current_user.tenant_id)
+    accessible_menus = [m for m in menus if m.id in accessible_menu_ids]
+    
+    # Also include parent menus if any child is accessible
+    parent_ids = {m.parent for m in accessible_menus if m.parent}
+    for m in menus:
+        if m.id in parent_ids and m.id not in accessible_menu_ids:
+            accessible_menus.append(m)
+    
+    # Sort by order
+    accessible_menus.sort(key=lambda x: x.order)
+    
     return [MenuResponse(
-        id=m.id,
-        name=m.name,
-        icon=m.icon,
-        order=m.order,
-        parent=m.parent
-    ) for m in menus]
+        id=m.id, name=m.name, icon=m.icon, order=m.order, parent=m.parent
+    ) for m in accessible_menus]
 
 
 @router.put("/{menu_id}")

@@ -48,6 +48,23 @@ async def start_job_with_upload(
     import asyncio
     
     # Upload files to Azure Blob Storage (Parallel)
+    # Permission check: Verify user has access to this model
+    from app.core.group_permission_utils import get_model_role_by_group
+    from app.core.auth import is_super_admin
+    
+    is_super = await is_super_admin(current_user)
+    if not is_super:
+        model_role = await get_model_role_by_group(
+            current_user.id, 
+            current_user.tenant_id, 
+            model_id
+        )
+        if model_role is None:
+            raise HTTPException(
+                status_code=403, 
+                detail="You do not have permission to use this model"
+            )
+    
     upload_tasks = []
     filenames = []
     

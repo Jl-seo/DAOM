@@ -146,3 +146,90 @@ async def update_user_role(
         raise HTTPException(status_code=400, detail="Failed to update role")
     
     return {"success": True, "message": f"Role updated to {request.role}"}
+
+
+class BulkUserEntry(BaseModel):
+    email: str
+    name: str
+    groups: list[str] = []  # Group names
+
+
+class BulkImportRequest(BaseModel):
+    users: list[BulkUserEntry]
+
+
+class BulkImportResult(BaseModel):
+    total: int
+    created: int
+    updated: int
+    failed: int
+    errors: list[str] = []
+
+
+@router.post("/bulk-import", response_model=BulkImportResult)
+async def bulk_import_users(
+    request: BulkImportRequest,
+    current_user: CurrentUser = Depends(require_admin)
+):
+    """
+    Bulk import users (Admin only)
+    
+    Accepts a list of users with email, name, and optional group names.
+    Creates new users or updates existing ones.
+    Processes in batches of 100 for performance.
+    """
+    from app.services import group_service
+    from datetime import datetime
+    
+    result = BulkImportResult(
+        total=len(request.users),
+        created=0,
+        updated=0,
+        failed=0,
+        errors=[]
+    )
+    
+    # Pre-load groups for name lookup
+    all_groups = await group_service.get_groups_by_tenant(current_user.tenant_id)
+    group_name_to_id = {g.name.lower(): g.id for g in all_groups}
+    
+    # Process in batches
+    BATCH_SIZE = 100
+    for i in range(0, len(request.users), BATCH_SIZE):
+        batch = request.users[i:i + BATCH_SIZE]
+        
+        for user_entry in batch:
+            try:
+                # Map group names to IDs
+                group_ids = []
+                for gname in user_entry.groups:
+                    gid = group_name_to_id.get(gname.lower())
+                    if gid:
+                        group_ids.append(gid)
+                    else:
+                        result.errors.append(f"Group '{gname}' not found for user {user_entry.email}")
+                
+                # Check if user exists
+                existing = await user_service.get_user_by_email(user_entry.email, current_user.tenant_id)
+                
+                if existing:
+                    # Update user groups
+                    await user_service.update_user_groups(existing.id, group_ids, current_user.tenant_id)
+                    result.updated += 1
+                else:
+                    # Create new user (pre-registered, will be activated on first login)
+                    await user_service.pre_register_user(
+                        email=user_entry.email,
+                        name=user_entry.name,
+                        tenant_id=current_user.tenant_id,
+                        groups=group_ids
+                    )
+                    result.created += 1
+                    
+            except Exception as e:
+                result.failed += 1
+                result.errors.append(f"{user_entry.email}: {str(e)}")
+                logger.error(f"Failed to import user {user_entry.email}: {e}")
+    
+    return result
+

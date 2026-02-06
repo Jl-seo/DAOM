@@ -10,6 +10,7 @@ interface AuthContextType {
     isAuthenticated: boolean
     isLoading: boolean
     isSuperAdmin: boolean
+    accessibleMenus: string[]  // List of accessible menu IDs
     login: () => Promise<void>
     logout: () => void
     getAccessToken: () => Promise<string | null>
@@ -22,6 +23,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const isAuthenticated = useIsAuthenticated()
     const [user, setUser] = useState<AccountInfo | null>(null)
     const [isSuperAdmin, setIsSuperAdmin] = useState(false)
+    const [accessibleMenus, setAccessibleMenus] = useState<string[]>([])
 
     const getAccessToken = useCallback(async (): Promise<string | null> => {
         const account = accounts[0]
@@ -49,19 +51,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (accounts.length > 0) {
             setUser(accounts[0])
 
-            // Fetch /users/me to get isSuperAdmin
+            // Fetch /users/me to get isSuperAdmin and /menus/accessible for menu permissions
             const fetchPermissions = async () => {
                 const token = await getAccessToken()
                 if (!token) return
 
+                const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002/api/v1'
+                const headers = { Authorization: `Bearer ${token}` }
+
                 try {
-                    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8002/api/v1'
-                    const response = await fetch(`${apiBase}/users/me`, {
-                        headers: { Authorization: `Bearer ${token}` }
-                    })
-                    if (response.ok) {
-                        const data = await response.json()
+                    // Fetch user info
+                    const userResponse = await fetch(`${apiBase}/users/me`, { headers })
+                    if (userResponse.ok) {
+                        const data = await userResponse.json()
                         setIsSuperAdmin(data.isSuperAdmin ?? false)
+                    }
+
+                    // Fetch accessible menus
+                    const menusResponse = await fetch(`${apiBase}/menus/accessible`, { headers })
+                    if (menusResponse.ok) {
+                        const menus = await menusResponse.json()
+                        setAccessibleMenus(menus.map((m: { id: string }) => m.id))
                     }
                 } catch (e) {
                     console.error('Failed to fetch user permissions:', e)
@@ -71,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
             setUser(null)
             setIsSuperAdmin(false)
+            setAccessibleMenus([])
         }
     }, [accounts, getAccessToken])
 
@@ -97,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 isAuthenticated,
                 isLoading,
                 isSuperAdmin,
+                accessibleMenus,
                 login,
                 logout,
                 getAccessToken
@@ -114,3 +126,4 @@ export function useAuth() {
     }
     return context
 }
+

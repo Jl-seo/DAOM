@@ -315,6 +315,9 @@ export const menusApi = {
     getAll: () =>
         apiClient.get<MenuInfo[]>('/menus'),
 
+    getAccessible: () =>
+        apiClient.get<MenuInfo[]>('/menus/accessible'),
+
     update: (menuId: string, name?: string, icon?: string, order?: number) =>
         apiClient.put(`/menus/${menuId}`, { name, icon, order }),
 }

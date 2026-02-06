@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
     Shield, Search, X, Building,
-    Loader2, RefreshCw, FolderPlus, Trash2, Plus, UserPlus, Globe, ChevronDown, ChevronRight
+    Loader2, RefreshCw, FolderPlus, Trash2, Plus, UserPlus, Globe, ChevronDown, ChevronRight, Upload
 } from 'lucide-react'
 import { groupsApi, modelsApi, menusApi, usersApi, type GroupInfo, type ModelPermission, type MenuInfo, type UserInfo } from '../lib/api'
 import { useGraphApi, type EntraUser, type EntraGroup } from '../hooks/useGraphApi'
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { useTranslation } from 'react-i18next'
+import { BulkUserImport } from './BulkUserImport'
 
 type SearchType = 'user' | 'entra_group' | 'local_user'
 
@@ -44,6 +45,7 @@ export function UserManagement() {
     const [permSuperAdmin, setPermSuperAdmin] = useState(false)
     const [permModels, setPermModels] = useState<ModelPermission[]>([])
     const [permMenus, setPermMenus] = useState<string[]>([])
+    const [showBulkImport, setShowBulkImport] = useState(false)
 
     const fetchData = useCallback(async () => {
         setLoading(true)
@@ -253,12 +255,21 @@ export function UserManagement() {
                     <Button variant="ghost" size="icon" onClick={fetchData}>
                         <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
                     </Button>
+                    <Button variant="outline" onClick={() => setShowBulkImport(!showBulkImport)}>
+                        <Upload className="w-4 h-4 mr-2" />
+                        일괄 등록
+                    </Button>
                     <Button onClick={openCreateModal}>
                         <FolderPlus className="w-4 h-4 mr-2" />
                         {t('admin.user_management.create_group')}
                     </Button>
                 </div>
             </div>
+
+            {/* Bulk User Import */}
+            {showBulkImport && (
+                <BulkUserImport onSuccess={fetchData} />
+            )}
 
             {/* Search */}
             <div className="relative">
