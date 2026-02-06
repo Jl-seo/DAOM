@@ -83,19 +83,45 @@ async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
         logging.getLogger(__name__).error(f"[Storage] Cloud Blob Upload Failed: {e}")
         return None
 
-async def load_json_from_blob(filename: str) -> Optional[dict]:
     """Load JSON data from a blob"""
     import json
+    from urllib.parse import urlparse, unquote
+
+    # Handle if filename is actually a full URL
+    if filename.startswith("http"):
+        try:
+            parsed = urlparse(filename)
+            # path is like /container/blobname
+            path_parts = parsed.path.lstrip("/").split("/", 1)
+            if len(path_parts) >= 2:
+                # container = path_parts[0] # We rely on settings.AZURE_CONTAINER_NAME usually
+                # But if the URL is from a different container, we might have issues.
+                # For now, assume consistent container and just get the blob name
+                filename = unquote(path_parts[1])
+            elif "static" in parsed.path: # Local fallback URL
+                 filename = unquote(parsed.path.split("/")[-1])
+        except Exception:
+            pass # Fallback to using it as is
+
     client = get_blob_service_client()
     if not client:
         # Local fallback
         try:
             cache_dir = TEMP_DIR / "cache"
             # Filename is relative as passed from extraction_service
+            # If it was a URL, we tried to parse it to a filename above
             local_path = cache_dir / filename
             if local_path.exists():
                 with open(local_path, "r", encoding="utf-8") as f:
                     return json.load(f)
+            
+            # Additional fallback: check if it matches temp upload format in root temp dir
+            # (In case it's not in cache/ but in temp_uploads/ directly)
+            temp_path = TEMP_DIR / filename
+            if temp_path.exists():
+                 with open(temp_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+                    
         except Exception as e:
             # Log at debug level for cache miss (expected behavior)
             pass
