@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.core.enums import DEFAULT_COMPARISON_CATEGORIES
 from app.schemas.model import ExtractionModel
 from app.services.refiner import RefinerEngine
+from app.services.layout_parser import LayoutParser
 from app.db.cosmos import get_config_container
 
 logger = logging.getLogger(__name__)
@@ -151,7 +152,25 @@ async def analyze_document_content(
     """Azure AI Foundry를 통해 문서 내용 분석"""
     client = get_openai_client()
     
-    content_text = ocr_result.get("content", "")
+    # Check beta feature flag
+    use_optimized_prompt = False
+    ref_map = None
+    if model_info and hasattr(model_info, 'beta_features'):
+        use_optimized_prompt = model_info.beta_features.get("use_optimized_prompt", False)
+    
+    # Use LayoutParser for optimized content if beta enabled
+    if use_optimized_prompt:
+        logger.info("[LLM-Beta] Using LayoutParser for optimized prompt")
+        try:
+            parser = LayoutParser(ocr_result)
+            content_text, ref_map = parser.parse()
+            logger.info(f"[LLM-Beta] Parsed content length: {len(content_text)}, ref_map entries: {len(ref_map)}")
+        except Exception as e:
+            logger.warning(f"[LLM-Beta] LayoutParser failed, falling back to raw content: {e}")
+            content_text = ocr_result.get("content", "")
+            ref_map = None
+    else:
+        content_text = ocr_result.get("content", "")
 
     if model_info:
         system_prompt = RefinerEngine.construct_prompt(model_info, language)
@@ -162,7 +181,39 @@ async def analyze_document_content(
         Return only valid JSON, no markdown or explanation.
         """
 
-    user_prompt = f"Document Text:\n{content_text}"
+    # Prepare Table Context (CRITICAL for Beta: Provide structural hints)
+    tables_context = ""
+    raw_tables = ocr_result.get("tables", [])
+    if raw_tables and len(raw_tables) > 0:
+        tables_context = "\n\n=== DETECTED TABLES (Structure Reference) ===\n"
+        for idx, table in enumerate(raw_tables):
+            # Limit to first 20 rows to avoid token explosion
+            cells = table.get("cells", [])
+            row_count = table.get("rowCount", 0)
+            col_count = table.get("columnCount", 0)
+            
+            tables_context += f"\nTable {idx+1} ({row_count}x{col_count}):\n"
+            
+            # Simple Grid Reconstruction for Prompt
+            grid = {}
+            for cell in cells:
+                r = cell.get("rowIndex", 0)
+                c = cell.get("columnIndex", 0)
+                content = cell.get("content", "").replace("\n", " ")
+                if r < 20: # Limit rows
+                    if r not in grid: grid[r] = {}
+                    grid[r][c] = content
+            
+            # Render rows
+            for r in sorted(grid.keys()):
+                row_cells = grid[r]
+                row_str = " | ".join([row_cells.get(c, "") for c in range(col_count)])
+                tables_context += f"| {row_str} |\n"
+            
+            if row_count > 20:
+                tables_context += f"... ({row_count - 20} more rows) ...\n"
+
+    user_prompt = f"Document Text:\n{content_text}\n{tables_context}"
 
     try:
         logger.info(f"[LLM] Calling: {_current_model}")
@@ -182,8 +233,25 @@ async def analyze_document_content(
         
         if model_info:
             logger.info("[LLM] Post-processing with RefinerEngine")
-            return RefinerEngine.post_process_result(llm_json, ocr_result)
+            processed_result = RefinerEngine.post_process_result(llm_json, ocr_result)
+            
+            # CRITICAL FIX: Always attach beta content when Beta mode is enabled
+            # This ensures the UI shows content even if LayoutParser fails
+            if use_optimized_prompt:
+                processed_result["_beta_parsed_content"] = content_text
+                logger.info(f"[LLM-Beta] Attached parsed content for UI (length: {len(content_text)})")
+                
+                if ref_map:
+                    processed_result["_beta_ref_map"] = ref_map
+                    logger.info(f"[LLM-Beta] Attached ref_map with {len(ref_map)} entries")
+            
+            return processed_result
         
+        # For non-model extraction: also attach beta content if enabled
+        if use_optimized_prompt:
+            llm_json["_beta_parsed_content"] = content_text
+            if ref_map:
+                llm_json["_beta_ref_map"] = ref_map
         return llm_json
     
     except Exception as e:

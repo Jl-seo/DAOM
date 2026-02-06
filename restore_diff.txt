@@ -1,0 +1,285 @@
+diff --git a/backend/app/services/llm.py b/backend/app/services/llm.py
+index d2aa56f..6a52a6b 100644
+--- a/backend/app/services/llm.py
++++ b/backend/app/services/llm.py
+@@ -7,6 +7,7 @@ from app.core.config import settings
+ from app.core.enums import DEFAULT_COMPARISON_CATEGORIES
+ from app.schemas.model import ExtractionModel
+ from app.services.refiner import RefinerEngine
++from app.services.layout_parser import LayoutParser
+ from app.db.cosmos import get_config_container
+ 
+ logger = logging.getLogger(__name__)
+@@ -151,7 +152,25 @@ async def analyze_document_content(
+     """Azure AI Foundry를 통해 문서 내용 분석"""
+     client = get_openai_client()
+     
+-    content_text = ocr_result.get("content", "")
++    # Check beta feature flag
++    use_optimized_prompt = False
++    ref_map = None
++    if model_info and hasattr(model_info, 'beta_features'):
++        use_optimized_prompt = model_info.beta_features.get("use_optimized_prompt", False)
++    
++    # Use LayoutParser for optimized content if beta enabled
++    if use_optimized_prompt:
++        logger.info("[LLM-Beta] Using LayoutParser for optimized prompt")
++        try:
++            parser = LayoutParser(ocr_result)
++            content_text, ref_map = parser.parse()
++            logger.info(f"[LLM-Beta] Parsed content length: {len(content_text)}, ref_map entries: {len(ref_map)}")
++        except Exception as e:
++            logger.warning(f"[LLM-Beta] LayoutParser failed, falling back to raw content: {e}")
++            content_text = ocr_result.get("content", "")
++            ref_map = None
++    else:
++        content_text = ocr_result.get("content", "")
+ 
+     if model_info:
+         system_prompt = RefinerEngine.construct_prompt(model_info, language)
+@@ -162,7 +181,39 @@ async def analyze_document_content(
+         Return only valid JSON, no markdown or explanation.
+         """
+ 
+-    user_prompt = f"Document Text:\n{content_text}"
++    # Prepare Table Context (CRITICAL for Beta: Provide structural hints)
++    tables_context = ""
++    raw_tables = ocr_result.get("tables", [])
++    if raw_tables and len(raw_tables) > 0:
++        tables_context = "\n\n=== DETECTED TABLES (Structure Reference) ===\n"
++        for idx, table in enumerate(raw_tables):
++            # Limit to first 20 rows to avoid token explosion
++            cells = table.get("cells", [])
++            row_count = table.get("rowCount", 0)
++            col_count = table.get("columnCount", 0)
++            
++            tables_context += f"\nTable {idx+1} ({row_count}x{col_count}):\n"
++            
++            # Simple Grid Reconstruction for Prompt
++            grid = {}
++            for cell in cells:
++                r = cell.get("rowIndex", 0)
++                c = cell.get("columnIndex", 0)
++                content = cell.get("content", "").replace("\n", " ")
++                if r < 20: # Limit rows
++                    if r not in grid: grid[r] = {}
++                    grid[r][c] = content
++            
++            # Render rows
++            for r in sorted(grid.keys()):
++                row_cells = grid[r]
++                row_str = " | ".join([row_cells.get(c, "") for c in range(col_count)])
++                tables_context += f"| {row_str} |\n"
++            
++            if row_count > 20:
++                tables_context += f"... ({row_count - 20} more rows) ...\n"
++
++    user_prompt = f"Document Text:\n{content_text}\n{tables_context}"
+ 
+     try:
+         logger.info(f"[LLM] Calling: {_current_model}")
+@@ -182,8 +233,25 @@ async def analyze_document_content(
+         
+         if model_info:
+             logger.info("[LLM] Post-processing with RefinerEngine")
+-            return RefinerEngine.post_process_result(llm_json, ocr_result)
++            processed_result = RefinerEngine.post_process_result(llm_json, ocr_result)
++            
++            # CRITICAL FIX: Always attach beta content when Beta mode is enabled
++            # This ensures the UI shows content even if LayoutParser fails
++            if use_optimized_prompt:
++                processed_result["_beta_parsed_content"] = content_text
++                logger.info(f"[LLM-Beta] Attached parsed content for UI (length: {len(content_text)})")
++                
++                if ref_map:
++                    processed_result["_beta_ref_map"] = ref_map
++                    logger.info(f"[LLM-Beta] Attached ref_map with {len(ref_map)} entries")
++            
++            return processed_result
+         
++        # For non-model extraction: also attach beta content if enabled
++        if use_optimized_prompt:
++            llm_json["_beta_parsed_content"] = content_text
++            if ref_map:
++                llm_json["_beta_ref_map"] = ref_map
+         return llm_json
+     
+     except Exception as e:
+diff --git a/frontend/src/features/verification/components/DataReviewPanel.tsx b/frontend/src/features/verification/components/DataReviewPanel.tsx
+index 2a4c601..6792cb4 100644
+--- a/frontend/src/features/verification/components/DataReviewPanel.tsx
++++ b/frontend/src/features/verification/components/DataReviewPanel.tsx
+@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card'
+ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+ import { ScrollArea } from '@/components/ui/scroll-area'
+ import { ExtractionPreview } from './ExtractionPreview'
+-import { ExtractionGrid } from '../../extraction/components/ExtractionGrid'
++// import { ExtractionGrid } from '../../extraction/components/ExtractionGrid'
+ import { DebugInfoModal } from './DebugInfoModal'
+ import type { ExtractionModel, PreviewData } from '../types'
+ 
+@@ -24,11 +24,14 @@ interface DataReviewPanelProps {
+     onRetry: () => void
+     onDownload: () => void
+     documentId?: string | null // Unique identifier for the document (fileUrl or ID)
++    currentParsedContent?: string | null // NEW: Parsed text from LayoutParser
++    isBetaMode?: boolean
+ }
+ 
+ export function DataReviewPanel({
+     currentGuideExtracted,
+     currentOtherData,
++    currentParsedContent,
+     model,
+     previewData,
+     debugData,
+@@ -39,28 +42,16 @@ export function DataReviewPanel({
+     onReset,
+     onRetry,
+     onDownload,
+-    documentId
++    documentId,
++    isBetaMode = false
+ }: DataReviewPanelProps) {
+     const [isExpanded, setIsExpanded] = useState(false)
+     const [showDebugModal, setShowDebugModal] = useState(false)
+-    const [rawViewTab, setRawViewTab] = useState<'text' | 'tables'>('text')
+ 
+-    // Columns for the "Other Data" (Table) tab - with safe handling
+-    const tableColumns = (() => {
+-        try {
+-            if (!currentOtherData || !Array.isArray(currentOtherData) || currentOtherData.length === 0) return []
+-            const firstItem = currentOtherData[0]
+-            if (!firstItem || typeof firstItem !== 'object') return []
+-            return Object.keys(firstItem).map(key => ({
+-                accessorKey: key,
+-                header: key,
+-                cell: (info: any) => <span className="text-sm">{String(info.getValue() ?? '')}</span>
+-            }))
+-        } catch (e) {
+-            console.error('[DataReviewPanel] Error building tableColumns:', e)
+-            return []
+-        }
+-    })()
++
++
++    // Columns for the "Other Data" (Table) tab - REMOVED for Beta Text View
++    // const tableColumns = ...
+ 
+     return (
+         <Card className={`h-full flex flex-col bg-background overflow-hidden border-0 rounded-none transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-50' : ''}`}>
+@@ -157,8 +148,12 @@ export function DataReviewPanel({
+                 <div className="px-6 border-b bg-muted/40">
+                     <TabsList className="bg-transparent h-12 p-0 space-x-6">
+                         <TabsTrigger value="fields" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">추출 필드</TabsTrigger>
+-                        <TabsTrigger value="table" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">상세 테이블</TabsTrigger>
+-                        <TabsTrigger value="ocr" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">OCR 원본</TabsTrigger>
++                        {/* Only show Parsed Text tab when Beta data exists AND Beta mode is enabled */}
++                        {isBetaMode && currentParsedContent && (
++                            <TabsTrigger value="parsed_text" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">
++                                Parsed Text <span className="ml-1 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">BETA</span>
++                            </TabsTrigger>
++                        )}
+                         <TabsTrigger value="raw" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">Raw JSON</TabsTrigger>
+                     </TabsList>
+                 </div>
+@@ -179,17 +174,18 @@ export function DataReviewPanel({
+                             readOnly={false}
+                         />
+                     </TabsContent>
+-                    <TabsContent value="table" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
++                    <TabsContent value="parsed_text" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
+                         <ScrollArea className="h-full">
+                             <div className="p-6">
+-                                {/* Check if currentOtherData exists and has length before rendering ExtractionGrid */}
+-                                {currentOtherData && currentOtherData.length > 0 ? (
+-                                    <ExtractionGrid
+-                                        data={currentOtherData}
+-                                        columns={tableColumns}
+-                                    />
++                                {currentParsedContent ? (
++                                    <pre className="text-xs font-mono whitespace-pre-wrap bg-muted/30 p-4 rounded-md border text-foreground/80 leading-relaxed">
++                                        {currentParsedContent}
++                                    </pre>
+                                 ) : (
+-                                    <div className="text-center text-muted-foreground py-10">테이블 데이터가 없습니다</div>
++                                    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
++                                        <p>파싱된 텍스트가 없습니다.</p>
++                                        <p className="text-xs">Beta 기능을 활성화하거나 재추출해주세요.</p>
++                                    </div>
+                                 )}
+                             </div>
+                         </ScrollArea>
+@@ -201,72 +197,6 @@ export function DataReviewPanel({
+                             </pre>
+                         </ScrollArea>
+                     </TabsContent>
+-                    <TabsContent value="ocr" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
+-                        <div className="flex flex-col h-full">
+-                            {/* Sub-tabs for Text/Tables */}
+-                            <div className="px-6 py-2 border-b bg-muted/20 flex gap-4">
+-                                <button
+-                                    onClick={() => setRawViewTab('text')}
+-                                    className={`px-3 py-1 rounded text-sm ${rawViewTab === 'text' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+-                                >
+-                                    텍스트
+-                                </button>
+-                                <button
+-                                    onClick={() => setRawViewTab('tables')}
+-                                    className={`px-3 py-1 rounded text-sm ${rawViewTab === 'tables' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+-                                >
+-                                    테이블 ({previewData?.raw_tables?.length || 0})
+-                                </button>
+-                            </div>
+-                            <ScrollArea className="flex-1">
+-                                {rawViewTab === 'text' ? (
+-                                    <div className="p-6">
+-                                        <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed">
+-                                            {previewData?.raw_content || '텍스트 데이터가 없습니다'}
+-                                        </pre>
+-                                    </div>
+-                                ) : (
+-                                    <div className="p-6 space-y-6">
+-                                        {previewData?.raw_tables && previewData.raw_tables.length > 0 ? (
+-                                            previewData.raw_tables.map((table: any, tableIdx: number) => (
+-                                                <div key={tableIdx} className="border rounded-lg overflow-hidden">
+-                                                    <div className="bg-muted px-4 py-2 font-semibold text-sm">
+-                                                        Table {tableIdx + 1} ({table.row_count || '?'} rows × {table.column_count || '?'} cols)
+-                                                    </div>
+-                                                    <div className="overflow-auto">
+-                                                        <table className="w-full text-sm">
+-                                                            <tbody>
+-                                                                {/* Group cells by row */}
+-                                                                {(() => {
+-                                                                    const rows: Record<number, any[]> = {}
+-                                                                        ; (table.cells || []).forEach((cell: any) => {
+-                                                                            const ri = cell.row_index || 0
+-                                                                            if (!rows[ri]) rows[ri] = []
+-                                                                            rows[ri].push(cell)
+-                                                                        })
+-                                                                    return Object.keys(rows).sort((a, b) => Number(a) - Number(b)).map(ri => (
+-                                                                        <tr key={ri} className="border-b last:border-b-0">
+-                                                                            {rows[Number(ri)].sort((a, b) => (a.column_index || 0) - (b.column_index || 0)).map((cell, ci) => (
+-                                                                                <td key={ci} className="border-r last:border-r-0 px-3 py-2">
+-                                                                                    {cell.content || ''}
+-                                                                                </td>
+-                                                                            ))}
+-                                                                        </tr>
+-                                                                    ))
+-                                                                })()}
+-                                                            </tbody>
+-                                                        </table>
+-                                                    </div>
+-                                                </div>
+-                                            ))
+-                                        ) : (
+-                                            <div className="text-center text-muted-foreground py-10">테이블 데이터가 없습니다</div>
+-                                        )}
+-                                    </div>
+-                                )}
+-                            </ScrollArea>
+-                        </div>
+-                    </TabsContent>
+                 </div>
+             </Tabs>
+         </Card>
