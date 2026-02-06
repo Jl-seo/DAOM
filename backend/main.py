@@ -16,11 +16,15 @@ try:
     from app.api.api import api_router
     from app.db.cosmos import init_cosmos
     from app.services import startup_service
+    from app.core.rate_limit import setup_rate_limiting
 
     app = FastAPI(
         title=settings.PROJECT_NAME,
         openapi_url=f"{settings.API_V1_STR}/openapi.json"
     )
+
+    # Initialize Rate Limiting
+    setup_rate_limiting(app)
 
     # Trust proxy headers (X-Forwarded-Proto, X-Forwarded-For) from Azure Container Apps
     app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])

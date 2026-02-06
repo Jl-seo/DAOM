@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.endpoints import documents, models, settings, templates, audit, users, groups, graph, menus, extraction_preview, site_settings, prompts
+from app.api.endpoints import documents, models, settings, templates, audit, users, groups, graph, menus, extraction_preview, site_settings, prompts, power_automate
 
 api_router = APIRouter()
 api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
@@ -17,3 +17,5 @@ api_router.include_router(extraction_preview.router, prefix="/extraction", tags=
 from app.api.endpoints.extraction import logs
 api_router.include_router(logs.router, prefix="/extraction", tags=["extraction"])
 
+# Power Automate Custom Connector
+api_router.include_router(power_automate.router, prefix="/connectors", tags=["Power Automate Connector"])

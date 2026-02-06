@@ -34,7 +34,7 @@ class RefineRequest(BaseModel):
 
 class MatchColumnsRequest(BaseModel):
     extracted_columns: List[str]  # Column names extracted by AI
-    model_fields: List[Dict[str, str]]  # Model fields [{key, label}]
+    target_fields: List[Dict[str, str]]  # Model fields [{key, label}]
 
 
 class SaveExtractionRequest(BaseModel):
@@ -611,7 +611,7 @@ async def match_columns_with_ai(request: MatchColumnsRequest):
         
         model_field_descriptions = [
             f"- {f.get('key', '')}: {f.get('label', '')}" 
-            for f in request.model_fields
+            for f in request.target_fields
         ]
         
         prompt = f"""You are a data field matching expert.
