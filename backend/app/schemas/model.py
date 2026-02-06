@@ -52,6 +52,9 @@ class ExtractionModel(BaseModel):
     # Comparison-specific settings
     comparison_settings: Optional[ComparisonSettings] = None
     excel_columns: Optional[List[ExcelExportColumn]] = None
+    
+    # Beta Features Configuration (JSON)
+    beta_features: Optional[Dict[str, Any]] = None
 
 class ExtractionModelCreate(BaseModel):
     name: str
