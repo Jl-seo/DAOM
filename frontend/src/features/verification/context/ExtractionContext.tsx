@@ -576,7 +576,28 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         setActiveStep('upload') // Start polling will switch to 'review' when ready
     }, [startPolling])
 
-    const loadFromHistory = useCallback((log: ExtractionLog) => {
+    const loadFromHistory = useCallback(async (initialLog: ExtractionLog) => {
+        let log = initialLog
+
+        // Check if we need to hydrate full details (if OCR content is missing/truncated)
+        const hasFullOcr = log.debug_data?.ocr_result?.content || (log.debug_data?.doc_intel_content_preview && log.debug_data.doc_intel_content_preview.length > 1000)
+        const isBlobSource = log.debug_data?.source === 'blob_storage'
+
+        if (isBlobSource && !hasFullOcr) {
+            try {
+                // Fetch full detail with hydration
+                // devLog('[loadFromHistory] Hydrating full log detail from:', log.id)
+                const res = await apiClient.get<ExtractionLog>(`/extraction/logs/${log.id}`)
+                if (res.data) {
+                    log = res.data
+                    // devLog('[loadFromHistory] Hydration successful')
+                }
+            } catch (e) {
+                console.error('[loadFromHistory] Failed to hydrate log:', e)
+                // Continue with minimal log, better than nothing
+            }
+        }
+
         devLog('[loadFromHistory] Loading log:', { id: log.id, file_url: log.file_url, filename: log.filename })
         setResult(log.extracted_data || null)
         setStatus(isSuccessStatus(log.status) ? EXTRACTION_STATUS.COMPLETE : EXTRACTION_STATUS.ERROR)
@@ -599,14 +620,21 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             setPreviewData({
                 ...log.preview_data,
                 debug_data: log.debug_data, // Inject debug data from log level
-                model_fields: log.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
+                model_fields: log.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || [],
+                // Legacy Fallback: Restore OCR content if missing in preview_data
+                // Priority: preview_data -> extracted_data (legacy) -> debug_data (ocr_result/preview)
+                raw_content: log.preview_data.raw_content || log.extracted_data?.raw_content || log.debug_data?.ocr_result?.content || log.debug_data?.doc_intel_content_preview || "",
+                raw_tables: log.preview_data.raw_tables || log.extracted_data?.raw_tables || log.debug_data?.ocr_result?.tables || []
             })
         } else {
             // Legacy: Reconstruct minimal preview from extracted_data
             setPreviewData({
                 guide_extracted: log.extracted_data || {},
                 other_data: [],
-                model_fields: model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
+                model_fields: model?.fields?.map(f => ({ key: f.key, label: f.label })) || [],
+                // Restore OCR content
+                raw_content: log.extracted_data?.raw_content || log.debug_data?.ocr_result?.content || log.debug_data?.doc_intel_content_preview || "",
+                raw_tables: log.extracted_data?.raw_tables || log.debug_data?.ocr_result?.tables || []
             })
         }
 
