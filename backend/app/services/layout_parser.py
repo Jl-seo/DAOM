@@ -55,8 +55,8 @@ class LayoutParser:
         current_char_offset = 0
         
         for idx, (ocr_data, fid) in enumerate(zip(self.ocr_list, self.file_ids)):
-            # A. Content Merge
-            file_content = ocr_data.get("content", "")
+            # A. Content Merge (with None safety)
+            file_content = ocr_data.get("content", "") or ""  # Handle None explicitly
             if idx > 0:
                 # Add separator/newline to prevent word fusion
                 separator = f"\n=== File: {fid} ===\n"
@@ -116,18 +116,23 @@ class LayoutParser:
         """
         Executes the 3-Pass Tagging Strategy.
         Notes: 'focus_pages' now refers to GLOBAL page numbers if provided.
+        Returns: (tagged_text, ref_map) or (raw_content, {}) on error.
         """
-        # Pass 1: Tables (^C)
-        self._pass_tables()
-        
-        # Pass 2: Entities (^W)
-        self._pass_entities()
-        
-        # Pass 3: Paragraphs (^P)
-        self._pass_paragraphs()
-        
-        # Reconstruction
-        return self._reconstruct_text(), self.ref_map
+        try:
+            # Pass 1: Tables (^C)
+            self._pass_tables()
+            
+            # Pass 2: Entities (^W)
+            self._pass_entities()
+            
+            # Pass 3: Paragraphs (^P)
+            self._pass_paragraphs()
+            
+            # Reconstruction
+            return self._reconstruct_text(), self.ref_map
+        except Exception as e:
+            logger.warning(f"[LayoutParser] Parse failed, returning raw content: {e}")
+            return self.full_content or "", {}
 
     def _mark_claimed(self, offset: int, length: int):
         """Mark a range as consumed in the global mask."""

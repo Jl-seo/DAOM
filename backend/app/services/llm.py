@@ -152,11 +152,12 @@ async def analyze_document_content(
     """Azure AI Foundry를 통해 문서 내용 분석"""
     client = get_openai_client()
     
-    # Check beta feature flag
+    # Check beta feature flag (safe access pattern)
     use_optimized_prompt = False
     ref_map = None
-    if model_info and hasattr(model_info, 'beta_features'):
-        use_optimized_prompt = model_info.beta_features.get("use_optimized_prompt", False)
+    if model_info:
+        beta_features = getattr(model_info, 'beta_features', None) or {}
+        use_optimized_prompt = beta_features.get("use_optimized_prompt", False)
     
     # Use LayoutParser for optimized content if beta enabled
     if use_optimized_prompt:

@@ -122,8 +122,8 @@ class ExtractionService:
                                     filename = match.group(1)
                                 elif not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}', decoded, re.I):
                                     filename = decoded
-                            except:
-                                pass
+                            except Exception as url_parse_err:
+                                logger.debug(f"[Pipeline] URL parse fallback for filename: {url_parse_err}")
                         return {
                             "candidate_index": idx,
                             "file_url": c_url,

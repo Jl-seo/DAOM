@@ -151,7 +151,7 @@ export function DataReviewPanel({
                         {/* Only show Parsed Text tab when Beta data exists AND Beta mode is enabled */}
                         {isBetaMode && currentParsedContent && (
                             <TabsTrigger value="parsed_text" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">
-                                Parsed Text <span className="ml-1 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">BETA</span>
+                                Parsed Text ({(currentParsedContent.length / 1000).toFixed(1)}K) <span className="ml-1 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">BETA</span>
                             </TabsTrigger>
                         )}
                         <TabsTrigger value="raw" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">Raw JSON</TabsTrigger>
