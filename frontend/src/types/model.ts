@@ -42,4 +42,5 @@ export interface Model {
     reference_data?: Record<string, unknown>  // 참고 데이터 (고객코드 매핑, 유효성 규칙 등)
     comparison_settings?: ComparisonSettings
     excel_columns?: ExcelExportColumn[]
+    beta_features?: Record<string, any> // Beta 기능 설정 (JSON)
 }
