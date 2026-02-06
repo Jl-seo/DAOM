@@ -270,6 +270,12 @@ class ExtractionService:
                                 "model_id": doc_intel_output.get("model_id"),
                                 "api_version": doc_intel_output.get("api_version")
                             },
+                            # Provide FULL content for frontend visualization
+                            "ocr_result": {
+                                "content": doc_intel_output.get("content", ""),
+                                "tables": doc_intel_output.get("tables", [])
+                            },
+                            # Legacy key for backward compatibility
                             "doc_intel_content_preview": doc_intel_output.get("content", "")[:1000]
                         }
                         logger.info(f"[Pipeline] Debug data merged successfully")
@@ -610,11 +616,24 @@ IMPORTANT:
                 "validation_status": "inferred"
             }
 
-        return {
+        # Initialize result container
+        result = {
             "guide_extracted": validated_extracted,
             "other_data": raw_data.get("other_data", []),
             "model_fields": [{"key": k, "label": k} for k in validated_extracted.keys()] # Dynamic fields
         }
+        
+        # Preserve Raw Content (Critical for UI)
+        if "raw_content" in raw_data:
+            result["raw_content"] = raw_data["raw_content"]
+            
+        # Preserve Beta Fields (LayoutParser) if present
+        if "_beta_parsed_content" in raw_data:
+            result["_beta_parsed_content"] = raw_data["_beta_parsed_content"]
+        if "_beta_ref_map" in raw_data:
+            result["_beta_ref_map"] = raw_data["_beta_ref_map"]
+            
+        return result
 
 
     async def _process_single_split(self, full_ocr_data: Dict[str, Any], split: Dict[str, Any], model: ExtractionModel) -> Dict[str, Any]:
@@ -642,6 +661,42 @@ IMPORTANT:
         # OPTIMIZATION: Filter payload to only relevant pages
         ocr_data_to_send = self._filter_ocr_data(ocr_data, focus_pages) if focus_pages else ocr_data.copy()
         
+        # BETA FEATURE: Delegate to centralized LLM service for LayoutParser support
+        use_beta = False
+        
+        # Robust check for beta_features (handle Pydantic model, ORM object, or Dict)
+        beta_features = None
+        if hasattr(model, "beta_features"):
+            beta_features = model.beta_features
+        elif isinstance(model, dict) and "beta_features" in model:
+            beta_features = model["beta_features"]
+            
+        if beta_features and isinstance(beta_features, dict):
+            use_beta = beta_features.get("use_optimized_prompt", False)
+            logger.info(f"[LLM-Beta-Check] Beta detected. features={beta_features}, use_beta={use_beta}")
+        else:
+            logger.info(f"[LLM-Beta-Check] No beta_features found or disabled. model_type={type(model)}, features={beta_features}")
+        
+        if use_beta:
+            from app.services import llm
+            logger.info("[LLM] Beta feature enabled. Delegating to llm.analyze_document_content...")
+            llm_result = await llm.analyze_document_content(
+                ocr_result=ocr_data_to_send,
+                language="ko",
+                model_info=model
+            )
+            # Ensure raw_content is attached (OCR original text)
+            if "raw_content" not in llm_result:
+                llm_result["raw_content"] = ocr_data_to_send.get("content", "")
+            
+            # Ensure raw_tables is attached (Document Intelligence Tables)
+            if "raw_tables" not in llm_result:
+                llm_result["raw_tables"] = ocr_data_to_send.get("tables", [])
+
+            logger.info(f"[LLM-Beta] Result keys: {list(llm_result.keys())}")
+            return llm_result
+        
+        # --- LEGACY PATH (No Beta) ---
         
         # PRE-EMPTIVE CHUNKING: If document is too large, skip direct call and chunk immediately.
         # Check actual JSON payload size, not just text content (metadata can be huge)
@@ -782,6 +837,12 @@ IMPORTANT:
             
             result = json.loads(raw_content)
             result["_token_usage"] = token_usage  # Include token usage in result
+            
+            # ATTACH RAW CONTENT (CRITICAL FIX FOR LEGACY PATH)
+            # Ensure OCR text is available even when not using Beta LayoutParser
+            if "raw_content" not in result:
+                result["raw_content"] = ocr_data_to_send.get("content", "")
+                
             return result
         except Exception as e:
             error_str = str(e).lower()
@@ -812,7 +873,8 @@ IMPORTANT:
                         "guide_extracted": {k: v for k, v in merged_result.items() if not k.startswith("_")},
                         "other_data": [],
                         "_chunked": True,
-                        "_chunk_errors": errors
+                        "_chunk_errors": errors,
+                        "raw_content": ocr_data_to_send.get("content", "")  # CRITICAL: Attach OCR text
                     }
                 except Exception as chunk_error:
                     logger.error(f"[LLM-Chunked] Fallback also failed: {chunk_error}")
@@ -943,13 +1005,23 @@ IMPORTANT:
                 "page_number": page_number
             }
 
-
+        # Initialize container
         result = {
             "guide_extracted": validated_extracted,
             "other_data": raw_data.get("other_data", []),
             "model_fields": [{"key": f.key, "label": f.label} for f in model.fields]
         }
         
+        # Preserve Beta Fields (LayoutParser)
+        if "_beta_parsed_content" in raw_data:
+            result["_beta_parsed_content"] = raw_data["_beta_parsed_content"]
+        if "_beta_ref_map" in raw_data:
+            result["_beta_ref_map"] = raw_data["_beta_ref_map"]
+            
+        # Preserve Raw Content (Critical for UI)
+        if "raw_content" in raw_data:
+            result["raw_content"] = raw_data["raw_content"]
+            
         # Passthrough debug metadata if present
         if "_debug_chunking" in raw_data:
             result["_debug_chunking"] = raw_data["_debug_chunking"]
@@ -957,6 +1029,10 @@ IMPORTANT:
             result["_chunked"] = raw_data["_chunked"]
         if "_chunking_errors" in raw_data:
             result["_chunking_errors"] = raw_data["_chunking_errors"]
+            
+        # Preserve Raw Tables (for Tables Tab)
+        if "raw_tables" in raw_data:
+            result["raw_tables"] = raw_data["raw_tables"]
         
         return result
     

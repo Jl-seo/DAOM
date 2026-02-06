@@ -218,15 +218,28 @@ def log_extraction_action(
     action: str,
     status: str = "SUCCESS",
     changes: Optional[dict] = None,
-    details: Optional[dict] = None
+    details: Optional[dict] = None,
+    token_usage: Optional[dict] = None  # NEW: Token usage tracking
 ) -> Optional[str]:
     """
     Log an extraction-related action (background task friendly)
+    Includes token usage for cost tracking and audit.
     """
     try:
         container = get_audit_container()
         if container is None:
             return None
+        
+        # Build details with token usage
+        audit_details = {
+            "model_id": job.model_id,
+            "filename": job.filename,
+            **(details or {})
+        }
+        
+        # Add token usage if available
+        if token_usage:
+            audit_details["token_usage"] = token_usage
         
         entry = AuditLogEntry(
             id=str(uuid4()),
@@ -240,17 +253,19 @@ def log_extraction_action(
             resource_id=job.id,
             status=status,
             changes=changes,
-            details={
-                "model_id": job.model_id,
-                "filename": job.filename,
-                **(details or {})
-            },
+            details=audit_details,
             ip_address="system",  # System action
             user_agent="DaomBackend/ExtractionService"
         )
         
         container.create_item(body=entry.to_dict())
-        logger.info(f"Audit [Extraction]: {entry.user_email} {action} {entry.resource_id}")
+        
+        # Log token usage if present
+        if token_usage:
+            logger.info(f"Audit [Extraction]: {entry.user_email} {action} {entry.resource_id} | Tokens: {token_usage.get('total_tokens', 'N/A')}")
+        else:
+            logger.info(f"Audit [Extraction]: {entry.user_email} {action} {entry.resource_id}")
+        
         return entry.id
     except Exception as e:
         logger.error(f"Failed to log extraction action: {e}")

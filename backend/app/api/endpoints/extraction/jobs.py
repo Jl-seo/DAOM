@@ -1,13 +1,14 @@
 """
 Extraction endpoints - Jobs management
 """
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File, Form
-from typing import Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File, Form, Request
+from typing import Dict, Any, Optional, List
 from app.services import extraction_jobs, extraction_logs
 from app.services.models import get_model_by_id
 from app.core.auth import get_current_user, CurrentUser
 from app.core.config import settings
 from app.core.enums import ExtractionStatus
+from app.core.rate_limit import limiter
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,38 +16,65 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def process_extraction_job(job_id: str, model_id: str, file_url: str):
-    """Background task to run full extraction pipeline"""
+async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str], filenames: List[str] = None):
+    """Background task to run full extraction pipeline (Multi-file)"""
     from app.services.extraction_service import extraction_service
-    await extraction_service.run_extraction_pipeline(job_id, model_id, file_url)
+    # Pass necessary mapping for file_id generation if needed
+    user_id = "bg-task" # TODO: Pass user_id
+    filename = filenames[0] if filenames else "unknown"
+    
+    await extraction_service.run_extraction_pipeline(
+        file_urls=file_urls, 
+        model_id=model_id, 
+        user_id=user_id,
+        filename=filename,
+        job_id=job_id,
+        filenames=filenames
+    )
 
 
 @router.post("/start-job")
 async def start_job_with_upload(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
+    files: List[UploadFile] = File(...), # Changed to List, expects 'files' key or 'file' if compatible?
     model_id: str = Form(...),
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """
-    Upload file and start extraction job in one step.
-    This replaces the need for separate upload and start calls.
+    Upload files and start extraction job.
+    Supports single or multiple files.
     """
     from app.services.storage import upload_to_storage
+    import asyncio
     
-    # Upload file to Azure Blob Storage
-    file_url = await upload_to_storage(file)
-    if not file_url:
-        raise HTTPException(status_code=500, detail="Failed to upload file")
+    # Upload files to Azure Blob Storage (Parallel)
+    upload_tasks = []
+    filenames = []
     
-    # Create extraction log first
+    for f in files:
+        filenames.append(f.filename)
+        upload_tasks.append(upload_to_storage(f))
+    
+    uploaded_urls = await asyncio.gather(*upload_tasks)
+    
+    # Filter failed uploads
+    valid_urls = [url for url in uploaded_urls if url]
+    if not valid_urls:
+         raise HTTPException(status_code=500, detail="Failed to upload any files")
+         
+    primary_url = valid_urls[0]
+    primary_filename = filenames[0]
+    
+    # Create extraction log
     log = extraction_logs.save_extraction_log(
         model_id=model_id,
         user_id=current_user.id if current_user else "unknown",
         user_name=current_user.name if current_user else None,
         user_email=current_user.email if current_user else None,
-        filename=file.filename,
-        file_url=file_url,
+        filename=primary_filename,
+        file_url=primary_url,
+        file_urls=valid_urls, # Multi
+        filenames=filenames,
         status=ExtractionStatus.PENDING.value,
         tenant_id=current_user.tenant_id if current_user else None
     )
@@ -57,8 +85,10 @@ async def start_job_with_upload(
         user_id=current_user.id if current_user else "unknown",
         user_name=current_user.name if current_user else None,
         user_email=current_user.email if current_user else None,
-        filename=file.filename,
-        file_url=file_url,
+        filename=primary_filename,
+        file_url=primary_url,
+        file_urls=valid_urls, # Multi
+        filenames=filenames,
         original_log_id=log.id if log else None,
         tenant_id=current_user.tenant_id if current_user else None
     )
@@ -70,8 +100,10 @@ async def start_job_with_upload(
             user_id=current_user.id if current_user else "unknown",
             user_name=current_user.name if current_user else None,
             user_email=current_user.email if current_user else None,
-            filename=file.filename,
-            file_url=file_url,
+            filename=primary_filename,
+            file_url=primary_url,
+            file_urls=valid_urls,
+            filenames=filenames,
             status=ExtractionStatus.PENDING.value,
             log_id=log.id,
             job_id=job.id,
@@ -83,15 +115,17 @@ async def start_job_with_upload(
         process_extraction_job,
         job.id,
         model_id,
-        file_url
+        valid_urls,
+        filenames
     )
     
     return {
         "job_id": job.id,
         "log_id": log.id if log else None,
-        "file_url": file_url,
-        "filename": file.filename,
-        "status": job.status
+        "file_url": primary_url,
+        "filename": primary_filename,
+        "status": job.status,
+        "file_count": len(valid_urls)
     }
 
 
@@ -181,7 +215,9 @@ def cancel_extraction_job(
 
 
 @router.get("/jobs")
+@limiter.limit("60/minute")  # Enterprise: Prevent bulk job scraping
 async def get_jobs(
+    request: Request,
     model_id: Optional[str] = None,
     scope: str = "mine",  # mine, team
     current_user: CurrentUser = Depends(get_current_user),
@@ -189,6 +225,7 @@ async def get_jobs(
 ):
     """Get jobs for current user or model with scope control"""
     from app.core.permissions import check_model_permission
+    from app.services.audit import log_action, AuditAction, AuditResource
 
     jobs = []
 
@@ -209,7 +246,22 @@ async def get_jobs(
         
     # 3. Global My View (All my jobs across models)
     else:
-        jobs = extraction_jobs.get_jobs_by_user(current_user.id if current_user else "unknown", limit=limit)
+        tenant_id = current_user.tenant_id if current_user else None
+        jobs = extraction_jobs.get_jobs_by_user(
+            current_user.id if current_user else "unknown", 
+            limit=limit,
+            tenant_id=tenant_id
+        )
+
+    # Enterprise Hardening: Audit bulk data access for exfiltration detection
+    await log_action(
+        user=current_user,
+        action=AuditAction.READ,
+        resource_type="job",
+        resource_id=model_id or "ALL",
+        details={"count": len(jobs), "scope": scope, "limit": limit},
+        request=request
+    )
     
     return [{
         "id": job.id,

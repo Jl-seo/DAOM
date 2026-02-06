@@ -23,6 +23,8 @@ class ExtractionLog(BaseModel):
     user_email: Optional[str] = None
     filename: str
     file_url: Optional[str] = None
+    file_urls: Optional[List[str]] = None # New field for multi-file inputs
+    filenames: Optional[List[str]] = None # New field for multi-file filenames
     candidate_file_url: Optional[str] = None  # Comparison target file URL (legacy single)
     candidate_file_urls: Optional[List[str]] = None  # Comparison target file URLs (multi)
     status: str  # 'success' | 'error'
@@ -50,6 +52,8 @@ def save_extraction_log(
     filename: str,
     status: str,
     file_url: Optional[str] = None,
+    file_urls: Optional[List[str]] = None, # New arg
+    filenames: Optional[List[str]] = None, # New arg
     candidate_file_url: Optional[str] = None,
     candidate_file_urls: Optional[List[str]] = None,  # NEW: Multi candidate files
     extracted_data: Optional[dict] = None,
@@ -90,6 +94,8 @@ def save_extraction_log(
         user_email=user_email,
         filename=filename,
         file_url=file_url,
+        file_urls=file_urls,
+        filenames=filenames,
         candidate_file_url=candidate_file_url,
         candidate_file_urls=candidate_file_urls,
         status=status,
@@ -180,8 +186,9 @@ def save_extraction_log(
         return None
 
 
-def get_logs_by_model(model_id: str, limit: int = 50) -> List[ExtractionLog]:
-    """Get extraction logs for a specific model"""
+
+def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
+    """Get extraction logs for a specific model, enforcing tenant isolation"""
     container = get_extractions_container()
     
     if not container:
@@ -193,11 +200,20 @@ def get_logs_by_model(model_id: str, limit: int = 50) -> List[ExtractionLog]:
             SELECT TOP {limit} * FROM c 
             WHERE c.model_id = @model_id 
             AND (NOT IS_DEFINED(c.type) OR c.type = '{ExtractionType.LOG.value}')
-            ORDER BY c.created_at DESC
         """
+        
+        parameters = [{"name": "@model_id", "value": model_id}]
+        
+        # Enforce Tenant Isolation
+        if tenant_id:
+            query += " AND c.tenant_id = @tenant_id"
+            parameters.append({"name": "@tenant_id", "value": tenant_id})
+            
+        query += " ORDER BY c.created_at DESC"
+            
         items = list(container.query_items(
             query=query,
-            parameters=[{"name": "@model_id", "value": model_id}],
+            parameters=parameters,
             enable_cross_partition_query=False
         ))
         return [ExtractionLog(**item) for item in items]
@@ -206,8 +222,8 @@ def get_logs_by_model(model_id: str, limit: int = 50) -> List[ExtractionLog]:
         return []
 
 
-def get_all_logs(limit: int = 100) -> List[ExtractionLog]:
-    """Get all recent extraction logs"""
+def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
+    """Get all recent extraction logs, enforcing tenant isolation"""
     container = get_extractions_container()
     
     if not container:
@@ -218,10 +234,19 @@ def get_all_logs(limit: int = 100) -> List[ExtractionLog]:
         query = f"""
             SELECT TOP {limit} * FROM c 
             WHERE (NOT IS_DEFINED(c.type) OR c.type = '{ExtractionType.LOG.value}')
-            ORDER BY c.created_at DESC
         """
+        parameters = []
+        
+        # Enforce Tenant Isolation
+        if tenant_id:
+            query += " AND c.tenant_id = @tenant_id"
+            parameters.append({"name": "@tenant_id", "value": tenant_id})
+            
+        query += " ORDER BY c.created_at DESC"
+            
         items = list(container.query_items(
             query=query,
+            parameters=parameters,
             enable_cross_partition_query=True
         ))
         return [ExtractionLog(**item) for item in items]
@@ -230,8 +255,8 @@ def get_all_logs(limit: int = 100) -> List[ExtractionLog]:
         return []
 
 
-def get_logs_by_user(user_id: str, limit: int = 100) -> List[ExtractionLog]:
-    """Get extraction logs for a specific user"""
+def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
+    """Get extraction logs for a specific user, enforcing tenant isolation"""
     container = get_extractions_container()
     
     if not container:
@@ -243,11 +268,19 @@ def get_logs_by_user(user_id: str, limit: int = 100) -> List[ExtractionLog]:
             SELECT TOP {limit} * FROM c 
             WHERE c.user_id = @user_id 
             AND (NOT IS_DEFINED(c.type) OR c.type = '{ExtractionType.LOG.value}')
-            ORDER BY c.created_at DESC
         """
+        parameters = [{"name": "@user_id", "value": user_id}]
+
+        # Enforce Tenant Isolation (Redundant if user_id is unique, but safer for depth-defense)
+        if tenant_id:
+            query += " AND c.tenant_id = @tenant_id"
+            parameters.append({"name": "@tenant_id", "value": tenant_id})
+            
+        query += " ORDER BY c.created_at DESC"
+
         items = list(container.query_items(
             query=query,
-            parameters=[{"name": "@user_id", "value": user_id}],
+            parameters=parameters,
             enable_cross_partition_query=True
         ))
         return [ExtractionLog(**item) for item in items]

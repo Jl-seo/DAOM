@@ -41,16 +41,23 @@ interface ExtractionContextValue {
     // File
     file: File | null
     setFile: (file: File | null) => void
+    files: File[] | null // Multi-file support
+    setFiles: (files: File[] | null) => void
     candidateFiles: File[] | null // NEW: Array
     setCandidateFiles: (files: File[] | null) => void
     fileUrl: string | null
+    fileUrls: string[] | null // Multi-file URLs
+    setFileUrls: (urls: string[] | null) => void
     candidateFileUrls?: string[] | null // NEW: Array
+    setCandidateFileUrls: (urls: string[] | null) => void
     candidateFileUrl: string | null // Legacy/Convenience: First candidate URL
     setFileUrl: (url: string | null) => void
     isDragging: boolean
     setIsDragging: (dragging: boolean) => void
     filename: string | null
     setFilename: (name: string | null) => void
+    filenames: string[] | null // Multi-file names
+    setFilenames: (names: string[] | null) => void
 
     // Job & Log tracking
     currentJobId: string | null
@@ -80,7 +87,7 @@ interface ExtractionContextValue {
     highlights: Highlight[]
 
     // Actions
-    processFile: (file: File, candidateFiles?: File[]) => Promise<void>
+    processFile: (file: File | File[], candidateFiles?: File[]) => Promise<void>
     handleConfirmSelection: (selectedColumns: string[], editedGuideData?: Record<string, any>, editedOtherData?: any[]) => void
     handleRetry: () => void
     handleReset: () => void
@@ -101,10 +108,12 @@ export function useExtraction() {
 
 interface ExtractionProviderProps {
     modelId: string
+    initialJobId?: string
     children: ReactNode
 }
 
-export function ExtractionProvider({ modelId, children }: ExtractionProviderProps) {
+export function ExtractionProvider({ modelId, initialJobId, children }: ExtractionProviderProps) {
+    // const navigate = useNavigate() // Unused
     // Model state
     const [model, setModel] = useState<ExtractionModel | null>(null)
 
@@ -116,201 +125,142 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
 
     // File
     const [file, setFile] = useState<File | null>(null)
-    const [candidateFiles, setCandidateFiles] = useState<File[] | null>(null) // CHANGED: Single -> Array
+    const [files, setFiles] = useState<File[] | null>(null) // NEW
+    const [candidateFiles, setCandidateFiles] = useState<File[] | null>(null)
     const [fileUrl, setFileUrl] = useState<string | null>(null)
-    const [candidateFileUrls, setCandidateFileUrls] = useState<string[] | null>(null) // CHANGED: Single -> Array
+    const [fileUrls, setFileUrls] = useState<string[] | null>(null) // NEW
+    const [candidateFileUrls, setCandidateFileUrls] = useState<string[] | null>(null)
     const [isDragging, setIsDragging] = useState(false)
     const [filename, setFilename] = useState<string | null>(null)
+    const [filenames, setFilenames] = useState<string[] | null>(null) // NEW
 
     // State for Job & Log tracking
     const [currentJobId, setCurrentJobId] = useState<string | null>(null)
     const [currentLogId, setCurrentLogId] = useState<string | null>(null)
 
-    // State for Preview Data & Results
+    // Preview & Result Data
     const [previewData, setPreviewData] = useState<PreviewData | null>(null)
-    const [result, setResult] = useState<Record<string, any> | null>(null)
     const [selectedSubDocIndex, setSelectedSubDocIndex] = useState(0)
+    const [result, setResult] = useState<Record<string, any> | null>(null)
 
-    // UI Interactive State
+    // UI State
     const [selectedFieldKey, setSelectedFieldKey] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
-    const [highlights, setHighlights] = useState<Highlight[]>([])
 
-    // Compute highlights from previewData
+    // Load job from URL if initialJobId is present
     useEffect(() => {
-        if (!previewData) {
-            setHighlights([])
-            return
-        }
+        if (initialJobId && initialJobId !== currentJobId) {
+            // Load job data from API
+            apiClient.get(`/extraction/job/${initialJobId}`)
+                .then(res => {
+                    const { status: jobStatus, result: jobResult, preview_data } = res.data
+                    setCurrentJobId(initialJobId)
 
-        const currentData = previewData.sub_documents && previewData.sub_documents.length > 0
-            ? previewData.sub_documents[selectedSubDocIndex]?.data?.guide_extracted
-            : previewData.guide_extracted
-
-        if (!currentData) {
-            setHighlights([])
-            return
-        }
-
-        // Debug: Log the current data to trace bbox issues
-        devLog('[Highlights] currentData keys:', Object.keys(currentData))
-        devLog('[Highlights] Sample field data:', Object.entries(currentData).slice(0, 2).map(([k, v]) => ({ key: k, hasBbox: !!(v as any)?.bbox, bbox: (v as any)?.bbox, pageNum: (v as any)?.page_number })))
-
-        const newHighlights: Highlight[] = []
-
-        Object.entries(currentData).forEach(([key, item]: [string, any]) => {
-            // Check if item has bbox info (from refiner)
-            if (item && typeof item === 'object' && item.bbox) {
-                let x1 = 0, y1 = 0, x2 = 0, y2 = 0
-                let validBBox = false
-
-                if (Array.isArray(item.bbox)) {
-                    const points = item.bbox
-                    if (points.length >= 4) {
-                        if (points.length === 4) {
-                            // [x1, y1, x2, y2]
-                            // Verify if it's [x,y,w,h] or [x1,y1,x2,y2]. 
-                            // Usually NormalizedBBox is [x1,y1,x2,y2].
-                            // If x2 < x1, maybe it's w,h?
-                            // Let's assume standard [x1, y1, x2, y2] as per backend extraction_service
-                            x1 = points[0]; y1 = points[1]; x2 = points[2]; y2 = points[3];
-                        } else {
-                            // Polygon (8+ points)
-                            const xs = points.filter((_: number, i: number) => i % 2 === 0)
-                            const ys = points.filter((_: number, i: number) => i % 2 === 1)
-                            if (xs.length > 0) {
-                                x1 = Math.min(...xs); x2 = Math.max(...xs)
-                                y1 = Math.min(...ys); y2 = Math.max(...ys)
-                            }
-                        }
-                        validBBox = true
+                    if (jobStatus === 'completed' && jobResult) {
+                        setStatus(EXTRACTION_STATUS.PREVIEW_READY)
+                        setPreviewData({
+                            ...preview_data,
+                            model_fields: preview_data?.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
+                        })
+                        setActiveStep('review')
+                    } else if (jobStatus === 'processing' || jobStatus === 'analyzing') {
+                        setStatus(EXTRACTION_STATUS.ANALYZING)
+                        setActiveStep('upload')
+                        startPolling(initialJobId)
                     }
-                } else if (typeof item.bbox === 'object') {
-                    // Handle Dict format: {x1, y1, x2, y2} or {x, y, w, h}
-                    // Prioritize x1/x2 over x/w
-                    const b = item.bbox
-                    x1 = Number(b.x1 ?? b.x ?? 0)
-                    y1 = Number(b.y1 ?? b.y ?? 0)
-                    // If x2 is present, use it. If not, try x+w.
-                    x2 = b.x2 !== undefined ? Number(b.x2) : (Number(b.w ?? 0) + x1)
-                    y2 = b.y2 !== undefined ? Number(b.y2) : (Number(b.h ?? 0) + y1)
+                })
+                .catch(err => {
+                    console.error('Failed to load job from URL:', err)
+                    // Fallback to history view
+                    setActiveStep('history')
+                })
+        }
+    }, [initialJobId, model])
 
-                    if (x2 > x1 || y2 > y1) validBBox = true
-                }
+    // Polling ref
+    const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-                if (validBBox) {
-                    newHighlights.push({
-                        fieldKey: key,
-                        content: item.source_text || String(item.value || ''),
-                        pageIndex: (item.page_number || item.page || 1) - 1,
-                        position: {
-                            boundingRect: {
-                                x1, y1, x2, y2,
-                                width: x2 - x1,
-                                height: y2 - y1
-                            }
-                        }
-                    })
-                }
-            }
-        })
-
-        devLog('[Highlights] Generated:', newHighlights.length, 'highlights')
-        setHighlights(newHighlights)
-
-    }, [previewData, selectedSubDocIndex])
-
-    // Polling Reference
-    const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-    // Polling Logic
+    // Polling function for job status
     const startPolling = useCallback((jobId: string) => {
-        if (pollingRef.current) clearInterval(pollingRef.current)
+        if (pollingRef.current) {
+            clearInterval(pollingRef.current)
+        }
 
         const poll = async () => {
             try {
-                // Fix import path here if needed, generic usage is fine
-                const res = await apiClient.get<any>(`/extraction/job/${jobId}`)
-                const job = res.data
+                const res = await apiClient.get(`/extraction/job/${jobId}`)
+                const { status: jobStatus, result: jobResult, preview_data, error: jobError } = res.data
 
-                if (isSuccessStatus(job.status) || job.status === 'completed' || job.status === 'confirmed') {
-                    if (pollingRef.current) clearInterval(pollingRef.current)
+                devLog('[Polling] Status:', jobStatus, 'Preview:', !!preview_data)
 
-                    // If we have a result, use it
-                    if (job.result) {
-                        setResult(job.result)
+                // Check for SUCCESS(S100) or legacy 'completed'
+                // CRITICAL FIX: logical OR for result/preview_data. Backend might return preview_data directly.
+                if ((jobStatus === EXTRACTION_STATUS.SUCCESS || jobStatus === 'completed') && (jobResult || preview_data || res.data.preview_data)) {
+                    if (pollingRef.current) {
+                        clearInterval(pollingRef.current)
+                        pollingRef.current = null
                     }
 
-                    // Update URLs if present in job (important for candidate file)
-                    if (job.file_url) setFileUrl(job.file_url)
-                    if (job.candidate_file_urls && job.candidate_file_urls.length > 0) setCandidateFileUrls(job.candidate_file_urls) // Expecting array from backend now
+                    // Force update status to ready
+                    setStatus(EXTRACTION_STATUS.PREVIEW_READY)
 
-                    // If we have preview data (standard flow), use it
-                    // Always inject debug_data if available
-                    // This ensures users can see raw OCR/LLM response even if extraction failed
-                    // Update previewData if job has data
-                    // For retry scenarios, we always update when job completes to refresh the UI
-                    if (job.preview_data) {
-                        const newPreviewData = {
-                            ...job.preview_data,
-                            debug_data: job.debug_data,
-                            model_fields: job.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || [],
-                            // Add timestamp to force React state update even if data structure is similar
-                            _updatedAt: Date.now()
-                        }
-                        setPreviewData(newPreviewData)
-                        devLog('[Polling] Updated previewData after job completion')
-                    } else if (job.debug_data) {
-                        // Update debug_data only, keep existing preview
-                        setPreviewData(prev => prev ? { ...prev, debug_data: job.debug_data, _updatedAt: Date.now() } : null)
+                    // Update result and preview data
+                    setResult(jobResult)
+                    if (preview_data) {
+                        setPreviewData({
+                            ...preview_data,
+                            // Ensure model fields are populated
+                            model_fields: preview_data.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
+                        })
+                    } else if (res.data.preview_data) {
+                        setPreviewData(res.data.preview_data)
                     }
 
-                    const newStatus = isSuccessStatus(job.status) ? EXTRACTION_STATUS.PREVIEW_READY : EXTRACTION_STATUS.SUCCESS
-                    setStatus(newStatus)
-
-                    // Auto-advance to review step, or trigger re-render for already-on-review/complete
-                    setActiveStep(current => {
-                        if (current === 'upload') return 'review'
-                        // Force re-render by briefly setting to a different value and back
-                        // This ensures components like ComparisonWorkspace see the new data
-                        if (current === 'review' || current === 'complete') {
-                            devLog('[Polling] Triggering re-render for step:', current)
-                            // The status update above should trigger re-render, 
-                            // but we can also dispatch a synthetic state update
-                        }
-                        return current
-                    })
-
-                    // Show toast notification when retry completes
-                    toast.success('데이터 추출이 완료되었습니다')
-
-                } else if (job.status === 'failed') {
-                    if (pollingRef.current) clearInterval(pollingRef.current)
+                    // Move to review step
+                    setActiveStep('review')
+                    toast.success('추출이 완료되었습니다')
+                } else if (jobStatus === EXTRACTION_STATUS.FAILED || jobStatus === EXTRACTION_STATUS.ERROR || jobError) {
+                    if (pollingRef.current) {
+                        clearInterval(pollingRef.current)
+                        pollingRef.current = null
+                    }
                     setStatus(EXTRACTION_STATUS.ERROR)
-                    setError(job.error_message || '추출 실패')
+                    setError(jobError || 'Extraction failed')
+                    toast.error('추출 실패: ' + (jobError || 'Unknown error'))
                 }
-            } catch (err) {
-                console.error('Polling error:', err)
+            } catch (e: any) {
+                devLog('[Polling] Error:', e)
             }
         }
 
-        // Initial call
-        poll()
-        // Interval
-        pollingRef.current = setInterval(poll, POLLING_INTERVAL_MS || 2000)
+        poll() // Initial poll
+        pollingRef.current = setInterval(poll, POLLING_INTERVAL_MS)
     }, [model?.fields])
 
     // File processing
-    const processFile = useCallback(async (selectedFile: File, selectedCandidateFiles?: File[]) => {
+    const processFile = useCallback(async (selectedInput: File | File[], selectedCandidateFiles?: File[]) => {
         // Clear any existing polling first
         if (pollingRef.current) {
             clearInterval(pollingRef.current)
             pollingRef.current = null
         }
 
-        setFile(selectedFile)
+        // Handle single vs key input
+        let fileList: File[] = []
+        if (Array.isArray(selectedInput)) {
+            fileList = selectedInput
+        } else {
+            fileList = [selectedInput]
+        }
+
+        const primaryFile = fileList[0]
+
+        setFile(primaryFile)
+        setFiles(fileList)
         setCandidateFiles(selectedCandidateFiles || null)
-        setFilename(selectedFile.name)
+        setFilename(primaryFile.name)
+        setFilenames(fileList.map(f => f.name))
+
         setStatus(EXTRACTION_STATUS.UPLOADING)
         setError(null)
         setResult(null)
@@ -318,7 +268,10 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         setCurrentJobId(null)
 
         const formData = new FormData()
-        formData.append('file', selectedFile)
+        // Use 'files' key for list (Backend expects List[UploadFile])
+        fileList.forEach(f => {
+            formData.append('files', f)
+        })
 
         // Append multiple candidate files
         if (selectedCandidateFiles && selectedCandidateFiles.length > 0) {
@@ -337,6 +290,10 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
             const { job_id, file_url, candidate_file_urls, log_id } = res.data
             setCurrentJobId(job_id)
             setFileUrl(file_url)
+            // If backend returns list of file_urls (it should now, but maybe not in response yet)
+            // We might need to fetch job details to get full list if start-job response is legacy compatible
+            // But let's assume we can fetch it via polling later.
+
             if (candidate_file_urls) setCandidateFileUrls(candidate_file_urls)
             if (log_id) setCurrentLogId(log_id)  // Enable retry functionality
             setStatus(EXTRACTION_STATUS.REFINING)
@@ -576,28 +533,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         setActiveStep('upload') // Start polling will switch to 'review' when ready
     }, [startPolling])
 
-    const loadFromHistory = useCallback(async (initialLog: ExtractionLog) => {
-        let log = initialLog
-
-        // Check if we need to hydrate full details (if OCR content is missing/truncated)
-        const hasFullOcr = log.debug_data?.ocr_result?.content || (log.debug_data?.doc_intel_content_preview && log.debug_data.doc_intel_content_preview.length > 1000)
-        const isBlobSource = log.debug_data?.source === 'blob_storage'
-
-        if (isBlobSource && !hasFullOcr) {
-            try {
-                // Fetch full detail with hydration
-                // devLog('[loadFromHistory] Hydrating full log detail from:', log.id)
-                const res = await apiClient.get<ExtractionLog>(`/extraction/logs/${log.id}`)
-                if (res.data) {
-                    log = res.data
-                    // devLog('[loadFromHistory] Hydration successful')
-                }
-            } catch (e) {
-                console.error('[loadFromHistory] Failed to hydrate log:', e)
-                // Continue with minimal log, better than nothing
-            }
-        }
-
+    const loadFromHistory = useCallback((log: ExtractionLog) => {
         devLog('[loadFromHistory] Loading log:', { id: log.id, file_url: log.file_url, filename: log.filename })
         setResult(log.extracted_data || null)
         setStatus(isSuccessStatus(log.status) ? EXTRACTION_STATUS.COMPLETE : EXTRACTION_STATUS.ERROR)
@@ -641,16 +577,91 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         setActiveStep('complete')
     }, [model?.fields])
 
+    // Generate highlights from previewData
+    const highlights = useMemo(() => {
+        if (!previewData) return []
+
+        const newHighlights: Highlight[] = []
+
+        // Helper to process extracted data recursively
+        const processData = (data: any, pageOffset = 0) => {
+            if (!data) return
+
+            if (typeof data === 'object') {
+
+                Object.entries(data).forEach(([key, item]: [string, any]) => {
+                    if (item && typeof item === 'object' && 'bbox' in item && item.bbox) {
+                        const [x1, y1, x2, y2] = item.bbox
+                        newHighlights.push({
+                            fieldKey: key,
+                            content: item.source_text || String(item.value || ''),
+                            pageIndex: (item.page_number || item.page || 1) - 1 + pageOffset,
+                            fileId: item.file_id, // Propagate file_id
+                            position: {
+                                boundingRect: {
+                                    x1, y1, x2, y2,
+                                    width: x2 - x1,
+                                    height: y2 - y1
+                                }
+                            }
+                        })
+                    } else if (item && typeof item === 'object') {
+                        processData(item, pageOffset)
+                    }
+                })
+            }
+        }
+
+        // 1. Process guide extracted data
+        // Support Legacy vs Sub-documents
+        if (previewData.sub_documents && previewData.sub_documents.length > 0) {
+            previewData.sub_documents.forEach(doc => {
+                if (doc.data?.guide_extracted) {
+                    processData(doc.data.guide_extracted)
+                }
+            })
+        } else if (previewData.guide_extracted) {
+            processData(previewData.guide_extracted)
+        }
+
+        // 2. Process other data (tables/grids) if they have bboxes
+        if (previewData.other_data) {
+            previewData.other_data.forEach((item: any) => {
+                if (item.bbox) {
+                    const [x1, y1, x2, y2] = item.bbox
+                    newHighlights.push({
+                        fieldKey: `other_${item.column}_${item.row || 0}`, // unique derived key
+                        content: String(item.value || ''),
+                        pageIndex: (item.page_number || 1) - 1,
+                        fileId: item.file_id, // Propagate file_id
+                        position: {
+                            boundingRect: {
+                                x1, y1, x2, y2,
+                                width: x2 - x1,
+                                height: y2 - y1
+                            }
+                        }
+                    })
+                }
+            })
+        }
+
+        return newHighlights
+    }, [previewData])
+
     const value: ExtractionContextValue = useMemo(() => ({
         model, setModel,
         activeStep, setActiveStep,
         status, setStatus,
         file, setFile,
+        files, setFiles, // NEW
         candidateFiles, setCandidateFiles,
-        fileUrl, setFileUrl,
+        fileUrl, setFileUrl, // Primary (First) URL
+        fileUrls, setFileUrls, // NEW: All URLs
         candidateFileUrls, setCandidateFileUrls,
         candidateFileUrl: candidateFileUrls?.[0] || null,
         filename, setFilename,
+        filenames, setFilenames, // NEW
         isDragging, setIsDragging,
         currentJobId, setCurrentJobId,
         currentLogId, setCurrentLogId,
@@ -668,7 +679,7 @@ export function ExtractionProvider({ modelId, children }: ExtractionProviderProp
         loadFromHistory,
         resumeJob
     }), [
-        model, activeStep, status, file, fileUrl, filename, isDragging,
+        model, activeStep, status, file, files, fileUrl, fileUrls, filename, filenames, isDragging,
         currentJobId, currentLogId, previewData, selectedSubDocIndex,
         result, selectedFieldKey, error, highlights,
         processFile, handleConfirmSelection, handleRetry, handleReset,

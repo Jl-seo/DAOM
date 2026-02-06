@@ -6,7 +6,7 @@ These have no external dependencies and can be safely reused.
 """
 import re
 import logging
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -125,3 +125,129 @@ def normalize_bbox(bbox: Any, page_width: float = 0, page_height: float = 0) -> 
     except (ValueError, TypeError) as e:
         logger.error(f"[normalize_bbox] Error: {e}, bbox: {bbox}")
         return None
+
+
+
+def _merge_bboxes(bboxes: List[List[float]]) -> Optional[List[float]]:
+    """
+    Merges multiple bounding boxes into a single bounding box (Union).
+    Expects normalized or raw [x1, y1, x2, y2].
+    """
+    if not bboxes:
+        return None
+        
+    min_x, min_y = float('inf'), float('inf')
+    max_x, max_y = float('-inf'), float('-inf')
+    
+    valid_box_found = False
+    
+    for bbox in bboxes:
+        if not bbox or len(bbox) < 4:
+            continue
+        valid_box_found = True
+        # Handle 8-point polygon if necessary, but assume 4-point rect here
+        # or pre-normalized. Let's handle 4-point rects.
+        x1, y1, x2, y2 = bbox[0], bbox[1], bbox[2], bbox[3]
+        min_x = min(min_x, x1)
+        min_y = min(min_y, y1)
+        max_x = max(max_x, x2)
+        max_y = max(max_y, y2)
+        
+    if not valid_box_found:
+        return None
+        
+    return [min_x, min_y, max_x, max_y]
+
+
+def restore_bboxes(extracted_data: Any, ref_map: Dict[str, Any], fuzzy_callback: Optional[callable] = None) -> Any:
+    """
+    [Beta] Recursively traverses extracted dictionary, looking for 'indices'.
+    If found, looks up ref_map, merges bboxes, and injects 'bbox' and 'page_number'.
+    Also supports legacy 'ref_index' for backward compatibility.
+    """
+    if isinstance(extracted_data, dict):
+        # 1. Check for 'indices' (New List Format)
+        if "indices" in extracted_data:
+            indices = extracted_data["indices"]
+            if isinstance(indices, list) and indices:
+                # Gather all bboxes
+                collected_bboxes = []
+                collected_pages = []
+                
+                for idx in indices:
+                    ref_info = ref_map.get(str(idx))
+                    if ref_info:
+                        bbox = ref_info.get("bbox")
+                        page = ref_info.get("page_number")
+                        
+                        if bbox:
+                            collected_bboxes.append(bbox)
+                        if page:
+                            collected_pages.append(page)
+                            
+                # Merge BBoxes
+                rect_bboxes = []
+                for b in collected_bboxes:
+                    if len(b) >= 8:
+                         xs = b[0::2]; ys = b[1::2]
+                         rect_bboxes.append([min(xs), min(ys), max(xs), max(ys)])
+                    else:
+                         rect_bboxes.append(b[:4])
+
+                merged_bbox = _merge_bboxes(rect_bboxes)
+                
+                # Assign Page Number (Use Majority or First)
+                final_page = collected_pages[0] if collected_pages else None
+                
+                # Assign File ID (New for Multi-file Support)
+                # Look at the first index ref for file origin
+                first_ref_idx = indices[0]
+                first_ref_info = ref_map.get(str(first_ref_idx))
+                file_id = first_ref_info.get("file_id") if first_ref_info else None
+                
+                extracted_data["bbox"] = merged_bbox
+                extracted_data["page_number"] = final_page
+                extracted_data["file_id"] = file_id # Propagate File ID
+            else:
+                 pass
+
+        # 2. Check for 'ref_index' (Legacy Single Format)
+        elif "ref_index" in extracted_data:
+            ref_idx = str(extracted_data["ref_index"]).replace("^", "")
+            ref_info = ref_map.get(ref_idx)
+            if ref_info:
+                extracted_data["bbox"] = ref_info.get("bbox")
+                extracted_data["page_number"] = ref_info.get("page_number")
+            else:
+                extracted_data["bbox"] = None
+                extracted_data["page_number"] = None
+        
+        # [Soft Matching Fallback] If bbox is still None, try to find text match
+        if extracted_data.get("bbox") is None and extracted_data.get("value"):
+             val = str(extracted_data["value"])
+             if len(val) > 2 and fuzzy_callback:
+                  # Optimization: Use existing page_number logic is handled inside service/callback usually
+                  # But here passing page_limit if available in data
+                  pg = extracted_data.get("page_number")
+                  if isinstance(pg, int):
+                      found_bbox = fuzzy_callback(val, page_limit=pg)
+                  else:
+                      found_bbox = fuzzy_callback(val, page_limit=None)
+                      
+                  if found_bbox:
+                       logger.info(f"[SoftMatch] Recovered bbox for value: '{val[:10]}...'")
+                       extracted_data["bbox"] = found_bbox
+                       if pg: extracted_data["page_number"] = pg
+        
+        # 3. Recurse into all values
+        for key, value in extracted_data.items():
+            # Pass fuzzy_callback recursively
+            extracted_data[key] = restore_bboxes(value, ref_map, fuzzy_callback)
+            
+        return extracted_data
+
+    elif isinstance(extracted_data, list):
+        return [restore_bboxes(item, ref_map, fuzzy_callback) for item in extracted_data]
+        
+    else:
+        return extracted_data

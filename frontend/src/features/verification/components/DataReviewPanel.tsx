@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ExtractionPreview } from './ExtractionPreview'
+// import { ExtractionGrid } from '../../extraction/components/ExtractionGrid'
 import { DebugInfoModal } from './DebugInfoModal'
 import type { ExtractionModel, PreviewData } from '../types'
 
@@ -23,11 +24,14 @@ interface DataReviewPanelProps {
     onRetry: () => void
     onDownload: () => void
     documentId?: string | null // Unique identifier for the document (fileUrl or ID)
+    currentParsedContent?: string | null // NEW: Parsed text from LayoutParser
+    isBetaMode?: boolean
 }
 
 export function DataReviewPanel({
     currentGuideExtracted,
     currentOtherData,
+    currentParsedContent,
     model,
     previewData,
     debugData,
@@ -38,11 +42,16 @@ export function DataReviewPanel({
     onReset,
     onRetry,
     onDownload,
-    documentId
+    documentId,
+    isBetaMode = false
 }: DataReviewPanelProps) {
     const [isExpanded, setIsExpanded] = useState(false)
     const [showDebugModal, setShowDebugModal] = useState(false)
-    const [rawViewTab, setRawViewTab] = useState<'text' | 'tables'>('text')
+
+
+
+    // Columns for the "Other Data" (Table) tab - REMOVED for Beta Text View
+    // const tableColumns = ...
 
     return (
         <Card className={`h-full flex flex-col bg-background overflow-hidden border-0 rounded-none transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-50' : ''}`}>
@@ -82,20 +91,52 @@ export function DataReviewPanel({
                 <div className="mx-6 mt-3 mb-2 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
                     <div className="flex items-start justify-between">
                         <div className="flex-1">
-                            {/* Simplified debug info for brevity in patch */}
                             <div className="font-semibold text-sm mb-2 flex items-center gap-2">
                                 <Bug className="w-4 h-4" />
-                                디버그 정보
+                                디버그 정보 (LLM 추출 상세)
                             </div>
-                            <div className="text-xs font-mono text-muted-foreground">
-                                {debugData._chunked ? "청킹 모드 활성화" : "단일 처리 모드"}
-                                {debugData.token_usage && ` | 토큰: ${debugData.token_usage.total_tokens?.toLocaleString()}`}
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs font-mono">
+                                {debugData._chunked && (
+                                    <div><span className="text-muted-foreground">청킹 모드:</span> <span className="font-semibold text-blue-600">활성화</span></div>
+                                )}
+                                {debugData._debug_chunking?.total_chunks !== undefined && (
+                                    <div><span className="text-muted-foreground">처리된 청크:</span> <span className="font-semibold">{debugData._debug_chunking.total_chunks}</span></div>
+                                )}
+                                {debugData._debug_chunking?.successful_chunks !== undefined && (
+                                    <div><span className="text-muted-foreground">성공한 청크:</span> <span className="font-semibold text-green-600">{debugData._debug_chunking.successful_chunks}</span></div>
+                                )}
+                                {debugData._debug_chunking?.chunk_debug?.[0]?.tables_count !== undefined && (
+                                    <div><span className="text-muted-foreground">표 개수:</span> <span className="font-semibold">{debugData._debug_chunking.chunk_debug[0].tables_count}</span></div>
+                                )}
+                                {debugData._debug_chunking?.chunk_debug?.[0]?.prompt_size && (
+                                    <div><span className="text-muted-foreground">프롬프트 크기:</span> <span className="font-semibold">{debugData._debug_chunking.chunk_debug[0].prompt_size} chars</span></div>
+                                )}
+                                {debugData._debug_chunking?.chunk_debug?.[0]?.response_size && (
+                                    <div><span className="text-muted-foreground">LLM 응답 크기:</span> <span className="font-semibold">{debugData._debug_chunking.chunk_debug[0].response_size} chars</span></div>
+                                )}
+                                {/* Token Usage Display */}
+                                {debugData.token_usage && (
+                                    <>
+                                        <div><span className="text-muted-foreground">입력 토큰:</span> <span className="font-semibold text-purple-600">{debugData.token_usage.prompt_tokens?.toLocaleString()}</span></div>
+                                        <div><span className="text-muted-foreground">출력 토큰:</span> <span className="font-semibold text-purple-600">{debugData.token_usage.completion_tokens?.toLocaleString()}</span></div>
+                                        <div><span className="text-muted-foreground">총 토큰:</span> <span className="font-semibold text-orange-600">{debugData.token_usage.total_tokens?.toLocaleString()}</span></div>
+                                    </>
+                                )}
                             </div>
+                            {debugData._debug_chunking?.chunk_debug?.[0]?.response_preview && (
+                                <details className="mt-2">
+                                    <summary className="text-xs cursor-pointer text-blue-600 hover:underline">LLM 응답 미리보기 보기</summary>
+                                    <pre className="mt-2 p-2 bg-slate-900 text-slate-50 rounded text-xs overflow-x-auto">
+                                        {debugData._debug_chunking.chunk_debug[0].response_preview}
+                                    </pre>
+                                </details>
+                            )}
                         </div>
                         <Button
                             variant="outline"
                             size="sm"
                             onClick={() => setShowDebugModal(true)}
+                            className="ml-4"
                         >
                             전체 보기
                         </Button>
@@ -107,16 +148,13 @@ export function DataReviewPanel({
                 <div className="px-6 border-b bg-muted/40">
                     <TabsList className="bg-transparent h-12 p-0 space-x-6">
                         <TabsTrigger value="fields" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">추출 필드</TabsTrigger>
-
-                        {/* BETA: Parsed Text Tab */}
-                        {currentGuideExtracted?._beta_parsed_content && (
+                        {/* Only show Parsed Text tab when Beta data exists AND Beta mode is enabled */}
+                        {isBetaMode && currentParsedContent && (
                             <TabsTrigger value="parsed_text" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">
                                 Parsed Text <span className="ml-1 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">BETA</span>
                             </TabsTrigger>
                         )}
-
                         <TabsTrigger value="raw" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">Raw JSON</TabsTrigger>
-                        <TabsTrigger value="ocr" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">OCR / Table</TabsTrigger>
                     </TabsList>
                 </div>
 
@@ -136,90 +174,28 @@ export function DataReviewPanel({
                             readOnly={false}
                         />
                     </TabsContent>
-
-                    {/* BETA: Parsed Text Content */}
                     <TabsContent value="parsed_text" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
                         <ScrollArea className="h-full">
                             <div className="p-6">
-                                <pre className="text-xs font-mono whitespace-pre-wrap bg-muted/30 p-4 rounded-md border text-foreground/80 leading-relaxed">
-                                    {currentGuideExtracted?._beta_parsed_content || "파싱된 데이터가 없습니다."}
-                                </pre>
+                                {currentParsedContent ? (
+                                    <pre className="text-xs font-mono whitespace-pre-wrap bg-muted/30 p-4 rounded-md border text-foreground/80 leading-relaxed">
+                                        {currentParsedContent}
+                                    </pre>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
+                                        <p>파싱된 텍스트가 없습니다.</p>
+                                        <p className="text-xs">Beta 기능을 활성화하거나 재추출해주세요.</p>
+                                    </div>
+                                )}
                             </div>
                         </ScrollArea>
                     </TabsContent>
-
                     <TabsContent value="raw" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
                         <ScrollArea className="h-full">
                             <pre className="p-6 text-xs font-mono whitespace-pre-wrap">
                                 {JSON.stringify(currentGuideExtracted, null, 2)}
                             </pre>
                         </ScrollArea>
-                    </TabsContent>
-
-                    <TabsContent value="ocr" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
-                        <div className="flex flex-col h-full">
-                            {/* Sub-tabs for Text/Tables */}
-                            <div className="px-6 py-2 border-b bg-muted/20 flex gap-4">
-                                <button
-                                    onClick={() => setRawViewTab('text')}
-                                    className={`px-3 py-1 rounded text-sm ${rawViewTab === 'text' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-                                >
-                                    텍스트
-                                </button>
-                                <button
-                                    onClick={() => setRawViewTab('tables')}
-                                    className={`px-3 py-1 rounded text-sm ${rawViewTab === 'tables' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-                                >
-                                    테이블 ({previewData?.raw_tables?.length || 0})
-                                </button>
-                            </div>
-                            <ScrollArea className="flex-1">
-                                {rawViewTab === 'text' ? (
-                                    <div className="p-6">
-                                        <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed">
-                                            {previewData?.raw_content || '텍스트 데이터가 없습니다'}
-                                        </pre>
-                                    </div>
-                                ) : (
-                                    <div className="p-6 space-y-6">
-                                        {previewData?.raw_tables && previewData.raw_tables.length > 0 ? (
-                                            previewData.raw_tables.map((table: any, tableIdx: number) => (
-                                                <div key={tableIdx} className="border rounded-lg overflow-hidden">
-                                                    <div className="bg-muted px-4 py-2 font-semibold text-sm">
-                                                        Table {tableIdx + 1} ({table.row_count || '?'} rows × {table.column_count || '?'} cols)
-                                                    </div>
-                                                    <div className="overflow-auto">
-                                                        <table className="w-full text-sm">
-                                                            <tbody>
-                                                                {(() => {
-                                                                    const rows: Record<number, any[]> = {}
-                                                                        ; (table.cells || []).forEach((cell: any) => {
-                                                                            const ri = cell.row_index || 0
-                                                                            if (!rows[ri]) rows[ri] = []
-                                                                            rows[ri].push(cell)
-                                                                        })
-                                                                    return Object.keys(rows).sort((a, b) => Number(a) - Number(b)).map(ri => (
-                                                                        <tr key={ri} className="border-b last:border-b-0">
-                                                                            {rows[Number(ri)].sort((a, b) => (a.column_index || 0) - (b.column_index || 0)).map((cell, ci) => (
-                                                                                <td key={ci} className="border-r last:border-r-0 px-3 py-2">
-                                                                                    {cell.content || ''}
-                                                                                </td>
-                                                                            ))}
-                                                                        </tr>
-                                                                    ))
-                                                                })()}
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="text-center text-muted-foreground py-10">테이블 데이터가 없습니다</div>
-                                        )}
-                                    </div>
-                                )}
-                            </ScrollArea>
-                        </div>
                     </TabsContent>
                 </div>
             </Tabs>

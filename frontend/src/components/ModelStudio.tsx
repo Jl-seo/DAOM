@@ -8,14 +8,11 @@ import { toast } from 'sonner'
 import { DEFAULTS, MESSAGES } from '../constants'
 import { useModels } from '../hooks/useModels'
 import type { Model, Field } from '../types/model'
-import type { TemplateConfig } from '../types/template'
-import { defaultTemplateConfig } from '../types/template'
 import { Card } from '@/components/ui/icon-card'
 import { Button } from '@/components/ui/button'
 import { DataStructureSelector } from './studio/DataStructureSelector'
 import { FieldEditorTable } from './studio/FieldEditorTable'
-import { TemplateChat } from './template/TemplateChat'
-import { TemplatePreview } from './template/TemplatePreview'
+import { TransformationRulesEditor } from './studio/TransformationRulesEditor'
 import { SampleAnalysisPanel } from './studio/SampleAnalysisPanel'
 import { ComparisonSettingsPanel } from './studio/ComparisonSettingsPanel'
 import { ExcelColumnEditor } from './studio/ExcelColumnEditor'
@@ -68,8 +65,7 @@ export function ModelStudio() {
     const [editingModel, setEditingModel] = useState<Partial<Model> | null>(null)
     const [originalModel, setOriginalModel] = useState<Partial<Model> | null>(null)
     const [isEditing, setIsEditing] = useState(false)
-    const [activeStudioTab, setActiveStudioTab] = useState<'extraction' | 'template'>('extraction')
-    const [templateConfig, setTemplateConfig] = useState<Partial<TemplateConfig>>(defaultTemplateConfig)
+    const [activeStudioTab, setActiveStudioTab] = useState<'extraction' | 'transformation'>('extraction')
 
     const handleNewModel = () => {
         setEditingModel(DEFAULTS.NEW_MODEL)
@@ -87,7 +83,7 @@ export function ModelStudio() {
         if (!editingModel) return
         const result = await saveModel(editingModel)
         if (result.success && result.data) {
-            toast.success(result.message)
+            toast.success(result.message, { duration: 1500 })
             setIsEditing(false)
             setOriginalModel(result.data)
             setEditingModel(result.data)
@@ -177,15 +173,15 @@ export function ModelStudio() {
                             📋 추출 설정
                         </button>
                         <button
-                            onClick={() => setActiveStudioTab('template')}
+                            onClick={() => setActiveStudioTab('transformation')}
                             className={clsx(
                                 "flex-1 px-4 py-2 rounded-md text-xs font-bold transition-all",
-                                activeStudioTab === 'template'
+                                activeStudioTab === 'transformation'
                                     ? "bg-card text-foreground shadow-sm"
                                     : "text-muted-foreground hover:text-foreground"
                             )}
                         >
-                            🎨 템플릿
+                            🔄 변환 규칙 (Transformation)
                         </button>
                     </div>
 
@@ -413,6 +409,83 @@ export function ModelStudio() {
                                         </p>
                                     </div>
 
+                                    {/* Beta Features */}
+                                    <div className="mt-4 pt-4 border-t border-border">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs font-medium text-foreground">🚀 [Beta] 최적화 프롬프트 사용</span>
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-500/10 text-indigo-500 font-bold border border-indigo-500/20">BETA</span>
+                                                </div>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[300px]">
+                                                    OCR 위치 좌표를 제외하고 인덱스 태그로 참조하여 토큰 비용을 절감하고 복잡한 문서 인식률을 향상시킵니다.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                disabled={!isEditing}
+                                                onClick={() => setEditingModel({
+                                                    ...editingModel,
+                                                    beta_features: {
+                                                        ...editingModel.beta_features,
+                                                        use_optimized_prompt: !editingModel.beta_features?.use_optimized_prompt
+                                                    }
+                                                })}
+                                                className={clsx(
+                                                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                                                    editingModel.beta_features?.use_optimized_prompt
+                                                        ? "bg-indigo-500"
+                                                        : "bg-muted-foreground/30",
+                                                    !isEditing && "opacity-50 cursor-not-allowed"
+                                                )}
+                                            >
+                                                <span
+                                                    className={clsx(
+                                                        "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
+                                                        editingModel.beta_features?.use_optimized_prompt ? "translate-x-6" : "translate-x-1"
+                                                    )}
+                                                />
+                                            </button>
+                                        </div>
+
+                                        {/* Virtual Excel OCR Toggle */}
+                                        <div className="flex items-center justify-between mt-3">
+                                            <div>
+                                                <label className="block text-xs font-medium text-foreground">
+                                                    📊 가상 Excel OCR
+                                                </label>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[300px]">
+                                                    Excel/CSV 파일을 Azure OCR 없이 직접 파싱하여 비용을 절감합니다.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                disabled={!isEditing}
+                                                onClick={() => setEditingModel({
+                                                    ...editingModel,
+                                                    beta_features: {
+                                                        ...editingModel.beta_features,
+                                                        use_virtual_excel_ocr: !editingModel.beta_features?.use_virtual_excel_ocr
+                                                    }
+                                                })}
+                                                className={clsx(
+                                                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                                                    editingModel.beta_features?.use_virtual_excel_ocr
+                                                        ? "bg-emerald-500"
+                                                        : "bg-muted-foreground/30",
+                                                    !isEditing && "opacity-50 cursor-not-allowed"
+                                                )}
+                                            >
+                                                <span
+                                                    className={clsx(
+                                                        "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
+                                                        editingModel.beta_features?.use_virtual_excel_ocr ? "translate-x-6" : "translate-x-1"
+                                                    )}
+                                                />
+                                            </button>
+                                        </div>
+                                    </div>
+
                                     {/* 모델 활성화/비활성화 토글 */}
                                     <div className="mt-4 pt-4 border-t border-border">
                                         <div className="flex items-center justify-between">
@@ -453,26 +526,14 @@ export function ModelStudio() {
                         )
                     }
 
-                    {/* Template Tab Content */}
+                    {/* Transformation Rules Tab Content */}
                     {
-                        activeStudioTab === 'template' && (
-                            <div className="flex-1 flex gap-4 overflow-hidden">
-                                {/* Left: Chat */}
-                                <div className="w-[360px] shrink-0 h-full">
-                                    <TemplateChat
-                                        onConfigUpdate={(config) => setTemplateConfig(prev => ({ ...prev, ...config }))}
-                                        modelFields={(editingModel.fields || []).map(f => ({
-                                            key: f.key,
-                                            label: f.label || f.key,
-                                            type: f.type
-                                        }))}
-                                        currentConfig={templateConfig}
-                                    />
-                                </div>
-                                {/* Right: Preview */}
-                                <div className="flex-1">
-                                    <TemplatePreview config={templateConfig} />
-                                </div>
+                        activeStudioTab === 'transformation' && editingModel?.id && (
+                            <div className="flex-1 h-full overflow-hidden">
+                                <TransformationRulesEditor
+                                    model={editingModel as Model}
+                                    onUpdate={(updated) => setEditingModel(updated)}
+                                />
                             </div>
                         )
                     }

@@ -11,7 +11,8 @@ import '@react-pdf-viewer/highlight/lib/styles/index.css'
 import '@react-pdf-viewer/search/lib/styles/index.css'
 import '@react-pdf-viewer/zoom/lib/styles/index.css'
 
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, FileText, File } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // ... Highlight Interface ...
 interface Highlight {
@@ -35,15 +36,19 @@ interface PDFViewerProps {
     highlights?: Highlight[]
     activeFieldKey?: string | null
     onHighlightClick?: (fieldKey: string) => void
+    ocrText?: string
+    rawTables?: any[]  // Tables from Document Intelligence
+    isBetaMode?: boolean
 }
 
 export interface PDFViewerHandle {
     scrollToHighlight: (fieldKey: string) => void
 }
 
-export const PDFViewer = forwardRef<PDFViewerHandle, PDFViewerProps>(({ fileUrl, highlights = [], activeFieldKey, onHighlightClick }, ref) => {
+export const PDFViewer = forwardRef<PDFViewerHandle, PDFViewerProps>(({ fileUrl, highlights = [], activeFieldKey, onHighlightClick, ocrText, rawTables = [], isBetaMode = false }, ref) => {
     const [currentPage, setCurrentPage] = useState(0)
     const [totalPages, setTotalPages] = useState(0)
+    const [activeTab, setActiveTab] = useState<'pdf' | 'ocr' | 'tables'>('pdf')
 
     // Plugins
     const pageNavigationPluginInstance = pageNavigationPlugin()
@@ -198,70 +203,183 @@ export const PDFViewer = forwardRef<PDFViewerHandle, PDFViewerProps>(({ fileUrl,
     }
 
     return (
-        <div className="w-full h-full flex flex-col bg-muted rounded-lg overflow-hidden min-h-0">
-            {/* Toolbar */}
-            <div className="flex items-center justify-between px-4 py-2 bg-muted/80 border-b border-border shrink-0">
-                {/* Page Nav */}
-                <div className="flex items-center gap-2">
-                    <button onClick={handlePrevPage} disabled={currentPage <= 0} className="p-1 rounded hover:bg-accent disabled:opacity-30">
-                        <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <span className="text-xs font-medium w-16 text-center">
-                        {totalPages > 0 ? `${currentPage + 1} / ${totalPages}` : '-'}
-                    </span>
-                    <button onClick={handleNextPage} disabled={currentPage >= totalPages - 1} className="p-1 rounded hover:bg-accent disabled:opacity-30">
-                        <ChevronRight className="w-4 h-4" />
-                    </button>
+        <div className="w-full h-full flex flex-col bg-muted rounded-lg overflow-hidden min-h-0 border border-border">
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'pdf' | 'ocr')} className="flex flex-col h-full">
+                {/* Header with Tabs and Toolbar */}
+                <div className="flex items-center justify-between px-2 bg-muted/80 border-b border-border shrink-0">
+                    <TabsList className="bg-transparent p-0 h-9">
+                        <TabsTrigger
+                            value="pdf"
+                            className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-t-lg rounded-b-none border-b-2 border-transparent data-[state=active]:border-primary px-4 py-2 h-full gap-2 text-xs"
+                        >
+                            <File className="w-3.5 h-3.5" /> PDF 원본
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="ocr"
+                            className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-t-lg rounded-b-none border-b-2 border-transparent data-[state=active]:border-primary px-4 py-2 h-full gap-2 text-xs"
+                        >
+                            <FileText className="w-3.5 h-3.5" /> OCR 텍스트
+                        </TabsTrigger>
+                        {isBetaMode && rawTables && rawTables.length > 0 && (
+                            <TabsTrigger
+                                value="tables"
+                                className="data-[state=active]:bg-background data-[state=active]:shadow-sm rounded-t-lg rounded-b-none border-b-2 border-transparent data-[state=active]:border-primary px-4 py-2 h-full gap-2 text-xs"
+                            >
+                                <FileText className="w-3.5 h-3.5" /> 표 ({rawTables.length})
+                            </TabsTrigger>
+                        )}
+                    </TabsList>
+
+                    {/* PDF Toolbar (Only visible in PDF tab) */}
+                    {activeTab === 'pdf' && (
+                        <div className="flex items-center">
+                            {/* Page Nav */}
+                            <div className="flex items-center gap-1 bg-background/50 rounded-md px-1 py-0.5 border">
+                                <button onClick={handlePrevPage} disabled={currentPage <= 0} className="p-1 rounded hover:bg-accent disabled:opacity-30">
+                                    <ChevronLeft className="w-3 h-3" />
+                                </button>
+                                <span className="text-[10px] font-medium w-12 text-center tabular-nums">
+                                    {totalPages > 0 ? `${currentPage + 1} / ${totalPages}` : '-'}
+                                </span>
+                                <button onClick={handleNextPage} disabled={currentPage >= totalPages - 1} className="p-1 rounded hover:bg-accent disabled:opacity-30">
+                                    <ChevronRight className="w-3 h-3" />
+                                </button>
+                            </div>
+
+                            {/* Zoom Controls */}
+                            <div className="flex items-center gap-0.5 ml-2">
+                                <ZoomOutCtrl>
+                                    {(props: RenderZoomOutProps) => (
+                                        <button onClick={props.onClick} className="p-1.5 rounded hover:bg-accent text-foreground" title="축소">
+                                            <ZoomOut className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </ZoomOutCtrl>
+                                <ZoomInCtrl>
+                                    {(props: RenderZoomInProps) => (
+                                        <button onClick={props.onClick} className="p-1.5 rounded hover:bg-accent text-foreground" title="확대">
+                                            <ZoomIn className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </ZoomInCtrl>
+                                <button
+                                    onClick={() => zoomPluginInstance.zoomTo(SpecialZoomLevel.PageWidth)}
+                                    className="p-1.5 rounded hover:bg-accent text-foreground"
+                                    title="전체보기"
+                                >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                {/* Zoom Controls */}
-                <div className="flex items-center gap-1 border-l pl-4 ml-4">
-                    <ZoomOutCtrl>
-                        {(props: RenderZoomOutProps) => (
-                            <button onClick={props.onClick} className="p-1.5 rounded hover:bg-accent text-foreground" title="축소">
-                                <ZoomOut className="w-4 h-4" />
-                            </button>
+                {/* Content Area */}
+                <div className="flex-1 overflow-hidden relative bg-muted/30">
+                    <TabsContent value="pdf" className="h-full mt-0 w-full absolute inset-0">
+                        <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
+                            <div className="h-full w-full custom-pdf-viewer">
+                                <Viewer
+                                    fileUrl={fileUrl}
+                                    plugins={[highlightPluginInstance, pageNavigationPluginInstance, zoomPluginInstance, searchPluginInstance]}
+                                    onDocumentLoad={(e) => setTotalPages(e.doc.numPages)}
+                                    onPageChange={(e) => setCurrentPage(e.currentPage)}
+                                    defaultScale={SpecialZoomLevel.PageWidth}
+                                />
+                            </div>
+                        </Worker>
+                    </TabsContent>
+
+                    <TabsContent value="ocr" className="h-full mt-0 w-full absolute inset-0 overflow-auto bg-background p-6">
+                        {ocrText ? (
+                            <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/80 max-w-4xl mx-auto">
+                                {ocrText}
+                            </pre>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8 text-center">
+                                <FileText className="w-12 h-12 mb-4 opacity-20" />
+                                <p>OCR 텍스트가 없습니다.</p>
+                                <p className="text-xs mt-2 opacity-60">문서가 아직 분석되지 않았거나 텍스트를 추출할 수 없습니다.</p>
+                            </div>
                         )}
-                    </ZoomOutCtrl>
+                    </TabsContent>
 
-                    <div className="mx-2 text-xs font-medium w-12 text-center text-muted-foreground">
-                        Zoom
-                    </div>
+                    {/* Tables from Document Intelligence (Beta Only) */}
+                    {isBetaMode && (
+                        <TabsContent value="tables" className="h-full mt-0 w-full absolute inset-0 overflow-auto bg-background p-6">
+                            {rawTables && rawTables.length > 0 ? (
+                                <div className="space-y-8 max-w-6xl mx-auto">
+                                    {rawTables.map((table: any, tableIndex: number) => (
+                                        <div key={tableIndex} className="border rounded-lg overflow-hidden">
+                                            <div className="bg-muted/50 px-4 py-2 text-sm font-medium border-b">
+                                                표 {tableIndex + 1} {table.rowCount && table.columnCount && (
+                                                    <span className="text-muted-foreground ml-2">({table.rowCount}행 × {table.columnCount}열)</span>
+                                                )}
+                                            </div>
+                                            <div className="overflow-x-auto">
+                                                <table className="w-full text-sm">
+                                                    <tbody>
+                                                        {table.cells && (() => {
+                                                            // 1. Initialize Grid
+                                                            const rowCount = table.rowCount || 0
+                                                            const colCount = table.columnCount || 0
+                                                            const grid: any[][] = Array(rowCount).fill(null).map(() => Array(colCount).fill(null))
 
-                    <ZoomInCtrl>
-                        {(props: RenderZoomInProps) => (
-                            <button onClick={props.onClick} className="p-1.5 rounded hover:bg-accent text-foreground" title="확대">
-                                <ZoomIn className="w-4 h-4" />
-                            </button>
-                        )}
-                    </ZoomInCtrl>
+                                                            // 2. Populate Grid with Cells
+                                                            table.cells.forEach((cell: any) => {
+                                                                const r = cell.rowIndex
+                                                                const c = cell.columnIndex
+                                                                if (r < rowCount && c < colCount) {
+                                                                    grid[r][c] = cell
+                                                                    // Mark spanned cells as 'spanned'
+                                                                    for (let i = 0; i < (cell.rowSpan || 1); i++) {
+                                                                        for (let j = 0; j < (cell.columnSpan || 1); j++) {
+                                                                            if (i === 0 && j === 0) continue // Skip the cell itself
+                                                                            if (r + i < rowCount && c + j < colCount) {
+                                                                                grid[r + i][c + j] = { spanned: true }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            })
 
-                    <div className="border-l mx-2 h-4" />
+                                                            // 3. Render Grid
+                                                            return grid.map((row, rowIdx) => (
+                                                                <tr key={rowIdx} className={rowIdx === 0 ? 'bg-muted/30 font-medium' : 'border-t'}>
+                                                                    {row.map((cell, colIdx) => {
+                                                                        if (!cell) return <td key={colIdx} className="border-r last:border-r-0 p-2"></td> // Empty slot
+                                                                        if (cell.spanned) return null // Skip spanned slots
 
-                    <button
-                        onClick={() => zoomPluginInstance.zoomTo(SpecialZoomLevel.PageWidth)}
-                        className="p-1.5 rounded hover:bg-accent text-foreground"
-                        title="초기화"
-                    >
-                        <RotateCcw className="w-4 h-4" />
-                    </button>
+                                                                        return (
+                                                                            <td
+                                                                                key={colIdx}
+                                                                                className="px-3 py-2 border-r last:border-r-0 align-top"
+                                                                                colSpan={cell.columnSpan || 1}
+                                                                                rowSpan={cell.rowSpan || 1}
+                                                                            >
+                                                                                {cell.content || ''}
+                                                                            </td>
+                                                                        )
+                                                                    })}
+                                                                </tr>
+                                                            ))
+                                                        })()}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8 text-center">
+                                    <FileText className="w-12 h-12 mb-4 opacity-20" />
+                                    <p>추출된 표가 없습니다.</p>
+                                </div>
+                            )}
+                        </TabsContent>
+                    )}
                 </div>
-            </div>
-
-            {/* PDF Viewer */}
-            <div className="flex-1 overflow-auto bg-muted/30 relative">
-                <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
-                    <div style={{ height: '100%', width: '100%' }}>
-                        <Viewer
-                            fileUrl={fileUrl}
-                            plugins={[highlightPluginInstance, pageNavigationPluginInstance, zoomPluginInstance, searchPluginInstance]}
-                            onDocumentLoad={(e) => setTotalPages(e.doc.numPages)}
-                            onPageChange={(e) => setCurrentPage(e.currentPage)}
-                            defaultScale={SpecialZoomLevel.PageWidth}
-                        />
-                    </div>
-                </Worker>
-            </div>
+            </Tabs>
         </div>
     )
 })

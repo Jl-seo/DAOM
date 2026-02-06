@@ -19,7 +19,9 @@ class ExtractionJob(BaseModel):
     user_name: Optional[str] = None
     user_email: Optional[str] = None
     filename: str
-    file_url: str
+    file_url: Optional[str] = None # Made optional for multi-file legacy compat if needed, but usually primary is set
+    file_urls: Optional[List[str]] = None # New field for multi-file inputs
+    filenames: Optional[List[str]] = None # New field for multi-file filenames
     candidate_file_url: Optional[str] = None  # Comparison target file URL (Legacy, single)
     candidate_file_urls: Optional[List[str]] = None  # Comparison target file URLs (Multi)
     status: str  # pending, analyzing, preview_ready, confirmed, error
@@ -38,7 +40,9 @@ def create_job(
     model_id: str,
     user_id: str,
     filename: str,
-    file_url: str,
+    file_url: Optional[str] = None,
+    file_urls: Optional[List[str]] = None, # New arg
+    filenames: Optional[List[str]] = None, # New arg
     candidate_file_url: Optional[str] = None,
     candidate_file_urls: Optional[List[str]] = None,
     user_name: Optional[str] = None,
@@ -50,6 +54,11 @@ def create_job(
     job_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     
+    # Validation: Ensure at least one file source
+    if not file_url and not file_urls:
+         # Fallback or strict error? For now allow if one is missing but warn.
+         pass
+
     job = ExtractionJob(
         id=job_id,
         model_id=model_id,
@@ -58,6 +67,8 @@ def create_job(
         user_email=user_email,
         filename=filename,
         file_url=file_url,
+        file_urls=file_urls,
+        filenames=filenames,
         candidate_file_url=candidate_file_url,
         candidate_file_urls=candidate_file_urls,
         status=ExtractionStatus.PENDING.value,
@@ -150,6 +161,12 @@ def update_job(
         # Log audit if status changed
         if status and status != job_data.get("status"):
             previous_status = job_data.get("status")
+            
+            # Extract token_usage from debug_data for audit
+            token_usage = None
+            if debug_data and isinstance(debug_data, dict):
+                token_usage = debug_data.get("token_usage")
+            
             audit.log_extraction_action(
                 job, 
                 "UPDATE_STATUS", 
@@ -160,7 +177,8 @@ def update_job(
                         "new": status
                     }
                 },
-                details={"error": error} if error else None
+                details={"error": error} if error else None,
+                token_usage=token_usage  # Pass token usage to audit
             )
             
         # Auto-sync status to ExtractionLog to ensure history consistency
@@ -246,8 +264,8 @@ def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 50) -> 
     return []
 
 
-def get_jobs_by_user(user_id: str, limit: int = 50) -> List[ExtractionJob]:
-    """Get all jobs for a user"""
+def get_jobs_by_user(user_id: str, limit: int = 50, tenant_id: Optional[str] = None) -> List[ExtractionJob]:
+    """Get all jobs for a user, enforcing tenant isolation"""
     container = get_extractions_container()
     if not container:
         return []
@@ -257,15 +275,21 @@ def get_jobs_by_user(user_id: str, limit: int = 50) -> List[ExtractionJob]:
             SELECT * FROM c 
             WHERE c.user_id = @user_id 
             AND c.type = 'extraction_job'
-            ORDER BY c.created_at DESC
-            OFFSET 0 LIMIT @limit
         """
+        parameters = [
+            {"name": "@user_id", "value": user_id},
+            {"name": "@limit", "value": limit}
+        ]
+
+        if tenant_id:
+            query += " AND c.tenant_id = @tenant_id"
+            parameters.append({"name": "@tenant_id", "value": tenant_id})
+
+        query += " ORDER BY c.created_at DESC OFFSET 0 LIMIT @limit"
+
         items = list(container.query_items(
             query=query,
-            parameters=[
-                {"name": "@user_id", "value": user_id},
-                {"name": "@limit", "value": limit}
-            ],
+            parameters=parameters,
             enable_cross_partition_query=True
         ))
         return [ExtractionJob(**item) for item in items]

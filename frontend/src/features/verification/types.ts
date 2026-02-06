@@ -18,6 +18,9 @@ export interface SubDocument {
     data?: {
         guide_extracted: Record<string, any>
         other_data: any[]
+        raw_content?: string
+        _beta_parsed_content?: string
+        _beta_ref_map?: Record<string, any>
     }
 }
 
@@ -31,6 +34,8 @@ export interface PreviewData {
     debug_data?: any // Raw debug information from backend
     sub_documents?: SubDocument[]
     raw_content?: string // Raw text from Document Intelligence
+    _beta_parsed_content?: string // Parsed text from LayoutParser
+    _beta_ref_map?: Record<string, any> // BBox restoration map
     raw_tables?: any[] // Raw table data from Document Intelligence
     comparison_result?: {
         differences: Array<{
@@ -95,6 +100,11 @@ export interface ExtractionModel {
     model_type?: 'extraction' | 'comparison'
     comparison_settings?: ComparisonSettings
     excel_columns?: ExcelExportColumn[]
+    beta_features?: {
+        use_optimized_prompt?: boolean
+        use_virtual_excel_ocr?: boolean
+        [key: string]: any
+    }
 }
 
 /**
@@ -104,6 +114,7 @@ export interface Highlight {
     fieldKey: string
     content: string
     pageIndex: number
+    fileId?: string // Linked file ID for multi-file context
     position: {
         boundingRect: {
             x1: number
