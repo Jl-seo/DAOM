@@ -215,64 +215,112 @@ async def analyze_document_content(
                 tables_context += f"... ({row_count - 20} more rows) ...\n"
 
     user_prompt = f"Document Text:\n{content_text}\n{tables_context}"
+    
+    # Token overflow protection: estimate and truncate if needed
+    # GPT-4o context: ~128K tokens. Leave room for system prompt + response.
+    # Rough estimate: 1 token ≈ 4 chars for mixed content
+    MAX_USER_PROMPT_CHARS = 400000  # ~100K tokens, leave 28K for system + response
+    original_prompt_len = len(user_prompt)
+    if original_prompt_len > MAX_USER_PROMPT_CHARS:
+        logger.warning(f"[LLM-Beta] User prompt too large ({original_prompt_len} chars), truncating to {MAX_USER_PROMPT_CHARS}")
+        # Truncate content_text first, preserve tables_context (more structured)
+        max_content_len = MAX_USER_PROMPT_CHARS - len(tables_context) - 50  # 50 for prefix
+        if max_content_len > 1000:
+            truncated_content = content_text[:max_content_len] + "\n\n[... CONTENT TRUNCATED DUE TO SIZE ...]"
+            user_prompt = f"Document Text:\n{truncated_content}\n{tables_context}"
+        else:
+            user_prompt = user_prompt[:MAX_USER_PROMPT_CHARS]
+        logger.info(f"[LLM-Beta] Truncated prompt: {original_prompt_len} → {len(user_prompt)} chars")
 
-    try:
-        logger.info(f"[LLM] Calling: {_current_model}")
-        
-        response = await client.chat.completions.create(
-            model=_current_model,
-            messages=[
-                {"role": "system", "content": system_prompt + "\n\nIMPORTANT: Respond with valid JSON only."},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={"type": "json_object"}
-        )
-        
-        result_content = response.choices[0].message.content
-        logger.info(f"[LLM] Response received. Length: {len(result_content)}")
-        llm_json = json.loads(result_content)
-        
-        if model_info:
-            logger.info("[LLM] Post-processing with RefinerEngine")
-            processed_result = RefinerEngine.post_process_result(llm_json, ocr_result)
+    max_retries = 2  # 1 initial + 1 retry with more aggressive truncation
+    last_error = None
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"[LLM] Calling: {_current_model} (attempt {attempt+1}, prompt: {len(user_prompt)} chars)")
             
-            # Track token usage for cost monitoring
-            if response.usage:
-                processed_result["_token_usage"] = {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens
-                }
-                logger.info(f"[LLM] Token usage: {processed_result['_token_usage']}")
+            response = await client.chat.completions.create(
+                model=_current_model,
+                messages=[
+                    {"role": "system", "content": system_prompt + "\n\nIMPORTANT: Respond with valid JSON only."},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={"type": "json_object"}
+            )
             
-            # CRITICAL FIX: Always attach beta content when Beta mode is enabled
-            # This ensures the UI shows content even if LayoutParser fails
-            if use_optimized_prompt:
-                processed_result["_beta_parsed_content"] = content_text
-                logger.info(f"[LLM-Beta] Attached parsed content for UI (length: {len(content_text)})")
+            result_content = response.choices[0].message.content
+            logger.info(f"[LLM] Response received. Length: {len(result_content)}")
+            llm_json = json.loads(result_content)
+            
+            if model_info:
+                logger.info("[LLM] Post-processing with RefinerEngine")
+                processed_result = RefinerEngine.post_process_result(llm_json, ocr_result)
                 
-                if ref_map:
-                    processed_result["_beta_ref_map"] = ref_map
-                    logger.info(f"[LLM-Beta] Attached ref_map with {len(ref_map)} entries")
+                # Track token usage for cost monitoring
+                if response.usage:
+                    processed_result["_token_usage"] = {
+                        "prompt_tokens": response.usage.prompt_tokens,
+                        "completion_tokens": response.usage.completion_tokens,
+                        "total_tokens": response.usage.total_tokens
+                    }
+                    logger.info(f"[LLM] Token usage: {processed_result['_token_usage']}")
+                
+                # CRITICAL FIX: Always attach beta content when Beta mode is enabled
+                # This ensures the UI shows content even if LayoutParser fails
+                if use_optimized_prompt:
+                    processed_result["_beta_parsed_content"] = content_text
+                    logger.info(f"[LLM-Beta] Attached parsed content for UI (length: {len(content_text)})")
+                    
+                    if ref_map:
+                        processed_result["_beta_ref_map"] = ref_map
+                        logger.info(f"[LLM-Beta] Attached ref_map with {len(ref_map)} entries")
+                
+                return processed_result
             
-            return processed_result
+            # For non-model extraction: also attach beta content if enabled
+            if use_optimized_prompt:
+                llm_json["_beta_parsed_content"] = content_text
+                if ref_map:
+                    llm_json["_beta_ref_map"] = ref_map
+            return llm_json
         
-        # For non-model extraction: also attach beta content if enabled
-        if use_optimized_prompt:
-            llm_json["_beta_parsed_content"] = content_text
-            if ref_map:
-                llm_json["_beta_ref_map"] = ref_map
-        return llm_json
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            error_msg = str(e).lower()
+            last_error = str(e)
+            logger.error(f"[LLM] Error (attempt {attempt+1}): {last_error}")
+            
+            # Check if token limit exceeded — retry with truncated content
+            is_token_error = "token" in error_msg or "context_length" in error_msg or "too long" in error_msg
+            if is_token_error and attempt < max_retries - 1:
+                # Aggressively truncate to half
+                current_len = len(user_prompt)
+                truncated_len = current_len // 2
+                user_prompt = user_prompt[:truncated_len] + "\n\n[... CONTENT TRUNCATED DUE TO TOKEN LIMIT ...]"
+                logger.warning(f"[LLM-Beta] Token overflow, retrying with truncated prompt: {current_len} → {len(user_prompt)} chars")
+                continue
+            
+            # Non-retryable error or final attempt — return error WITH beta data
+            error_result = {"error": last_error}
+            # CRITICAL: Attach beta data even on error so UI can still show parsed content
+            if use_optimized_prompt:
+                error_result["_beta_parsed_content"] = content_text
+                if ref_map:
+                    error_result["_beta_ref_map"] = ref_map
+                logger.info(f"[LLM-Beta] Attached beta data to error result for UI visibility")
+            return error_result
     
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        error_msg = str(e)
-        logger.info(f"[LLM] Error: {error_msg}")
-        return {"error": error_msg}
+    # Should not reach here, but safety net
+    error_result = {"error": last_error or "Unknown LLM error after retries"}
+    if use_optimized_prompt:
+        error_result["_beta_parsed_content"] = content_text
+        if ref_map:
+            error_result["_beta_ref_map"] = ref_map
+    return error_result
     
-    finally:
-        await client.close()
+    # Note: client.close() removed — AsyncAzureOpenAI manages its own connection pool.
+    # Calling close() after every request was causing connection issues on retry.
 
 async def generate_schema_from_content(content_text: str, tables: List[dict] = None) -> List[dict]:
     """

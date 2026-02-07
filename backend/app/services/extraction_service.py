@@ -293,9 +293,18 @@ class ExtractionService:
                     llm_debug_info["_chunked"] = first_doc_data["_chunked"]
                 if "_chunking_errors" in first_doc_data:
                     llm_debug_info["_chunking_errors"] = first_doc_data["_chunking_errors"]
-                # Extract token usage
+                # Extract token usage (from both beta and legacy paths)
                 if "_token_usage" in first_doc_data:
                     llm_debug_info["token_usage"] = first_doc_data["_token_usage"]
+                # Beta-specific debug info
+                if "_beta_parsed_content" in first_doc_data:
+                    llm_debug_info["beta_mode"] = True
+                    llm_debug_info["beta_parsed_content_length"] = len(first_doc_data["_beta_parsed_content"])
+                if "_beta_ref_map" in first_doc_data:
+                    llm_debug_info["beta_ref_map_count"] = len(first_doc_data["_beta_ref_map"])
+                # Capture LLM error if present
+                if "error" in first_doc_data:
+                    llm_debug_info["llm_error"] = first_doc_data["error"]
             
             # Merge OCR debug and LLM debug
             if debug_info_final:
@@ -703,9 +712,12 @@ IMPORTANT:
             logger.info(f"[LLM-Beta-Diag] Model field keys: {[f.key for f in model.fields]}")
             
             # GUARD: If LLM returned an error, propagate it with empty guide_extracted
-            if "error" in llm_result and len(llm_result) <= 2:  # {"error": "..."} or {"error": "...", "raw_content": "..."}
+            if "error" in llm_result and len([k for k in llm_result if not k.startswith("_") and k != "error"]) == 0:
                 logger.error(f"[LLM-Beta] LLM returned error: {llm_result['error']}")
                 llm_result["guide_extracted"] = {}
+                # Preserve beta data even on error (for UI visibility)
+                if "_beta_parsed_content" not in llm_result:
+                    llm_result["_beta_parsed_content"] = ocr_data_to_send.get("content", "")
                 return llm_result
             
             # CRITICAL FIX: RefinerEngine.post_process_result returns a flat dict 
@@ -1090,6 +1102,14 @@ IMPORTANT:
         # Preserve Raw Tables (for Tables Tab)
         if "raw_tables" in raw_data:
             result["raw_tables"] = raw_data["raw_tables"]
+        
+        # Preserve Token Usage (for debug panel)
+        if "_token_usage" in raw_data:
+            result["_token_usage"] = raw_data["_token_usage"]
+        
+        # Preserve LLM error info (for diagnostics)
+        if "error" in raw_data:
+            result["error"] = raw_data["error"]
         
         return result
     
