@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
- 
+
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useRef, type ReactNode, useCallback, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -312,9 +312,7 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
         formData.append('model_id', modelId)
 
         try {
-            const res = await apiClient.post('/extraction/start-job', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            })
+            const res = await apiClient.post('/extraction/start-job', formData)
 
             const { job_id, file_url, candidate_file_urls, log_id } = res.data
             setCurrentJobId(job_id)
