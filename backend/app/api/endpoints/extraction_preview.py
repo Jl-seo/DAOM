@@ -268,25 +268,48 @@ def get_latest_job_for_log(
 
 
 @router.get("/job/{job_id}")
-def get_job_status(
+async def get_job_status(
     job_id: str,
     current_user: CurrentUser = Depends(get_current_user)
 ):
-    """Get job status for polling"""
+    """Get job status for polling — hydrates large data from Blob Storage"""
     job = extraction_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
+    # Hydrate preview_data from Blob if offloaded
+    preview_data = job.preview_data
+    if preview_data and isinstance(preview_data, dict) and preview_data.get("_preview_blob_path"):
+        try:
+            from app.services.storage import load_json_from_blob
+            full_preview = await load_json_from_blob(preview_data["_preview_blob_path"])
+            if full_preview:
+                preview_data = full_preview
+        except Exception as e:
+            logger.warning(f"[API] Failed to hydrate preview from blob: {e}")
+    
+    # Hydrate debug_data from Blob if offloaded
+    debug_data = job.debug_data
+    if debug_data and isinstance(debug_data, dict) and debug_data.get("_debug_blob_path"):
+        try:
+            from app.services.storage import load_json_from_blob
+            full_debug = await load_json_from_blob(debug_data["_debug_blob_path"])
+            if full_debug:
+                debug_data = full_debug
+        except Exception as e:
+            logger.warning(f"[API] Failed to hydrate debug from blob: {e}")
+    
     return {
         "job_id": job.id,
         "status": job.status,
-        "preview_data": job.preview_data,
+        "preview_data": preview_data,
         "extracted_data": job.extracted_data,
+        "debug_data": debug_data,
         "error": job.error,
         "filename": job.filename,
         "file_url": job.file_url,
-        "candidate_file_urls": job.candidate_file_urls,  # NEW: For comparison models
-        "log_id": job.original_log_id or job.log_id,  # For retry functionality
+        "candidate_file_urls": job.candidate_file_urls,
+        "log_id": job.original_log_id or job.log_id,
         "created_at": job.created_at,
         "updated_at": job.updated_at
     }
