@@ -430,8 +430,7 @@ class ExtractionService:
             cosmos_preview = {
                 "sub_documents": cosmos_sub_docs,
                 "raw_content": doc_intel_output.get("content", "")[:settings.PREVIEW_TEXT_CHARS],  # Truncated preview
-                # Fallback: Store raw_tables in Cosmos too, so frontend works even if blob hydration fails
-                "raw_tables": doc_intel_output.get("tables", []),
+                "raw_tables": [],  # Full data in blob only
                 "_preview_blob_path": preview_blob_path,
             }
 
