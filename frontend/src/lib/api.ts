@@ -118,9 +118,9 @@ export const extractionApi = {
 
     uploadFile: (modelId: string, file: File) => {
         const formData = new FormData()
-        formData.append('files', file)
+        formData.append('file', file)
         formData.append('model_id', modelId)
-        // Use the same endpoint as regular extraction
+        // extraction_preview.py start-job expects 'file' (singular UploadFile)
         return apiClient.post<{ job_id: string; file_url: string; log_id?: string }>(`/extraction/start-job`, formData)
     },
 

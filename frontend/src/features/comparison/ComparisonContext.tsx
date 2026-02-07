@@ -205,9 +205,7 @@ export function ComparisonProvider({ children, modelId }: ComparisonProviderProp
         if (modelId) formData.append('model_id', modelId)
 
         try {
-            const res = await apiClient.post('/extraction/process', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            })
+            const res = await apiClient.post('/extraction/process', formData)
 
             const { job_id, file_url, candidate_file_urls, log_id } = res.data
 
