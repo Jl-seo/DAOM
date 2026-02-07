@@ -235,7 +235,7 @@ async def get_log_by_id(
             if full_preview:
                 preview_data = full_preview
         except Exception as e:
-            logger.warning(f"[API] Failed to hydrate log preview from blob: {e}")
+            logger.error(f"[API] Failed to hydrate log preview from blob: {e}")
 
     # Hydrate debug_data from Blob if offloaded
     debug_data = log.debug_data
@@ -246,7 +246,7 @@ async def get_log_by_id(
             if full_debug:
                 debug_data = full_debug
         except Exception as e:
-            logger.warning(f"[API] Failed to hydrate log debug from blob: {e}")
+            logger.error(f"[API] Failed to hydrate log debug from blob: {e}")
 
     return {
         "id": log.id,
@@ -303,7 +303,7 @@ async def get_job_status(
             if full_preview:
                 preview_data = full_preview
         except Exception as e:
-            logger.warning(f"[API] Failed to hydrate preview from blob: {e}")
+            logger.error(f"[API] Failed to hydrate preview from blob ({preview_data['_preview_blob_path']}): {e}")
 
     # Hydrate debug_data from Blob if offloaded
     debug_data = job.debug_data
@@ -314,7 +314,7 @@ async def get_job_status(
             if full_debug:
                 debug_data = full_debug
         except Exception as e:
-            logger.warning(f"[API] Failed to hydrate debug from blob: {e}")
+            logger.error(f"[API] Failed to hydrate debug from blob: {e}")
 
     return {
         "job_id": job.id,
