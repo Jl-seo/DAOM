@@ -193,21 +193,32 @@ class LayoutParser:
                 if not content: continue
 
                 # Safety: Check Bounding Regions & Spans
-                regions = cell.get("boundingRegions", [])
+                # Support both camelCase (raw Azure DI) and snake_case (doc_intel.py)
+                regions = cell.get("boundingRegions") or cell.get("bounding_regions", [])
                 spans = cell.get("spans", [])
 
-                if not regions or not spans:
+                if not regions:
                     continue
 
-                primary_span = spans[0]
-                local_offset = primary_span["offset"]
-                local_length = primary_span["length"]
+                # Spans may be missing (doc_intel.py doesn't include them for cells)
+                # Fall back to fuzzy offset estimation from content position
+                if spans:
+                    primary_span = spans[0]
+                    local_offset = primary_span["offset"]
+                    local_length = primary_span["length"]
+                else:
+                    # Without spans, try to find content in full_content
+                    found_pos = self.full_content.find(content, offset_shift)
+                    if found_pos == -1:
+                        continue  # Can't locate in text
+                    local_offset = found_pos - offset_shift
+                    local_length = len(content)
 
                 # Convert to Global Offset
                 global_offset = offset_shift + local_offset
 
-                # Get Global Page Number
-                local_page = regions[0].get("pageNumber")
+                # Get Global Page Number (support both pageNumber and page_number)
+                local_page = regions[0].get("pageNumber") or regions[0].get("page_number")
                 # Find global page match (inefficient but safe)
                 global_page = self._find_global_page(fid, local_page)
 
@@ -272,18 +283,25 @@ class LayoutParser:
 
             # Paragraphs spans
             spans = para.get("spans", [])
-            if not spans: continue
+            if not spans:
+                # Without spans, try to locate content in full text
+                found_pos = self.full_content.find(content, offset_shift)
+                if found_pos == -1:
+                    continue
+                local_offset = found_pos - offset_shift
+                local_length = len(content)
+            else:
+                primary_span = spans[0]
+                local_offset = primary_span["offset"]
+                local_length = primary_span["length"]
 
-            primary_span = spans[0]
-            local_offset = primary_span["offset"]
-            local_length = primary_span["length"]
             global_offset = offset_shift + local_offset
 
             # Gap Scanning in Global Mask
             current_gap_start = -1
             para_end = global_offset + local_length
 
-            for i in range(global_offset, para_end):
+            for i in range(global_offset, min(para_end, len(self.full_content))):
                 is_claimed = self.claimed_mask[i]
 
                 if not is_claimed:
@@ -309,14 +327,14 @@ class LayoutParser:
         if not text_segment or len(text_segment) < 2:
             return
 
-        # BBox Safety
-        regions = parent_para.get("boundingRegions", [])
+        # BBox Safety (support both camelCase and snake_case)
+        regions = parent_para.get("boundingRegions") or parent_para.get("bounding_regions", [])
         if not regions: return
 
         bbox = regions[0].get("polygon")
 
-        # Get Global Page
-        local_page = regions[0].get("pageNumber")
+        # Get Global Page (support both pageNumber and page_number)
+        local_page = regions[0].get("pageNumber") or regions[0].get("page_number")
         global_page = self._find_global_page(file_id, local_page)
 
         self._register_tag(
