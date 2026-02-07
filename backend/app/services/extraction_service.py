@@ -197,17 +197,23 @@ class ExtractionService:
             logger.info(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
             doc_intel_output = await doc_intel.extract_with_strategy(file_url, azure_model)
 
-            # --- EXCEL/CSV DETECTION ---
-            # Excel/CSV files through Azure DI lack structured paragraphs/pages
-            # that LayoutParser needs. Set bypass flag so beta path skips
-            # LayoutParser and uses raw DI content directly with LLM.
-            from urllib.parse import urlparse, unquote
-            parsed_url = urlparse(file_url)
-            file_ext = unquote(parsed_url.path).rsplit(".", 1)[-1].lower() if "." in parsed_url.path else ""
-            _SPREADSHEET_EXTENSIONS = {"xlsx", "xls", "csv", "xlsm", "xlsb", "tsv"}
-            if file_ext in _SPREADSHEET_EXTENSIONS:
-                doc_intel_output["_layout_parser_bypass"] = True
-                logger.info(f"[Pipeline] Excel/CSV detected (ext={file_ext}). Setting _layout_parser_bypass=True")
+            # --- SYNTHETIC PAGE FALLBACK ---
+            # Excel/CSV DI output may have empty `pages` array. LayoutParser
+            # needs at least one page to iterate. Instead of bypassing LayoutParser
+            # (which loses ref_map for highlighting), inject a synthetic page
+            # based on content length so the full pipeline works.
+            if not doc_intel_output.get("pages"):
+                content = doc_intel_output.get("content", "")
+                content_len = len(content)
+                doc_intel_output["pages"] = [{
+                    "page_number": 1,
+                    "width": 8.5,
+                    "height": 11.0,
+                    "unit": "inch",
+                    "words": [],
+                    "spans": [{"offset": 0, "length": content_len}] if content_len else [],
+                }]
+                logger.info(f"[Pipeline] No pages in DI output. Injected synthetic page (content_len={content_len})")
 
             # --- DEBUG DATA PERSISTENCE (PARALLEL) ---
             # OPTIMIZATION: Run Blob Upload in parallel with LLM extraction.
@@ -233,11 +239,7 @@ class ExtractionService:
 
             # 2. Splitting
             # For MVP, we treat the whole document as one split unless user hints otherwise
-            # SAFETY: Excel DI output may have empty pages array — fallback to [1]
             page_list = [p["page_number"] for p in doc_intel_output.get("pages", [])]
-            if not page_list:
-                page_list = [1]  # Fallback for Excel/CSV with no page metadata
-                logger.info(f"[Pipeline] No pages in DI output, using fallback page_list={page_list}")
             splits = [{"index": 0, "type": "document", "page_ranges": page_list}]
 
             # 3. Process Each Split (Parallel with rate limit protection)

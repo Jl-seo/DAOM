@@ -1,4 +1,5 @@
 import { X, GripVertical } from 'lucide-react'
+import { useRef } from 'react'
 import { FIELD_TYPES } from '../../constants'
 import type { Field } from '../../types/model'
 import {
@@ -133,8 +134,20 @@ function SortableRow({ field, index, id, updateField, removeField, disabled }: S
 }
 
 export function FieldEditorTable({ fields, onChange, disabled = false }: FieldEditorTableProps) {
-    // Keep IDs in sync with fields length
-    const ids = fields.map((field, idx) => field.key || `field-${idx}`)
+    // STABLE IDs: Use a ref-based counter so IDs never change when field content is edited.
+    // This prevents React from unmounting/remounting rows on every keystroke.
+    const idCounterRef = useRef(0)
+    const stableIdsRef = useRef<string[]>([])
+
+    // Sync stable IDs with fields length (add new IDs for new fields, trim for removed)
+    while (stableIdsRef.current.length < fields.length) {
+        stableIdsRef.current.push(`field-stable-${idCounterRef.current++}`)
+    }
+    if (stableIdsRef.current.length > fields.length) {
+        stableIdsRef.current = stableIdsRef.current.slice(0, fields.length)
+    }
+
+    const ids = stableIdsRef.current
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
