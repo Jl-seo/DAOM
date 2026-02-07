@@ -158,6 +158,7 @@ def _process_kv_pairs(kv_pairs, pages=None):
             if p_num in page_map:
                 page = page_map[p_num]
                 # Normalize polygon to percentages - DISABLED: Retain RAW coordinates for consistent processing
+                poly = target_region.polygon
                 if poly and len(poly) >= 4:
                     xs = poly[0::2]
                     ys = poly[1::2]

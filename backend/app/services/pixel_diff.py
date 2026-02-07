@@ -6,6 +6,7 @@ import numpy as np
 import cv2
 import httpx
 from PIL import Image
+from skimage.metrics import structural_similarity as ssim
 
 logger = logging.getLogger(__name__)
 

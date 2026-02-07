@@ -695,9 +695,6 @@ async def extract_beta_with_chunking(
     ocr_data: Dict[str, Any],
     model_info: Any,
     language: str = "ko",
-    ocr_data: Dict[str, Any],
-    model_info: Any,
-    language: str = "ko",
     max_concurrent: int = 4,  # Increased after resource scale-up
 ) -> Dict[str, Any]:
     """
@@ -770,7 +767,6 @@ async def _single_call_extraction(
     # Stage diagnostics — will be surfaced in debug panel
     stages = {}
 
-    try:
     try:
         # Stage 1: LayoutParser
         # OPTIMIZATION: Check for bypass (Excel/CSV)
