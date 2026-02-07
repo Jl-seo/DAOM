@@ -148,6 +148,59 @@ class ExcelMapper:
         return result
 
     @staticmethod
+    def _find_all_headers(rows: List[List[str]]) -> List[int]:
+        """
+        Scan all rows to find indices of potential headers.
+        Used to support multiple tables in a single sheet.
+        """
+        headers = []
+        if not rows:
+            return headers
+            
+        last_header_idx = -999
+        
+        # Determine scan limit (scan all for correct multi-table support)
+        # Scan full sheet? Yes, O(N) is fast for < 100k rows.
+        
+        for i, row in enumerate(rows):
+            # Optimization: Skip if close to last header (headers aren't usually adjacent)
+            if i - last_header_idx < 10: 
+                continue
+                
+            non_empty = [c for c in row if c.strip()]
+            if not non_empty:
+                continue
+                
+            width = len(non_empty)
+            unique_count = len(set(non_empty))
+            
+            # Score (Simplified version of _detect_header_index)
+            # High density + high uniqueness
+            if width < 2: continue # Ignore 1-column headers
+            
+            score = width * 1.5 + (unique_count / width) * 0.5
+            
+            # Check Next Row for "Block Start" signal
+            is_start_of_block = False
+            if i + 1 < len(rows):
+                next_row = rows[i+1]
+                next_non_empty = [c for c in next_row if c.strip()]
+                # If next row behaves like data (similar width), this might be a header
+                if len(next_non_empty) >= width * 0.8:
+                    score += 2.0
+                    is_start_of_block = True
+            
+            # Threshold?
+            # If score is high enough (e.g. > 4.5) -> Candidate
+            # Or simplified: If it looks like a block start and has decent width.
+            
+            if is_start_of_block and score > 4.0:
+                headers.append(i)
+                last_header_idx = i
+                
+        return headers
+
+    @staticmethod
     def _detect_header_index(rows: List[List[str]], max_scan: int = 20) -> int:
         """
         Heuristic to find the most likely header row index.
@@ -253,24 +306,21 @@ class ExcelMapper:
             if not rows or not rows[0]:
                 continue
                 
-            # --- SMART HEADER DETECTION ---
-            # Instead of fixed 5 rows, find the actual header.
-            header_idx = cls._detect_header_index(rows)
-            # Context is everything from top to header (inclusive), capped at 10 rows
-            # This captures Titler (Row 0) + Header (Row X)
-            context_end = min(header_idx + 1, 10)
-            # Ensure context_end is at least 1 row
-            context_end = max(context_end, 1)
+            # --- SMART MULTI-HEADER DETECTION ---
+            # 1. Find all candidate headers
+            detected_headers = cls._find_all_headers(rows)
+            # Default to [0] if none found
+            if not detected_headers:
+                detected_headers = [0]
             
-            CONTEXT_ROW_COUNT = context_end
+            CONTEXT_SPAN = 5 # Rows to include (Header + 4 sub-rows)
             
             num_rows = len(rows)
             num_virtual_pages = (num_rows + ROWS_PER_VIRTUAL_PAGE - 1) // ROWS_PER_VIRTUAL_PAGE
             
             logger.info(
-                f"[ExcelMapper] Sheet '{sheet_name}': {num_rows} rows → "
-                f"{num_virtual_pages} virtual pages. "
-                f"Detected Header @ Row {header_idx}. Context: 0-{context_end-1}."
+                f"[ExcelMapper] Sheet '{sheet_name}': {num_rows} rows → {num_virtual_pages} pages. "
+                f"Headers found at: {detected_headers[:5]}..."
             )
 
             for vp_idx in range(num_virtual_pages):
@@ -278,15 +328,23 @@ class ExcelMapper:
                 end_row = min(start_row + ROWS_PER_VIRTUAL_PAGE, num_rows)
                 
                 if vp_idx == 0:
-                    # Page 1: Just take the slice (includes headers naturally)
+                    # Page 1: Slice naturally includes any top headers
                     virtual_rows = rows[start_row:end_row]
                 else:
-                    # Page 2+: Prepend context rows + take slice
-                    # Prepend specific context rows
-                    context_rows = rows[:CONTEXT_ROW_COUNT]
+                    # Page 2+: Find NEAREST PRECEDING header
+                    # Header must be < start_row
+                    relevant_header_idx = detected_headers[0] # Default to first
+                    for h_idx in detected_headers:
+                        if h_idx < start_row:
+                            relevant_header_idx = h_idx
+                        else:
+                            break # Exceeded current pos
                     
-                    # Avoid duplication if overlap (e.g. small pages)
-                    # But Page 2 starts at 250, context is ~5-10. No overlap.
+                    # Context is Header + Span
+                    ctx_start = relevant_header_idx
+                    ctx_end = min(ctx_start + CONTEXT_SPAN, num_rows)
+                    context_rows = rows[ctx_start:ctx_end]
+                    
                     page_body = rows[start_row:end_row]
                     virtual_rows = context_rows + page_body
 
