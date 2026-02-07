@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { Sidebar } from './components/Sidebar'
 import { LoginPage } from './components/LoginPage'
@@ -12,7 +12,7 @@ import { useAuth } from './auth'
 import { Menu, Loader2 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "./components/ui/sheet"
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 
 // Lazy loaded components for code splitting
 const ModelStudio = lazy(() => import('./components/ModelStudio').then(m => ({ default: m.ModelStudio })))
@@ -24,11 +24,26 @@ const UserManagement = lazy(() => import('./components/UserManagement').then(m =
 const AllExtractionHistory = lazy(() => import('./features/extraction/components/AllExtractionHistory').then(m => ({ default: m.AllExtractionHistory })))
 const QuickExtractionView = lazy(() => import('./features/quick/QuickExtractionView').then(m => ({ default: m.QuickExtractionView })))
 
+// Detail routes that should auto-collapse the sidebar
+const DETAIL_ROUTE_PATTERNS = [
+  /^\/models\/[^/]+\/extractions\/[^/]+/,  // /models/:modelId/extractions/:logId
+  /^\/extractions\/[^/]+/,                  // /extractions/:jobId
+]
+
 // Layout wrapper for authenticated pages
 function AppLayout({ children }: { children: React.ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const toggleSidebar = useCallback(() => setIsSidebarCollapsed(prev => !prev), [])
+  const location = useLocation()
+
+  // Auto-collapse sidebar on detail routes
+  useEffect(() => {
+    const isDetailRoute = DETAIL_ROUTE_PATTERNS.some(pattern => pattern.test(location.pathname))
+    if (isDetailRoute) {
+      setIsSidebarCollapsed(true)
+    }
+  }, [location.pathname])
 
   return (
     <div className="h-screen flex flex-col md:flex-row bg-background overflow-hidden">
