@@ -428,6 +428,12 @@ class ExtractionService:
                 if isinstance(first_doc, dict) and "data" in first_doc:
                     flat_extracted = first_doc["data"].get("guide_extracted", {})
             
+            import json as _diag_json
+            _cosmos_size = len(_diag_json.dumps(cosmos_preview, ensure_ascii=False, default=str))
+            _debug_size = len(_diag_json.dumps(cosmos_debug, ensure_ascii=False, default=str)) if cosmos_debug else 0
+            _extracted_size = len(_diag_json.dumps(flat_extracted, ensure_ascii=False, default=str))
+            logger.info(f"[Pipeline] Saving to Cosmos: preview={_cosmos_size}b, debug={_debug_size}b, extracted={_extracted_size}b, blob={preview_blob_path}")
+            
             result = extraction_jobs.update_job(
                 job_id, 
                 status=ExtractionStatus.SUCCESS.value, 
@@ -437,7 +443,7 @@ class ExtractionService:
             )
             
             if not result:
-                logger.error(f"Failed to update job {job_id} with success data.")
+                logger.error(f"[Pipeline] update_job returned None for job {job_id} — check [ExtractionJobs] logs above for step failure")
                 extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error="Failed to save extraction results")
                 return
             

@@ -126,13 +126,15 @@ def update_job(
     debug_data: Optional[Dict[str, Any]] = None,
     error: Optional[str] = None
 ) -> Optional[ExtractionJob]:
-    """Update job status and data"""
+    """Update job status and data — v2026.02.07 (blob-unified)"""
     container = get_extractions_container()
     if not container:
+        logger.error(f"[ExtractionJobs] update_job({job_id}): FAIL at step 0 — container is None")
         return None
     
     try:
         # Get existing job
+        logger.info(f"[ExtractionJobs] update_job({job_id}): step 1 — querying job")
         query = f"SELECT * FROM c WHERE c.id = @job_id AND c.type = '{ExtractionType.JOB.value}'"
         items = list(container.query_items(
             query=query,
@@ -141,6 +143,7 @@ def update_job(
         ))
         
         if not items:
+            logger.error(f"[ExtractionJobs] update_job({job_id}): FAIL at step 1 — job not found in Cosmos")
             return None
         
         job_data = items[0]
@@ -190,7 +193,10 @@ def update_job(
             logger.warning(f"[ExtractionJobs] Size check failed (non-fatal): {size_err}")
         
         # Upsert
+        payload_size = len(_json.dumps(job_data, ensure_ascii=False, default=str))
+        logger.info(f"[ExtractionJobs] update_job({job_id}): step 2 — upserting ({payload_size} bytes)")
         container.upsert_item(body=job_data)
+        logger.info(f"[ExtractionJobs] update_job({job_id}): step 3 — upsert OK, creating ExtractionJob")
         
         job = ExtractionJob(**job_data)
         
@@ -237,7 +243,7 @@ def update_job(
         
     except Exception as e:
         import traceback
-        logger.error(f"[ExtractionJobs] Failed to update job {job_id}: {e}\n{traceback.format_exc()}")
+        logger.error(f"[ExtractionJobs] update_job({job_id}): EXCEPTION at step 2/3: {type(e).__name__}: {e}\n{traceback.format_exc()}")
     
     return None
 

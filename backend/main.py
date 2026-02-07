@@ -69,7 +69,7 @@ try:
 
     @app.get("/")
     def root():
-        return {"message": "Welcome to DAOM API v1.0.2"}
+        return {"message": "Welcome to DAOM API v1.0.2", "build": "2026-02-07T18:53-blob-unified"}
 
 except Exception as e:
     print("!!! CRITICAL STARTUP ERROR !!!", file=sys.stderr)
