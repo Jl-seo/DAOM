@@ -424,7 +424,14 @@ async def process_beta_chunk(
 
     # 2. Build prompts (deterministic — prepare once)
     system_prompt = RefinerEngine.construct_prompt(model_info, language)
-    tables_context = _build_tables_context(chunk.ocr_subset.get("tables", []))
+    
+    # OPTIMIZATION: If LayoutParser was bypassed (Excel), content_text IS the table.
+    # No need to append _build_tables_context which would duplicate the data.
+    if chunk.ocr_subset.get("_layout_parser_bypass"):
+        tables_context = ""
+    else:
+        tables_context = _build_tables_context(chunk.ocr_subset.get("tables", []))
+        
     user_prompt = f"Document Text (Pages {chunk.page_numbers}):\n{content_text}\n{tables_context}"
 
     prompt_size = len(user_prompt)
