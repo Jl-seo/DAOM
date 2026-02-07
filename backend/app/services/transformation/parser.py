@@ -65,7 +65,7 @@ class RuleParser:
                         {"role": "system", "content": system_prompt + "\n\nJSON output only."},
                         {"role": "user", "content": text}
                     ],
-                    temperature=0,
+                    temperature=settings.LLM_DEFAULT_TEMPERATURE,
                     response_format={"type": "json_object"}
                 ),
                 timeout=10.0

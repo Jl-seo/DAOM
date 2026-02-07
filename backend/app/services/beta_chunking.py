@@ -13,6 +13,8 @@ import logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # Sizing constants
@@ -21,9 +23,9 @@ CHARS_PER_TOKEN = 4
 # GPT-4o: 128K tokens context. System prompt ~2K tokens, response ~4K tokens.
 # Leaves ~122K tokens for user prompt ≈ 488K chars.
 # But we want headroom, so target ~80K tokens = 320K chars.
-MAX_PROMPT_CHARS = 320_000
+MAX_PROMPT_CHARS = settings.CHUNK_MAX_PROMPT_CHARS
 # Threshold to trigger chunking: if total content exceeds this, chunk.
-CHUNKING_THRESHOLD_CHARS = 100_000  # ~25K tokens — conservative
+CHUNKING_THRESHOLD_CHARS = settings.CHUNK_THRESHOLD_CHARS  # ~25K tokens — conservative
 
 # Known wrapper keys that LLMs might use
 _WRAPPER_KEYS = {"result", "results", "data", "extraction", "extracted", "output", "response", "fields", "guide_extracted"}

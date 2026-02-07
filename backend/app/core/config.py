@@ -58,6 +58,39 @@ class Settings(BaseSettings):
     AZURE_AD_CLIENT_ID: str = ""
     AZURE_AD_TENANT_ID: str = "common"
 
+    # OCR Defaults
+    OCR_DEFAULT_MODEL: str = "prebuilt-layout"
+    
+    # Refiner Limits
+    REFINER_MAX_REF_CHARS: int = 10000
+
+    # LLM Settings
+    # GPT-4.1: max output = 52K tokens. Table extraction needs more for many rows.
+    LLM_TABLE_MAX_TOKENS: int = 50000
+    LLM_DEFAULT_MAX_TOKENS: int = 8192
+    LLM_DEFAULT_TEMPERATURE: float = 0.0
+    # Max user prompt chars (~100K tokens, leave 28K for system + response)
+    LLM_MAX_USER_PROMPT_CHARS: int = 400_000
+    # Max tokens for image comparison responses
+    LLM_COMPARISON_MAX_TOKENS: int = 2000
+
+    # Chunking Settings
+    # GPT-4o: 128K context. System ~2K, response ~4K → ~122K user = ~488K chars.
+    # Target ~80K tokens = 320K chars with headroom.
+    CHUNK_MAX_PROMPT_CHARS: int = 320_000
+    # Threshold to trigger chunking: ~25K tokens — conservative.
+    CHUNK_THRESHOLD_CHARS: int = 100_000
+
+    # Chunking & Preview
+    LLM_CHUNK_MAX_TOKENS: int = 8000
+    PREVIEW_TEXT_CHARS: int = 5000
+
+    # Validation / Fuzzy Matching
+    FUZZY_MATCH_THRESHOLD_STRICT: int = 95
+    FUZZY_MATCH_THRESHOLD_LENIENT: int = 85
+    LLM_CONFIDENCE_THRESHOLD: float = 0.7
+    SCHEMA_GENERATION_MAX_CHARS: int = 4000
+
     # External Service URLs
     GRAPH_API_BASE_URL: str = "https://graph.microsoft.com/v1.0"
     API_BASE_URL: str = "http://localhost:8000"

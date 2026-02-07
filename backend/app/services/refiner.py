@@ -2,6 +2,7 @@ from typing import Dict, Any
 import json
 import logging
 from app.schemas.model import ExtractionModel
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,10 @@ Context: {model_info.description or 'General Document'}
             prompt += f"\nGLOBAL REFINEMENT RULES:\n{model_info.global_rules}\n"
 
         # 3. Reference Data (Phase 1: Structured JSON for mapping/validation)
-        # 3. Reference Data (Phase 1: Structured JSON for mapping/validation)
         if model_info.reference_data:
             ref_json = json.dumps(model_info.reference_data, ensure_ascii=False, indent=2)
             # SAFETY: Truncate if massive (prevent 10K+ token bloat)
-            MAX_REF_CHARS = 10000
+            MAX_REF_CHARS = settings.REFINER_MAX_REF_CHARS
             if len(ref_json) > MAX_REF_CHARS:
                 ref_json = ref_json[:MAX_REF_CHARS] + "\n... [TRUNCATED DUE TO SIZE]"
                 logger.warning(f"[Refiner] Reference data truncated (size: {len(ref_json)} chars)")
@@ -75,15 +75,16 @@ INSTRUCTIONS FOR REFERENCE DATA:
 OUTPUT INSTRUCTIONS (TABLE MODE):
 You must extract ALL rows from the document. Do NOT truncate or sample.
 
-Return a JSON object where each table-type field is an array of flat objects.
-Use the EXACT field keys from the description as column names.
+Return a JSON object where the output key is "rows" (list of objects).
+Each object in the list must represent a row.
+**CRITICAL**: Use the exact keys defined in the 'REQUIRED EXTRACTION FIELDS' section above.
 Do NOT wrap each cell in {{"value": ..., "confidence": ...}} — output flat values directly.
 
 Example format:
 {{
-  "Rate_Explosion_List": [
-    {{"항로": "부산", "POL": "BUSAN", "POD": "AALBORG", "Rate_20FT": 1985}},
-    {{"항로": "광양", "POL": "GWANGYANG", "POD": "AALBORG", "Rate_20FT": 2035}}
+  "rows": [
+    {{"field_key_1": "value1", "field_key_2": "value2"}},
+    ...
   ]
 }}
 

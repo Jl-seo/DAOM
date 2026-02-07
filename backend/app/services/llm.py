@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 _current_model = settings.AZURE_OPENAI_DEPLOYMENT_NAME
 LLM_CONFIG_ID = "llm_config"
 
+# Singleton client — reuse across all calls
+_openai_client: Optional[AsyncAzureOpenAI] = None
+
 def initialize_llm_settings():
     """서버 시작 시 DB에서 설정 로드"""
     global _current_model
@@ -32,7 +35,7 @@ def initialize_llm_settings():
                 # 설정이 없으면 기본값 사용 (조용히 넘어감)
                 logger.info(f"[LLM] No saved configuration found, using default: {_current_model}")
     except Exception as e:
-        logger.info(f"[LLM] Failed to initialize settings: {e}")
+        logger.warning(f"[LLM] Failed to initialize settings: {e}")
 
 def set_llm_model(model_name: str):
     """어드민에서 LLM 모델 변경 (DB 저장)"""
@@ -51,7 +54,7 @@ def set_llm_model(model_name: str):
             })
             logger.info("[LLM] Configuration saved to DB")
     except Exception as e:
-        logger.info(f"[LLM] Failed to save configuration to DB: {e}")
+        logger.warning(f"[LLM] Failed to save configuration to DB: {e}")
 
 def get_current_model() -> str:
     return _current_model
@@ -126,7 +129,11 @@ async def fetch_available_models() -> List[str]:
     return []
 
 def get_openai_client() -> AsyncAzureOpenAI:
-    """Azure AI Foundry 클라이언트 생성"""
+    """싱글톤 Azure OpenAI 클라이언트 — 연결 재사용"""
+    global _openai_client
+    if _openai_client is not None:
+        return _openai_client
+
     endpoint = settings.AZURE_OPENAI_ENDPOINT or settings.AZURE_AIPROJECT_ENDPOINT
     endpoint = endpoint.rstrip('/')
     api_key = settings.AZURE_OPENAI_API_KEY
@@ -135,14 +142,15 @@ def get_openai_client() -> AsyncAzureOpenAI:
     if not endpoint or not api_key:
         raise ValueError("Azure AI endpoint and API key must be configured")
 
-    logger.info(f"[LLM] Endpoint: {endpoint}")
+    logger.info(f"[LLM] Creating singleton client — Endpoint: {endpoint}")
     logger.info(f"[LLM] Model: {_current_model}")
 
-    return AsyncAzureOpenAI(
+    _openai_client = AsyncAzureOpenAI(
         azure_endpoint=endpoint,
         api_key=api_key,
         api_version=api_version
     )
+    return _openai_client
 
 async def analyze_document_content(
     ocr_result: dict,
@@ -219,7 +227,7 @@ async def analyze_document_content(
     # Token overflow protection: estimate and truncate if needed
     # GPT-4o context: ~128K tokens. Leave room for system prompt + response.
     # Rough estimate: 1 token ≈ 4 chars for mixed content
-    MAX_USER_PROMPT_CHARS = 400000  # ~100K tokens, leave 28K for system + response
+    MAX_USER_PROMPT_CHARS = settings.LLM_MAX_USER_PROMPT_CHARS
     original_prompt_len = len(user_prompt)
     if original_prompt_len > MAX_USER_PROMPT_CHARS:
         logger.warning(f"[LLM-Beta] User prompt too large ({original_prompt_len} chars), truncating to {MAX_USER_PROMPT_CHARS}")
@@ -436,7 +444,7 @@ async def call_llm_single(
         response_format = {"type": "json_object"}
 
     # GPT-4.1: max output = 52K tokens. Table extraction needs more for many rows.
-    max_tokens = 50000 if is_table_model else 8192
+    max_tokens = settings.LLM_TABLE_MAX_TOKENS if is_table_model else settings.LLM_DEFAULT_MAX_TOKENS
 
     try:
         response = await client.chat.completions.create(
@@ -501,7 +509,7 @@ async def generate_schema_from_content(content_text: str, tables: List[dict] = N
     }
     """
 
-    user_prompt = f"Document Content:\n{content_text[:4000]}... (truncated)\n{table_context}\n\nSuggest extraction schema."
+    user_prompt = f"Document Content:\n{content_text[:settings.SCHEMA_GENERATION_MAX_CHARS]}... (truncated)\n{table_context}\n\nSuggest extraction schema."
 
     try:
         response = await client.chat.completions.create(
@@ -517,10 +525,8 @@ async def generate_schema_from_content(content_text: str, tables: List[dict] = N
         return result.get("fields", [])
 
     except Exception as e:
-        logger.info(f"[LLM] Schema generation failed: {e}")
+        logger.warning(f"[LLM] Schema generation failed: {e}")
         return []
-    finally:
-        await client.close()
 
 
 async def refine_schema(current_fields: List[dict], instruction: str) -> List[dict]:
@@ -576,10 +582,8 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
         return result.get("fields", current_fields)
 
     except Exception as e:
-        logger.info(f"[LLM] Schema refinement failed: {e}")
+        logger.warning(f"[LLM] Schema refinement failed: {e}")
         return current_fields
-    finally:
-        await client.close()
 
 async def compare_images(image_url_1: str, image_url_2: str, custom_instructions: Optional[str] = None, comparison_settings: Optional[dict] = None) -> dict:
     """
@@ -826,7 +830,7 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
                 {"role": "user", "content": user_message}
             ],
             response_format={"type": "json_object"},
-            max_tokens=2000
+            max_tokens=settings.LLM_COMPARISON_MAX_TOKENS
         )
 
         result_content = response.choices[0].message.content
@@ -879,6 +883,4 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
     except Exception as e:
         logger.error(f"[LLM] Comparison synthesis failed: {e}")
         return {"differences": [], "error": str(e)}
-    finally:
-        await client.close()
 

@@ -716,7 +716,7 @@ Return ONLY valid JSON, no markdown code blocks."""
                 {"role": "system", "content": "You are a field matching expert. Return only valid JSON array."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.1
+            temperature=settings.LLM_DEFAULT_TEMPERATURE
         )
 
         result = json.loads(response.choices[0].message.content)
@@ -763,7 +763,7 @@ async def get_preview_with_guide(
             raise HTTPException(status_code=404, detail="Model not found")
 
         # Get raw Document Intelligence output using Dynamic Strategy
-        azure_model = getattr(model, "azure_model_id", "prebuilt-layout")
+        azure_model = getattr(model, "azure_model_id", settings.OCR_DEFAULT_MODEL)
         doc_intel_output = await doc_intel.extract_with_strategy(request.file_url, azure_model)
 
         # Build field descriptions for AI
@@ -828,7 +828,7 @@ IMPORTANT:
                 {"role": "system", "content": "You are a precise document data extractor. Return only valid JSON."},
                 {"role": "user", "content": extraction_prompt}
             ],
-            temperature=0.1
+            temperature=settings.LLM_DEFAULT_TEMPERATURE
         )
 
         result = json.loads(response.choices[0].message.content)
@@ -915,7 +915,7 @@ Return ONLY valid JSON, no markdown code blocks.
                 {"role": "system", "content": "You are a data structuring expert. Return only valid JSON."},
                 {"role": "user", "content": structuring_prompt}
             ],
-            temperature=0.1
+            temperature=settings.LLM_DEFAULT_TEMPERATURE
         )
 
         structured_result = json.loads(response.choices[0].message.content)
@@ -942,7 +942,7 @@ async def refine_extraction(
         # 1. Get Model to determine strategy
         model = get_model_by_id(request.model_id)
         # Default to layout if model not found or no strategy
-        azure_model = getattr(model, "azure_model_id", "prebuilt-layout") if model else "prebuilt-layout"
+        azure_model = getattr(model, "azure_model_id", settings.OCR_DEFAULT_MODEL) if model else settings.OCR_DEFAULT_MODEL
 
         # Get Document Intelligence output using correct strategy
         doc_intel_output = await doc_intel.extract_with_strategy(request.file_url, azure_model)
@@ -976,7 +976,7 @@ Return ONLY valid JSON, no markdown.
                 {"role": "system", "content": "You are a data extraction expert. Return only valid JSON."},
                 {"role": "user", "content": extraction_prompt}
             ],
-            temperature=0.1
+            temperature=settings.LLM_DEFAULT_TEMPERATURE
         )
 
         extracted_data = json.loads(response.choices[0].message.content)

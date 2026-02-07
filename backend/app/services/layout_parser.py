@@ -3,6 +3,8 @@ from typing import Dict, Any, List, Optional, Tuple
 from rapidfuzz import fuzz, utils
 import logging
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 class LayoutParser:
@@ -460,11 +462,11 @@ class LayoutParser:
                 if is_strict:
                     # Pass 1: Full string ratio (requires high similarity)
                     score = fuzz.ratio(normalized_target, ref_norm)
-                    threshold = 95
+                    threshold = settings.FUZZY_MATCH_THRESHOLD_STRICT
                 else:
                     # Pass 2: Partial ratio (finds best substring match)
                     score = fuzz.partial_ratio(normalized_target, ref_norm)
-                    threshold = 85
+                    threshold = settings.FUZZY_MATCH_THRESHOLD_LENIENT
 
                 # Boost score for page match
                 if page_limit and ref_page == page_limit:

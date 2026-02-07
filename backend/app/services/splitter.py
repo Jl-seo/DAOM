@@ -138,7 +138,7 @@ async def _split_by_gpt(result: Dict[str, Any]) -> List[Dict[str, Any]]:
                 {"role": "system", "content": "You are a document splitting expert. Return valid JSON only."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.0
+            temperature=settings.LLM_DEFAULT_TEMPERATURE
         )
 
         res_json = json.loads(response.choices[0].message.content)

@@ -8,7 +8,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from openai import AsyncAzureOpenAI
 from app.core.config import settings
-from app.services.llm import get_current_model
+from app.services.llm import get_current_model, get_openai_client
 from app.core.enums import ExtractionStatus
 from app.services import doc_intel, models, extraction_jobs, extraction_logs
 from app.services.extraction_utils import parse_number, parse_date, normalize_bbox
@@ -16,13 +16,25 @@ from app.schemas.model import ExtractionModel
 
 logger = logging.getLogger(__name__)
 
+def _normalize_guide_extracted(raw: Any, context: str = "Validation") -> Dict[str, Any]:
+    """Normalize guide_extracted: handle list→dict conversion and type mismatches."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, list):
+        logger.warning(f"[{context}] guide_extracted is a list, converting to dict")
+        converted = {}
+        for i, item in enumerate(raw):
+            if isinstance(item, dict) and 'key' in item:
+                converted[item['key']] = item
+            elif isinstance(item, dict):
+                converted[f"item_{i}"] = item
+        return converted
+    logger.error(f"[{context}] guide_extracted is not a dict or list: {type(raw)}")
+    return {}
+
 class ExtractionService:
     def __init__(self):
-        self.azure_openai = AsyncAzureOpenAI(
-            api_key=settings.AZURE_OPENAI_API_KEY,
-            api_version=settings.AZURE_OPENAI_API_VERSION,
-            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
-        )
+        self.azure_openai = get_openai_client()
 
     async def run_extraction_pipeline(self, job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None, candidate_filenames: Optional[List[str]] = None):
         """
@@ -38,8 +50,7 @@ class ExtractionService:
         current_llm_model = get_current_model()
 
         try:
-            with open("debug_pipeline.log", "a") as f:
-                f.write(f"\n=== JOB {job_id} STARTED (Model: {current_llm_model}) ===\n")
+            logger.info(f"=== JOB {job_id} STARTED (Model: {current_llm_model}) ===")
 
             # Update status
             extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
@@ -58,7 +69,7 @@ class ExtractionService:
                     created_at="now",
                     data_structure="key-value"
                 )
-                azure_model = "prebuilt-layout" # Default for universal
+                azure_model = settings.OCR_DEFAULT_MODEL  # Default for universal
             else:
                 try:
                     model = models.get_model_by_id(model_id)
@@ -73,7 +84,7 @@ class ExtractionService:
                     pass
 
                 # Dynamic Strategy
-                azure_model = getattr(model, "azure_model_id", "prebuilt-layout") if model else "prebuilt-layout"
+                azure_model = getattr(model, "azure_model_id", settings.OCR_DEFAULT_MODEL) if model else settings.OCR_DEFAULT_MODEL
 
             # --- COMPARISON MODE CHECK ---
             # Compile all candidate URLs
@@ -395,7 +406,8 @@ class ExtractionService:
             # RequestEntityTooLarge for Excel files
             _internal_keys = {
                 "_debug_chunking", "_chunked", "_chunking_errors", "_token_usage",
-                "_beta_parsed_content", "_beta_ref_map", "_beta_chunking_info",
+                "_beta_parsed_content",  # Full parsed text — big, hydrated from blob
+                "_beta_ref_map", "_beta_chunking_info",
                 "_beta_pipeline_stages", "_raw_llm_response", "_prompt_used",
                 "raw_tables",  # ExcelMapper table data — huge, already in blob
             }
@@ -417,7 +429,7 @@ class ExtractionService:
 
             cosmos_preview = {
                 "sub_documents": cosmos_sub_docs,
-                "raw_content": doc_intel_output.get("content", "")[:5000],  # Truncated preview
+                "raw_content": doc_intel_output.get("content", "")[:settings.PREVIEW_TEXT_CHARS],  # Truncated preview
                 "raw_tables": [],  # Full data in blob only
                 "_preview_blob_path": preview_blob_path,
             }
@@ -430,8 +442,7 @@ class ExtractionService:
             # Don't duplicate guide_extracted in extracted_data — it's already in sub_documents
             # This saves ~50% of Cosmos payload size
 
-            import json as _diag_json
-            _cosmos_size = len(_diag_json.dumps(cosmos_preview, ensure_ascii=False, default=str))
+            _cosmos_size = len(json.dumps(cosmos_preview, ensure_ascii=False, default=str))
             logger.info(f"[Pipeline] Saving to Cosmos: preview={_cosmos_size}b, blob={preview_blob_path}")
 
             result = extraction_jobs.update_job(
@@ -616,7 +627,7 @@ IMPORTANT:
 
         # ... (Call LLM similar to _unwrap_llm_extraction)
         try:
-            from app.services.llm import get_current_model
+            from app.services.llm import get_current_model  # noqa: re-import for circular dep
             current_model_name = get_current_model()
 
             response = await self.azure_openai.chat.completions.create(
@@ -625,7 +636,7 @@ IMPORTANT:
                     {"role": "system", "content": "You are a universal document analyzer. Return valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0,
+                temperature=settings.LLM_DEFAULT_TEMPERATURE,
                 response_format={"type": "json_object"}
             )
             raw_content = response.choices[0].message.content or ""
@@ -650,7 +661,7 @@ IMPORTANT:
                     merged_result, errors = await extract_with_chunking(
                         ocr_data_to_send,
                         model_fields,
-                        max_tokens_per_chunk=8000, # Increased chunk size
+                        max_tokens_per_chunk=settings.LLM_CHUNK_MAX_TOKENS,
                         max_concurrent=8 # Increased concurrency
                     )
 
@@ -671,15 +682,9 @@ IMPORTANT:
 
     def _validate_and_format_universal(self, raw_data: Dict[str, Any], pages_info: List[Dict[str, Any]], default_page: int = 1) -> Dict[str, Any]:
         """Relaxed validation for universal mode"""
-        guide_extracted = raw_data.get("guide_extracted", {})
-
-        # Defensive: if LLM returns a list instead of dict, convert or skip
-        if isinstance(guide_extracted, list):
-            logger.warning(f"[Validation-Universal] guide_extracted is a list, converting to dict")
-            guide_extracted = {f"item_{i}": item for i, item in enumerate(guide_extracted) if isinstance(item, dict)}
-        elif not isinstance(guide_extracted, dict):
-            logger.error(f"[Validation-Universal] guide_extracted is not a dict or list: {type(guide_extracted)}")
-            guide_extracted = {}
+        guide_extracted = _normalize_guide_extracted(
+            raw_data.get("guide_extracted", {}), context="Validation-Universal"
+        )
 
         validated_extracted = {}
 
@@ -884,7 +889,7 @@ IMPORTANT:
                 merged_result, errors = await extract_with_chunking(
                     ocr_data_to_send,
                     model.fields,
-                    max_tokens_per_chunk=8000,
+                    max_tokens_per_chunk=settings.LLM_CHUNK_MAX_TOKENS,
                     max_concurrent=8
                 )
 
@@ -975,8 +980,6 @@ IMPORTANT:
 
         logger.info(f"[LLM] Prompt prepared. Sending request to Azure OpenAI (Focus: {focus_pages})...")
         try:
-            # Use dynamic model from Admin Settings
-            from app.services.llm import get_current_model
             current_model_name = get_current_model()
 
             response = await self.azure_openai.chat.completions.create(
@@ -985,7 +988,7 @@ IMPORTANT:
                     {"role": "system", "content": "You are a precise document data extractor. Return only valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0,
+                temperature=settings.LLM_DEFAULT_TEMPERATURE,
                 response_format={"type": "json_object"}
             )
             raw_content = response.choices[0].message.content or ""
@@ -1029,8 +1032,8 @@ IMPORTANT:
                     merged_result, errors = await extract_with_chunking(
                         ocr_data_to_send,
                         model_fields,
-                        max_tokens_per_chunk=16000,  # Increased from 4000 for fewer LLM calls
-                        max_concurrent=8  # Increased from 5 for better parallelism
+                        max_tokens_per_chunk=settings.LLM_CHUNK_MAX_TOKENS,
+                        max_concurrent=8
                     )
 
                     if errors:
@@ -1074,26 +1077,13 @@ IMPORTANT:
                 "error": raw_data.get("error"),
             }
 
-        guide_extracted = raw_data.get("guide_extracted", {})
-
-        # Defensive: if LLM returns a list instead of dict, convert or handle gracefully
-        if isinstance(guide_extracted, list):
-            logger.warning(f"[Validation] guide_extracted is a list, converting to dict")
-            # Try to convert list to dict using 'key' field if present, otherwise numeric index
-            converted = {}
-            for i, item in enumerate(guide_extracted):
-                if isinstance(item, dict) and 'key' in item:
-                    converted[item['key']] = item
-                elif isinstance(item, dict):
-                    converted[f"item_{i}"] = item
-            guide_extracted = converted
-        elif not isinstance(guide_extracted, dict):
-            logger.error(f"[Validation] guide_extracted is not a dict or list: {type(guide_extracted)}")
-            guide_extracted = {}
+        guide_extracted = _normalize_guide_extracted(
+            raw_data.get("guide_extracted", {}), context="Validation"
+        )
 
         validated_extracted = {}
 
-        CONFIDENCE_THRESHOLD = 0.7  # Flag values below this
+        CONFIDENCE_THRESHOLD = settings.LLM_CONFIDENCE_THRESHOLD
 
         # Create a lookup for page dimensions (handle both snake_case and camelCase)
         page_dims = {

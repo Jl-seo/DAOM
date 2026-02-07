@@ -25,13 +25,11 @@ def get_supported_models() -> List[Dict[str, str]]:
         for m in AzureModelType
     ]
 
-async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-layout", filename: str = None) -> Dict[str, Any]:
+async def extract_with_strategy(file_source: Any, model_type: str = settings.OCR_DEFAULT_MODEL, filename: str = None) -> Dict[str, Any]:
     """
     Universal extraction, strategy determined by model_type.
     file_source: str (URL) or bytes/stream
     """
-    # 0. Check Cache (Optimization)
-    cache_blob_name = None
     # 0. Check Cache (Optimization)
     cache_blob_name = None
     if isinstance(file_source, str):

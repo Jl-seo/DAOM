@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Token estimation: ~4 chars per token for mixed content
 CHARS_PER_TOKEN = 4
-MAX_TOKENS_PER_CHUNK = 4000
+MAX_TOKENS_PER_CHUNK = settings.LLM_CHUNK_MAX_TOKENS
 MAX_CHARS_PER_CHUNK = MAX_TOKENS_PER_CHUNK * CHARS_PER_TOKEN  # ~8000 chars
 
 # Retry configuration
@@ -232,7 +232,7 @@ IMPORTANT:
                     {"role": "system", "content": "You are a precise document data extractor. The user needs to verify your work, so you must return bounding boxes and page numbers if available. Return only valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,
+                temperature=settings.LLM_DEFAULT_TEMPERATURE,
                 response_format={"type": "json_object"}
             )
 
