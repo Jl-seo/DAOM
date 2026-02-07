@@ -354,6 +354,39 @@ class ExtractionService:
                 "raw_tables": doc_intel_output.get("tables", [])
             }
             
+            # SAFETY: Offload large preview_data to Blob Storage to avoid Cosmos 2MB limit
+            # Excel files can produce huge raw_tables (1500+ cells with polygons)
+            try:
+                import json as _json
+                payload_size = len(_json.dumps(preview_payload, ensure_ascii=False, default=str))
+                if payload_size > 500_000:  # 500KB threshold — be conservative
+                    logger.info(f"[Pipeline] preview_data too large ({payload_size} bytes), offloading to Blob")
+                    from app.services import storage
+                    blob_path = f"preview_data/{job_id}.preview.json"
+                    blob_url = await storage.save_json_as_blob(preview_payload, blob_path)
+                    if blob_url:
+                        # Replace inline data with blob reference
+                        preview_payload = {
+                            "sub_documents": sub_documents,
+                            "raw_content": doc_intel_output.get("content", "")[:10000],  # Keep truncated text for quick view
+                            "raw_tables": [],  # Emptied — available via blob
+                            "_blob_url": blob_url,
+                            "_blob_path": blob_path,
+                            "_offloaded": True,
+                            "_original_size": payload_size
+                        }
+                        logger.info(f"[Pipeline] preview_data offloaded to {blob_path}")
+                    else:
+                        # Blob save failed — truncate as fallback
+                        logger.warning("[Pipeline] Blob offload failed, truncating raw_tables")
+                        tables = preview_payload.get("raw_tables", [])
+                        for tbl in tables:
+                            if isinstance(tbl, dict) and "cells" in tbl:
+                                tbl["cells"] = tbl["cells"][:100]
+                                tbl["_truncated"] = True
+            except Exception as offload_err:
+                logger.warning(f"[Pipeline] preview_data offload failed (non-fatal): {offload_err}")
+            
             # Also flatten extracted_data from first sub_document for backward compatibility
             # Frontend polling reads job.extracted_data, so it must be populated
             flat_extracted = {}
@@ -362,12 +395,31 @@ class ExtractionService:
                 if isinstance(first_doc, dict) and "data" in first_doc:
                     flat_extracted = first_doc["data"].get("guide_extracted", {})
             
+            # Also truncate debug_data if too large for Cosmos
+            debug_to_save = debug_info_final
+            try:
+                if debug_to_save:
+                    debug_size = len(_json.dumps(debug_to_save, ensure_ascii=False, default=str))
+                    if debug_size > 500_000:
+                        logger.info(f"[Pipeline] debug_data too large ({debug_size} bytes), offloading")
+                        debug_blob_path = f"debug_data/{job_id}.debug.json"
+                        debug_blob_url = await storage.save_json_as_blob(debug_to_save, debug_blob_path)
+                        if debug_blob_url:
+                            debug_to_save = {
+                                "_blob_url": debug_blob_url,
+                                "_blob_path": debug_blob_path,
+                                "_offloaded": True,
+                                "token_usage": debug_info_final.get("token_usage")  # Keep token usage inline
+                            }
+            except Exception as debug_offload_err:
+                logger.warning(f"[Pipeline] debug_data offload failed (non-fatal): {debug_offload_err}")
+            
             result = extraction_jobs.update_job(
                 job_id, 
                 status=ExtractionStatus.SUCCESS.value, 
                 preview_data=preview_payload,
                 extracted_data=flat_extracted,  # CRITICAL: Frontend needs this for polling
-                debug_data=debug_info_final # ATOMIC UPDATE
+                debug_data=debug_to_save
             )
             
             if not result:
