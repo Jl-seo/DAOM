@@ -68,4 +68,6 @@ numpy
 Pillow
 scikit-image
 azure-ai-vision-imageanalysis
+pandas
+openpyxl
 
