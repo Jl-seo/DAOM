@@ -71,11 +71,12 @@ async def run_extraction_with_metadata(
     metadata: Optional[Dict[str, Any]] = None
 ):
     """Run extraction and store metadata alongside results"""
-    from app.services.extraction_service import run_extraction_pipeline
+    from app.services.extraction_service import extraction_service
 
     try:
         # Run the actual extraction
-        result = await run_extraction_pipeline(job_id, model_id, file_urls, filenames)
+        # Calls the polymorphic run_extraction_pipeline
+        await extraction_service.run_extraction_pipeline(job_id, model_id, file_urls, filenames)
 
         # Update log with metadata if provided
         if metadata:
