@@ -537,7 +537,7 @@ IMPORTANT:
                 temperature=0,
                 response_format={"type": "json_object"}
             )
-            raw_content = response.choices[0].message.content
+            raw_content = response.choices[0].message.content or ""
             logger.info(f"[LLM-Universal-Debug] Success! Length: {len(raw_content)}")
             logger.info(f"[LLM-Universal-Debug] Preview: {raw_content[:200]}")
             return json.loads(raw_content)
@@ -881,7 +881,7 @@ IMPORTANT:
                 temperature=0,
                 response_format={"type": "json_object"}
             )
-            raw_content = response.choices[0].message.content
+            raw_content = response.choices[0].message.content or ""
             
             # Capture token usage
             token_usage = None
@@ -971,9 +971,11 @@ IMPORTANT:
 
         CONFIDENCE_THRESHOLD = 0.7  # Flag values below this
         
-        # Create a lookup for page dimensions
         # Create a lookup for page dimensions (handle both snake_case and camelCase)
-        page_dims = {(p.get("page_number") or p.get("pageNumber", i+1)): (p["width"], p["height"]) for i, p in enumerate(pages_info)}
+        page_dims = {
+            (p.get("page_number") or p.get("pageNumber", i+1)): (p.get("width", 0), p.get("height", 0))
+            for i, p in enumerate(pages_info)
+        }
 
         for field in model.fields:
             key = field.key
@@ -1152,7 +1154,7 @@ IMPORTANT:
              return str(t).replace(" ","").replace(",","").replace(".","").replace("-","").lower()
 
         # Try to find the exact value as a single token first
-        exact_matches = [w for w in words if clean_token(w["content"]) == value_clean]
+        exact_matches = [w for w in words if clean_token(w.get("content", "")) == value_clean]
         
         if exact_matches:
              for m in exact_matches:
@@ -1164,7 +1166,7 @@ IMPORTANT:
         
         # Also try partial contains logical if no exact match (e.g. currency symbol in OCR)
         if not candidate_polygons:
-             partial_matches = [w for w in words if value_clean in clean_token(w["content"])]
+             partial_matches = [w for w in words if value_clean in clean_token(w.get("content", ""))]
              for m in partial_matches:
                  poly = m.get("polygon")
                  if poly and len(poly) >= 8:

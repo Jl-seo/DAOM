@@ -84,16 +84,19 @@ Example JSON Output:
         # Build indexed words dict: {index: word_info}
         all_words_flat = []
         word_choices = {}  # {index: content_string} for process.extractOne
-        if ocr_result.get("pages"):
-             for page in ocr_result["pages"]:
-                for word in page.get("words", []):
-                    idx = len(all_words_flat)
-                    all_words_flat.append({
-                        "content": word["content"],
-                        "polygon": word["polygon"],
-                        "page": page["page_number"]
-                    })
-                    word_choices[idx] = word["content"]
+        for page in ocr_result.get("pages") or []:
+            page_num_val = page.get("page_number", 1)
+            for word in page.get("words", []):
+                content = word.get("content", "")
+                if not content:
+                    continue  # Skip empty/missing content words
+                idx = len(all_words_flat)
+                all_words_flat.append({
+                    "content": content,
+                    "polygon": word.get("polygon"),
+                    "page": page_num_val,
+                })
+                word_choices[idx] = content
         
         for key, item in llm_result.items():
             if not isinstance(item, dict):
@@ -108,9 +111,7 @@ Example JSON Output:
             page_num = 1
             
             if source_text and word_choices:
-                best_match_word = None
-                
-                # Check for multi-word phrase
+                # For multi-word phrases, search the longest word for best match
                 is_phrase = len(source_text.split()) > 1
                 search_term = source_text if not is_phrase else max(source_text.split(), key=len)
                 
@@ -119,20 +120,18 @@ Example JSON Output:
                     extracted = process.extractOne(search_term, word_choices, scorer=fuzz.ratio)
                     
                     if extracted and len(extracted) >= 3:
-                        match_text, score, match_idx = extracted
+                        _match_text, score, match_idx = extracted
+                        if score >= 85 and match_idx < len(all_words_flat):
+                            best = all_words_flat[match_idx]
+                            bbox = best.get("polygon")
+                            page_num = best.get("page", 1)
+                    elif extracted and len(extracted) >= 2:
+                        _match_text, score = extracted[0], extracted[1]
                         if score >= 85:
-                            best_match_word = all_words_flat[match_idx]
-                            bbox = best_match_word["polygon"]
-                            page_num = best_match_word["page"]
-                    elif extracted and len(extracted) == 2:
-                        # Fallback: (match_text, score) without index
-                        match_text, score = extracted
-                        if score >= 85:
-                            # Find the matching word by content
                             for w in all_words_flat:
-                                if w["content"] == match_text:
-                                    bbox = w["polygon"]
-                                    page_num = w["page"]
+                                if w.get("content") == _match_text:
+                                    bbox = w.get("polygon")
+                                    page_num = w.get("page", 1)
                                     break
                 except Exception as e:
                     logger.warning(f"[PostProcess] Fuzzy match error for '{key}': {e}")

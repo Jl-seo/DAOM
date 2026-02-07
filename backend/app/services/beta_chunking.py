@@ -434,6 +434,9 @@ def _build_tables_context(tables: List[Dict]) -> str:
         cells = table.get("cells", [])
         row_count = table.get("rowCount", 0)
         col_count = table.get("columnCount", 0)
+        # Auto-calculate col_count from cells if metadata is missing/zero
+        if not col_count and cells:
+            col_count = max((c.get("columnIndex", 0) for c in cells), default=0) + 1
 
         context += f"\nTable {idx + 1} ({row_count}x{col_count}):\n"
 
@@ -690,7 +693,7 @@ async def _single_call_extraction(
                 "guide_extracted": {},
                 "error": llm_response["error"],
                 "_beta_parsed_content": content_text,
-                "_beta_ref_map": ref_map if ref_map else None,
+                "_beta_ref_map": ref_map or {},
                 "_token_usage": llm_response.get("_token_usage"),
                 "_beta_pipeline_stages": stages,
                 "raw_content": ocr_data.get("content", ""),
@@ -734,7 +737,7 @@ async def _single_call_extraction(
             "guide_extracted": processed,
             "other_data": [],
             "_beta_parsed_content": f"{content_text}\n{tables_context}" if tables_context else content_text,
-            "_beta_ref_map": ref_map if ref_map else None,
+            "_beta_ref_map": ref_map or {},
             "_token_usage": llm_response.get("_token_usage"),
             "_beta_pipeline_stages": stages,
             "raw_content": ocr_data.get("content", ""),
@@ -747,6 +750,8 @@ async def _single_call_extraction(
         return {
             "guide_extracted": {},
             "error": str(e),
+            "_beta_parsed_content": "",  # Safe empty string
+            "_beta_ref_map": {},
             "_beta_pipeline_stages": stages,
             "raw_content": ocr_data.get("content", ""),
             "raw_tables": ocr_data.get("tables", []),

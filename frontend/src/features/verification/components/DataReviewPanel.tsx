@@ -32,17 +32,21 @@ interface DataReviewPanelProps {
 const INTERNAL_FIELDS = ['bbox', 'page_number', 'original_value', 'low_confidence', 'validation_status']
 
 function cleanForExport(data: Record<string, any>): Record<string, any> {
+    const stripInternal = (obj: any): any => {
+        if (Array.isArray(obj)) return obj.map(stripInternal)
+        if (obj && typeof obj === 'object') {
+            const filtered: Record<string, any> = {}
+            for (const [k, v] of Object.entries(obj)) {
+                if (!INTERNAL_FIELDS.includes(k)) filtered[k] = stripInternal(v)
+            }
+            return filtered
+        }
+        return obj
+    }
+
     const clean: Record<string, any> = {}
     for (const [key, val] of Object.entries(data)) {
-        if (val && typeof val === 'object' && !Array.isArray(val)) {
-            const filtered: Record<string, any> = {}
-            for (const [k, v] of Object.entries(val)) {
-                if (!INTERNAL_FIELDS.includes(k)) filtered[k] = v
-            }
-            clean[key] = filtered
-        } else {
-            clean[key] = val
-        }
+        clean[key] = stripInternal(val)
     }
     return clean
 }
@@ -53,10 +57,22 @@ function RawJsonView({ data }: { data: Record<string, any> }) {
     const jsonStr = useMemo(() => JSON.stringify(cleanData, null, 2), [cleanData])
 
     const handleCopy = useCallback(() => {
-        navigator.clipboard.writeText(jsonStr).then(() => {
-            setCopied(true)
-            setTimeout(() => setCopied(false), 2000)
-        })
+        navigator.clipboard.writeText(jsonStr)
+            .then(() => {
+                setCopied(true)
+                setTimeout(() => setCopied(false), 2000)
+            })
+            .catch(() => {
+                // Fallback for browsers that block clipboard API
+                const textarea = document.createElement('textarea')
+                textarea.value = jsonStr
+                document.body.appendChild(textarea)
+                textarea.select()
+                document.execCommand('copy')
+                document.body.removeChild(textarea)
+                setCopied(true)
+                setTimeout(() => setCopied(false), 2000)
+            })
     }, [jsonStr])
 
     return (
