@@ -77,40 +77,48 @@ export function Sidebar({ className, onClose, collapsed = false, onToggleCollaps
     return (
         <aside className={clsx("bg-sidebar text-sidebar-foreground flex flex-col h-full transition-all duration-200", className || (collapsed ? "w-16" : "w-64"))}>
             {/* Logo */}
-            <div className={clsx("border-b border-sidebar-border flex items-center justify-between", collapsed ? "p-3" : "p-6")}>
-                <button
-                    onClick={() => handleNavigate('/models')}
-                    className={clsx("flex items-center text-left hover:opacity-80 transition-opacity flex-1 min-w-0", collapsed ? "justify-center" : "gap-3")}
-                    title={collapsed ? config.siteName : undefined}
-                >
-                    {config.logoUrl ? (
-                        <img
-                            src={config.logoUrl}
-                            alt="Logo"
-                            className="w-10 h-10 rounded-xl object-contain flex-shrink-0"
-                        />
-                    ) : (
-                        <div className="bg-gradient-to-br from-primary to-chart-5 p-2 rounded-xl flex-shrink-0">
-                            <LayoutDashboard className="w-6 h-6" />
-                        </div>
+            <div className={clsx("border-b border-sidebar-border", collapsed ? "p-3" : "p-6")}>
+                <div className={clsx("flex items-center", collapsed ? "justify-center" : "justify-between")}>
+                    <button
+                        onClick={() => handleNavigate('/models')}
+                        className={clsx("flex items-center text-left hover:opacity-80 transition-opacity min-w-0", collapsed ? "justify-center" : "gap-3 flex-1")}
+                        title={collapsed ? config.siteName : undefined}
+                    >
+                        {config.logoUrl ? (
+                            <img
+                                src={config.logoUrl}
+                                alt="Logo"
+                                className={clsx("rounded-xl object-contain flex-shrink-0", collapsed ? "w-8 h-8" : "w-10 h-10")}
+                            />
+                        ) : (
+                            <div className="bg-gradient-to-br from-primary to-chart-5 p-2 rounded-xl flex-shrink-0">
+                                <LayoutDashboard className="w-6 h-6" />
+                            </div>
+                        )}
+                        {!collapsed && (
+                            <div className="min-w-0">
+                                <h1 className="text-xl font-bold">{config.siteName}</h1>
+                                <p className="text-xs text-sidebar-foreground/60 truncate">{config.siteDescription}</p>
+                            </div>
+                        )}
+                    </button>
+                    {onToggleCollapse && !collapsed && (
+                        <button
+                            onClick={onToggleCollapse}
+                            className="flex-shrink-0 p-1.5 rounded-md text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/30 transition-colors ml-2"
+                            title="사이드바 접기"
+                        >
+                            <PanelLeftClose className="w-4 h-4" />
+                        </button>
                     )}
-                    {!collapsed && (
-                        <div className="min-w-0">
-                            <h1 className="text-xl font-bold">{config.siteName}</h1>
-                            <p className="text-xs text-sidebar-foreground/60 truncate">{config.siteDescription}</p>
-                        </div>
-                    )}
-                </button>
-                {onToggleCollapse && (
+                </div>
+                {onToggleCollapse && collapsed && (
                     <button
                         onClick={onToggleCollapse}
-                        className={clsx(
-                            "flex-shrink-0 p-1.5 rounded-md text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/30 transition-colors",
-                            collapsed ? "mt-2 mx-auto" : "ml-2"
-                        )}
-                        title={collapsed ? '사이드바 펼치기' : '사이드바 접기'}
+                        className="w-full flex items-center justify-center p-1.5 mt-2 rounded-md text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/30 transition-colors"
+                        title="사이드바 펼치기"
                     >
-                        {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+                        <PanelLeftOpen className="w-4 h-4" />
                     </button>
                 )}
 
@@ -301,11 +309,13 @@ export function Sidebar({ className, onClose, collapsed = false, onToggleCollaps
             </nav>
 
             {/* User Menu */}
-            <div className="border-t border-sidebar-border">
-                <div className={clsx("p-4", collapsed && "px-2")}>
-                    {!collapsed && <UserMenu />}
+            {!collapsed && (
+                <div className="border-t border-sidebar-border">
+                    <div className="p-4">
+                        <UserMenu />
+                    </div>
                 </div>
-            </div>
+            )}
         </aside >
     )
 }

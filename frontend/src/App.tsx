@@ -37,12 +37,10 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const toggleSidebar = useCallback(() => setIsSidebarCollapsed(prev => !prev), [])
   const location = useLocation()
 
-  // Auto-collapse sidebar on detail routes
+  // Auto-collapse sidebar on detail routes, auto-expand on others
   useEffect(() => {
     const isDetailRoute = DETAIL_ROUTE_PATTERNS.some(pattern => pattern.test(location.pathname))
-    if (isDetailRoute) {
-      setIsSidebarCollapsed(true)
-    }
+    setIsSidebarCollapsed(isDetailRoute)
   }, [location.pathname])
 
   return (
