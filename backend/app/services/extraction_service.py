@@ -456,7 +456,7 @@ class ExtractionService:
                     log_id_to_update, 
                     status=ExtractionStatus.SUCCESS.value,
                     preview_data=cosmos_preview,  # Blob refs only, not raw data
-                    extracted_data=flat_extracted, # Pass None is fine, update_log_status will derive if needed
+                    extracted_data=None, # Pass None is fine, update_log_status will derive if needed
                     debug_data=cosmos_debug
                 )
 
