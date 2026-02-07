@@ -733,7 +733,7 @@ async def _single_call_extraction(
         return {
             "guide_extracted": processed,
             "other_data": [],
-            "_beta_parsed_content": content_text,
+            "_beta_parsed_content": f"{content_text}\n{tables_context}" if tables_context else content_text,
             "_beta_ref_map": ref_map if ref_map else None,
             "_token_usage": llm_response.get("_token_usage"),
             "_beta_pipeline_stages": stages,

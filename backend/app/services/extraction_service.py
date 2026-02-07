@@ -1111,6 +1111,12 @@ IMPORTANT:
         if "_beta_pipeline_stages" in raw_data:
             result["_beta_pipeline_stages"] = raw_data["_beta_pipeline_stages"]
         
+        # Preserve Beta Parsed Content (for Parsed Text tab — includes tables as markdown)
+        if raw_data.get("_beta_parsed_content"):
+            result["_beta_parsed_content"] = raw_data["_beta_parsed_content"]
+        if raw_data.get("_beta_ref_map"):
+            result["_beta_ref_map"] = raw_data["_beta_ref_map"]
+        
         # Preserve LLM error info (for diagnostics)
         if "error" in raw_data:
             result["error"] = raw_data["error"]
