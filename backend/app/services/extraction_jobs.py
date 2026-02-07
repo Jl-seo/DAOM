@@ -3,6 +3,7 @@ Extraction Jobs Service
 Job-based async extraction processing with status tracking
 """
 import logging
+import json as _json
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, ConfigDict
@@ -157,6 +158,37 @@ def update_job(
             job_data["error"] = error
         job_data["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         
+        # Safety: Cosmos DB has 2MB document size limit
+        # Truncate large fields if total payload is too big
+        try:
+            payload_size = len(_json.dumps(job_data, ensure_ascii=False, default=str))
+            if payload_size > 1_800_000:  # 1.8MB threshold (leave margin)
+                logger.warning(f"[ExtractionJobs] Payload too large ({payload_size} bytes), truncating large fields")
+                # Truncate raw_tables in preview_data (biggest offender)
+                if "preview_data" in job_data and isinstance(job_data["preview_data"], dict):
+                    pd = job_data["preview_data"]
+                    if "raw_tables" in pd:
+                        tables = pd["raw_tables"]
+                        if isinstance(tables, list):
+                            for tbl in tables:
+                                if isinstance(tbl, dict) and "cells" in tbl:
+                                    # Keep only first 200 cells
+                                    original_count = len(tbl["cells"])
+                                    tbl["cells"] = tbl["cells"][:200]
+                                    tbl["_truncated"] = True
+                                    tbl["_original_cell_count"] = original_count
+                # Truncate debug_data if still too large
+                if "debug_data" in job_data and isinstance(job_data["debug_data"], dict):
+                    dd = job_data["debug_data"]
+                    # Remove raw OCR content from debug (it's saved in blob separately)
+                    for key in ["raw_ocr_content", "ocr_pages", "raw_response"]:
+                        if key in dd and isinstance(dd[key], (str, list)) and len(str(dd[key])) > 50000:
+                            dd[key] = f"[TRUNCATED - {len(str(dd[key]))} chars - see blob storage]"
+                payload_size_after = len(_json.dumps(job_data, ensure_ascii=False, default=str))
+                logger.info(f"[ExtractionJobs] Payload after truncation: {payload_size_after} bytes")
+        except Exception as size_err:
+            logger.warning(f"[ExtractionJobs] Size check failed (non-fatal): {size_err}")
+        
         # Upsert
         container.upsert_item(body=job_data)
         
@@ -204,7 +236,8 @@ def update_job(
         return job
         
     except Exception as e:
-        logger.info(f"[ExtractionJobs] Failed to update job: {e}")
+        import traceback
+        logger.error(f"[ExtractionJobs] Failed to update job {job_id}: {e}\n{traceback.format_exc()}")
     
     return None
 
