@@ -716,22 +716,29 @@ IMPORTANT:
                 language="ko",
             )
             
-            # DIAGNOSTIC: Log result shape
-            logger.info(f"[LLM-Beta] Result keys: {list(llm_result.keys())}")
-            guide = llm_result.get("guide_extracted") or {}
-            logger.info(f"[LLM-Beta] guide_extracted: {len(guide)} fields")
-            for k in list(guide.keys())[:3]:
-                logger.info(f"[LLM-Beta] guide_extracted['{k}']: {str(guide[k])[:200]}")
-            
-            chunking_info = llm_result.get("_beta_chunking_info")
-            if chunking_info:
-                logger.info(
-                    f"[LLM-Beta] Chunking: {chunking_info.get('successful_chunks')}"
-                    f"/{chunking_info.get('total_chunks')} chunks succeeded"
-                )
-                if chunking_info.get("errors"):
-                    for err in chunking_info["errors"]:
-                        logger.warning(f"[LLM-Beta] Chunk error: {err}")
+            # DIAGNOSTIC: Log result shape (wrapped in try/except — diagnostics must NEVER crash extraction)
+            try:
+                logger.info(f"[LLM-Beta] Result keys: {list(llm_result.keys()) if llm_result else 'None'}")
+                guide = llm_result.get("guide_extracted") or {}
+                logger.info(f"[LLM-Beta] guide_extracted: {len(guide)} fields")
+                for k in list(guide.keys())[:3]:
+                    logger.info(f"[LLM-Beta] guide_extracted['{k}']: {str(guide.get(k, ''))[:200]}")
+                
+                chunking_info = llm_result.get("_beta_chunking_info")
+                if chunking_info:
+                    logger.info(
+                        f"[LLM-Beta] Chunking: {chunking_info.get('successful_chunks')}"
+                        f"/{chunking_info.get('total_chunks')} chunks succeeded"
+                    )
+                    if chunking_info.get("errors"):
+                        for err in chunking_info["errors"]:
+                            logger.warning(f"[LLM-Beta] Chunk error: {err}")
+            except Exception as diag_err:
+                logger.warning(f"[LLM-Beta] Diagnostic logging failed (non-fatal): {diag_err}")
+
+            # Ensure guide_extracted is never None
+            if not llm_result.get("guide_extracted"):
+                llm_result["guide_extracted"] = {}
 
             # Ensure raw_content is attached (OCR original text)
             if "raw_content" not in llm_result:
