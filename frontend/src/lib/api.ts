@@ -15,9 +15,9 @@ import { loginRequest } from '../auth/authConfig'
 const apiClient: AxiosInstance = axios.create({
     baseURL: API_CONFIG.BASE_URL,
     timeout: 30000,
-    headers: {
-        'Content-Type': 'application/json',
-    },
+    // NOTE: Do NOT set default Content-Type here.
+    // FormData needs the browser to auto-set multipart/form-data with boundary.
+    // JSON Content-Type is set dynamically in the request interceptor below.
 })
 
 // Request interceptor for auth token
