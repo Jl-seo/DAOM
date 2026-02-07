@@ -436,6 +436,14 @@ async def process_beta_chunk(
     prompt_size = len(user_prompt)
     logger.info(f"[{chunk_label}] Prompt size: {prompt_size} chars ({prompt_size // CHARS_PER_TOKEN} est. tokens)")
 
+    # TOKEN AUDIT: Accurate token counting for optimization
+    try:
+        from app.services.token_audit import audit_prompt
+        audit = audit_prompt(system_prompt, user_prompt)
+        logger.info(f"[{chunk_label}] TOKEN AUDIT:\n{audit['summary']}")
+    except Exception:
+        pass  # Non-fatal: audit is diagnostic only
+
     # 3. LLM call with retry
     last_error = None
     for attempt in range(max_retries):
@@ -816,6 +824,21 @@ async def _single_call_extraction(
             "field_keys": [f.key for f in model_info.fields][:10] if hasattr(model_info, 'fields') else [],
         }
         logger.info(f"[BetaSingle] Stage 2 OK: sys={len(system_prompt)}, user={len(user_prompt)} chars")
+
+        # TOKEN AUDIT: Accurate token counting for optimization
+        try:
+            from app.services.token_audit import audit_prompt
+            audit = audit_prompt(system_prompt, user_prompt)
+            stages["2_token_audit"] = {
+                "system_tokens": audit["system_tokens"],
+                "user_tokens": audit["user_tokens"],
+                "total_est": audit["total"],
+                "tab_waste": audit["tab_count"],
+                "recommendations": audit["recommendations"][:3],
+            }
+            logger.info(f"[BetaSingle] TOKEN AUDIT:\n{audit['summary']}")
+        except Exception:
+            pass  # Non-fatal
 
         # Stage 3: LLM call
         llm_response = await call_llm_single(system_prompt, user_prompt, model_info=model_info)

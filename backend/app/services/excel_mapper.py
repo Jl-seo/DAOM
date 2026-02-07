@@ -266,17 +266,19 @@ class ExcelMapper:
         page_height = row_count * CELL_HEIGHT
         cell_width = page_width / col_count
 
-        # Build content string — OPTIMIZATION: skip consecutive empty cells
+        # Build content string — TOKEN-OPTIMIZED FORMAT
+        # Use pipe-separated (|) instead of tabs (\t).
+        # Why: Each \t = 1 token. 106 rows × 15 tabs = 1,590 wasted tokens.
+        # Pipe is part of surrounding word tokens, not a separate token.
         content_lines = []
         for row in rows:
-            # Only include non-empty cells with their column context
-            non_empty_parts = []
-            for cell in row:
-                non_empty_parts.append(cell.strip() if cell.strip() else "")
-            # Remove trailing empty cells
-            while non_empty_parts and not non_empty_parts[-1]:
-                non_empty_parts.pop()
-            content_lines.append("\t".join(non_empty_parts))
+            # Strip each cell, remove trailing empties
+            parts = [cell.strip() for cell in row]
+            while parts and not parts[-1]:
+                parts.pop()
+            if not parts:
+                continue  # Skip fully empty rows
+            content_lines.append("|".join(parts))
         content = "\n".join(content_lines)
 
         # Build words (each non-empty cell as a word)
@@ -309,7 +311,7 @@ class ExcelMapper:
                 line_y1 = row_idx * CELL_HEIGHT
                 line_y2 = (row_idx + 1) * CELL_HEIGHT
                 lines.append({
-                    "content": "\t".join(line_content_parts),
+                    "content": "|".join(line_content_parts),
                     "polygon": [0, line_y1, page_width, line_y1, page_width, line_y2, 0, line_y2]
                 })
 
