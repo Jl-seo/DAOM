@@ -309,10 +309,19 @@ class ExtractionService:
                 "raw_tables": doc_intel_output.get("tables", [])
             }
             
+            # Also flatten extracted_data from first sub_document for backward compatibility
+            # Frontend polling reads job.extracted_data, so it must be populated
+            flat_extracted = {}
+            if sub_documents and len(sub_documents) > 0:
+                first_doc = sub_documents[0]
+                if isinstance(first_doc, dict) and "data" in first_doc:
+                    flat_extracted = first_doc["data"].get("guide_extracted", {})
+            
             result = extraction_jobs.update_job(
                 job_id, 
                 status=ExtractionStatus.SUCCESS.value, 
                 preview_data=preview_payload,
+                extracted_data=flat_extracted,  # CRITICAL: Frontend needs this for polling
                 debug_data=debug_info_final # ATOMIC UPDATE
             )
             

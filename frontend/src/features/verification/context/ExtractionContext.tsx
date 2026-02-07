@@ -155,17 +155,22 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
             // Load job data from API
             apiClient.get(`/extraction/job/${initialJobId}`)
                 .then(res => {
-                    const { status: jobStatus, result: jobResult, preview_data } = res.data
+                    const { status: jobStatus, extracted_data, preview_data } = res.data
                     setCurrentJobId(initialJobId)
 
-                    if (jobStatus === 'completed' && jobResult) {
+                    // Check for S100 (SUCCESS) or legacy 'completed'
+                    if ((jobStatus === EXTRACTION_STATUS.SUCCESS || jobStatus === 'completed') && (extracted_data || preview_data)) {
                         setStatus(EXTRACTION_STATUS.PREVIEW_READY)
-                        setPreviewData({
-                            ...preview_data,
-                            model_fields: preview_data?.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
-                        })
+                        setResult(extracted_data || null)
+                        if (preview_data) {
+                            setPreviewData({
+                                ...preview_data,
+                                model_fields: preview_data?.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
+                            })
+                        }
                         setActiveStep('review')
-                    } else if (jobStatus === 'processing' || jobStatus === 'analyzing') {
+                    } else if (jobStatus === EXTRACTION_STATUS.ANALYZING || jobStatus === EXTRACTION_STATUS.REFINING ||
+                        jobStatus === 'processing' || jobStatus === 'analyzing') {
                         setStatus(EXTRACTION_STATUS.ANALYZING)
                         setActiveStep('upload')
                         startPolling(initialJobId)
