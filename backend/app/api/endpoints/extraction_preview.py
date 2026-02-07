@@ -56,10 +56,48 @@ class StartExtractionRequest(BaseModel):
 async def process_extraction_job(job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None, candidate_filenames: Optional[List[str]] = None):
     """Background task to run full extraction pipeline"""
     logger.info(f"[Background] Starting extraction job {job_id}")
+    import mimetypes
+    from app.services.storage import download_blob_to_bytes
+
     try:
+        # 1. Update Status to Analyzing
+        extraction_jobs.update_job(job_id, status="analyzing")
+
+        # 2. Download File
+        try:
+            file_content = await download_blob_to_bytes(file_url)
+            logger.info(f"[Background] Downloaded {len(file_content)} bytes from {file_url}")
+        except Exception as e:
+            error_msg = f"Failed to download file: {str(e)}"
+            logger.error(f"[Background] {error_msg}")
+            extraction_jobs.update_job(job_id, status="error", error=error_msg)
+            return
+
+        # 3. Detect MIME type
+        filename = file_url.split('/')[-1]
+        mime_type, _ = mimetypes.guess_type(filename)
+        
+        # 4. Call Pure Extraction Service
         from app.services.extraction_service import extraction_service
-        await extraction_service.run_extraction_pipeline(job_id, model_id, file_url, candidate_file_url, candidate_file_urls, candidate_filenames)
+        result = await extraction_service.run_extraction_pipeline(
+            file_content=file_content,
+            model_id=model_id,
+            filename=filename,
+            mime_type=mime_type or ""
+        )
+        
+        # 5. Handle Result
+        if "error" in result:
+             extraction_jobs.update_job(job_id, status="error", error=result["error"])
+        else:
+             extraction_jobs.update_job(
+                job_id, 
+                status="preview_ready", 
+                preview_data=result
+            )
+
         logger.info(f"[Background] Completed extraction job {job_id}")
+
     except Exception as e:
         logger.info(f"[Background] FATAL ERROR in job {job_id}: {e}")
         import traceback

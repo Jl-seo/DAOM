@@ -70,15 +70,56 @@ async def run_extraction_with_metadata(
     filenames: List[str],
     metadata: Optional[Dict[str, Any]] = None
 ):
+async def run_extraction_with_metadata(
+    job_id: str,
+    model_id: str,
+    file_urls: List[str],
+    filenames: List[str],
+    metadata: Optional[Dict[str, Any]] = None
+):
     """Run extraction and store metadata alongside results"""
     from app.services.extraction_service import extraction_service
+    from app.services.extraction_jobs import update_job
+    from app.services.storage import download_blob_to_bytes
+    import mimetypes
 
     try:
-        # Run the actual extraction
-        # Calls the polymorphic run_extraction_pipeline
-        await extraction_service.run_extraction_pipeline(job_id, model_id, file_urls, filenames)
+        # 1. Update Status
+        update_job(job_id, status="analyzing")
 
-        # Update log with metadata if provided
+        # 2. Download Primary File
+        primary_url = file_urls[0]
+        try:
+            file_content = await download_blob_to_bytes(primary_url)
+        except Exception as e:
+             logger.error(f"[Connector] Failed to download {primary_url}: {e}")
+             update_job(job_id, status="error", error=f"Download failed: {e}")
+             return
+
+        # 3. Detect MIME
+        filename = filenames[0] if filenames else "unknown"
+        mime_type, _ = mimetypes.guess_type(filename)
+
+        # 4. Call Pure Extraction
+        result = await extraction_service.run_extraction_pipeline(
+            file_content=file_content,
+            model_id=model_id,
+            filename=filename,
+            mime_type=mime_type or ""
+        )
+        
+        # 5. Handle Result
+        if "error" in result:
+             update_job(job_id, status="error", error=result["error"])
+        else:
+             # Success -> Update Job
+             update_job(
+                job_id, 
+                status="preview_ready", 
+                preview_data=result
+            )
+
+        # 6. Update log with metadata if provided
         if metadata:
             log = extraction_logs.get_log(job_id)
             if log:
@@ -95,6 +136,7 @@ async def run_extraction_with_metadata(
                 )
     except Exception as e:
         logger.error(f"[Connector] Extraction failed for job {job_id}: {e}")
+        update_job(job_id, status="error", error=str(e))
 
 
 # ============================================

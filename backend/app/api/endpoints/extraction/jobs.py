@@ -18,18 +18,57 @@ router = APIRouter()
 async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str], filenames: List[str] = None):
     """Background task to run full extraction pipeline (Multi-file)"""
     from app.services.extraction_service import extraction_service
+    from app.services.storage import download_blob_to_bytes
+    import mimetypes
+
     # Pass necessary mapping for file_id generation if needed
     user_id = "bg-task" # TODO: Pass user_id
     filename = filenames[0] if filenames else "unknown"
+    
+    logger.info(f"[Background] Starting job {job_id} (Files: {len(file_urls)})")
+    
+    try:
+        # 1. Update Status
+        extraction_jobs.update_job(job_id, status="analyzing")
 
-    await extraction_service.run_extraction_pipeline(
-        file_urls=file_urls,
-        model_id=model_id,
-        user_id=user_id,
-        filename=filename,
-        job_id=job_id,
-        filenames=filenames
-    )
+        # 2. Download Primary File (Index 0)
+        # TODO: Handle multi-file extraction if model supports it (Legacy code handled only primary)
+        primary_url = file_urls[0]
+        try:
+            file_content = await download_blob_to_bytes(primary_url)
+            logger.info(f"[Background] Downloaded {len(file_content)} bytes from {primary_url}")
+        except Exception as e:
+            error_msg = f"Failed to download file: {str(e)}"
+            logger.error(f"[Background] {error_msg}")
+            extraction_jobs.update_job(job_id, status="error", error=error_msg)
+            return
+
+        # 3. Detect MIME
+        mime_type, _ = mimetypes.guess_type(filename)
+
+        # 4. Call Pure Extraction Service
+        result = await extraction_service.run_extraction_pipeline(
+            file_content=file_content,
+            model_id=model_id,
+            filename=filename,
+            mime_type=mime_type or ""
+        )
+        
+        # 5. Handle Result
+        if "error" in result:
+             extraction_jobs.update_job(job_id, status="error", error=result["error"])
+        else:
+             extraction_jobs.update_job(
+                job_id, 
+                status="preview_ready", 
+                preview_data=result
+            )
+            
+        logger.info(f"[Background] Job {job_id} completed successfully.")
+        
+    except Exception as e:
+        logger.error(f"[Background] Fatal error in job {job_id}: {e}", exc_info=True)
+        extraction_jobs.update_job(job_id, status="error", error=str(e))
 
 
 @router.post("/start-job")
