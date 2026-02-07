@@ -443,8 +443,9 @@ class ExtractionService:
             )
             
             if not result:
-                logger.error(f"[Pipeline] update_job returned None for job {job_id} — check [ExtractionJobs] logs above for step failure")
-                extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error="Failed to save extraction results")
+                diag_reason = extraction_jobs.get_last_update_error() or "unknown"
+                logger.error(f"[Pipeline] update_job returned None for job {job_id}: {diag_reason}")
+                extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=f"Failed to save extraction results [{diag_reason}]")
                 return
             
             

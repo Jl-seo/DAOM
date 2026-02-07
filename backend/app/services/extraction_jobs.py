@@ -118,6 +118,11 @@ def get_job(job_id: str) -> Optional[ExtractionJob]:
     return None
 
 
+_last_update_error: Optional[str] = None  # Module-level diagnostic
+
+def get_last_update_error() -> Optional[str]:
+    return _last_update_error
+
 def update_job(
     job_id: str,
     status: Optional[str] = None,
@@ -127,9 +132,13 @@ def update_job(
     error: Optional[str] = None
 ) -> Optional[ExtractionJob]:
     """Update job status and data — v2026.02.07 (blob-unified)"""
+    global _last_update_error
+    _last_update_error = None
+    
     container = get_extractions_container()
     if not container:
-        logger.error(f"[ExtractionJobs] update_job({job_id}): FAIL at step 0 — container is None")
+        _last_update_error = "step0: Cosmos container is None"
+        logger.error(f"[ExtractionJobs] update_job({job_id}): {_last_update_error}")
         return None
     
     try:
@@ -143,7 +152,8 @@ def update_job(
         ))
         
         if not items:
-            logger.error(f"[ExtractionJobs] update_job({job_id}): FAIL at step 1 — job not found in Cosmos")
+            _last_update_error = f"step1: job {job_id} not found in Cosmos (type={ExtractionType.JOB.value})"
+            logger.error(f"[ExtractionJobs] update_job({job_id}): {_last_update_error}")
             return None
         
         job_data = items[0]
@@ -243,7 +253,8 @@ def update_job(
         
     except Exception as e:
         import traceback
-        logger.error(f"[ExtractionJobs] update_job({job_id}): EXCEPTION at step 2/3: {type(e).__name__}: {e}\n{traceback.format_exc()}")
+        _last_update_error = f"step2/3 exception: {type(e).__name__}: {e}"
+        logger.error(f"[ExtractionJobs] update_job({job_id}): {_last_update_error}\n{traceback.format_exc()}")
     
     return None
 
