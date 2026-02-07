@@ -70,13 +70,7 @@ async def run_extraction_with_metadata(
     filenames: List[str],
     metadata: Optional[Dict[str, Any]] = None
 ):
-async def run_extraction_with_metadata(
-    job_id: str,
-    model_id: str,
-    file_urls: List[str],
-    filenames: List[str],
-    metadata: Optional[Dict[str, Any]] = None
-):
+
     """Run extraction and store metadata alongside results"""
     from app.services.extraction_service import extraction_service
     from app.services.extraction_jobs import update_job
