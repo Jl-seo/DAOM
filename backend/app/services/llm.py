@@ -401,8 +401,23 @@ async def call_llm_single(
     """
     client = get_openai_client()
 
+    # Detect table-type models: strict Structured Outputs can't enforce dynamic
+    # table column names and its token overhead limits row count. Use json_object
+    # mode instead and rely on the prompt for schema enforcement.
+    is_table_model = False
+    if model_info:
+        if getattr(model_info, 'data_structure', None) == 'table':
+            is_table_model = True
+        elif hasattr(model_info, 'fields') and model_info.fields:
+            is_table_model = any(
+                getattr(f, 'type', '') == 'table' for f in model_info.fields
+            )
+
     # Build response format
-    if model_info and hasattr(model_info, 'fields') and model_info.fields:
+    if is_table_model:
+        response_format = {"type": "json_object"}
+        logger.info("[LLM-Single] Table model detected — using json_object (no strict schema)")
+    elif model_info and hasattr(model_info, 'fields') and model_info.fields:
         try:
             schema = build_extraction_schema(model_info)
             response_format = {
@@ -420,6 +435,9 @@ async def call_llm_single(
     else:
         response_format = {"type": "json_object"}
 
+    # GPT-4.1: max output = 52K tokens. Table extraction needs more for many rows.
+    max_tokens = 32768 if is_table_model else 8192
+
     try:
         response = await client.chat.completions.create(
             model=_current_model,
@@ -427,7 +445,8 @@ async def call_llm_single(
                 {"role": "system", "content": system_prompt + "\n\nIMPORTANT: Respond with valid JSON only."},
                 {"role": "user", "content": user_prompt}
             ],
-            response_format=response_format
+            response_format=response_format,
+            max_tokens=max_tokens,
         )
 
         result_content = response.choices[0].message.content

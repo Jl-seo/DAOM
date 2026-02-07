@@ -62,10 +62,37 @@ INSTRUCTIONS FOR REFERENCE DATA:
                 prompt += f"  Refinement Rule: {field.rules}\n"
             prompt += f"  Type: {field.type}\n"
 
-        # 4. Output Formatting & Language — branched by data_structure
-        # 4. Output Formatting (Optimized for Structured Outputs)
-        # We use JSON Schema enforcement, so verbose definitions and examples are REDUNDANT and waste tokens.
-        prompt += f"""
+        # 4. Output Formatting — branched by data_structure for token efficiency
+        data_structure = getattr(model_info, 'data_structure', 'data')
+        is_table = data_structure == 'table' or any(
+            getattr(f, 'type', '') == 'table' for f in model_info.fields
+        )
+
+        if is_table:
+            # TABLE MODE: Compact format to maximize row count within token budget.
+            # Per-cell {value, confidence, source_text} wrappers waste ~80% of tokens.
+            prompt += f"""
+OUTPUT INSTRUCTIONS (TABLE MODE):
+You must extract ALL rows from the document. Do NOT truncate or sample.
+
+Return a JSON object where each table-type field is an array of flat objects.
+Use the EXACT field keys from the description as column names.
+Do NOT wrap each cell in {{"value": ..., "confidence": ...}} — output flat values directly.
+
+Example format:
+{{
+  "Rate_Explosion_List": [
+    {{"항로": "부산", "POL": "BUSAN", "POD": "AALBORG", "Rate_20FT": 1985}},
+    {{"항로": "광양", "POL": "GWANGYANG", "POD": "AALBORG", "Rate_20FT": 2035}}
+  ]
+}}
+
+CRITICAL: Extract EVERY row. Missing rows is unacceptable.
+
+LANGUAGE: Translate values to {language} unless the field rule says otherwise.
+"""
+        else:
+            prompt += f"""
 OUTPUT INSTRUCTIONS:
 User will provide the extraction schema. You must strictly follow it.
 Extract ALL valid data rows/fields found in the document.
