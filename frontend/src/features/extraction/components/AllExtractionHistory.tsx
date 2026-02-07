@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { useExtractionActions } from '@/hooks/useExtractionActions'
-// import { useNavigate } from 'react-router-dom'
 import { Clock, Search, AlertTriangle, Check, ChevronsUpDown } from 'lucide-react'
 import {
     Command,
@@ -19,17 +19,12 @@ import {
 import { cn } from "@/lib/utils"
 import { apiClient, modelsApi, usersApi } from '../../../lib/api'
 
-import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { ExtractionLogTable } from './ExtractionLogTable'
 import type { ExtractionLog } from '../../verification/types'
 import { isSuccessStatus, isErrorStatus, isProcessingStatus } from '../../verification/constants/status'
-
-interface AllExtractionHistoryProps {
-    onNavigate?: (path: string) => void
-}
 
 const Combobox = ({ value, onChange, options, placeholder, searchPlaceholder }: any) => {
     const [open, setOpen] = useState(false)
@@ -100,7 +95,8 @@ const Combobox = ({ value, onChange, options, placeholder, searchPlaceholder }: 
     )
 }
 
-export function AllExtractionHistory({ onNavigate }: AllExtractionHistoryProps) {
+export function AllExtractionHistory() {
+    const navigate = useNavigate()
     const { handleDownload, handleRetry, handleDelete, handleCancel } = useExtractionActions()
     const [modelFilter, setModelFilter] = useState<string>('all')
     const [userFilter, setUserFilter] = useState<string>('all')
@@ -175,12 +171,8 @@ export function AllExtractionHistory({ onNavigate }: AllExtractionHistoryProps) 
 
 
     const handleView = (log: ExtractionLog) => {
-        // Navigate to the model page
-        // Ideally we would pass the log ID to open it, but for now we just go to the model
-        if (onNavigate) {
-            onNavigate(`model-${log.model_id}`)
-            toast.info('해당 모델 페이지로 이동합니다.')
-        }
+        // Navigate to the model page with the job ID for deep linking
+        navigate(`/extractions/${log.id}`)
     }
 
     return (

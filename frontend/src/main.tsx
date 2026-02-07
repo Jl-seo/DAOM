@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
 import { PublicClientApplication } from '@azure/msal-browser'
 import { MsalProvider } from '@azure/msal-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -19,16 +20,18 @@ const queryClient = new QueryClient()
 msalInstance.initialize().then(() => {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <SiteConfigProvider>
-        <QueryClientProvider client={queryClient}>
-          <MsalProvider instance={msalInstance}>
-            <AuthProvider>
-              <Toaster position="top-right" richColors />
-              <App />
-            </AuthProvider>
-          </MsalProvider>
-        </QueryClientProvider>
-      </SiteConfigProvider>
+      <BrowserRouter>
+        <SiteConfigProvider>
+          <QueryClientProvider client={queryClient}>
+            <MsalProvider instance={msalInstance}>
+              <AuthProvider>
+                <Toaster position="top-right" richColors />
+                <App />
+              </AuthProvider>
+            </MsalProvider>
+          </QueryClientProvider>
+        </SiteConfigProvider>
+      </BrowserRouter>
     </StrictMode>,
   )
 })

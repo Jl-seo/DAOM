@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { LogOut, User, ChevronDown, Settings, Sun, Moon, Globe } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../auth'
 import { useSiteConfig } from './SiteConfigProvider'
-import type { MenuId } from './Sidebar'
 
 // Locale configuration
 const LOCALES = ['ko', 'en'] as const
@@ -13,11 +13,8 @@ const LOCALE_NAMES: Record<LocaleType, string> = {
     en: 'English'
 }
 
-interface UserMenuProps {
-    onMenuChange?: (menu: MenuId) => void
-}
-
-export function UserMenu({ onMenuChange }: UserMenuProps) {
+export function UserMenu() {
+    const navigate = useNavigate()
     const { user, logout } = useAuth()
     const { updateConfig, resolvedTheme } = useSiteConfig()
     const { t, i18n } = useTranslation()
@@ -91,7 +88,7 @@ export function UserMenu({ onMenuChange }: UserMenuProps) {
                         <button
                             onClick={() => {
                                 setIsOpen(false)
-                                onMenuChange?.('profile')
+                                navigate('/profile')
                             }}
                             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
                         >
@@ -102,7 +99,7 @@ export function UserMenu({ onMenuChange }: UserMenuProps) {
                         <button
                             onClick={() => {
                                 setIsOpen(false)
-                                onMenuChange?.('settings-general')
+                                navigate('/admin/settings')
                             }}
                             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
                         >

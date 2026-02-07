@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { FileText, ArrowRight, CircleNotch, SquaresFour, PlusCircle, Sparkle, MagnifyingGlass, GitDiff, Stack } from '@phosphor-icons/react'
 import axios from 'axios'
@@ -19,14 +20,10 @@ interface Model {
     model_type?: 'extraction' | 'comparison'
 }
 
-interface ModelGalleryProps {
-    onSelectModel: (modelId: string) => void
-    onNavigate: (menuId: string) => void
-}
-
 type TabType = 'all' | 'extraction' | 'comparison'
 
-export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
+export function ModelGallery() {
+    const navigate = useNavigate()
     const { t } = useTranslation()
     const [models, setModels] = useState<Model[]>([])
     const [loading, setLoading] = useState(true)
@@ -125,7 +122,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
 
                         {isSuperAdmin && (
                             <button
-                                onClick={() => onNavigate('model-studio')}
+                                onClick={() => navigate('/admin/model-studio')}
                                 className="inline-flex items-center px-5 py-2.5 rounded-xl bg-primary text-white font-semibold hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
                             >
                                 <PlusCircle size={16} weight="bold" className="mr-2" />
@@ -196,7 +193,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                         </p>
                         {!searchQuery && isSuperAdmin && (
                             <button
-                                onClick={() => onNavigate('model-studio')}
+                                onClick={() => navigate('/admin/model-studio')}
                                 className="inline-flex items-center px-4 py-2 rounded-lg bg-primary text-white font-medium hover:bg-primary/90"
                             >
                                 <PlusCircle size={16} weight="bold" className="mr-2" />
@@ -211,7 +208,7 @@ export function ModelGallery({ onSelectModel, onNavigate }: ModelGalleryProps) {
                             return (
                                 <button
                                     key={model.id}
-                                    onClick={() => onSelectModel(model.id)}
+                                    onClick={() => navigate(`/models/${model.id}`)}
                                     className={clsx(
                                         "group relative flex flex-col p-4 rounded-xl border-2 transition-all duration-200 text-left",
                                         "hover:shadow-lg hover:-translate-y-0.5",

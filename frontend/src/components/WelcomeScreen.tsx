@@ -1,22 +1,11 @@
 import { FileText, Zap, Shield, ArrowRight, PlusCircle, Upload, Sparkles } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useSiteConfig } from './SiteConfigProvider'
 import { Card } from '@/components/ui/card'
 
-interface WelcomeScreenProps {
-    onGetStarted: () => void
-    onNavigate?: (menuId: string) => void
-}
-
-export function WelcomeScreen({ onGetStarted, onNavigate }: WelcomeScreenProps) {
+export function WelcomeScreen() {
+    const navigate = useNavigate()
     const { config } = useSiteConfig()
-
-    const handleNavigate = (menuId: string) => {
-        if (onNavigate) {
-            onNavigate(menuId)
-        } else {
-            onGetStarted()
-        }
-    }
 
     return (
         <div className="flex-1 flex items-start md:items-center justify-center bg-gradient-to-br from-primary/5 via-background to-chart-5/5 p-4 md:p-8 overflow-y-auto">
@@ -37,7 +26,7 @@ export function WelcomeScreen({ onGetStarted, onNavigate }: WelcomeScreenProps) 
                 {/* Quick Actions - 모바일에서 1열 */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-12">
                     <button
-                        onClick={() => handleNavigate('model-studio')}
+                        onClick={() => navigate('/admin/model-studio')}
                         className="group bg-card p-4 md:p-8 rounded-xl md:rounded-2xl border-2 border-border hover:border-primary shadow-sm hover:shadow-xl transition-all text-left"
                     >
                         <div className="flex items-start gap-3 md:gap-4">
@@ -60,7 +49,7 @@ export function WelcomeScreen({ onGetStarted, onNavigate }: WelcomeScreenProps) 
                     </button>
 
                     <button
-                        onClick={() => handleNavigate('model-gallery')}
+                        onClick={() => navigate('/models')}
                         className="group bg-card p-4 md:p-8 rounded-xl md:rounded-2xl border-2 border-border hover:border-chart-5 shadow-sm hover:shadow-xl transition-all text-left"
                     >
                         <div className="flex items-start gap-3 md:gap-4">

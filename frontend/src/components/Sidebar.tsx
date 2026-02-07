@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
     LayoutDashboard,
     FileText,
@@ -16,14 +17,6 @@ import { SidebarItem } from './SidebarItem'
 import { useSiteConfig } from './SiteConfigProvider'
 import { UserMenu } from './UserMenu'
 
-export type MenuId = 'home' | 'profile' | `model-${string}` | 'model-studio' | 'model-gallery' | 'extraction-history' | 'admin-dashboard' | 'admin-audit' | 'settings-general' | 'settings-users' | 'quick-extraction'
-
-interface SidebarProps {
-    activeMenu: MenuId
-    onMenuChange: (menu: MenuId) => void
-    onQuickExtraction?: () => void
-}
-
 interface Model {
     id: string
     name: string
@@ -31,7 +24,9 @@ interface Model {
     is_active?: boolean
 }
 
-export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className, onClose }: SidebarProps & { className?: string, onClose?: () => void }) {
+export function Sidebar({ className, onClose }: { className?: string, onClose?: () => void }) {
+    const navigate = useNavigate()
+    const location = useLocation()
     const { config } = useSiteConfig()
     const [expandedGroups, setExpandedGroups] = useState<string[]>(['models'])
 
@@ -53,27 +48,36 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
         )
     }
 
-    const handleMenuChange = (menu: MenuId) => {
-        onMenuChange(menu)
+    const handleNavigate = (path: string) => {
+        navigate(path)
         if (onClose) onClose()
     }
 
+    // Determine active menu from URL path
     const getActiveGroup = () => {
-        if (activeMenu.startsWith('model-')) return 'models'
-        if (activeMenu === 'model-studio') return 'admin-model'
-        if (activeMenu.startsWith('admin-') || activeMenu === 'settings-users' || activeMenu === 'settings-general') return 'admin'
-        if (activeMenu.startsWith('settings-')) return 'settings'
+        if (location.pathname.startsWith('/models/')) return 'models'
+        if (location.pathname === '/models') return 'models'
+        if (location.pathname === '/admin/model-studio') return 'admin-model'
+        if (location.pathname.startsWith('/admin/')) return 'admin'
         return null
     }
 
     const activeGroup = getActiveGroup()
+
+    // Check if specific path is active
+    const isPathActive = (path: string) => {
+        if (path === '/models' && location.pathname === '/models') return true
+        if (path !== '/models' && location.pathname === path) return true
+        if (path.startsWith('/models/') && location.pathname.startsWith(path)) return true
+        return false
+    }
 
     return (
         <aside className={clsx("bg-sidebar text-sidebar-foreground flex flex-col h-full", className || "w-64")}>
             {/* Logo */}
             <div className="p-6 border-b border-sidebar-border">
                 <button
-                    onClick={() => handleMenuChange('model-gallery')}
+                    onClick={() => handleNavigate('/models')}
                     className="flex items-center gap-3 w-full text-left hover:opacity-80 transition-opacity"
                 >
                     {config.logoUrl ? (
@@ -94,13 +98,10 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                 </button>
 
                 <button
-                    onClick={() => {
-                        if (onQuickExtraction) onQuickExtraction()
-                        handleMenuChange('quick-extraction')
-                    }}
+                    onClick={() => handleNavigate('/quick-extraction')}
                     className={clsx(
                         "mt-6 w-full flex items-center justify-center gap-2 font-semibold py-2.5 rounded-lg shadow-md transition-all active:scale-[0.98]",
-                        activeMenu === 'quick-extraction'
+                        location.pathname === '/quick-extraction'
                             ? "bg-sidebar-primary text-sidebar-primary-foreground"
                             : "bg-gradient-to-r from-primary to-chart-5 text-primary-foreground hover:opacity-90"
                     )}
@@ -140,17 +141,17 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                                     .map(model => (
                                         <button
                                             key={model.id}
-                                            onClick={() => handleMenuChange(`model-${model.id}` as MenuId)}
+                                            onClick={() => handleNavigate(`/models/${model.id}`)}
                                             className={clsx(
                                                 "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                                                activeMenu === `model-${model.id}`
+                                                isPathActive(`/models/${model.id}`)
                                                     ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                                                     : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                                             )}
                                         >
                                             <span className="text-lg">📄</span>
                                             <span className="flex-1 text-left truncate">{model.name}</span>
-                                            {activeMenu === `model-${model.id}` && (
+                                            {isPathActive(`/models/${model.id}`) && (
                                                 <div className="w-1.5 h-1.5 rounded-full bg-sidebar-primary-foreground" />
                                             )}
                                         </button>
@@ -174,10 +175,10 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                     {expandedGroups.includes('admin-model') && (
                         <div className="mt-1 ml-4 space-y-1">
                             <button
-                                onClick={() => handleMenuChange('model-studio')}
+                                onClick={() => handleNavigate('/admin/model-studio')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                                    activeMenu === 'model-studio'
+                                    isPathActive('/admin/model-studio')
                                         ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                                         : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                                 )}
@@ -186,10 +187,10 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                                 <span className="flex-1 text-left">모델 스튜디오</span>
                             </button>
                             <button
-                                onClick={() => handleMenuChange('model-gallery')}
+                                onClick={() => handleNavigate('/models')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                                    activeMenu === 'model-gallery'
+                                    isPathActive('/models')
                                         ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                                         : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                                 )}
@@ -215,10 +216,10 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                     {expandedGroups.includes('admin') && (
                         <div className="mt-1 ml-4 space-y-1">
                             <button
-                                onClick={() => handleMenuChange('admin-dashboard')}
+                                onClick={() => handleNavigate('/admin/dashboard')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                                    activeMenu === 'admin-dashboard'
+                                    isPathActive('/admin/dashboard')
                                         ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                                         : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                                 )}
@@ -227,10 +228,10 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                                 <span className="flex-1 text-left">대시보드</span>
                             </button>
                             <button
-                                onClick={() => handleMenuChange('admin-audit')}
+                                onClick={() => handleNavigate('/admin/audit')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                                    activeMenu === 'admin-audit'
+                                    isPathActive('/admin/audit')
                                         ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                                         : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                                 )}
@@ -239,10 +240,10 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                                 <span className="flex-1 text-left">활동 로그</span>
                             </button>
                             <button
-                                onClick={() => handleMenuChange('settings-general')}
+                                onClick={() => handleNavigate('/admin/settings')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                                    activeMenu === 'settings-general'
+                                    isPathActive('/admin/settings')
                                         ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                                         : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                                 )}
@@ -251,10 +252,10 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                                 <span className="flex-1 text-left">일반 설정</span>
                             </button>
                             <button
-                                onClick={() => handleMenuChange('settings-users')}
+                                onClick={() => handleNavigate('/admin/users')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                                    activeMenu === 'settings-users'
+                                    isPathActive('/admin/users')
                                         ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                                         : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                                 )}
@@ -270,15 +271,15 @@ export function Sidebar({ activeMenu, onMenuChange, onQuickExtraction, className
                 <SidebarItem
                     icon={History}
                     label="전체 추출 기록"
-                    isActive={activeMenu === 'extraction-history'}
-                    onClick={() => handleMenuChange('extraction-history')}
+                    isActive={location.pathname === '/history'}
+                    onClick={() => handleNavigate('/history')}
                 />
 
             </nav>
 
             {/* User Menu */}
             <div className="p-4 border-t border-sidebar-border">
-                <UserMenu onMenuChange={handleMenuChange} />
+                <UserMenu />
             </div>
         </aside >
     )

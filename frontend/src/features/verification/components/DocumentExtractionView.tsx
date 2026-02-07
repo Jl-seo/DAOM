@@ -18,6 +18,7 @@ interface DocumentExtractionViewProps {
     modelId: string
     initialFile?: File | null
     onFileConsumed?: () => void
+    jobId?: string
 }
 
 function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId: string, initialFile?: File | null, onFileConsumed?: () => void }) {
@@ -175,7 +176,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
  */
 export function DocumentExtractionView(props: DocumentExtractionViewProps) {
     return (
-        <ExtractionProvider modelId={props.modelId}>
+        <ExtractionProvider modelId={props.modelId} initialJobId={props.jobId}>
             <ExtractionContainer {...props} />
         </ExtractionProvider>
     )

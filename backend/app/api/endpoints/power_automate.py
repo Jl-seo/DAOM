@@ -119,7 +119,36 @@ async def upload_document(
     - job_id 반환 (결과 조회용)
     """
     import json
+    import os
     
+    # ========== FILE TYPE VALIDATION ==========
+    # Check 1: Extension validation
+    ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'}
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"지원하지 않는 파일 확장자입니다: {file_ext}. PDF 또는 이미지 파일만 업로드 가능합니다."
+        )
+    
+    # Check 2: MIME type validation
+    ALLOWED_MIME_TYPES = {
+        'application/pdf',
+        'image/jpeg',
+        'image/png',
+        'image/tiff',
+        'image/bmp',
+        'image/x-ms-bmp'
+    }
+    
+    if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"지원하지 않는 파일 타입입니다: {file.content_type}. PDF 또는 이미지 파일만 업로드 가능합니다."
+        )
+    
+    # Parse metadata if provided
     # Parse metadata if provided
     parsed_metadata = None
     if metadata:
