@@ -512,7 +512,7 @@ graph LR
 - **엔드포인트**: `AZURE_AIPROJECT_ENDPOINT` (AI Foundry), fallback: `AZURE_OPENAI_ENDPOINT` (legacy)
 - **배포명**: `AZURE_OPENAI_DEPLOYMENT_NAME`으로 설정
 - **현재 모델**: **GPT-4.1** (max output: **52,000 토큰**, context window: 1M tokens)
-- **max_tokens 설정**: 테이블 모드 `32768`, 일반 모드 `8192`
+- **max_tokens 설정**: 테이블 모드 `50000`, 일반 모드 `8192`
 - **테이블 모드**: Structured Outputs 미사용 (json_object 모드). compact flat format으로 토큰 절약
 - **최적화**: 인덱스 참조 방식 (`[#idx]`)으로 토큰 절약
 

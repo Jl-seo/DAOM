@@ -436,7 +436,7 @@ async def call_llm_single(
         response_format = {"type": "json_object"}
 
     # GPT-4.1: max output = 52K tokens. Table extraction needs more for many rows.
-    max_tokens = 32768 if is_table_model else 8192
+    max_tokens = 50000 if is_table_model else 8192
 
     try:
         response = await client.chat.completions.create(
