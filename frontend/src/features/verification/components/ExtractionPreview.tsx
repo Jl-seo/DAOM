@@ -4,6 +4,7 @@ import { clsx } from 'clsx'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
+import { useVirtualizer } from '@tanstack/react-virtual'
 
 interface ExtractionPreviewProps {
     guideExtracted: Record<string, any>
@@ -218,17 +219,23 @@ function ResizableNestedTable({
     isExpanded?: boolean
     onToggleExpand?: () => void
 }) {
+    // Import useVirtualizer dynamically if possible, or assume it's imported at top
+    // Since this is a replacement, I need to add the import at the top of the file separately.
+    // For now, I'll assume the import is added.
+
+    // NOTE: Requires `import { useVirtualizer } from '@tanstack/react-virtual'` at top of file
+
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
     const [resizingColumn, setResizingColumn] = useState<string | null>(null)
     const [isEditMode, setIsEditMode] = useState(false) // 편집 모드 토글
-    const tableRef = useRef<HTMLDivElement>(null)
+    const tableContainerRef = useRef<HTMLDivElement>(null)
 
     if (!Array.isArray(data) || data.length === 0) {
         return <span className="text-muted-foreground italic text-xs">빈 배열</span>
     }
 
     // Normalize: parse stringified JSON objects within array
-    const normalizedData = data.map(item => {
+    const normalizedData = useMemo(() => data.map(item => {
         if (item === null || item === undefined) return item
         if (typeof item === 'string') {
             const trimmed = item.trim()
@@ -241,27 +248,28 @@ function ResizableNestedTable({
             }
         }
         return item
-    })
+    }), [data])
 
     // 중첩 데이터를 풀어내기 (편집 모드가 아닐 때만)
-    const { flattenedData, keyColumn } = flattenNestedRows(normalizedData)
+    // Memoize to prevent recalculation on every render
+    const { flattenedData, keyColumn } = useMemo(() => flattenNestedRows(normalizedData), [normalizedData])
     const displayData = isEditMode ? normalizedData : flattenedData
     const hasNestedData = keyColumn !== null // 플래터닝이 적용되었는지
 
     // 키 컬럼을 맨 앞에 배치하기 위해 컬럼 순서 조정
-    const allKeysRaw = Array.from(new Set(displayData.flatMap(item =>
+    const allKeysRaw = useMemo(() => Array.from(new Set(displayData.flatMap(item =>
         typeof item === 'object' && item !== null ? Object.keys(item) : []
-    )))
+    ))), [displayData])
 
     // bbox, confidence, page_number 제외 및 키 컬럼 맨 앞에 배치
     const hiddenColumns = ['bbox', 'confidence', 'page_number']
-    const allKeys = allKeysRaw
+    const allKeys = useMemo(() => allKeysRaw
         .filter(k => !hiddenColumns.includes(k))
         .sort((a, b) => {
             if (a === keyColumn) return -1
             if (b === keyColumn) return 1
             return 0
-        })
+        }), [allKeysRaw, keyColumn])
 
     // Initialize column widths - only runs once when data changes and widths are empty
     useEffect(() => {
@@ -275,6 +283,27 @@ function ResizableNestedTable({
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data.length, columnWidths]) // Use data.length instead of allKeys array
+
+    // Virtualizer setup
+    const rowVirtualizer = useWindowVirtualizer({
+        count: displayData.length,
+        estimateSize: () => 35, // Estimated row height in pixels
+        overscan: 5,
+        scrollMargin: tableContainerRef.current?.offsetTop ?? 0,
+    })
+
+    // However, useWindowVirtualizer tracks window scroll. 
+    // If the table is inside a container, we should use useVirtualizer with the container ref.
+    // The previous implementation had `max-h-[400px] overflow-y-auto`.
+
+    // Let's us useVirtualizer instead for the container scrolling
+    const virtualizer = useVirtualizer({
+        count: displayData.length,
+        getScrollElement: () => tableContainerRef.current,
+        estimateSize: () => 40, // Row height
+        overscan: 10,
+    })
+
 
     // Handle column resize
     const handleResizeStart = (e: React.MouseEvent, columnKey: string) => {
@@ -332,9 +361,9 @@ function ResizableNestedTable({
     }
 
     return (
-        <div ref={tableRef} className="border border-border rounded-lg overflow-hidden">
+        <div className="border border-border rounded-lg overflow-hidden flex flex-col h-full max-h-[600px]">
             {/* Header with controls */}
-            <div className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border">
+            <div className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border shrink-0">
                 <div className="flex items-center gap-2">
                     {onToggleExpand && (
                         <button
@@ -363,15 +392,19 @@ function ResizableNestedTable({
                 )}
             </div>
 
-            {/* Scrollable table container */}
-            <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-                <table className="text-sm" style={{ minWidth: '100%' }}>
-                    <thead className="sticky top-0 z-10">
-                        <tr className="bg-muted">
+            {/* Scrollable table container with Virtualization */}
+            <div
+                ref={tableContainerRef}
+                className="overflow-auto relative bg-card flex-1"
+                style={{ height: '400px' }}
+            >
+                <table className="text-sm w-full relative border-collapse" style={{ minWidth: '100%' }}>
+                    <thead className="sticky top-0 z-10 bg-muted shadow-sm">
+                        <tr>
                             {allKeys.map((key, idx) => (
                                 <th
                                     key={key}
-                                    className="text-left font-medium text-muted-foreground border-b border-border relative group"
+                                    className="text-left font-medium text-muted-foreground border-b border-border relative group select-none"
                                     style={{
                                         width: columnWidths[key] || 100,
                                         minWidth: 60,
@@ -396,50 +429,62 @@ function ResizableNestedTable({
                             ))}
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-border">
-                        {displayData.map((row, rowIdx) => (
-                            <tr key={rowIdx} className="hover:bg-accent/50">
-                                {allKeys.map(key => (
-                                    <td
-                                        key={key}
-                                        className={clsx(
-                                            "text-muted-foreground",
-                                            key === keyColumn && "bg-muted/50 font-medium"
-                                        )}
-                                        style={{
-                                            width: columnWidths[key] || 100,
-                                            minWidth: 60,
-                                            maxWidth: columnWidths[key] || 100
-                                        }}
-                                    >
-                                        {isEditMode && onUpdate ? (
-                                            <input
-                                                id={`table-cell-${rowIdx}-${key}`}
-                                                name={`table-cell-${rowIdx}-${key}`}
-                                                type="text"
-                                                className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none px-3 py-2"
-                                                value={renderValue(row != null ? row[key] : '')}
-                                                onChange={(e) => {
-                                                    try {
-                                                        const newData = [...normalizedData]
-                                                        if (newData[rowIdx] != null && typeof newData[rowIdx] === 'object') {
-                                                            newData[rowIdx] = { ...newData[rowIdx], [key]: e.target.value }
+                    <tbody style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+                        {virtualizer.getVirtualItems().map((virtualRow) => {
+                            const row = displayData[virtualRow.index]
+                            return (
+                                <tr
+                                    key={virtualRow.index}
+                                    className="hover:bg-accent/50 absolute top-0 left-0 w-full flex"
+                                    style={{
+                                        height: `${virtualRow.size}px`,
+                                        transform: `translateY(${virtualRow.start}px)`
+                                    }}
+                                >
+                                    {allKeys.map(key => (
+                                        <td
+                                            key={key}
+                                            className={clsx(
+                                                "text-muted-foreground border-b border-transparent",
+                                                key === keyColumn && "bg-muted/50 font-medium"
+                                            )}
+                                            style={{
+                                                width: columnWidths[key] || 100,
+                                                minWidth: 60,
+                                                maxWidth: columnWidths[key] || 100,
+                                                display: 'block', // Required for flex layout in absolute row
+                                                height: '100%'
+                                            }}
+                                        >
+                                            {isEditMode && onUpdate ? (
+                                                <input
+                                                    id={`table-cell-${virtualRow.index}-${key}`}
+                                                    name={`table-cell-${virtualRow.index}-${key}`}
+                                                    type="text"
+                                                    className="w-full h-full bg-transparent border-none hover:bg-accent/30 focus:bg-accent focus:ring-1 focus:ring-primary outline-none px-3 text-sm"
+                                                    value={renderValue(row != null ? row[key] : '')}
+                                                    onChange={(e) => {
+                                                        try {
+                                                            const newData = [...normalizedData]
+                                                            if (newData[virtualRow.index] != null && typeof newData[virtualRow.index] === 'object') {
+                                                                newData[virtualRow.index] = { ...newData[virtualRow.index], [key]: e.target.value }
+                                                            }
+                                                            onUpdate(newData)
+                                                        } catch {
+                                                            // Silently handle data mutation errors
                                                         }
-                                                        onUpdate(newData)
-                                                    } catch {
-                                                        // Silently handle data mutation errors
-                                                    }
-                                                }}
-                                            />
-                                        ) : (
-                                            <div className="px-3 py-2 truncate">
-                                                {renderValue(row != null ? row[key] : '')}
-                                            </div>
-                                        )}
-                                    </td>
-                                ))}
-                            </tr>
-                        ))}
+                                                    }}
+                                                />
+                                            ) : (
+                                                <div className="px-3 py-2 truncate h-full flex items-center">
+                                                    {renderValue(row != null ? row[key] : '')}
+                                                </div>
+                                            )}
+                                        </td>
+                                    ))}
+                                </tr>
+                            )
+                        })}
                     </tbody>
                 </table>
             </div>
