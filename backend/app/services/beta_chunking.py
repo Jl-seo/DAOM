@@ -710,13 +710,9 @@ async def extract_beta_with_chunking(
         - _token_usage: aggregated token usage
         - _beta_chunking_info: chunking metadata for debug
     """
-    if not needs_chunking(ocr_data):
-        # Small document: single-call path (no chunking overhead)
-        logger.info("[BetaChunk] Small document, using single-call path")
-        result = await _single_call_extraction(ocr_data, model_info, language)
-        return result
-
-    # Large document: chunk and process in parallel
+    # UNIFIED PATH: Always use chunking logic.
+    # Small documents will naturally result in 1 chunk.
+    # This ensures consistent behavior (Excel bypass, Prompt Opt) for all files.
     chunks = split_ocr_into_chunks(ocr_data)
     logger.info(f"[BetaChunk] Processing {len(chunks)} chunks with max {max_concurrent} concurrent")
 
