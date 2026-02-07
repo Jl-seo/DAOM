@@ -32,10 +32,18 @@ Context: {model_info.description or 'General Document'}
             prompt += f"\nGLOBAL REFINEMENT RULES:\n{model_info.global_rules}\n"
 
         # 3. Reference Data (Phase 1: Structured JSON for mapping/validation)
+        # 3. Reference Data (Phase 1: Structured JSON for mapping/validation)
         if model_info.reference_data:
+            ref_json = json.dumps(model_info.reference_data, ensure_ascii=False, indent=2)
+            # SAFETY: Truncate if massive (prevent 10K+ token bloat)
+            MAX_REF_CHARS = 10000
+            if len(ref_json) > MAX_REF_CHARS:
+                ref_json = ref_json[:MAX_REF_CHARS] + "\n... [TRUNCATED DUE TO SIZE]"
+                logger.warning(f"[Refiner] Reference data truncated (size: {len(ref_json)} chars)")
+
             prompt += f"""
 REFERENCE DATA (Use for value mapping, validation, and context):
-{json.dumps(model_info.reference_data, ensure_ascii=False, indent=2)}
+{ref_json}
 
 INSTRUCTIONS FOR REFERENCE DATA:
 - Use codes/mappings from reference_data for value transformation (e.g., customer code → name)
@@ -45,7 +53,6 @@ INSTRUCTIONS FOR REFERENCE DATA:
 """
 
         # 3. Field Instructions
-        is_table = getattr(model_info, 'data_structure', 'data') == 'table'
 
         prompt += "\nREQUIRED EXTRACTION FIELDS:\n"
         for field in model_info.fields:
@@ -56,53 +63,16 @@ INSTRUCTIONS FOR REFERENCE DATA:
             prompt += f"  Type: {field.type}\n"
 
         # 4. Output Formatting & Language — branched by data_structure
-        if is_table:
-            # Table mode: LLM returns array of row objects
-            field_keys = [f.key for f in model_info.fields]
-            prompt += f"""
-OUTPUT FORMAT (TABLE MODE):
-This document contains TABULAR/REPEATING data. Extract ALL rows from the document.
-Return a JSON object with a single key "rows" containing an array of row objects.
-
-Each row object MUST have:
-- One key per field listed above, where the value is the extracted cell value.
-- "_confidence": A number 0-1 for the overall row confidence.
-- "_source_text": A brief excerpt from the document identifying this row.
-
-Extract EVERY row you find — do NOT skip rows even if some cells are empty.
-For empty cells, use null as the value.
+        # 4. Output Formatting (Optimized for Structured Outputs)
+        # We use JSON Schema enforcement, so verbose definitions and examples are REDUNDANT and waste tokens.
+        prompt += f"""
+OUTPUT INSTRUCTIONS:
+User will provide the extraction schema. You must strictly follow it.
+Extract ALL valid data rows/fields found in the document.
 
 LANGUAGE INSTRUCTION:
 Translate values to {language} unless the field rule says otherwise.
 Do not translate '_source_text'.
-
-Example JSON Output:
-{{
-  "rows": [
-    {{ "{field_keys[0] if field_keys else 'col1'}": "value1", "{field_keys[1] if len(field_keys) > 1 else 'col2'}": "value2", "_confidence": 0.95, "_source_text": "Row 1 source" }},
-    {{ "{field_keys[0] if field_keys else 'col1'}": "value3", "{field_keys[1] if len(field_keys) > 1 else 'col2'}": "value4", "_confidence": 0.90, "_source_text": "Row 2 source" }}
-  ]
-}}
-"""
-        else:
-            # Standard mode: field-by-field extraction
-            prompt += f"""
-OUTPUT FORMAT:
-Return a valid JSON object where keys match the field keys above.
-For each field, return an object with:
-- "value": The extracted and refined value.
-- "confidence": A number between 0 and 1 indicating your confidence (1.0 = certain).
-- "source_text": The exact text found in the document that justifies this value (for coordinate mapping).
-
-LANGUAGE INSTRUCTION:
-Translate 'value' to {language} unless the field rule says otherwise.
-Do not translate 'source_text'.
-
-Example JSON Output:
-{{
-  "biz_name": {{ "value": "company", "confidence": 0.95, "source_text": "Company Inc." }},
-  "amount": {{ "value": 100, "confidence": 0.9, "source_text": "100.00" }}
-}}
 """
         return prompt
 
