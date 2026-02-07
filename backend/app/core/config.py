@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     # Azure OpenAI (Legacy - kept for backward compatibility)
     AZURE_OPENAI_ENDPOINT: str = ""
     AZURE_OPENAI_API_KEY: str = ""
-    AZURE_OPENAI_API_VERSION: str = "2024-05-01-preview"
+    AZURE_OPENAI_API_VERSION: str = "2025-03-01-preview"
     AZURE_OPENAI_DEPLOYMENT_NAME: str = ""
 
     # Azure Storage

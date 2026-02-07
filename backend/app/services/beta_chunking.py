@@ -240,7 +240,7 @@ async def process_beta_chunk(
     last_error = None
     for attempt in range(max_retries):
         try:
-            llm_response = await call_llm_single(system_prompt, user_prompt)
+            llm_response = await call_llm_single(system_prompt, user_prompt, model_info=model_info)
 
             if "error" in llm_response:
                 error_msg = llm_response["error"]
@@ -566,7 +566,7 @@ async def _single_call_extraction(
         user_prompt = f"Document Text:\n{content_text}\n{tables_context}"
 
         # 3. LLM call
-        llm_response = await call_llm_single(system_prompt, user_prompt)
+        llm_response = await call_llm_single(system_prompt, user_prompt, model_info=model_info)
 
         if "error" in llm_response:
             return {

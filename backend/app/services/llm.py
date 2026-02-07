@@ -323,19 +323,102 @@ async def analyze_document_content(
     # Calling close() after every request was causing connection issues on retry.
 
 
-async def call_llm_single(system_prompt: str, user_prompt: str) -> dict:
+def build_extraction_schema(model_info) -> dict:
     """
-    Stateless single LLM call. Used by beta_chunking for per-chunk extraction.
+    Build a JSON Schema from model fields for Structured Outputs.
+    
+    Converts ExtractionModel.fields into a JSON Schema that enforces:
+    - All field keys are present in the response
+    - Each field has value, confidence, and source_text
+    - No extra fields allowed (additionalProperties: false)
+    
+    Returns a schema dict suitable for response_format.json_schema.schema
+    """
+    # Build per-field schema
+    field_properties = {}
+    field_keys = []
+    
+    for field in model_info.fields:
+        key = field.key
+        field_keys.append(key)
+        
+        # Map FieldDefinition.type to JSON Schema type for "value"
+        value_type = _map_field_type(field.type)
+        
+        field_properties[key] = {
+            "type": "object",
+            "properties": {
+                "value": value_type,
+                "confidence": {"type": "number"},
+                "source_text": {"type": ["string", "null"]},
+            },
+            "required": ["value", "confidence", "source_text"],
+            "additionalProperties": False,
+        }
+    
+    schema = {
+        "type": "object",
+        "properties": field_properties,
+        "required": field_keys,
+        "additionalProperties": False,
+    }
+    
+    logger.info(f"[Schema] Built extraction schema with {len(field_keys)} fields: {field_keys}")
+    return schema
+
+
+def _map_field_type(field_type: str) -> dict:
+    """Map FieldDefinition.type to JSON Schema value type."""
+    type_map = {
+        "string": {"type": ["string", "null"]},
+        "number": {"type": ["number", "null"]},
+        "integer": {"type": ["integer", "null"]},
+        "boolean": {"type": ["boolean", "null"]},
+        "date": {"type": ["string", "null"]},
+        "array": {"type": ["array", "null"], "items": {"type": "string"}},
+        "table": {"type": ["array", "null"], "items": {"type": "object"}},
+    }
+    return type_map.get(field_type, {"type": ["string", "null"]})
+
+
+async def call_llm_single(
+    system_prompt: str,
+    user_prompt: str,
+    model_info=None,
+) -> dict:
+    """
+    Stateless single LLM call with optional Structured Outputs.
     
     Args:
         system_prompt: System prompt (e.g. from RefinerEngine.construct_prompt)
         user_prompt: User prompt with document content
+        model_info: Optional ExtractionModel. If provided, uses Structured Outputs
+                     to enforce field schema at the API level.
     
     Returns:
         On success: {"result": <parsed_json>, "_token_usage": {...}}
         On error: {"error": "<message>"}
     """
     client = get_openai_client()
+
+    # Build response format
+    if model_info and hasattr(model_info, 'fields') and model_info.fields:
+        try:
+            schema = build_extraction_schema(model_info)
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "extraction_result",
+                    "strict": True,
+                    "schema": schema,
+                }
+            }
+            logger.info(f"[LLM-Single] Using Structured Outputs with {len(model_info.fields)} field schema")
+        except Exception as e:
+            logger.warning(f"[LLM-Single] Schema build failed, falling back to json_object: {e}")
+            response_format = {"type": "json_object"}
+    else:
+        response_format = {"type": "json_object"}
 
     try:
         response = await client.chat.completions.create(
@@ -344,7 +427,7 @@ async def call_llm_single(system_prompt: str, user_prompt: str) -> dict:
                 {"role": "system", "content": system_prompt + "\n\nIMPORTANT: Respond with valid JSON only."},
                 {"role": "user", "content": user_prompt}
             ],
-            response_format={"type": "json_object"}
+            response_format=response_format
         )
 
         result_content = response.choices[0].message.content
