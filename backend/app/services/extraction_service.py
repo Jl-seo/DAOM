@@ -718,7 +718,7 @@ IMPORTANT:
             
             # DIAGNOSTIC: Log result shape
             logger.info(f"[LLM-Beta] Result keys: {list(llm_result.keys())}")
-            guide = llm_result.get("guide_extracted", {})
+            guide = llm_result.get("guide_extracted") or {}
             logger.info(f"[LLM-Beta] guide_extracted: {len(guide)} fields")
             for k in list(guide.keys())[:3]:
                 logger.info(f"[LLM-Beta] guide_extracted['{k}']: {str(guide[k])[:200]}")
