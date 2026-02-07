@@ -685,6 +685,37 @@ IMPORTANT:
                 language="ko",
                 model_info=model
             )
+            
+            # GUARD: If LLM returned an error, propagate it with empty guide_extracted
+            if "error" in llm_result and len(llm_result) <= 2:  # {"error": "..."} or {"error": "...", "raw_content": "..."}
+                logger.error(f"[LLM-Beta] LLM returned error: {llm_result['error']}")
+                llm_result["guide_extracted"] = {}
+                return llm_result
+            
+            # CRITICAL FIX: RefinerEngine.post_process_result returns a flat dict 
+            # with field keys at top level (e.g. {"Validity": {"value": ...}, ...}),
+            # but _validate_and_format expects them inside "guide_extracted".
+            # If 'guide_extracted' is missing, wrap the field results properly.
+            if "guide_extracted" not in llm_result:
+                # Separate internal keys from field data
+                internal_keys = {"error", "raw_content", "raw_tables", "_beta_parsed_content", 
+                                 "_beta_ref_map", "_token_usage", "_chunked", "_debug_chunking",
+                                 "_chunking_errors", "other_data"}
+                guide_data = {}
+                metadata = {}
+                for k, v in llm_result.items():
+                    if k in internal_keys:
+                        metadata[k] = v
+                    else:
+                        guide_data[k] = v
+                
+                llm_result = {
+                    "guide_extracted": guide_data,
+                    "other_data": metadata.get("other_data", []),
+                    **{k: v for k, v in metadata.items() if k != "other_data"}
+                }
+                logger.info(f"[LLM-Beta] Wrapped {len(guide_data)} fields into guide_extracted")
+
             # Ensure raw_content is attached (OCR original text)
             if "raw_content" not in llm_result:
                 llm_result["raw_content"] = ocr_data_to_send.get("content", "")
@@ -925,7 +956,9 @@ IMPORTANT:
             confidence = item.get("confidence", 0)
             bbox = item.get("bbox")
             try:
-                page_number = int(item.get("page_number")) if item.get("page_number") else None
+                # Support both "page_number" (legacy path) and "page" (RefinerEngine beta path)
+                raw_page = item.get("page_number") or item.get("page")
+                page_number = int(raw_page) if raw_page else None
             except (ValueError, TypeError):
                 page_number = None
             

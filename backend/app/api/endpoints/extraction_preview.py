@@ -215,6 +215,34 @@ async def start_extraction(
     }
 
 
+@router.get("/log/{log_id}")
+def get_log_by_id(
+    log_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Get a single extraction log by ID (for deep-linking)"""
+    log = extraction_logs.get_log(log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Extraction log not found")
+
+    return {
+        "id": log.id,
+        "model_id": log.model_id,
+        "filename": log.filename,
+        "file_url": log.file_url,
+        "status": log.status,
+        "extracted_data": log.extracted_data,
+        "preview_data": log.preview_data,
+        "debug_data": log.debug_data,
+        "candidate_file_url": log.candidate_file_url,
+        "candidate_file_urls": log.candidate_file_urls,
+        "created_at": log.created_at,
+        "updated_at": log.updated_at,
+        "user_name": log.user_name,
+        "user_email": log.user_email,
+    }
+
+
 @router.get("/log/{log_id}/job")
 def get_latest_job_for_log(
     log_id: str,

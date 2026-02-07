@@ -7,7 +7,7 @@ interface ModelViewProps {
 }
 
 export function ModelView({ initialFile, onFileConsumed }: ModelViewProps) {
-    const { modelId, jobId } = useParams<{ modelId?: string; jobId?: string }>()
+    const { modelId, jobId, logId } = useParams<{ modelId?: string; jobId?: string; logId?: string }>()
 
     // If we have a jobId, we'll need to fetch the job details to get the modelId
     // For now, we'll use modelId if available
@@ -22,6 +22,7 @@ export function ModelView({ initialFile, onFileConsumed }: ModelViewProps) {
                 initialFile={initialFile}
                 onFileConsumed={onFileConsumed}
                 jobId={jobId}
+                logId={logId}
             />
         </div>
     )

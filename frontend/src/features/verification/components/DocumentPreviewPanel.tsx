@@ -14,6 +14,9 @@ interface DocumentPreviewPanelProps {
     selectedFieldKey: string | null
     onHighlightClick: (key: string) => void
     onRetry: () => void
+    ocrText?: string
+    rawTables?: any[]
+    isBetaMode?: boolean
 }
 
 export const DocumentPreviewPanel = forwardRef<PDFViewerHandle, DocumentPreviewPanelProps>(({
@@ -22,7 +25,10 @@ export const DocumentPreviewPanel = forwardRef<PDFViewerHandle, DocumentPreviewP
     highlights,
     selectedFieldKey,
     onHighlightClick,
-    onRetry
+    onRetry,
+    ocrText,
+    rawTables,
+    isBetaMode = false
 }, ref) => {
     const isPdf = file?.type?.includes('pdf') || fileUrl?.toLowerCase().endsWith('.pdf')
 
@@ -41,6 +47,9 @@ export const DocumentPreviewPanel = forwardRef<PDFViewerHandle, DocumentPreviewP
                             highlights={highlights}
                             activeFieldKey={selectedFieldKey || undefined}
                             onHighlightClick={onHighlightClick}
+                            ocrText={ocrText}
+                            rawTables={rawTables}
+                            isBetaMode={isBetaMode}
                         />
                         : (
                             <TransformWrapper

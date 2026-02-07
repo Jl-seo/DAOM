@@ -115,6 +115,13 @@ function App() {
           </AppLayout>
         } />
 
+        {/* Deep-link to specific extraction record within a model */}
+        <Route path="/models/:modelId/extractions/:logId" element={
+          <AppLayout>
+            <ModelView />
+          </AppLayout>
+        } />
+
         {/* Extraction History */}
         <Route path="/history" element={
           <AppLayout>

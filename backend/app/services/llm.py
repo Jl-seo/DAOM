@@ -236,6 +236,15 @@ async def analyze_document_content(
             logger.info("[LLM] Post-processing with RefinerEngine")
             processed_result = RefinerEngine.post_process_result(llm_json, ocr_result)
             
+            # Track token usage for cost monitoring
+            if response.usage:
+                processed_result["_token_usage"] = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens
+                }
+                logger.info(f"[LLM] Token usage: {processed_result['_token_usage']}")
+            
             # CRITICAL FIX: Always attach beta content when Beta mode is enabled
             # This ensures the UI shows content even if LayoutParser fails
             if use_optimized_prompt:

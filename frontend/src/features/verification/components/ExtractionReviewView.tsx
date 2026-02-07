@@ -101,6 +101,20 @@ export function ExtractionReviewView({
         ? previewData.sub_documents[selectedSubDocIndex]?.data?.other_data
         : previewData?.other_data
 
+    // Beta mode: derived from model's beta features
+    const isBetaMode = !!(model?.beta_features?.use_optimized_prompt || model?.beta_features?.use_virtual_excel_ocr)
+
+    // OCR text: from previewData (raw Document Intelligence content)
+    const ocrText = previewData?.raw_content || undefined
+
+    // Raw tables: from previewData (Document Intelligence tables)
+    const rawTables = previewData?.raw_tables || []
+
+    // Parsed content for beta tab in DataReviewPanel
+    const currentParsedContent = previewData?.sub_documents && previewData.sub_documents.length > 0
+        ? previewData.sub_documents[selectedSubDocIndex]?.data?._beta_parsed_content || null
+        : previewData?._beta_parsed_content || null
+
     // Store callbacks in refs to prevent infinite loops from prop changes
     const onSaveRef = useRef(onSave)
     onSaveRef.current = onSave
@@ -173,6 +187,9 @@ export function ExtractionReviewView({
                                 selectedFieldKey={selectedFieldKey}
                                 onHighlightClick={onFieldSelect}
                                 onRetry={onRetry}
+                                ocrText={ocrText}
+                                rawTables={rawTables}
+                                isBetaMode={isBetaMode}
                             />
                         </div>
                     </Panel>
@@ -205,6 +222,8 @@ export function ExtractionReviewView({
                                 onDownload={handleDownload}
                                 documentId={fileUrl}
                                 debugData={previewData?.debug_data}
+                                isBetaMode={isBetaMode}
+                                currentParsedContent={currentParsedContent}
                             />
                         </div>
                     </Panel>

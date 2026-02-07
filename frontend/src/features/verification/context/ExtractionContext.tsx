@@ -109,10 +109,11 @@ export function useExtraction() {
 interface ExtractionProviderProps {
     modelId: string
     initialJobId?: string
+    initialLogId?: string
     children: ReactNode
 }
 
-export function ExtractionProvider({ modelId, initialJobId, children }: ExtractionProviderProps) {
+export function ExtractionProvider({ modelId, initialJobId, initialLogId, children }: ExtractionProviderProps) {
     // const navigate = useNavigate() // Unused
     // Model state
     const [model, setModel] = useState<ExtractionModel | null>(null)
@@ -176,6 +177,25 @@ export function ExtractionProvider({ modelId, initialJobId, children }: Extracti
                 })
         }
     }, [initialJobId, model])
+
+    // Load extraction log from URL if initialLogId is present (deep-link)
+    useEffect(() => {
+        if (initialLogId && initialLogId !== currentLogId && model) {
+            devLog('[DeepLink] Loading log by ID:', initialLogId)
+            apiClient.get(`/extraction/log/${initialLogId}`)
+                .then(res => {
+                    const logData = res.data
+                    devLog('[DeepLink] Log loaded:', { id: logData.id, filename: logData.filename })
+                    // Reuse loadFromHistory logic by constructing an ExtractionLog-compatible object
+                    loadFromHistory(logData as any)
+                })
+                .catch(err => {
+                    console.error('[DeepLink] Failed to load log:', err)
+                    toast.error('추출 기록을 불러올 수 없습니다')
+                    setActiveStep('history')
+                })
+        }
+    }, [initialLogId, model])
 
     // Polling ref
     const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
