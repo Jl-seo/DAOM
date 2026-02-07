@@ -82,9 +82,7 @@ export const modelsApi = {
         apiClient.get<{ id: string; name: string }[]>('/models/options/list'),
 
     analyzeSample: (formData: FormData) =>
-        apiClient.post<{ fields: any[]; raw_result: any }>('/models/analyze-sample', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-        }),
+        apiClient.post<{ fields: any[]; raw_result: any }>('/models/analyze-sample', formData),
 
     refineSchema: (fields: any[], instruction: string) =>
         apiClient.post('/models/schema/refine', { fields, instruction }),
@@ -104,17 +102,13 @@ export const documentsApi = {
     extract: (modelId: string, file: File) => {
         const formData = new FormData()
         formData.append('file', file)
-        return apiClient.post<ExtractionResult>(`/documents/extract/${modelId}`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-        })
+        return apiClient.post<ExtractionResult>(`/documents/extract/${modelId}`, formData)
     },
 
     batchExtract: (modelId: string, files: File[]) => {
         const formData = new FormData()
         files.forEach((file) => formData.append('files', file))
-        return apiClient.post<ExtractionResult[]>(`/documents/batch/${modelId}`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-        })
+        return apiClient.post<ExtractionResult[]>(`/documents/batch/${modelId}`, formData)
     },
 }
 
@@ -124,12 +118,10 @@ export const extractionApi = {
 
     uploadFile: (modelId: string, file: File) => {
         const formData = new FormData()
-        formData.append('file', file)
+        formData.append('files', file)
         formData.append('model_id', modelId)
         // Use the same endpoint as regular extraction
-        return apiClient.post<{ job_id: string; file_url: string; log_id?: string }>(`/extraction/start-job`, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-        })
+        return apiClient.post<{ job_id: string; file_url: string; log_id?: string }>(`/extraction/start-job`, formData)
     },
 
     deleteJob: (jobId: string) =>
