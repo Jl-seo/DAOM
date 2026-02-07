@@ -12,7 +12,7 @@ class RefinerEngine:
     """
 
     @staticmethod
-    def construct_prompt(model_info: ExtractionModel, language: str = "en") -> str:
+    def construct_prompt(model_info: Any, language: str = "en") -> str:
         """
         Builds a comprehensive system prompt incorporating:
         1. Model Context (Description)
@@ -20,17 +20,29 @@ class RefinerEngine:
         3. Global Output Rules
         4. Reference Data (Phase 1)
         5. Output Format Instructions
+        Robust to both Pydantic model and Dict input.
         """
+        # Helper to access attributes safely
+        def get_attr(obj, key, default=None):
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
+
+        name = get_attr(model_info, "name", "Unknown Model")
+        description = get_attr(model_info, "description", None)
+        global_rules = get_attr(model_info, "global_rules", None)
+        reference_data = get_attr(model_info, "reference_data", None)
+        fields = get_attr(model_info, "fields", [])
 
         # 1. Base Context
         prompt = f"""You are an advanced document intelligence AI.
-Target Domain: {model_info.name}
-Context: {model_info.description or 'General Document'}
+Target Domain: {name}
+Context: {description or 'General Document'}
 """
 
         # 2. Global Rules
-        if model_info.global_rules:
-            prompt += f"\nGLOBAL REFINEMENT RULES:\n{model_info.global_rules}\n"
+        if global_rules:
+            prompt += f"\nGLOBAL REFINEMENT RULES:\n{global_rules}\n"
 
         # 3. Reference Data (Phase 1: Structured JSON for mapping/validation)
         if model_info.reference_data:
@@ -57,7 +69,12 @@ INSTRUCTIONS FOR REFERENCE DATA:
         prompt += "\nREQUIRED EXTRACTION FIELDS:\n"
         for field in model_info.fields:
             prompt += f"- {field.key} ({field.label}):\n"
-            prompt += f"  Description: {field.description}\n"
+            desc = field.description
+            if desc and desc.strip():
+                prompt += f"  Description: {desc}\n"
+            else:
+                # If description is missing, don't print "Description: None"
+                pass
             if field.rules:
                 prompt += f"  Refinement Rule: {field.rules}\n"
             prompt += f"  Type: {field.type}\n"
