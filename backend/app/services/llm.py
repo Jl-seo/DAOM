@@ -322,6 +322,53 @@ async def analyze_document_content(
     # Note: client.close() removed — AsyncAzureOpenAI manages its own connection pool.
     # Calling close() after every request was causing connection issues on retry.
 
+
+async def call_llm_single(system_prompt: str, user_prompt: str) -> dict:
+    """
+    Stateless single LLM call. Used by beta_chunking for per-chunk extraction.
+    
+    Args:
+        system_prompt: System prompt (e.g. from RefinerEngine.construct_prompt)
+        user_prompt: User prompt with document content
+    
+    Returns:
+        On success: {"result": <parsed_json>, "_token_usage": {...}}
+        On error: {"error": "<message>"}
+    """
+    client = get_openai_client()
+
+    try:
+        response = await client.chat.completions.create(
+            model=_current_model,
+            messages=[
+                {"role": "system", "content": system_prompt + "\n\nIMPORTANT: Respond with valid JSON only."},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"}
+        )
+
+        result_content = response.choices[0].message.content
+        logger.info(f"[LLM-Single] Response received. Length: {len(result_content)}")
+        llm_json = json.loads(result_content)
+
+        result = {"result": llm_json}
+
+        if response.usage:
+            result["_token_usage"] = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
+            logger.info(f"[LLM-Single] Token usage: {result['_token_usage']}")
+
+        return result
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"[LLM-Single] Error: {error_msg}")
+        return {"error": error_msg}
+
+
 async def generate_schema_from_content(content_text: str, tables: List[dict] = None) -> List[dict]:
     """
     Generate a JSON schema (list of fields) based on document content using LLM.

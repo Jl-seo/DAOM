@@ -302,6 +302,15 @@ class ExtractionService:
                     llm_debug_info["beta_parsed_content_length"] = len(first_doc_data["_beta_parsed_content"])
                 if "_beta_ref_map" in first_doc_data:
                     llm_debug_info["beta_ref_map_count"] = len(first_doc_data["_beta_ref_map"])
+                # Beta chunking info
+                if "_beta_chunking_info" in first_doc_data:
+                    chunking_info = first_doc_data["_beta_chunking_info"]
+                    llm_debug_info["beta_chunking"] = {
+                        "total_chunks": chunking_info.get("total_chunks"),
+                        "successful_chunks": chunking_info.get("successful_chunks"),
+                        "field_sources": chunking_info.get("field_sources"),
+                        "errors": chunking_info.get("errors"),
+                    }
                 # Capture LLM error if present
                 if "error" in first_doc_data:
                     llm_debug_info["llm_error"] = first_doc_data["error"]
@@ -696,69 +705,37 @@ IMPORTANT:
             logger.info(f"[LLM-Beta-Check] No beta_features found or disabled. model_type={type(model)}, features={beta_features}")
         
         if use_beta:
-            from app.services import llm
-            logger.info("[LLM] Beta feature enabled. Delegating to llm.analyze_document_content...")
-            llm_result = await llm.analyze_document_content(
-                ocr_result=ocr_data_to_send,
+            from app.services.beta_chunking import extract_beta_with_chunking
+            logger.info("[LLM] Beta feature enabled. Delegating to beta_chunking...")
+            llm_result = await extract_beta_with_chunking(
+                ocr_data=ocr_data_to_send,
+                model_info=model,
                 language="ko",
-                model_info=model
             )
             
-            # DIAGNOSTIC: Log raw LLM output before any transformation
-            logger.info(f"[LLM-Beta-Diag] Raw LLM result keys: {list(llm_result.keys())}")
-            for k, v in list(llm_result.items())[:5]:
-                if k not in ('_beta_parsed_content', '_beta_ref_map', '_token_usage', 'raw_content', 'raw_tables'):
-                    logger.info(f"[LLM-Beta-Diag] Raw field '{k}': {str(v)[:300]}")
-            logger.info(f"[LLM-Beta-Diag] Model field keys: {[f.key for f in model.fields]}")
+            # DIAGNOSTIC: Log result shape
+            logger.info(f"[LLM-Beta] Result keys: {list(llm_result.keys())}")
+            guide = llm_result.get("guide_extracted", {})
+            logger.info(f"[LLM-Beta] guide_extracted: {len(guide)} fields")
+            for k in list(guide.keys())[:3]:
+                logger.info(f"[LLM-Beta] guide_extracted['{k}']: {str(guide[k])[:200]}")
             
-            # GUARD: If LLM returned an error, propagate it with empty guide_extracted
-            if "error" in llm_result and len([k for k in llm_result if not k.startswith("_") and k != "error"]) == 0:
-                logger.error(f"[LLM-Beta] LLM returned error: {llm_result['error']}")
-                llm_result["guide_extracted"] = {}
-                # Preserve beta data even on error (for UI visibility)
-                if "_beta_parsed_content" not in llm_result:
-                    llm_result["_beta_parsed_content"] = ocr_data_to_send.get("content", "")
-                return llm_result
-            
-            # CRITICAL FIX: RefinerEngine.post_process_result returns a flat dict 
-            # with field keys at top level (e.g. {"Validity": {"value": ...}, ...}),
-            # but _validate_and_format expects them inside "guide_extracted".
-            # If 'guide_extracted' is missing, wrap the field results properly.
-            if "guide_extracted" not in llm_result:
-                # Separate internal keys from field data
-                internal_keys = {"error", "raw_content", "raw_tables", "_beta_parsed_content", 
-                                 "_beta_ref_map", "_token_usage", "_chunked", "_debug_chunking",
-                                 "_chunking_errors", "other_data"}
-                guide_data = {}
-                metadata = {}
-                for k, v in llm_result.items():
-                    if k in internal_keys:
-                        metadata[k] = v
-                    else:
-                        guide_data[k] = v
-                
-                llm_result = {
-                    "guide_extracted": guide_data,
-                    "other_data": metadata.get("other_data", []),
-                    **{k: v for k, v in metadata.items() if k != "other_data"}
-                }
-                logger.info(f"[LLM-Beta] Wrapped {len(guide_data)} fields into guide_extracted")
+            chunking_info = llm_result.get("_beta_chunking_info")
+            if chunking_info:
+                logger.info(
+                    f"[LLM-Beta] Chunking: {chunking_info.get('successful_chunks')}"
+                    f"/{chunking_info.get('total_chunks')} chunks succeeded"
+                )
+                if chunking_info.get("errors"):
+                    for err in chunking_info["errors"]:
+                        logger.warning(f"[LLM-Beta] Chunk error: {err}")
 
             # Ensure raw_content is attached (OCR original text)
             if "raw_content" not in llm_result:
                 llm_result["raw_content"] = ocr_data_to_send.get("content", "")
-            
-            # Ensure raw_tables is attached (Document Intelligence Tables)
             if "raw_tables" not in llm_result:
                 llm_result["raw_tables"] = ocr_data_to_send.get("tables", [])
 
-            logger.info(f"[LLM-Beta] Final result keys: {list(llm_result.keys())}")
-            guide_keys = list(llm_result.get('guide_extracted', {}).keys())
-            logger.info(f"[LLM-Beta] guide_extracted keys: {guide_keys}")
-            # Log sample values from guide_extracted
-            for k in guide_keys[:3]:
-                v = llm_result['guide_extracted'][k]
-                logger.info(f"[LLM-Beta] guide_extracted['{k}']: {str(v)[:200]}")
             return llm_result
         
         # --- LEGACY PATH (No Beta) ---
@@ -1106,6 +1083,10 @@ IMPORTANT:
         # Preserve Token Usage (for debug panel)
         if "_token_usage" in raw_data:
             result["_token_usage"] = raw_data["_token_usage"]
+        
+        # Preserve Beta Chunking Info (for debug panel)
+        if "_beta_chunking_info" in raw_data:
+            result["_beta_chunking_info"] = raw_data["_beta_chunking_info"]
         
         # Preserve LLM error info (for diagnostics)
         if "error" in raw_data:
