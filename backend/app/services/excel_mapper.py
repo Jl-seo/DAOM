@@ -147,6 +147,70 @@ class ExcelMapper:
         result["_layout_parser_bypass"] = True
         return result
 
+    @staticmethod
+    def _detect_header_index(rows: List[List[str]], max_scan: int = 20) -> int:
+        """
+        Heuristic to find the most likely header row index.
+        Scans top `max_scan` rows.
+        
+        Score criteria:
+        1. Fill Density: More filled cells = better.
+        2. Unique Values: Headers usually have unique column names.
+        3. String Ratio: Headers are almost always strings.
+        4. Distinguish from Data: Data rows also have high density/unique checks?
+           - Headers usually define the 'width' of the table.
+           - We look for the *first* row that looks like a valid header.
+        """
+        if not rows:
+            return 0
+            
+        best_idx = 0
+        best_score = -1.0
+        
+        scan_limit = min(len(rows), max_scan)
+        
+        for i in range(scan_limit):
+            row = rows[i]
+            # Skip empty rows logic is handled by caller or _optimize_rows, 
+            # but raw rows might have empties.
+            
+            non_empty = [c for c in row if c.strip()]
+            if not non_empty:
+                continue
+                
+            width = len(non_empty)
+            unique_count = len(set(non_empty))
+            
+            # Simple score: 
+            # - Density (width) is the strongest signal.
+            # - Uniqueness prevents rows with repeated values (e.g. "-----------").
+            
+            # If current row has significantly more columns than previous best, it's a candidate.
+            # But we prefer the *first* such row (e.g. Row 5 is header, Row 6 is data).
+            # Data usually has similar width to header.
+            
+            # Heuristic: We want the FIRST row that establishes the "Table Width".
+            # Table width is roughly the max text width seen so far?
+            
+            score = width * 1.5 + (unique_count / width if width else 0) * 0.5
+            
+            # Boost if it looks like the start of a block (next row has similar width)
+            if i + 1 < len(rows):
+                next_row = rows[i+1]
+                next_non_empty = [c for c in next_row if c.strip()]
+                if len(next_non_empty) >= width * 0.8: # Next row is also wide -> likely header + data
+                    score += 2.0
+            
+            if score > best_score:
+                best_score = score
+                best_idx = i
+        
+        # Guard: If best_idx is 0, check if it's just a title (1 cell).
+        # If Row 0 has 1 cell, and Row 3 has 10 cells, Row 3 should win.
+        # Our score logic handles this (width * 1.5).
+        
+        return best_idx
+
     @classmethod
     def _parse_excel(cls, file_bytes: bytes) -> Dict[str, Any]:
         """
@@ -154,13 +218,11 @@ class ExcelMapper:
         Prioritizes 'calamine' engine for performance (Rust-based),
         falling back to 'openpyxl' if not available.
 
-        OPTIMIZATION: Splits large sheets into virtual pages of
-        ROWS_PER_VIRTUAL_PAGE rows each, enabling parallel LLM chunking.
-        Each virtual page includes the header row for LLM context.
+        OPTIMIZATION: Splits large sheets into virtual pages.
+        CRITICAL: Smart header detection for 'creative' layouts.
         """
         import pandas as pd
-
-        # 1. Try Calamine (Fastest)
+        # ... (engine selection logic is identical) ...
         try:
             excel_file = pd.ExcelFile(io.BytesIO(file_bytes), engine="calamine")
             logger.info("[ExcelMapper] Using 'calamine' engine for high-performance Excel reading.")
@@ -186,41 +248,47 @@ class ExcelMapper:
             if not rows:
                 continue
 
-            # OPTIMIZATION: Remove fully-empty columns to reduce token waste
+            # First, clean empty columns to reduce noise
             rows, _ = cls._optimize_rows(rows)
-
             if not rows or not rows[0]:
                 continue
+                
+            # --- SMART HEADER DETECTION ---
+            # Instead of fixed 5 rows, find the actual header.
+            header_idx = cls._detect_header_index(rows)
+            # Context is everything from top to header (inclusive), capped at 10 rows
+            # This captures Titler (Row 0) + Header (Row X)
+            context_end = min(header_idx + 1, 10)
+            # Ensure context_end is at least 1 row
+            context_end = max(context_end, 1)
+            
+            CONTEXT_ROW_COUNT = context_end
+            
+            num_rows = len(rows)
+            num_virtual_pages = (num_rows + ROWS_PER_VIRTUAL_PAGE - 1) // ROWS_PER_VIRTUAL_PAGE
+            
+            logger.info(
+                f"[ExcelMapper] Sheet '{sheet_name}': {num_rows} rows → "
+                f"{num_virtual_pages} virtual pages. "
+                f"Detected Header @ Row {header_idx}. Context: 0-{context_end-1}."
+            )
 
-            # --- VIRTUAL PAGE SPLITTING ---
-            # Split large sheets into virtual pages for chunking support.
-            # Header row (row 0) is repeated on each virtual page for LLM context.
-            header_row = rows[0] if rows else []
-            data_rows = rows[1:] if len(rows) > 1 else []
-
-            if len(data_rows) <= ROWS_PER_VIRTUAL_PAGE:
-                # Small sheet — single page (no splitting needed)
-                global_page_number += 1
-                result = cls._rows_to_doc_intel(rows, sheet_name, global_page_number)
-                all_pages.extend(result["pages"])
-                all_tables.extend(result["tables"])
-                all_content_parts.append(result["content"])
-            else:
-                # Large sheet — split into virtual pages
-                num_virtual_pages = (len(data_rows) + ROWS_PER_VIRTUAL_PAGE - 1) // ROWS_PER_VIRTUAL_PAGE
-                logger.info(
-                    f"[ExcelMapper] Sheet '{sheet_name}': {len(rows)} rows → "
-                    f"{num_virtual_pages} virtual pages "
-                    f"({ROWS_PER_VIRTUAL_PAGE} rows/page)"
-                )
-
-                for vp_idx in range(num_virtual_pages):
-                    start = vp_idx * ROWS_PER_VIRTUAL_PAGE
-                    end = min(start + ROWS_PER_VIRTUAL_PAGE, len(data_rows))
-                    page_data_rows = data_rows[start:end]
-
-                    # Prepend header row for LLM context on every virtual page
-                    virtual_rows = [header_row] + page_data_rows
+            for vp_idx in range(num_virtual_pages):
+                start_row = vp_idx * ROWS_PER_VIRTUAL_PAGE
+                end_row = min(start_row + ROWS_PER_VIRTUAL_PAGE, num_rows)
+                
+                if vp_idx == 0:
+                    # Page 1: Just take the slice (includes headers naturally)
+                    virtual_rows = rows[start_row:end_row]
+                else:
+                    # Page 2+: Prepend context rows + take slice
+                    # Prepend specific context rows
+                    context_rows = rows[:CONTEXT_ROW_COUNT]
+                    
+                    # Avoid duplication if overlap (e.g. small pages)
+                    # But Page 2 starts at 250, context is ~5-10. No overlap.
+                    page_body = rows[start_row:end_row]
+                    virtual_rows = context_rows + page_body
 
                     global_page_number += 1
                     result = cls._rows_to_doc_intel(
