@@ -695,7 +695,10 @@ async def extract_beta_with_chunking(
     ocr_data: Dict[str, Any],
     model_info: Any,
     language: str = "ko",
-    max_concurrent: int = 3,
+    ocr_data: Dict[str, Any],
+    model_info: Any,
+    language: str = "ko",
+    max_concurrent: int = 4,  # Increased after resource scale-up
 ) -> Dict[str, Any]:
     """
     Main entry point for beta extraction with chunking support.
@@ -720,7 +723,13 @@ async def extract_beta_with_chunking(
 
     async def _process_with_limit(chunk: BetaChunk) -> BetaChunkResult:
         async with semaphore:
-            return await process_beta_chunk(chunk, model_info, language)
+            try:
+                result = await process_beta_chunk(chunk, model_info, language)
+                return result
+            finally:
+                # Aggressive cleanup to prevent OOM
+                import gc
+                gc.collect()
 
     tasks = [_process_with_limit(c) for c in chunks]
     results = await asyncio.gather(*tasks, return_exceptions=True)

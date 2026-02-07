@@ -823,6 +823,7 @@ IMPORTANT:
                 ocr_data=ocr_data_to_send,
                 model_info=model,
                 language="ko",
+                max_concurrent=4, # Increased after resource scale-up
             )
             
             # DIAGNOSTIC: Log result shape (wrapped in try/except — diagnostics must NEVER crash extraction)
