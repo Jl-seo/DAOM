@@ -82,3 +82,61 @@ def delete_logs_bulk(
     """Delete multiple extraction logs"""
     deleted_count = extraction_logs.delete_logs(log_ids)
     return {"deleted_count": deleted_count}
+
+
+@router.get("/logs/{log_id}")
+async def get_extraction_log(
+    log_id: str,
+    model_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Get a single extraction log with full data (hydrated from Blob)
+    """
+    log = extraction_logs.get_log_by_id(log_id, model_id)
+    if not log:
+        # Try without model_id just in case (fallback)
+        log = extraction_logs.get_log(log_id)
+        if not log:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Log not found")
+
+    # Enforce Tenant Isolation
+    if current_user.tenant_id and log.tenant_id and log.tenant_id != current_user.tenant_id:
+        # Admin bypass could be added here if needed
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Hydrate preview_data from Blob if offloaded
+    # Logic mirrors extraction_preview.py
+    preview_data = log.preview_data
+    if preview_data and isinstance(preview_data, dict) and preview_data.get("_preview_blob_path"):
+        try:
+            from app.services.storage import load_json_from_blob
+            full_preview = await load_json_from_blob(preview_data["_preview_blob_path"])
+            if full_preview:
+                # Merge: Local cosmos data + Blob data
+                # But actually blob is the source of truth for heavy data
+                # We should use full_preview but keep local metadata if needed
+                # Ideally full_preview IS the preview_data
+                preview_data = full_preview
+        except Exception as e:
+            logger.error(f"[API] Failed to hydrate log preview from blob: {e}")
+
+    # Hydrate debug_data from Blob if offloaded
+    debug_data = log.debug_data
+    if debug_data and isinstance(debug_data, dict) and debug_data.get("_debug_blob_path"):
+        try:
+            from app.services.storage import load_json_from_blob
+            full_debug = await load_json_from_blob(debug_data["_debug_blob_path"])
+            if full_debug:
+                debug_data = full_debug
+        except Exception as e:
+            logger.error(f"[API] Failed to hydrate log debug from blob: {e}")
+
+    # Construct response with hydrated data
+    response = log.model_dump()
+    response["preview_data"] = preview_data
+    response["debug_data"] = debug_data
+    
+    return response

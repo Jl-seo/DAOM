@@ -562,48 +562,69 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
         setActiveStep('upload') // Start polling will switch to 'review' when ready
     }, [startPolling])
 
-    const loadFromHistory = useCallback((log: ExtractionLog) => {
-        devLog('[loadFromHistory] Loading log:', { id: log.id, file_url: log.file_url, filename: log.filename })
-        setResult(log.extracted_data || null)
-        setStatus(isSuccessStatus(log.status) ? EXTRACTION_STATUS.COMPLETE : EXTRACTION_STATUS.ERROR)
-        setFileUrl(log.file_url || null)
-        setFile(null) // No file object when loading from history
-        setFilename(log.filename)
-        setCurrentLogId(log.id)
+    const loadFromHistory = useCallback(async (initialLog: ExtractionLog) => {
+        devLog('[loadFromHistory] Loading log:', { id: initialLog.id, file_url: initialLog.file_url, filename: initialLog.filename })
 
-        // Update URL for deep linking (replaceState to avoid polluting browser history)
-        navigate(`/models/${modelId}/extractions/${log.id}`, { replace: true })
+        // 1. Set immediate state from list item (optimistic update)
+        setStatus(isSuccessStatus(initialLog.status) ? EXTRACTION_STATUS.COMPLETE : EXTRACTION_STATUS.ERROR)
+        setFileUrl(initialLog.file_url || null)
+        setFile(null)
+        setFilename(initialLog.filename)
+        setCurrentLogId(initialLog.id)
 
-        // Restore candidate file URLs for comparison models
-        if (log.candidate_file_urls && log.candidate_file_urls.length > 0) {
-            devLog('[loadFromHistory] Restoring candidate_file_urls:', log.candidate_file_urls)
-            setCandidateFileUrls(log.candidate_file_urls)
-        }
+        navigate(`/models/${modelId}/extractions/${initialLog.id}`, { replace: true })
 
-        // Use saved preview_data if available (preserves other_data structure)
-        // Otherwise fall back to reconstructing from extracted_data
-        devLog('[loadFromHistory] preview_data:', JSON.stringify(log.preview_data, null, 2)?.slice(0, 500))
-        devLog('[loadFromHistory] extracted_data:', JSON.stringify(log.extracted_data, null, 2)?.slice(0, 500))
-        if (log.preview_data) {
-            setPreviewData({
-                ...log.preview_data,
-                debug_data: log.debug_data, // Inject debug data from log level
-                model_fields: log.preview_data.model_fields || model?.fields?.map(f => ({ key: f.key, label: f.label })) || [],
-                // Legacy Fallback: Restore OCR content if missing in preview_data
-                // Priority: preview_data -> extracted_data (legacy) -> debug_data (ocr_result/preview)
-                raw_content: log.preview_data.raw_content || log.extracted_data?.raw_content || log.debug_data?.ocr_result?.content || log.debug_data?.doc_intel_content_preview || "",
-                raw_tables: log.preview_data.raw_tables || log.extracted_data?.raw_tables || log.debug_data?.ocr_result?.tables || []
-            })
-        } else {
-            // Legacy: Reconstruct minimal preview from extracted_data
-            setPreviewData({
-                guide_extracted: log.extracted_data || {},
-                other_data: [],
-                model_fields: model?.fields?.map(f => ({ key: f.key, label: f.label })) || [],
-                // Restore OCR content
-                raw_content: log.extracted_data?.raw_content || log.debug_data?.ocr_result?.content || log.debug_data?.doc_intel_content_preview || "",
-                raw_tables: log.extracted_data?.raw_tables || log.debug_data?.ocr_result?.tables || []
-            })
+        // 2. Fetch FULL hydrated log from API to get blob content
+        try {
+            const res = await apiClient.get<ExtractionLog>(`/extraction/logs/${initialLog.id}?model_id=${modelId}`)
+            const fullLog = res.data
+            devLog('[loadFromHistory] Fetched full log:', fullLog.id)
+
+            // Update result with fully hydrated data
+            setResult(fullLog.extracted_data || null)
+
+            if (fullLog.candidate_file_urls && fullLog.candidate_file_urls.length > 0) {
+                setCandidateFileUrls(fullLog.candidate_file_urls)
+            }
+
+            // Robust Restoration Logic using FULL log
+            const restorePreviewData = (inputPreview: PreviewData | null | undefined): PreviewData => {
+                const base = inputPreview || {
+                    guide_extracted: fullLog.extracted_data || {},
+                    other_data: [],
+                    sub_documents: [],
+                    model_fields: model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
+                }
+
+                return {
+                    ...base,
+                    debug_data: fullLog.debug_data,
+                    raw_content: base.raw_content || fullLog.extracted_data?.raw_content || fullLog.debug_data?.ocr_result?.content || fullLog.debug_data?.doc_intel_content_preview || "",
+                    raw_tables: base.raw_tables || fullLog.extracted_data?.raw_tables || fullLog.debug_data?.ocr_result?.tables || []
+                }
+            }
+
+            setPreviewData(restorePreviewData(fullLog.preview_data))
+
+        } catch (e) {
+            console.error('[loadFromHistory] Failed to fetch full log details:', e)
+            // Fallback to initialLog
+            const restorePreviewDataFallback = (inputPreview: PreviewData | null | undefined): PreviewData => {
+                const base = inputPreview || {
+                    guide_extracted: initialLog.extracted_data || {},
+                    other_data: [],
+                    sub_documents: [],
+                    model_fields: model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
+                }
+                return {
+                    ...base,
+                    debug_data: initialLog.debug_data,
+                    raw_content: base.raw_content || initialLog.extracted_data?.raw_content || "",
+                    raw_tables: base.raw_tables || initialLog.extracted_data?.raw_tables || []
+                }
+            }
+            setPreviewData(restorePreviewDataFallback(initialLog.preview_data))
+            toast.error("로그 상세 정보를 불러오는데 실패했습니다. 일부 데이터가 누락될 수 있습니다.")
         }
 
         setActiveStep('complete')
