@@ -13,6 +13,8 @@ import '@react-pdf-viewer/zoom/lib/styles/index.css'
 
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, FileText, File } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { OcrTextViewer } from './OcrTextViewer'
+import { RawTableRenderer } from './RawTableRenderer'
 
 // ... Highlight Interface ...
 interface Highlight {
@@ -290,99 +292,14 @@ export const PDFViewer = forwardRef<PDFViewerHandle, PDFViewerProps>(({ fileUrl,
                         </Worker>
                     </TabsContent>
 
-                    <TabsContent value="ocr" className="h-full mt-0 w-full absolute inset-0 overflow-auto bg-background p-6">
-                        {ocrText ? (
-                            <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/80 max-w-4xl mx-auto">
-                                {ocrText}
-                            </pre>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8 text-center">
-                                <FileText className="w-12 h-12 mb-4 opacity-20" />
-                                <p>OCR 텍스트가 없습니다.</p>
-                                <p className="text-xs mt-2 opacity-60">문서가 아직 분석되지 않았거나 텍스트를 추출할 수 없습니다.</p>
-                            </div>
-                        )}
+                    <TabsContent value="ocr" className="h-full mt-0 w-full absolute inset-0 overflow-auto bg-background">
+                        <OcrTextViewer ocrText={ocrText} />
                     </TabsContent>
 
                     {/* Tables from Document Intelligence (Beta Only) */}
                     {isBetaMode && (
-                        <TabsContent value="tables" className="h-full mt-0 w-full absolute inset-0 overflow-auto bg-background p-6">
-                            {rawTables && rawTables.length > 0 ? (
-                                <div className="space-y-8 max-w-6xl mx-auto">
-                                    {rawTables.map((table: any, tableIndex: number) => (
-                                        <div key={tableIndex} className="border rounded-lg overflow-hidden">
-                                            <div className="bg-muted/50 px-4 py-2 text-sm font-medium border-b">
-                                                표 {tableIndex + 1} {(() => {
-                                                    const rc = table.rowCount || (table.cells?.length > 0 ? Math.max(...table.cells.map((c: any) => (c.rowIndex || 0) + (c.rowSpan || 1))) : 0)
-                                                    const cc = table.columnCount || (table.cells?.length > 0 ? Math.max(...table.cells.map((c: any) => (c.columnIndex || 0) + (c.columnSpan || 1))) : 0)
-                                                    return rc > 0 && cc > 0 ? <span className="text-muted-foreground ml-2">({rc}행 × {cc}열)</span> : null
-                                                })()}
-                                            </div>
-                                            <div className="overflow-x-auto">
-                                                <table className="w-full text-sm">
-                                                    <tbody>
-                                                        {table.cells && (() => {
-                                                            // Calculate dimensions from cells if not provided
-                                                            const maxRow = table.cells.reduce((max: number, cell: any) =>
-                                                                Math.max(max, (cell.rowIndex || 0) + (cell.rowSpan || 1)), 0)
-                                                            const maxCol = table.cells.reduce((max: number, cell: any) =>
-                                                                Math.max(max, (cell.columnIndex || 0) + (cell.columnSpan || 1)), 0)
-                                                            const rowCount = table.rowCount || maxRow
-                                                            const colCount = table.columnCount || maxCol
-                                                            if (rowCount === 0 || colCount === 0) return null
-                                                            const grid: any[][] = Array(rowCount).fill(null).map(() => Array(colCount).fill(null))
-
-                                                            // 2. Populate Grid with Cells
-                                                            table.cells.forEach((cell: any) => {
-                                                                const r = cell.rowIndex
-                                                                const c = cell.columnIndex
-                                                                if (r < rowCount && c < colCount) {
-                                                                    grid[r][c] = cell
-                                                                    // Mark spanned cells as 'spanned'
-                                                                    for (let i = 0; i < (cell.rowSpan || 1); i++) {
-                                                                        for (let j = 0; j < (cell.columnSpan || 1); j++) {
-                                                                            if (i === 0 && j === 0) continue // Skip the cell itself
-                                                                            if (r + i < rowCount && c + j < colCount) {
-                                                                                grid[r + i][c + j] = { spanned: true }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            })
-
-                                                            // 3. Render Grid
-                                                            return grid.map((row, rowIdx) => (
-                                                                <tr key={rowIdx} className={rowIdx === 0 ? 'bg-muted/30 font-medium' : 'border-t'}>
-                                                                    {row.map((cell, colIdx) => {
-                                                                        if (!cell) return <td key={colIdx} className="border-r last:border-r-0 p-2"></td> // Empty slot
-                                                                        if (cell.spanned) return null // Skip spanned slots
-
-                                                                        return (
-                                                                            <td
-                                                                                key={colIdx}
-                                                                                className="px-3 py-2 border-r last:border-r-0 align-top"
-                                                                                colSpan={cell.columnSpan || 1}
-                                                                                rowSpan={cell.rowSpan || 1}
-                                                                            >
-                                                                                {cell.content || ''}
-                                                                            </td>
-                                                                        )
-                                                                    })}
-                                                                </tr>
-                                                            ))
-                                                        })()}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8 text-center">
-                                    <FileText className="w-12 h-12 mb-4 opacity-20" />
-                                    <p>추출된 표가 없습니다.</p>
-                                </div>
-                            )}
+                        <TabsContent value="tables" className="h-full mt-0 w-full absolute inset-0 overflow-auto bg-background">
+                            <RawTableRenderer rawTables={rawTables} />
                         </TabsContent>
                     )}
                 </div>

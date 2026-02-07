@@ -44,6 +44,10 @@ export function ExtractionUploadView({
     const [selectedCandidates, setSelectedCandidates] = useState<File[]>([]) // CHANGED: Array
 
     // Handle single file (Extraction Mode)
+    const acceptTypes = model?.beta_features?.use_virtual_excel_ocr
+        ? '.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv'
+        : '.pdf,.jpg,.jpeg,.png'
+
     const handleFileSelect = (selectedFile: File | null | undefined) => {
         if (selectedFile) onFileSelect(selectedFile)
     }
@@ -143,7 +147,7 @@ export function ExtractionUploadView({
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".pdf,.jpg,.jpeg,.png"
+                            accept={acceptTypes}
                             onChange={(e) => setSelectedBaseline(e.target.files?.[0] || null)}
                             className="hidden"
                         />
@@ -204,7 +208,7 @@ export function ExtractionUploadView({
                             ref={candidateInputRef}
                             type="file"
                             multiple // Enable multiple files
-                            accept=".pdf,.jpg,.jpeg,.png"
+                            accept={acceptTypes}
                             onChange={(e) => {
                                 if (e.target.files) {
                                     // Append new files to existing ones
@@ -293,7 +297,7 @@ export function ExtractionUploadView({
                 <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,.jpg,.jpeg,.png"
+                    accept={acceptTypes}
                     onChange={(e) => handleFileSelect(e.target.files?.[0])}
                     className="hidden"
                 />

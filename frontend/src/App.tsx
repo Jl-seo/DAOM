@@ -6,6 +6,7 @@ import { LoginPage } from './components/LoginPage'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { NotFoundPage } from './components/NotFoundPage'
 import { PageLoader } from './components/PageLoader'
+import { RouteProgressBar } from './components/RouteProgressBar'
 import { ProfilePage } from './components/ProfilePage'
 import { ModelGallery } from './components/ModelGallery'
 import { useAuth } from './auth'
@@ -45,6 +46,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="h-screen flex flex-col md:flex-row bg-background overflow-hidden">
+      <RouteProgressBar />
       {/* Mobile Header */}
       <div className="md:hidden h-14 border-b flex items-center px-4 justify-between bg-sidebar text-sidebar-foreground">
         <div className="flex items-center gap-2">

@@ -653,7 +653,28 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
                 }
             })
         } else if (previewData.guide_extracted) {
-            processData(previewData.guide_extracted)
+            // TABLE MODE defense: guide_extracted is an array of flat rows (no bbox typically)
+            if (Array.isArray(previewData.guide_extracted)) {
+                previewData.guide_extracted.forEach((row: any, rowIdx: number) => {
+                    if (row && typeof row === 'object' && 'bbox' in row && row.bbox) {
+                        const [x1, y1, x2, y2] = row.bbox
+                        newHighlights.push({
+                            fieldKey: `table_row_${rowIdx}`,
+                            content: row._source_text || '',
+                            pageIndex: (row.page_number || 1) - 1,
+                            position: {
+                                boundingRect: {
+                                    x1, y1, x2, y2,
+                                    width: x2 - x1,
+                                    height: y2 - y1
+                                }
+                            }
+                        })
+                    }
+                })
+            } else {
+                processData(previewData.guide_extracted)
+            }
         }
 
         // 2. Process other data (tables/grids) if they have bboxes
