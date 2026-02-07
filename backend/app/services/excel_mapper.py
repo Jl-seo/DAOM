@@ -132,7 +132,8 @@ class ExcelMapper:
             "tables": all_tables,
             "paragraphs": [],
             "key_value_pairs": [],
-            "documents": []
+            "documents": [],
+            "_layout_parser_bypass": True  # Explicitly tell pipeline to skip LayoutParser
         }
     
     @classmethod

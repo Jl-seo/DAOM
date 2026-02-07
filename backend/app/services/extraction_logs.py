@@ -331,8 +331,14 @@ def get_log(log_id: str) -> Optional[ExtractionLog]:
         return None
 
 
-def update_log_status(log_id: str, status: str, preview_data: Optional[dict] = None, debug_data: Optional[dict] = None) -> bool:
-    """Update just the status (and optionally preview_data) of an existing log"""
+def update_log_status(
+    log_id: str, 
+    status: str, 
+    preview_data: Optional[dict] = None, 
+    extracted_data: Optional[dict] = None,
+    debug_data: Optional[dict] = None
+) -> bool:
+    """Update just the status (and optionally data) of an existing log"""
     container = get_extractions_container()
     
     if not container:
@@ -353,6 +359,19 @@ def update_log_status(log_id: str, status: str, preview_data: Optional[dict] = N
         
         if preview_data:
             log_dict["preview_data"] = preview_data
+            
+            # Auto-populate extracted_data from preview_data if not explicitly provided
+            # This handles the case where extraction_service passes None for Cosmos size optimization
+            if not extracted_data and "sub_documents" in preview_data:
+                subs = preview_data["sub_documents"]
+                if subs and len(subs) > 0:
+                    first_data = subs[0].get("data", {})
+                    # prioritize guide_extracted
+                    if "guide_extracted" in first_data:
+                         log_dict["extracted_data"] = first_data["guide_extracted"]
+
+        if extracted_data:
+            log_dict["extracted_data"] = extracted_data
         
         if debug_data:
             log_dict["debug_data"] = debug_data

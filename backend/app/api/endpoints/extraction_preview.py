@@ -325,7 +325,10 @@ async def get_job_status(
         "job_id": job.id,
         "status": job.status,
         "preview_data": preview_data,
-        "extracted_data": job.extracted_data,
+        "extracted_data": job.extracted_data or (
+            preview_data.get("sub_documents", [])[0].get("data", {}).get("guide_extracted", {})
+            if preview_data and preview_data.get("sub_documents") else None
+        ),
         "debug_data": debug_data,
         "error": job.error,
         "filename": job.filename,

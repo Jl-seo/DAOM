@@ -456,6 +456,7 @@ class ExtractionService:
                     log_id_to_update, 
                     status=ExtractionStatus.SUCCESS.value,
                     preview_data=cosmos_preview,  # Blob refs only, not raw data
+                    extracted_data=flat_extracted, # Pass None is fine, update_log_status will derive if needed
                     debug_data=cosmos_debug
                 )
 
@@ -796,6 +797,13 @@ IMPORTANT:
             
         if beta_features and isinstance(beta_features, dict):
             use_beta = beta_features.get("use_optimized_prompt", False)
+            
+            # OPTIMIZATION: Check if input source explicitly requested bypass
+            # e.g. Excel/CSV files are already perfectly structured and don't need layout parsing
+            if ocr_data.get("_layout_parser_bypass"):
+                logger.info(f"[LLM-Beta-Check] _layout_parser_bypass flag detected. Skipping Beta despite model setting.")
+                use_beta = False
+                
             logger.info(f"[LLM-Beta-Check] Beta detected. features={beta_features}, use_beta={use_beta}")
         else:
             logger.info(f"[LLM-Beta-Check] No beta_features found or disabled. model_type={type(model)}, features={beta_features}")
