@@ -304,15 +304,57 @@ def _build_chunk(
     chunk_paragraphs = [p for p in paragraphs if any(
         _is_on_page(p, pn) for pn in page_set
     )]
+    
+    # Fallback to lines if paragraphs are empty (e.g. ExcelMapper output)
+    chunk_lines = []
+    if not chunk_paragraphs and page_objs:
+        # Check lines in page objects if available in top-level ocr
+        # But 'paragraphs' passed here is top-level. 'lines' is usually inside 'pages'.
+        # We need to iterate pages to get lines.
+        for page in page_objs:
+            if _get_page_number(page) in page_set:
+                 chunk_lines.extend(page.get("lines", []))
+    
     chunk_tables = [t for t in tables if any(
         _is_on_page(t, pn) for pn in page_set
     )]
 
-    # Build content subset from paragraphs
-    chunk_content = "\n".join(
-        p.get("content", "") for p in chunk_paragraphs
-    )
-
+    # Build content subset from paragraphs > lines > tables
+    if chunk_paragraphs:
+        chunk_content = "\n".join(p.get("content", "") for p in chunk_paragraphs)
+    elif chunk_lines:
+        chunk_content = "\n".join(l.get("content", "") for l in chunk_lines)
+    elif chunk_tables:
+        # Last resort: reconstruct from tables (Excel)
+        # ExcelMapper puts formatted text in 'content' too, but we need subset.
+        # Actually ExcelMapper puts 'lines' in pages, so chunk_lines should work!
+        chunk_content = "" # Should satisfy via lines
+    else:
+        chunk_content = ""
+        
+    # Double fallback: if still empty, try to slice from main content? 
+    # Hard without offsets. ExcelMapper usually provides 'lines'.
+    if not chunk_content and not chunk_paragraphs and not chunk_lines:
+         # Special case for Excel: if tables exist, maybe use their content?
+         # But tables content is cell-based.
+         # ExcelMapper's 'rows_to_doc_intel' DOES populate 'lines'.
+         pass
+    # Build content subset from paragraphs > lines > tables
+    if chunk_paragraphs:
+        chunk_content = "\n".join(p.get("content", "") for p in chunk_paragraphs)
+    elif chunk_lines:
+        chunk_content = "\n".join(l.get("content", "") for l in chunk_lines)
+    elif chunk_tables:
+        # Last resort: reconstruct from tables (Excel)
+        # Flatten all cells in all tables
+        cell_contents = []
+        for t in chunk_tables:
+            for cell in t.get("cells", []):
+                cell_contents.append(cell.get("content", ""))
+        chunk_content = "\n".join(cell_contents)
+    else:
+        chunk_content = ""
+        
     ocr_subset = {
         "pages": page_objs,
         "paragraphs": chunk_paragraphs,
@@ -369,6 +411,16 @@ async def process_beta_chunk(
             content_text = chunk.ocr_subset.get("content", "")
             ref_map = {}
             logger.info(f"[{chunk_label}] Falling back to raw content: {len(content_text)} chars")
+
+    # Guard: If content is empty even after fallback, skip LLM
+    if not content_text or not content_text.strip():
+        logger.warning(f"[{chunk_label}] No content text available. Skipping LLM.")
+        return BetaChunkResult(
+            chunk_index=chunk.index,
+            page_numbers=chunk.page_numbers,
+            success=False,
+            error="No content text extracted from chunk"
+        )
 
     # 2. Build prompts (deterministic — prepare once)
     system_prompt = RefinerEngine.construct_prompt(model_info, language)
