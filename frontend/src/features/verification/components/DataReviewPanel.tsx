@@ -148,10 +148,10 @@ export function DataReviewPanel({
                 <div className="px-6 border-b bg-muted/40">
                     <TabsList className="bg-transparent h-12 p-0 space-x-6">
                         <TabsTrigger value="fields" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">추출 필드</TabsTrigger>
-                        {/* Only show Parsed Text tab when Beta data exists AND Beta mode is enabled */}
-                        {isBetaMode && currentParsedContent && (
+                        {/* Only show Parsed Text tab when Beta mode is enabled — content may or may not be available */}
+                        {isBetaMode && (
                             <TabsTrigger value="parsed_text" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">
-                                Parsed Text ({(currentParsedContent.length / 1000).toFixed(1)}K) <span className="ml-1 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">BETA</span>
+                                Parsed Text {currentParsedContent ? `(${(currentParsedContent.length / 1000).toFixed(1)}K)` : '(대기중)'} <span className="ml-1 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">BETA</span>
                             </TabsTrigger>
                         )}
                         <TabsTrigger value="raw" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">Raw JSON</TabsTrigger>
