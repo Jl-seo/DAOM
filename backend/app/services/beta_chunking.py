@@ -244,7 +244,7 @@ def split_ocr_into_chunks(
         # Would adding this page exceed the limit?
         if current_chars + size > max_chars and current_pages:
             # Finalize current chunk
-            chunks.append(_build_chunk(
+            new_chunk = _build_chunk(
                 index=len(chunks),
                 page_numbers=current_pages,
                 page_objs=current_page_objs,
@@ -252,7 +252,13 @@ def split_ocr_into_chunks(
                 tables=tables,
                 content=content,
                 estimated_chars=current_chars,
-            ))
+            )
+            # Propagate bypass flag
+            if ocr_data.get("_layout_parser_bypass"):
+                new_chunk.ocr_subset["_layout_parser_bypass"] = True
+            
+            chunks.append(new_chunk)
+            
             current_pages = []
             current_page_objs = []
             current_chars = 0
@@ -263,7 +269,7 @@ def split_ocr_into_chunks(
 
     # Final chunk
     if current_pages:
-        chunks.append(_build_chunk(
+        new_chunk = _build_chunk(
             index=len(chunks),
             page_numbers=current_pages,
             page_objs=current_page_objs,
@@ -271,7 +277,10 @@ def split_ocr_into_chunks(
             tables=tables,
             content=content,
             estimated_chars=current_chars,
-        ))
+        )
+        if ocr_data.get("_layout_parser_bypass"):
+            new_chunk.ocr_subset["_layout_parser_bypass"] = True
+        chunks.append(new_chunk)
 
     logger.info(f"[BetaChunk] Split {len(pages)} pages into {len(chunks)} chunks")
     for c in chunks:
@@ -341,19 +350,25 @@ async def process_beta_chunk(
     chunk_label = f"BetaChunk-{chunk.index}"
 
     # 1. LayoutParser (no retry — deterministic, won't change on retry)
-    try:
-        parser = LayoutParser(chunk.ocr_subset)
-        content_text, ref_map = parser.parse()
-        logger.info(
-            f"[{chunk_label}] Parsed: {len(content_text)} chars, "
-            f"{len(ref_map)} refs, pages {chunk.page_numbers}"
-        )
-    except Exception as e:
-        logger.error(f"[{chunk_label}] LayoutParser failed: {e}", exc_info=True)
-        # Fall back to raw content
-        content_text = chunk.ocr_subset.get("content", "")
-        ref_map = {}
-        logger.info(f"[{chunk_label}] Falling back to raw content: {len(content_text)} chars")
+    # OPTIMIZATION: Check for bypass specific to Excel/CSV
+    if chunk.ocr_subset.get("_layout_parser_bypass"):
+         logger.info(f"[{chunk_label}] LayoutParser bypassed (Excel/CSV optimization)")
+         content_text = chunk.ocr_subset.get("content", "")
+         ref_map = {}
+    else:
+        try:
+            parser = LayoutParser(chunk.ocr_subset)
+            content_text, ref_map = parser.parse()
+            logger.info(
+                f"[{chunk_label}] Parsed: {len(content_text)} chars, "
+                f"{len(ref_map)} refs, pages {chunk.page_numbers}"
+            )
+        except Exception as e:
+            logger.error(f"[{chunk_label}] LayoutParser failed: {e}", exc_info=True)
+            # Fall back to raw content
+            content_text = chunk.ocr_subset.get("content", "")
+            ref_map = {}
+            logger.info(f"[{chunk_label}] Falling back to raw content: {len(content_text)} chars")
 
     # 2. Build prompts (deterministic — prepare once)
     system_prompt = RefinerEngine.construct_prompt(model_info, language)

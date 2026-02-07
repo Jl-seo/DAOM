@@ -798,15 +798,23 @@ IMPORTANT:
         if beta_features and isinstance(beta_features, dict):
             use_beta = beta_features.get("use_optimized_prompt", False)
             
-            # OPTIMIZATION: Check if input source explicitly requested bypass
-            # e.g. Excel/CSV files are already perfectly structured and don't need layout parsing
+            # OPTIMIZATION: If input source requested bypass (Excel), we STILL want to use beta
+            # to leverage CHUNKING for large files, but the beta service itself will skip
+            # the LayoutParser step because of the flag.
             if ocr_data.get("_layout_parser_bypass"):
-                logger.info(f"[LLM-Beta-Check] _layout_parser_bypass flag detected. Skipping Beta despite model setting.")
-                use_beta = False
+                logger.info(f"[LLM-Beta-Check] _layout_parser_bypass flag detected. Forcing use_beta=True to enable CHUNKING.")
+                use_beta = True
                 
             logger.info(f"[LLM-Beta-Check] Beta detected. features={beta_features}, use_beta={use_beta}")
         else:
-            logger.info(f"[LLM-Beta-Check] No beta_features found or disabled. model_type={type(model)}, features={beta_features}")
+            # Even if no beta features configured, if it's Excel (Bypass), we might want to force chunking?
+            # For now, only if model has beta_features dict (even if empty/false) or if we force it.
+            # Let's be safe: Only enable if model supports it OR if it's an Excel file which needs chunking.
+            if ocr_data.get("_layout_parser_bypass"):
+                 logger.info(f"[LLM-Beta-Check] _layout_parser_bypass (Excel) detected. Forcing use_beta=True for CHUNKING.")
+                 use_beta = True
+            else:
+                 logger.info(f"[LLM-Beta-Check] No beta_features found or disabled. model_type={type(model)}, features={beta_features}")
         
         if use_beta:
             from app.services.beta_chunking import extract_beta_with_chunking
