@@ -766,20 +766,47 @@ async def _single_call_extraction(
     stages = {}
 
     try:
+    try:
         # Stage 1: LayoutParser
-        parser = LayoutParser(ocr_data)
-        content_text, ref_map = parser.parse()
-        stages["1_layout_parser"] = {
-            "status": "ok",
-            "content_chars": len(content_text),
-            "ref_map_count": len(ref_map),
-            "content_preview": content_text[:200] if content_text else "(empty)",
-        }
-        logger.info(f"[BetaSingle] Stage 1 OK: {len(content_text)} chars, {len(ref_map)} refs")
+        # OPTIMIZATION: Check for bypass (Excel/CSV)
+        if ocr_data.get("_layout_parser_bypass"):
+            logger.info("[BetaSingle] LayoutParser bypassed (Excel/CSV optimization)")
+            content_text = ocr_data.get("content", "")
+            ref_map = {}
+            stages["1_layout_parser"] = {
+                "status": "bypassed",
+                "content_chars": len(content_text),
+                "info": "Excel/CSV Optimized Prop"
+            }
+        else:
+            parser = LayoutParser(ocr_data)
+            content_text, ref_map = parser.parse()
+            stages["1_layout_parser"] = {
+                "status": "ok",
+                "content_chars": len(content_text),
+                "ref_map_count": len(ref_map),
+                "content_preview": content_text[:200] if content_text else "(empty)",
+            }
+            logger.info(f"[BetaSingle] Stage 1 OK: {len(content_text)} chars, {len(ref_map)} refs")
+
+        # Guard: If content is empty
+        if not content_text or not content_text.strip():
+             return {
+                "guide_extracted": {},
+                "error": "No content text available (Empty Document)",
+                "_beta_parsed_content": "",
+                "raw_content": ocr_data.get("content", ""),
+            }
 
         # Stage 2: Prompt construction
         system_prompt = RefinerEngine.construct_prompt(model_info, language)
-        tables_context = _build_tables_context(ocr_data.get("tables", []))
+        
+        # OPTIMIZATION: Skip redundant table context for Excel
+        if ocr_data.get("_layout_parser_bypass"):
+            tables_context = ""
+        else:
+            tables_context = _build_tables_context(ocr_data.get("tables", []))
+            
         user_prompt = f"Document Text:\n{content_text}\n{tables_context}"
         stages["2_prompt"] = {
             "status": "ok",
