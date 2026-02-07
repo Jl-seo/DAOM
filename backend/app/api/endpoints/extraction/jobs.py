@@ -44,7 +44,7 @@ async def start_job_with_upload(
     Upload files and start extraction job.
     Supports single or multiple files.
     """
-    from app.services.storage import upload_to_storage
+    from app.services.storage import upload_file_to_blob
     import asyncio
     
     # Upload files to Azure Blob Storage (Parallel)
@@ -70,7 +70,7 @@ async def start_job_with_upload(
     
     for f in files:
         filenames.append(f.filename)
-        upload_tasks.append(upload_to_storage(f))
+        upload_tasks.append(upload_file_to_blob(f))
     
     uploaded_urls = await asyncio.gather(*upload_tasks)
     

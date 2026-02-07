@@ -40,9 +40,24 @@ async def upload_file_to_blob(file: UploadFile) -> str:
         blob_name = f"{uuid.uuid4()}_{file.filename}"
         blob_client = client.get_blob_client(container=container_name, blob=blob_name)
 
+        # Ensure container exists (Safety check)
+        try:
+            container_client = client.get_container_client(container_name)
+            if not container_client.exists():
+                logger.info(f"[Storage] Container '{container_name}' not found, creating...")
+                container_client.create_container()
+        except Exception as container_err:
+             logger.warning(f"[Storage] Container check failed (non-fatal): {container_err}")
+
         # Fix DoS: Use streaming upload from SpooledTemporaryFile
         # file.file is the underlying Python file object
+        try:
+            file.file.seek(0)
+        except Exception:
+            pass # Seek might fail on some streams, ignore
+            
         blob_client.upload_blob(file.file, overwrite=True)
+        logger.info(f"[Storage] Uploaded blob: {blob_name}")
         return blob_client.url
 
     except Exception as e:
