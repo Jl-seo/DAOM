@@ -300,52 +300,42 @@ def _build_chunk(
     """Build a BetaChunk with OCR subset for the given pages."""
     page_set = set(page_numbers)
 
-    chunk_paragraphs = [p for p in paragraphs if any(
-        _is_on_page(p, pn) for pn in page_set
-    )]
+    # Filter paragraphs by page; include those without bounding_regions
+    chunk_paragraphs = []
+    for p in paragraphs:
+        regions = p.get("bounding_regions") or p.get("boundingRegions") or []
+        if regions:
+            if any(_is_on_page(p, pn) for pn in page_set):
+                chunk_paragraphs.append(p)
+        else:
+            # No bounding_regions — include conservatively
+            chunk_paragraphs.append(p)
 
     # Fallback to lines if paragraphs are empty (e.g. ExcelMapper output)
     chunk_lines = []
     if not chunk_paragraphs and page_objs:
-        # Check lines in page objects if available in top-level ocr
-        # But 'paragraphs' passed here is top-level. 'lines' is usually inside 'pages'.
-        # We need to iterate pages to get lines.
         for page in page_objs:
             if _get_page_number(page) in page_set:
                  chunk_lines.extend(page.get("lines", []))
 
-    chunk_tables = [t for t in tables if any(
-        _is_on_page(t, pn) for pn in page_set
-    )]
+    # Filter tables by page; include those without bounding_regions
+    chunk_tables = []
+    for t in tables:
+        regions = t.get("bounding_regions") or t.get("boundingRegions") or []
+        if regions:
+            if any(_is_on_page(t, pn) for pn in page_set):
+                chunk_tables.append(t)
+        else:
+            # No bounding_regions — include conservatively
+            chunk_tables.append(t)
 
-    # Build content subset from paragraphs > lines > tables
+    # Build content subset from paragraphs > lines > tables > full content
     if chunk_paragraphs:
         chunk_content = "\n".join(p.get("content", "") for p in chunk_paragraphs)
     elif chunk_lines:
         chunk_content = "\n".join(l.get("content", "") for l in chunk_lines)
     elif chunk_tables:
-        # Last resort: reconstruct from tables (Excel)
-        # ExcelMapper puts formatted text in 'content' too, but we need subset.
-        # Actually ExcelMapper puts 'lines' in pages, so chunk_lines should work!
-        chunk_content = "" # Should satisfy via lines
-    else:
-        chunk_content = ""
-
-    # Double fallback: if still empty, try to slice from main content?
-    # Hard without offsets. ExcelMapper usually provides 'lines'.
-    if not chunk_content and not chunk_paragraphs and not chunk_lines:
-         # Special case for Excel: if tables exist, maybe use their content?
-         # But tables content is cell-based.
-         # ExcelMapper's 'rows_to_doc_intel' DOES populate 'lines'.
-         pass
-    # Build content subset from paragraphs > lines > tables
-    if chunk_paragraphs:
-        chunk_content = "\n".join(p.get("content", "") for p in chunk_paragraphs)
-    elif chunk_lines:
-        chunk_content = "\n".join(l.get("content", "") for l in chunk_lines)
-    elif chunk_tables:
-        # Last resort: reconstruct from tables (Excel)
-        # Flatten all cells in all tables
+        # Reconstruct from table cells
         cell_contents = []
         for t in chunk_tables:
             for cell in t.get("cells", []):
@@ -353,6 +343,12 @@ def _build_chunk(
         chunk_content = "\n".join(cell_contents)
     else:
         chunk_content = ""
+
+    # FINAL FALLBACK: If chunk_content is still empty, use the full OCR content.
+    # This ensures Excel/CSV files that lack page-level structure still get processed.
+    if not chunk_content.strip() and content:
+        chunk_content = content
+        logger.info(f"[_build_chunk] Chunk {index}: Using full OCR content as fallback ({len(content)} chars)")
 
     ocr_subset = {
         "pages": page_objs,

@@ -547,15 +547,17 @@ class ExtractionService:
                 if not isinstance(t, dict): continue
 
                 # Check bounding regions for page number
-                # If bounding_regions missing (e.g. old doc_intel), include table conservatively or check cells?
-                # We'll rely on doc_intel update.
                 matches = False
                 regions = t.get("bounding_regions", [])
-                if isinstance(regions, list):
+                if isinstance(regions, list) and regions:
                     for region in regions:
                         if isinstance(region, dict) and region.get("page_number") in target_pages:
                             matches = True
                             break
+                else:
+                    # No bounding_regions (e.g. Excel DI output) — include conservatively
+                    # since we can't determine which page it belongs to
+                    matches = True
                 if matches:
                     filtered_data["tables"].append(t)
 
