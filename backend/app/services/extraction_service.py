@@ -383,14 +383,17 @@ class ExtractionService:
             # 3. Cosmos gets lightweight references only
             # - sub_documents: needed for rendering extracted fields (stripped of debug data)
             # - raw_content: truncated for "OCR Text" tab quick preview
-            # - blob paths: for hydration when full data is needed
+            # - blob paths: for hydration of raw_tables/raw_content/debug
             
-            # Strip internal/debug fields from sub_documents for Cosmos
-            # Full data is in Blob via preview_blob_path
-            _debug_keys = {
+            # Sub_documents: KEEP guide_extracted (core data), strip debug/internal/large keys
+            # CRITICAL: TABLE MODE puts raw_tables in data — this contains full ExcelMapper
+            # table cells with polygons/bounding_regions and is the root cause of 
+            # RequestEntityTooLarge for Excel files
+            _internal_keys = {
                 "_debug_chunking", "_chunked", "_chunking_errors", "_token_usage",
                 "_beta_parsed_content", "_beta_ref_map", "_beta_chunking_info",
                 "_beta_pipeline_stages", "_raw_llm_response", "_prompt_used",
+                "raw_tables",  # ExcelMapper table data — huge, already in blob
             }
             cosmos_sub_docs = []
             for sd in (sub_documents or []):
@@ -400,18 +403,18 @@ class ExtractionService:
                     "page_ranges": sd.get("page_ranges"),
                     "status": sd.get("status"),
                 }
-                # Keep guide_extracted inside data, strip debug keys
+                # Keep guide_extracted + other essential data, strip internal debug keys
                 if isinstance(sd.get("data"), dict):
                     light_sd["data"] = {
                         k: v for k, v in sd["data"].items()
-                        if k not in _debug_keys
+                        if k not in _internal_keys
                     }
                 cosmos_sub_docs.append(light_sd)
             
             cosmos_preview = {
                 "sub_documents": cosmos_sub_docs,
-                "raw_content": doc_intel_output.get("content", "")[:10000],  # Truncated for quick view
-                "raw_tables": [],  # Full data in blob
+                "raw_content": doc_intel_output.get("content", "")[:5000],  # Truncated preview
+                "raw_tables": [],  # Full data in blob only
                 "_preview_blob_path": preview_blob_path,
             }
             
@@ -420,25 +423,18 @@ class ExtractionService:
                 "token_usage": debug_info_final.get("token_usage") if debug_info_final else None,
             } if debug_info_final else None
             
-            # Also flatten extracted_data from first sub_document for backward compatibility
-            # Frontend polling reads job.extracted_data, so it must be populated
-            flat_extracted = {}
-            if sub_documents and len(sub_documents) > 0:
-                first_doc = sub_documents[0]
-                if isinstance(first_doc, dict) and "data" in first_doc:
-                    flat_extracted = first_doc["data"].get("guide_extracted", {})
+            # Don't duplicate guide_extracted in extracted_data — it's already in sub_documents
+            # This saves ~50% of Cosmos payload size
             
             import json as _diag_json
             _cosmos_size = len(_diag_json.dumps(cosmos_preview, ensure_ascii=False, default=str))
-            _debug_size = len(_diag_json.dumps(cosmos_debug, ensure_ascii=False, default=str)) if cosmos_debug else 0
-            _extracted_size = len(_diag_json.dumps(flat_extracted, ensure_ascii=False, default=str))
-            logger.info(f"[Pipeline] Saving to Cosmos: preview={_cosmos_size}b, debug={_debug_size}b, extracted={_extracted_size}b, blob={preview_blob_path}")
+            logger.info(f"[Pipeline] Saving to Cosmos: preview={_cosmos_size}b, blob={preview_blob_path}")
             
             result = extraction_jobs.update_job(
                 job_id, 
                 status=ExtractionStatus.SUCCESS.value, 
                 preview_data=cosmos_preview,
-                extracted_data=flat_extracted,
+                extracted_data=None,  # Not duplicated — use sub_documents[0].data.guide_extracted
                 debug_data=cosmos_debug
             )
             
