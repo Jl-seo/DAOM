@@ -1,6 +1,9 @@
 from typing import Optional, Dict, Any, List
 import json
+import logging
 from app.schemas.model import ExtractionModel
+
+logger = logging.getLogger(__name__)
 
 class RefinerEngine:
     """

@@ -304,7 +304,8 @@ def get_log_by_id(log_id: str, model_id: str) -> Optional[ExtractionLog]:
     try:
         item = container.read_item(item=log_id, partition_key=model_id)
         return ExtractionLog(**item)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[ExtractionLogs] get_log_by_model({log_id}) failed: {e}")
         return None
 
 

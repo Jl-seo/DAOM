@@ -1,7 +1,12 @@
 """
 Bulk delete extraction logs
 """
+import logging
 from typing import List
+from app.db.cosmos import get_extractions_container
+from app.services.extraction_logs import get_log
+
+logger = logging.getLogger(__name__)
 
 def delete_logs(log_ids: List[str]) -> int:
     """Delete multiple extraction logs by IDs"""

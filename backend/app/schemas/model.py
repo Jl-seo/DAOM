@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any
 
 
@@ -45,6 +45,8 @@ class ExcelExportColumn(BaseModel):
     enabled: bool = True  # 내보내기 포함 여부
 
 class ExtractionModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")  # Ignore Cosmos system fields
+    
     id: str
     name: str
     description: Optional[str] = None # 대체 내용 정의 등

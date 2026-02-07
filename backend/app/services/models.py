@@ -117,7 +117,8 @@ def get_model_by_id(model_id: str) -> Optional[ExtractionModel]:
     try:
         item = container.read_item(item=model_id, partition_key=model_id)
         return ExtractionModel(**item)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[Models] get_model_by_id({model_id}) failed: {e}")
         return None
 
 
