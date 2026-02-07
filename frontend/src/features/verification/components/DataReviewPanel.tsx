@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { CheckCircle2, RefreshCw, Download, Upload, Maximize2, Minimize2, Bug } from 'lucide-react'
+import { useState, useMemo, useCallback } from 'react'
+import { CheckCircle2, RefreshCw, Download, Upload, Maximize2, Minimize2, Bug, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -26,6 +26,62 @@ interface DataReviewPanelProps {
     documentId?: string | null // Unique identifier for the document (fileUrl or ID)
     currentParsedContent?: string | null // NEW: Parsed text from LayoutParser
     isBetaMode?: boolean
+}
+
+// Internal fields to strip from export JSON
+const INTERNAL_FIELDS = ['bbox', 'page_number', 'original_value', 'low_confidence', 'validation_status']
+
+function cleanForExport(data: Record<string, any>): Record<string, any> {
+    const clean: Record<string, any> = {}
+    for (const [key, val] of Object.entries(data)) {
+        if (val && typeof val === 'object' && !Array.isArray(val)) {
+            const filtered: Record<string, any> = {}
+            for (const [k, v] of Object.entries(val)) {
+                if (!INTERNAL_FIELDS.includes(k)) filtered[k] = v
+            }
+            clean[key] = filtered
+        } else {
+            clean[key] = val
+        }
+    }
+    return clean
+}
+
+function RawJsonView({ data }: { data: Record<string, any> }) {
+    const [copied, setCopied] = useState(false)
+    const cleanData = useMemo(() => cleanForExport(data || {}), [data])
+    const jsonStr = useMemo(() => JSON.stringify(cleanData, null, 2), [cleanData])
+
+    const handleCopy = useCallback(() => {
+        navigator.clipboard.writeText(jsonStr).then(() => {
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        })
+    }, [jsonStr])
+
+    return (
+        <div className="h-full flex flex-col">
+            <div className="flex items-center justify-between px-6 pt-4 pb-2">
+                <span className="text-xs text-muted-foreground">
+                    내부 필드 제외 (bbox, page_number 등)
+                </span>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopy}
+                    className="gap-1.5 text-xs h-7"
+                >
+                    {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copied ? '복사됨!' : 'JSON 복사'}
+                </Button>
+            </div>
+            <ScrollArea className="flex-1">
+                <pre className="px-6 pb-6 text-xs font-mono whitespace-pre-wrap">
+                    {jsonStr}
+                </pre>
+            </ScrollArea>
+        </div>
+    )
 }
 
 export function DataReviewPanel({
@@ -229,11 +285,7 @@ export function DataReviewPanel({
                         </ScrollArea>
                     </TabsContent>
                     <TabsContent value="raw" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
-                        <ScrollArea className="h-full">
-                            <pre className="p-6 text-xs font-mono whitespace-pre-wrap">
-                                {JSON.stringify(currentGuideExtracted, null, 2)}
-                            </pre>
-                        </ScrollArea>
+                        <RawJsonView data={currentGuideExtracted} />
                     </TabsContent>
                 </div>
             </Tabs>
