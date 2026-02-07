@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useRef, type ReactNode, useCallback, useMemo, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api'
@@ -114,7 +115,7 @@ interface ExtractionProviderProps {
 }
 
 export function ExtractionProvider({ modelId, initialJobId, initialLogId, children }: ExtractionProviderProps) {
-    // const navigate = useNavigate() // Unused
+    const navigate = useNavigate()
     // Model state
     const [model, setModel] = useState<ExtractionModel | null>(null)
 
@@ -209,13 +210,14 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
         const poll = async () => {
             try {
                 const res = await apiClient.get(`/extraction/job/${jobId}`)
-                const { status: jobStatus, result: jobResult, preview_data, error: jobError } = res.data
+                // Backend returns 'extracted_data' not 'result' — support both for safety
+                const { status: jobStatus, result: jobResult, extracted_data, preview_data, error: jobError } = res.data
+                const effectiveResult = jobResult || extracted_data
 
-                devLog('[Polling] Status:', jobStatus, 'Preview:', !!preview_data)
+                devLog('[Polling] Status:', jobStatus, 'Preview:', !!preview_data, 'Result:', !!effectiveResult)
 
                 // Check for SUCCESS(S100) or legacy 'completed'
-                // CRITICAL FIX: logical OR for result/preview_data. Backend might return preview_data directly.
-                if ((jobStatus === EXTRACTION_STATUS.SUCCESS || jobStatus === 'completed') && (jobResult || preview_data || res.data.preview_data)) {
+                if ((jobStatus === EXTRACTION_STATUS.SUCCESS || jobStatus === 'completed') && (effectiveResult || preview_data || res.data.preview_data)) {
                     if (pollingRef.current) {
                         clearInterval(pollingRef.current)
                         pollingRef.current = null
@@ -225,7 +227,7 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
                     setStatus(EXTRACTION_STATUS.PREVIEW_READY)
 
                     // Update result and preview data
-                    setResult(jobResult)
+                    setResult(effectiveResult)
                     if (preview_data) {
                         setPreviewData({
                             ...preview_data,
@@ -526,7 +528,9 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
             clearInterval(pollingRef.current)
             pollingRef.current = null
         }
-    }, [])
+        // Reset URL back to model page
+        navigate(`/models/${modelId}`, { replace: true })
+    }, [navigate, modelId])
 
     const handleCancelPreview = useCallback(() => {
         // Since jobs are asynchronous, we just clear local state and go back to history.
@@ -562,6 +566,9 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
         setFilename(log.filename)
         setCurrentLogId(log.id)
 
+        // Update URL for deep linking (replaceState to avoid polluting browser history)
+        navigate(`/models/${modelId}/extractions/${log.id}`, { replace: true })
+
         // Restore candidate file URLs for comparison models
         if (log.candidate_file_urls && log.candidate_file_urls.length > 0) {
             devLog('[loadFromHistory] Restoring candidate_file_urls:', log.candidate_file_urls)
@@ -595,7 +602,7 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
         }
 
         setActiveStep('complete')
-    }, [model?.fields])
+    }, [model?.fields, navigate, modelId])
 
     // Generate highlights from previewData
     const highlights = useMemo(() => {
