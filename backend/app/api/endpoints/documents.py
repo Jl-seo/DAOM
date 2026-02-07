@@ -15,7 +15,7 @@ router = APIRouter()
 
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(file: UploadFile = File(...)):
-    if not file.filename.endswith(('.pdf', '.jpg', '.jpeg', '.png')):
+    if not file.filename.endswith(('.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.xlsx', '.xls', '.csv', '.docx')):
         raise HTTPException(status_code=400, detail="Invalid file type")
 
     try:

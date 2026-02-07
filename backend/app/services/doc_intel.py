@@ -25,7 +25,7 @@ def get_supported_models() -> List[Dict[str, str]]:
         for m in AzureModelType
     ]
 
-async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-layout") -> Dict[str, Any]:
+async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-layout", filename: str = None) -> Dict[str, Any]:
     """
     Universal extraction, strategy determined by model_type.
     file_source: str (URL) or bytes/stream
@@ -62,14 +62,15 @@ async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-la
                 )
             else:
                 # Assume bytes/stream
-                # Azure SDK v1.0.0b1 uses 'body' for binary content
-                # Detect MIME type if possible
+                # Detect MIME type from filename or file_source.name
+                import mimetypes
                 content_type = "application/octet-stream"
-                if hasattr(file_source, "name"):
-                    import mimetypes
-                    guessed_type, _ = mimetypes.guess_type(file_source.name)
+                detect_name = filename or getattr(file_source, "name", None)
+                if detect_name:
+                    guessed_type, _ = mimetypes.guess_type(detect_name)
                     if guessed_type:
                         content_type = guessed_type
+                logger.info(f"[DocIntel] Sending bytes with content_type={content_type} (filename={detect_name})")
                 
                 poller = await client.begin_analyze_document(
                     model_id=model_type,

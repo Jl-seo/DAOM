@@ -190,24 +190,12 @@ class ExtractionService:
                 return # Exit pipeline for comparison jobs
             # -----------------------------
 
-            # --- EXCEL ROUTING (Beta: use_virtual_excel_ocr) ---
-            # Excel/CSV files cannot be processed by Azure Doc Intelligence.
-            # When the beta feature is enabled, route to ExcelMapper instead.
-            file_ext = file_url.rsplit(".", 1)[-1].lower().split("?")[0]  # strip query params
-            is_excel_file = file_ext in ("xlsx", "xls", "csv")
-            use_excel_ocr = (
-                model
-                and hasattr(model, "beta_features")
-                and model.beta_features.get("use_virtual_excel_ocr", False)
-            )
-
-            if is_excel_file and use_excel_ocr:
-                logger.info(f"[Pipeline] Excel file detected ({file_ext}), using ExcelMapper (virtual OCR)")
-                from app.services.excel_mapper import ExcelMapper
-                doc_intel_output = await ExcelMapper.from_url(file_url)
-            else:
-                logger.info(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
-                doc_intel_output = await doc_intel.extract_with_strategy(file_url, azure_model)
+            # --- UNIFIED DI PIPELINE ---
+            # All file types (Excel, PDF, Image) go through Azure DI.
+            # Beta OFF: DI result → LLM directly
+            # Beta ON:  DI result → Layout Parser → LLM
+            logger.info(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
+            doc_intel_output = await doc_intel.extract_with_strategy(file_url, azure_model)
 
             # ... (OCR log) ...
 

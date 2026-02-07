@@ -96,8 +96,8 @@ async def analyze_sample(
     file_bytes = await file.read()
 
     try:
-        # 2. Run analysis (pass bytes directly)
-        result = await doc_intel.extract_with_strategy(file_bytes, model_type)
+        # 2. Run analysis (pass bytes + filename for MIME detection)
+        result = await doc_intel.extract_with_strategy(file_bytes, model_type, filename=file.filename)
 
         # 3. Heuristic Field Discovery
         suggested_fields = []

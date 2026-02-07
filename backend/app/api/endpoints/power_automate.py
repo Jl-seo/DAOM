@@ -123,13 +123,17 @@ async def upload_document(
 
     # ========== FILE TYPE VALIDATION ==========
     # Check 1: Extension validation
-    ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'}
+    ALLOWED_EXTENSIONS = {
+        '.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp',
+        '.xlsx', '.xls', '.csv',  # Excel/CSV — Azure DI Layout supports these
+        '.docx',  # Word — Azure DI Layout supports this
+    }
     file_ext = os.path.splitext(file.filename)[1].lower()
 
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"지원하지 않는 파일 확장자입니다: {file_ext}. PDF 또는 이미지 파일만 업로드 가능합니다."
+            detail=f"지원하지 않는 파일 확장자입니다: {file_ext}. 지원 형식: PDF, 이미지, Excel, Word"
         )
 
     # Check 2: MIME type validation
@@ -139,13 +143,17 @@ async def upload_document(
         'image/png',
         'image/tiff',
         'image/bmp',
-        'image/x-ms-bmp'
+        'image/x-ms-bmp',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
+        'application/vnd.ms-excel',  # .xls
+        'text/csv',  # .csv
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  # .docx
     }
 
     if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"지원하지 않는 파일 타입입니다: {file.content_type}. PDF 또는 이미지 파일만 업로드 가능합니다."
+            detail=f"지원하지 않는 파일 타입입니다: {file.content_type}. 지원 형식: PDF, 이미지, Excel, Word"
         )
 
     # Parse metadata if provided
