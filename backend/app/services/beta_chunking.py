@@ -26,6 +26,97 @@ MAX_PROMPT_CHARS = 320_000
 # Threshold to trigger chunking: if total content exceeds this, chunk.
 CHUNKING_THRESHOLD_CHARS = 100_000  # ~25K tokens — conservative
 
+# Known wrapper keys that LLMs might use
+_WRAPPER_KEYS = {"result", "results", "data", "extraction", "extracted", "output", "response", "fields", "guide_extracted"}
+
+
+def normalize_llm_response(llm_json: Dict[str, Any], model_info) -> Dict[str, Any]:
+    """
+    Normalize LLM response to the expected flat structure:
+        {field_key: {value: ..., confidence: ..., source_text: ...}}
+    
+    Handles common LLM response anomalies:
+    1. Nested wrappers: {"result": {"field_key": {...}}}
+    2. Flat values: {"field_key": "some_value"} instead of {"field_key": {"value": ...}}
+    3. Array-wrapped: [{"field_key": {...}}]
+    4. Missing confidence/source_text
+    """
+    if not llm_json:
+        logger.warning("[Normalize] Empty LLM response")
+        return {}
+    
+    # Get expected field keys from model
+    expected_keys = {f.key for f in model_info.fields} if hasattr(model_info, 'fields') else set()
+    
+    # Log raw structure for diagnostics
+    top_keys = list(llm_json.keys())
+    logger.info(f"[Normalize] Raw LLM response keys: {top_keys}, expected: {list(expected_keys)[:5]}...")
+    
+    result = llm_json
+    
+    # Step 1: Unwrap if response is array
+    if isinstance(result, list):
+        logger.warning(f"[Normalize] Response is array with {len(result)} items, using first")
+        result = result[0] if result else {}
+    
+    # Step 2: Unwrap nested containers
+    # If top-level keys don't match expected fields, look for a wrapper
+    if expected_keys and not (expected_keys & set(result.keys())):
+        # No overlap with expected keys — look for a wrapper
+        for wrapper_key in _WRAPPER_KEYS:
+            if wrapper_key in result:
+                inner = result[wrapper_key]
+                if isinstance(inner, dict):
+                    logger.info(f"[Normalize] Unwrapped from '{wrapper_key}' container")
+                    result = inner
+                    break
+                elif isinstance(inner, list) and inner:
+                    logger.info(f"[Normalize] Unwrapped from '{wrapper_key}' array")
+                    result = inner[0] if isinstance(inner[0], dict) else {}
+                    break
+    
+    # Step 3: Normalize each field value
+    normalized = {}
+    for key, item in result.items():
+        if isinstance(item, dict) and "value" in item:
+            # Already correct structure
+            normalized[key] = {
+                "value": item.get("value"),
+                "confidence": item.get("confidence", 0.8),
+                "source_text": item.get("source_text", ""),
+            }
+        elif isinstance(item, dict):
+            # Dict but no "value" key — try to extract
+            # Could be {"answer": "...", "score": 0.9}
+            val = item.get("answer") or item.get("text") or item.get("result") or item.get("extracted_value")
+            if val is not None:
+                normalized[key] = {
+                    "value": val,
+                    "confidence": item.get("confidence") or item.get("score", 0.7),
+                    "source_text": item.get("source_text") or item.get("source", ""),
+                }
+                logger.info(f"[Normalize] Field '{key}': recovered from non-standard dict")
+            else:
+                # Keep as-is, post_process_result will handle
+                normalized[key] = item
+        else:
+            # Flat value (string, number, etc.) — wrap it
+            logger.info(f"[Normalize] Field '{key}': flat value '{str(item)[:50]}', wrapping")
+            normalized[key] = {
+                "value": item,
+                "confidence": 0.7,
+                "source_text": str(item) if item is not None else "",
+            }
+    
+    # Step 4: Report coverage
+    found_fields = expected_keys & set(normalized.keys())
+    missing_fields = expected_keys - set(normalized.keys())
+    if missing_fields:
+        logger.warning(f"[Normalize] Missing {len(missing_fields)} fields: {list(missing_fields)[:5]}")
+    logger.info(f"[Normalize] Coverage: {len(found_fields)}/{len(expected_keys)} fields found")
+    
+    return normalized
+
 
 @dataclass
 class BetaChunk:
@@ -284,12 +375,16 @@ async def process_beta_chunk(
                     token_usage=llm_response.get("_token_usage"),
                 )
 
-            # Success — post-process
+            # Success — normalize and post-process
             llm_json = llm_response.get("result", {})
             logger.info(
                 f"[{chunk_label}] LLM success (attempt {attempt + 1}), "
-                f"result keys: {list(llm_json.keys())[:10]}"
+                f"raw keys: {list(llm_json.keys())[:10]}, "
+                f"sample: {str(llm_json)[:300]}"
             )
+
+            # Normalize: handle wrapped/flat/non-standard structures
+            llm_json = normalize_llm_response(llm_json, model_info)
 
             processed = RefinerEngine.post_process_result(llm_json, chunk.ocr_subset)
 
@@ -554,52 +649,106 @@ async def _single_call_extraction(
     from app.services.refiner import RefinerEngine
     from app.services.llm import call_llm_single
 
+    # Stage diagnostics — will be surfaced in debug panel
+    stages = {}
+
     try:
-        # 1. LayoutParser
+        # Stage 1: LayoutParser
         parser = LayoutParser(ocr_data)
         content_text, ref_map = parser.parse()
-        logger.info(f"[BetaSingle] Parsed: {len(content_text)} chars, {len(ref_map)} refs")
+        stages["1_layout_parser"] = {
+            "status": "ok",
+            "content_chars": len(content_text),
+            "ref_map_count": len(ref_map),
+            "content_preview": content_text[:200] if content_text else "(empty)",
+        }
+        logger.info(f"[BetaSingle] Stage 1 OK: {len(content_text)} chars, {len(ref_map)} refs")
 
-        # 2. Prompts
+        # Stage 2: Prompt construction
         system_prompt = RefinerEngine.construct_prompt(model_info, language)
         tables_context = _build_tables_context(ocr_data.get("tables", []))
         user_prompt = f"Document Text:\n{content_text}\n{tables_context}"
+        stages["2_prompt"] = {
+            "status": "ok",
+            "system_prompt_chars": len(system_prompt),
+            "user_prompt_chars": len(user_prompt),
+            "field_count": len(model_info.fields) if hasattr(model_info, 'fields') else 0,
+            "field_keys": [f.key for f in model_info.fields][:10] if hasattr(model_info, 'fields') else [],
+        }
+        logger.info(f"[BetaSingle] Stage 2 OK: sys={len(system_prompt)}, user={len(user_prompt)} chars")
 
-        # 3. LLM call
+        # Stage 3: LLM call
         llm_response = await call_llm_single(system_prompt, user_prompt, model_info=model_info)
 
         if "error" in llm_response:
+            stages["3_llm_call"] = {
+                "status": "error",
+                "error": llm_response["error"][:500],
+            }
+            logger.error(f"[BetaSingle] Stage 3 FAILED: {llm_response['error'][:200]}")
             return {
                 "guide_extracted": {},
                 "error": llm_response["error"],
                 "_beta_parsed_content": content_text,
                 "_beta_ref_map": ref_map if ref_map else None,
                 "_token_usage": llm_response.get("_token_usage"),
+                "_beta_pipeline_stages": stages,
                 "raw_content": ocr_data.get("content", ""),
                 "raw_tables": ocr_data.get("tables", []),
             }
 
-        # 4. Post-process
         llm_json = llm_response.get("result", {})
-        processed = RefinerEngine.post_process_result(llm_json, ocr_data)
+        stages["3_llm_call"] = {
+            "status": "ok",
+            "raw_keys": list(llm_json.keys())[:15],
+            "raw_key_count": len(llm_json.keys()),
+            "response_preview": str(llm_json)[:500],
+            "token_usage": llm_response.get("_token_usage"),
+        }
+        logger.info(f"[BetaSingle] Stage 3 OK: {len(llm_json)} keys, preview: {str(llm_json)[:200]}")
 
-        # 5. Wrap into expected format
-        # processed is a flat dict: {field_key: {value, confidence, source_text, bbox, page}}
+        # Stage 4: Normalize
+        normalized = normalize_llm_response(llm_json, model_info)
+        stages["4_normalize"] = {
+            "status": "ok",
+            "input_keys": list(llm_json.keys())[:10],
+            "output_keys": list(normalized.keys())[:10],
+            "fields_recovered": len(normalized),
+        }
+        logger.info(f"[BetaSingle] Stage 4 OK: {len(llm_json)} raw → {len(normalized)} normalized")
+
+        # Stage 5: Post-process (bbox matching)
+        processed = RefinerEngine.post_process_result(normalized, ocr_data)
+        stages["5_post_process"] = {
+            "status": "ok",
+            "output_keys": list(processed.keys())[:10],
+            "fields_with_values": sum(1 for v in processed.values() if isinstance(v, dict) and v.get("value") is not None),
+            "fields_null": sum(1 for v in processed.values() if isinstance(v, dict) and v.get("value") is None),
+        }
+        logger.info(
+            f"[BetaSingle] Stage 5 OK: {stages['5_post_process']['fields_with_values']} with values, "
+            f"{stages['5_post_process']['fields_null']} null"
+        )
+
         return {
             "guide_extracted": processed,
             "other_data": [],
             "_beta_parsed_content": content_text,
             "_beta_ref_map": ref_map if ref_map else None,
             "_token_usage": llm_response.get("_token_usage"),
+            "_beta_pipeline_stages": stages,
             "raw_content": ocr_data.get("content", ""),
             "raw_tables": ocr_data.get("tables", []),
         }
 
     except Exception as e:
         logger.error(f"[BetaSingle] Failed: {e}", exc_info=True)
+        stages["exception"] = {"error": str(e)[:500]}
         return {
             "guide_extracted": {},
             "error": str(e),
+            "_beta_pipeline_stages": stages,
             "raw_content": ocr_data.get("content", ""),
             "raw_tables": ocr_data.get("tables", []),
         }
+

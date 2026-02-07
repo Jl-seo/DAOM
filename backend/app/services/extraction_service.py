@@ -314,6 +314,9 @@ class ExtractionService:
                 # Capture LLM error if present
                 if "error" in first_doc_data:
                     llm_debug_info["llm_error"] = first_doc_data["error"]
+                # Pipeline stage diagnostics (for step-by-step debugging)
+                if "_beta_pipeline_stages" in first_doc_data:
+                    llm_debug_info["beta_pipeline_stages"] = first_doc_data["_beta_pipeline_stages"]
             
             # Merge OCR debug and LLM debug
             if debug_info_final:
@@ -1087,6 +1090,10 @@ IMPORTANT:
         # Preserve Beta Chunking Info (for debug panel)
         if "_beta_chunking_info" in raw_data:
             result["_beta_chunking_info"] = raw_data["_beta_chunking_info"]
+        
+        # Preserve Pipeline Stage Diagnostics (for debug panel)
+        if "_beta_pipeline_stages" in raw_data:
+            result["_beta_pipeline_stages"] = raw_data["_beta_pipeline_stages"]
         
         # Preserve LLM error info (for diagnostics)
         if "error" in raw_data:
