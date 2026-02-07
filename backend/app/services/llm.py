@@ -39,7 +39,7 @@ def set_llm_model(model_name: str):
     global _current_model
     _current_model = model_name
     logger.info(f"[LLM] Model changed to: {_current_model}")
-    
+
     # DB 저장
     try:
         container = get_config_container()
@@ -63,9 +63,9 @@ async def fetch_available_models() -> List[str]:
         endpoint = endpoint.rstrip('/')
         api_key = settings.AZURE_OPENAI_API_KEY
         api_version = settings.AZURE_OPENAI_API_VERSION
-        
+
         models = []
-        
+
         async with httpx.AsyncClient() as client:
             # Try deployments endpoint first (Azure OpenAI standard)
             try:
@@ -75,7 +75,7 @@ async def fetch_available_models() -> List[str]:
                     headers={"api-key": api_key},
                     timeout=10.0
                 )
-                
+
                 if response.status_code == 200:
                     data = response.json()
                     # Get deployment names
@@ -83,13 +83,13 @@ async def fetch_available_models() -> List[str]:
                         dep_id = dep.get("id") or dep.get("deployment_id") or dep.get("name")
                         if dep_id:
                             models.append(dep_id)
-                    
+
                     if models:
                         logger.info(f"[LLM] Found {len(models)} deployments: {models}")
                         return models
             except Exception as e:
                 logger.debug(f"[LLM] Deployments endpoint failed: {e}")
-            
+
             # Fallback to models endpoint
             try:
                 models_url = f"{endpoint}/openai/models?api-version={api_version}"
@@ -98,29 +98,29 @@ async def fetch_available_models() -> List[str]:
                     headers={"api-key": api_key},
                     timeout=10.0
                 )
-                
+
                 if response.status_code == 200:
                     data = response.json()
                     logger.debug(f"[LLM] Models API raw response: {data}")
-                    
+
                     for m in data.get("data", []):
                         model_id = m.get("id")
                         caps = m.get("capabilities", {})
-                        
+
                         # Include if it has chat_completion OR if no capabilities info (be permissive)
                         if caps.get("chat_completion", False) or not caps:
                             if model_id:
                                 models.append(model_id)
-                    
+
                     if models:
                         logger.info(f"[LLM] Found {len(models)} models: {models}")
                         return models
             except Exception as e:
                 logger.debug(f"[LLM] Models endpoint failed: {e}")
-        
+
     except Exception as e:
         logger.error(f"[LLM] Error fetching models: {e}")
-    
+
     # Fallback - return empty list
     logger.warning("[LLM] Could not fetch models from Azure API, returning empty list")
     return []
@@ -131,13 +131,13 @@ def get_openai_client() -> AsyncAzureOpenAI:
     endpoint = endpoint.rstrip('/')
     api_key = settings.AZURE_OPENAI_API_KEY
     api_version = settings.AZURE_OPENAI_API_VERSION
-    
+
     if not endpoint or not api_key:
         raise ValueError("Azure AI endpoint and API key must be configured")
-    
+
     logger.info(f"[LLM] Endpoint: {endpoint}")
     logger.info(f"[LLM] Model: {_current_model}")
-    
+
     return AsyncAzureOpenAI(
         azure_endpoint=endpoint,
         api_key=api_key,
@@ -145,20 +145,20 @@ def get_openai_client() -> AsyncAzureOpenAI:
     )
 
 async def analyze_document_content(
-    ocr_result: dict, 
-    language: str = "en", 
+    ocr_result: dict,
+    language: str = "en",
     model_info: Optional[ExtractionModel] = None
 ) -> dict:
     """Azure AI Foundry를 통해 문서 내용 분석"""
     client = get_openai_client()
-    
+
     # Check beta feature flag (safe access pattern)
     use_optimized_prompt = False
     ref_map = None
     if model_info:
         beta_features = getattr(model_info, 'beta_features', None) or {}
         use_optimized_prompt = beta_features.get("use_optimized_prompt", False)
-    
+
     # Use LayoutParser for optimized content if beta enabled
     if use_optimized_prompt:
         logger.info("[LLM-Beta] Using LayoutParser for optimized prompt")
@@ -192,9 +192,9 @@ async def analyze_document_content(
             cells = table.get("cells", [])
             row_count = table.get("rowCount", 0)
             col_count = table.get("columnCount", 0)
-            
+
             tables_context += f"\nTable {idx+1} ({row_count}x{col_count}):\n"
-            
+
             # Simple Grid Reconstruction for Prompt
             grid = {}
             for cell in cells:
@@ -204,18 +204,18 @@ async def analyze_document_content(
                 if r < 20: # Limit rows
                     if r not in grid: grid[r] = {}
                     grid[r][c] = content
-            
+
             # Render rows
             for r in sorted(grid.keys()):
                 row_cells = grid[r]
                 row_str = " | ".join([row_cells.get(c, "") for c in range(col_count)])
                 tables_context += f"| {row_str} |\n"
-            
+
             if row_count > 20:
                 tables_context += f"... ({row_count - 20} more rows) ...\n"
 
     user_prompt = f"Document Text:\n{content_text}\n{tables_context}"
-    
+
     # Token overflow protection: estimate and truncate if needed
     # GPT-4o context: ~128K tokens. Leave room for system prompt + response.
     # Rough estimate: 1 token ≈ 4 chars for mixed content
@@ -234,11 +234,11 @@ async def analyze_document_content(
 
     max_retries = 2  # 1 initial + 1 retry with more aggressive truncation
     last_error = None
-    
+
     for attempt in range(max_retries):
         try:
             logger.info(f"[LLM] Calling: {_current_model} (attempt {attempt+1}, prompt: {len(user_prompt)} chars)")
-            
+
             response = await client.chat.completions.create(
                 model=_current_model,
                 messages=[
@@ -247,15 +247,15 @@ async def analyze_document_content(
                 ],
                 response_format={"type": "json_object"}
             )
-            
+
             result_content = response.choices[0].message.content
             logger.info(f"[LLM] Response received. Length: {len(result_content)}")
             llm_json = json.loads(result_content)
-            
+
             if model_info:
                 logger.info("[LLM] Post-processing with RefinerEngine")
                 processed_result = RefinerEngine.post_process_result(llm_json, ocr_result)
-                
+
                 # Track token usage for cost monitoring
                 if response.usage:
                     processed_result["_token_usage"] = {
@@ -264,33 +264,33 @@ async def analyze_document_content(
                         "total_tokens": response.usage.total_tokens
                     }
                     logger.info(f"[LLM] Token usage: {processed_result['_token_usage']}")
-                
+
                 # CRITICAL FIX: Always attach beta content when Beta mode is enabled
                 # This ensures the UI shows content even if LayoutParser fails
                 if use_optimized_prompt:
                     processed_result["_beta_parsed_content"] = content_text
                     logger.info(f"[LLM-Beta] Attached parsed content for UI (length: {len(content_text)})")
-                    
+
                     if ref_map:
                         processed_result["_beta_ref_map"] = ref_map
                         logger.info(f"[LLM-Beta] Attached ref_map with {len(ref_map)} entries")
-                
+
                 return processed_result
-            
+
             # For non-model extraction: also attach beta content if enabled
             if use_optimized_prompt:
                 llm_json["_beta_parsed_content"] = content_text
                 if ref_map:
                     llm_json["_beta_ref_map"] = ref_map
             return llm_json
-        
+
         except Exception as e:
             import traceback
             traceback.print_exc()
             error_msg = str(e).lower()
             last_error = str(e)
             logger.error(f"[LLM] Error (attempt {attempt+1}): {last_error}")
-            
+
             # Check if token limit exceeded — retry with truncated content
             is_token_error = "token" in error_msg or "context_length" in error_msg or "too long" in error_msg
             if is_token_error and attempt < max_retries - 1:
@@ -300,7 +300,7 @@ async def analyze_document_content(
                 user_prompt = user_prompt[:truncated_len] + "\n\n[... CONTENT TRUNCATED DUE TO TOKEN LIMIT ...]"
                 logger.warning(f"[LLM-Beta] Token overflow, retrying with truncated prompt: {current_len} → {len(user_prompt)} chars")
                 continue
-            
+
             # Non-retryable error or final attempt — return error WITH beta data
             error_result = {"error": last_error}
             # CRITICAL: Attach beta data even on error so UI can still show parsed content
@@ -310,7 +310,7 @@ async def analyze_document_content(
                     error_result["_beta_ref_map"] = ref_map
                 logger.info(f"[LLM-Beta] Attached beta data to error result for UI visibility")
             return error_result
-    
+
     # Should not reach here, but safety net
     error_result = {"error": last_error or "Unknown LLM error after retries"}
     if use_optimized_prompt:
@@ -318,7 +318,7 @@ async def analyze_document_content(
         if ref_map:
             error_result["_beta_ref_map"] = ref_map
     return error_result
-    
+
     # Note: client.close() removed — AsyncAzureOpenAI manages its own connection pool.
     # Calling close() after every request was causing connection issues on retry.
 
@@ -337,14 +337,14 @@ def build_extraction_schema(model_info) -> dict:
     # Build per-field schema
     field_properties = {}
     field_keys = []
-    
+
     for field in model_info.fields:
         key = field.key
         field_keys.append(key)
-        
+
         # Map FieldDefinition.type to JSON Schema type for "value"
         value_type = _map_field_type(field.type)
-        
+
         field_properties[key] = {
             "type": "object",
             "properties": {
@@ -355,14 +355,14 @@ def build_extraction_schema(model_info) -> dict:
             "required": ["value", "confidence", "source_text"],
             "additionalProperties": False,
         }
-    
+
     schema = {
         "type": "object",
         "properties": field_properties,
         "required": field_keys,
         "additionalProperties": False,
     }
-    
+
     logger.info(f"[Schema] Built extraction schema with {len(field_keys)} fields: {field_keys}")
     return schema
 
@@ -457,7 +457,7 @@ async def generate_schema_from_content(content_text: str, tables: List[dict] = N
     Generate a JSON schema (list of fields) based on document content using LLM.
     """
     client = get_openai_client()
-    
+
     # summarized context
     table_context = ""
     if tables and len(tables) > 0:
@@ -481,7 +481,7 @@ async def generate_schema_from_content(content_text: str, tables: List[dict] = N
       ]
     }
     """
-    
+
     user_prompt = f"Document Content:\n{content_text[:4000]}... (truncated)\n{table_context}\n\nSuggest extraction schema."
 
     try:
@@ -493,10 +493,10 @@ async def generate_schema_from_content(content_text: str, tables: List[dict] = N
             ],
             response_format={"type": "json_object"}
         )
-        
+
         result = json.loads(response.choices[0].message.content)
         return result.get("fields", [])
-        
+
     except Exception as e:
         logger.info(f"[LLM] Schema generation failed: {e}")
         return []
@@ -509,7 +509,7 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
     Refine existing schema based on user instruction (e.g. "Rename invoice_id to invoice_number")
     """
     client = get_openai_client()
-    
+
     system_prompt = """
     You are an expert Data Engineer. You will be given a current JSON schema (list of fields) and a user instruction.
     Your goal is to MODIFY the schema according to the instruction.
@@ -532,7 +532,7 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
       ]
     }
     """
-    
+
     user_prompt = f"""
     Current Fields:
     {json.dumps(current_fields, indent=2)}
@@ -552,10 +552,10 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
             ],
             response_format={"type": "json_object"}
         )
-        
+
         result = json.loads(response.choices[0].message.content)
         return result.get("fields", current_fields)
-        
+
     except Exception as e:
         logger.info(f"[LLM] Schema refinement failed: {e}")
         return current_fields
@@ -571,7 +571,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     """
     client = get_openai_client()
     model = _current_model
-    
+
     # 설정값 기본값 (UI에서 전달되지 않으면 사용)
     conf_threshold = 0.85
     ignore_position = True
@@ -583,7 +583,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     use_vision = True
     align_images = True
     custom_ignore_rules = None  # 추가 무시 규칙 (자연어)
-    
+
     # comparison_settings에서 설정값 읽기 (UI에서 전달된 값 우선)
     if comparison_settings:
         conf_threshold = comparison_settings.get("confidence_threshold", 0.85)
@@ -596,16 +596,16 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         use_vision = comparison_settings.get("use_vision_analysis", True)
         align_images = comparison_settings.get("align_images", True)
         custom_ignore_rules = comparison_settings.get("custom_ignore_rules")
-    
+
     # custom_instructions (global_rules)와 custom_ignore_rules 합치기
     combined_instructions = []
     if custom_instructions:
         combined_instructions.append(f"GLOBAL RULES: {custom_instructions}")
     if custom_ignore_rules:
         combined_instructions.append(f"CUSTOM IGNORE RULES (자연어): {custom_ignore_rules}")
-    
+
     final_custom_instructions = "\n".join(combined_instructions) if combined_instructions else None
-    
+
     logger.info(f"[LLM] Comparison {model} | SSIM={use_ssim} | Vision={use_vision}")
     logger.info(f"[LLM] Settings: ignore_position={ignore_position}, ignore_color={ignore_color}, ignore_font={ignore_font}, ignore_noise={ignore_compression_noise}")
     if final_custom_instructions:
@@ -617,7 +617,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     import asyncio
 
     tasks = []
-    
+
     # Task A: SSIM Analysis (Physical)
     if use_ssim:
         tasks.append(pixel_diff.calculate_ssim(image_url_1, image_url_2, align=align_images))
@@ -637,15 +637,15 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
 
     # Execute Parallel
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     ssim_diffs = results[0] if isinstance(results[0], list) else []
     vision_1 = results[1] if isinstance(results[1], str) else "Error"
     vision_2 = results[2] if isinstance(results[2], str) else "Error"
-    
+
     # Fast path: SSIM이 동일하면 LLM 호출 없이 즉시 빈 결과 반환 (hallucination 방지)
     # 설정에서 skip_llm_if_identical 옵션으로 제어 가능 (기본: True)
     skip_llm_if_identical = comparison_settings.get("skip_llm_if_identical", True) if comparison_settings else True
-    
+
     if not ssim_diffs and use_ssim and skip_llm_if_identical:
         logger.info("[LLM] SSIM confirms images are IDENTICAL. Skipping LLM call to prevent hallucination.")
         return {
@@ -659,7 +659,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
                 "reason": "Images are identical (SSIM)"
             }
         }
-    
+
     # 2. Construct Synthesis Context
     ssim_context = ""
     ssim_identical = False
@@ -688,7 +688,7 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
     default_categories = DEFAULT_COMPARISON_CATEGORIES
     allowed_categories = comparison_settings.get("allowed_categories") if comparison_settings else None
     excluded_categories = comparison_settings.get("excluded_categories") if comparison_settings else None
-    
+
     if allowed_categories:
         # Only use specified categories
         category_list = [c for c in allowed_categories if c in default_categories]
@@ -698,9 +698,9 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
     else:
         # Use all defaults
         category_list = default_categories
-    
+
     categories_str = json.dumps(category_list)
-    
+
     # Build category instruction (강화된 지시)
     if allowed_categories:
         category_instruction = f"""**ABSOLUTE REQUIREMENT**: You MUST ONLY report differences in these categories: {categories_str}. 
@@ -711,7 +711,7 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
         ONLY report differences in: {categories_str}."""
     else:
         category_instruction = f"You may report differences in any of these categories: {categories_str}."
-    
+
     # 추가: SSIM이 동일하면 hallucination 방지 강화
     anti_hallucination_instruction = ""
     if ssim_identical:
@@ -729,7 +729,7 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
     
     Only report a difference if you can see an UNMISTAKABLE change with your own visual inspection.
     When in doubt, do NOT report it."""
-    
+
     # IGNORE RULES를 설정값에 따라 동적으로 생성
     ignore_rules_list = []
     if ignore_position:
@@ -741,9 +741,9 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
     if ignore_compression_noise:
         ignore_rules_list.append("- IGNORE compression artifacts and minor pixel noise")
     ignore_rules_list.append("- IGNORE anything you are not certain about")
-    
+
     ignore_rules_text = "\n    ".join(ignore_rules_list)
-    
+
     system_prompt = f"""
     You are an expert Visual QA Auditor utilizing a 3-Layer Analysis Pipeline.
     
@@ -809,43 +809,43 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
             response_format={"type": "json_object"},
             max_tokens=2000
         )
-        
+
         result_content = response.choices[0].message.content
         data = json.loads(result_content)
-        
+
         # Post-process 1: Filter by confidence threshold (낮은 확신도 차이점 제거)
         if "differences" in data and isinstance(data["differences"], list):
             before_conf_count = len(data["differences"])
             data["differences"] = [
-                d for d in data["differences"] 
+                d for d in data["differences"]
                 if d.get("confidence", 0) >= conf_threshold
             ]
             after_conf_count = len(data["differences"])
             if before_conf_count != after_conf_count:
                 logger.info(f"[LLM] Confidence filter: {before_conf_count} -> {after_conf_count} (threshold: {conf_threshold})")
-        
+
         # Post-process 2: Filter out excluded categories (LLM 지시 무시 대비 안전장치)
         if "differences" in data and isinstance(data["differences"], list):
             original_count = len(data["differences"])
-            
+
             if allowed_categories:
                 # Only keep differences in allowed categories
                 data["differences"] = [
-                    d for d in data["differences"] 
+                    d for d in data["differences"]
                     if d.get("category", "").lower() in [c.lower() for c in category_list]
                 ]
             elif excluded_categories:
                 # Remove differences in excluded categories
                 excluded_lower = [c.lower() for c in excluded_categories]
                 data["differences"] = [
-                    d for d in data["differences"] 
+                    d for d in data["differences"]
                     if d.get("category", "").lower() not in excluded_lower
                 ]
-            
+
             filtered_count = len(data["differences"])
             if original_count != filtered_count:
                 logger.info(f"[LLM] Category filter: {original_count} -> {filtered_count} differences")
-        
+
         # Inject metadata
         data["metadata"] = {
             "model": model,

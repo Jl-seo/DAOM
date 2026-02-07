@@ -1,7 +1,7 @@
 import json
 import logging
 import asyncio
-from typing import List, Dict, Any
+from typing import List
 from app.core.config import settings
 from openai import AsyncAzureOpenAI
 from app.services.transformation.engine import TransformationRule
@@ -55,7 +55,7 @@ class RuleParser:
           }}
         ]
         """
-        
+
         try:
             # 타임아웃 10초 설정 (MVP 빠른 응답 위해)
             response = await asyncio.wait_for(
@@ -70,10 +70,10 @@ class RuleParser:
                 ),
                 timeout=10.0
             )
-            
+
             content = response.choices[0].message.content
             parsed_data = json.loads(content)
-            
+
             # Handle various JSON output formats from LLM
             if isinstance(parsed_data, dict):
                 rules_list = parsed_data.get("rules", []) or parsed_data.get("items", [])
@@ -84,13 +84,13 @@ class RuleParser:
                 rules_list = parsed_data
             else:
                 rules_list = []
-                
+
             return [TransformationRule(**r) for r in rules_list]
-            
+
         except asyncio.TimeoutError:
             logger.error("LLM request timed out while generating rules.")
             return []
-            
+
         except Exception as e:
             logger.error(f"Error parsing rules: {e}")
             return []

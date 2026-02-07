@@ -30,7 +30,7 @@ async def check_model_permission(user: CurrentUser, model_id: str, required_role
     required_role: "Admin" (for write/team view) or "User" (for read)
     """
     from app.core.group_permission_utils import check_initial_admin, is_super_admin_by_group, get_model_role_by_group
-    
+
     # 1. Super Admin / Initial Admin is always allowed
     if check_initial_admin(user.email):
         return True
@@ -41,12 +41,12 @@ async def check_model_permission(user: CurrentUser, model_id: str, required_role
     role = await get_model_role_by_group(user.id, user.tenant_id, model_id)
     if not role:
         return False
-        
+
     if required_role == "Admin":
         return role == "Admin"
     elif required_role == "User":
         return role in ["Admin", "User"]
-        
+
     return False
 
 

@@ -80,9 +80,9 @@ async def list_groups(current_user: CurrentUser = Depends(get_current_user)):
     """List all groups in tenant. Filter out Super Admin groups for non-super admins."""
     from app.core.auth import is_super_admin
     is_super = await is_super_admin(current_user)
-    
+
     groups = await group_service.get_groups_by_tenant(current_user.tenant_id)
-    
+
     # Filter out Super Admin groups for non-super admins
     if not is_super:
         filtered_groups = []
@@ -95,7 +95,7 @@ async def list_groups(current_user: CurrentUser = Depends(get_current_user)):
                     perm_super = perms.superAdmin
                 elif isinstance(perms, dict):
                     perm_super = perms.get('superAdmin', False)
-            
+
             if not perm_super:
                 filtered_groups.append(g)
         groups = filtered_groups
@@ -116,10 +116,10 @@ async def create_group(
         created_by=current_user.id,
         super_admin=request.superAdmin
     )
-    
+
     if not group:
         raise HTTPException(status_code=400, detail="Failed to create group")
-    
+
     return _to_response(group)
 
 
@@ -133,7 +133,7 @@ async def get_group(
     group = await group_service.get_group_by_id(group_id)
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    
+
     return _to_response(group)
 
 
@@ -155,10 +155,10 @@ async def update_group(
         description=request.description,
         tenant_id=current_user.tenant_id
     )
-    
+
     if not group:
         raise HTTPException(status_code=400, detail="Failed to update group")
-    
+
     return _to_response(group)
 
 
@@ -171,7 +171,7 @@ async def add_member(
     """Add member (user or Entra group) to group"""
     if request.type not in ["user", "entra_group"]:
         raise HTTPException(status_code=400, detail="Invalid member type")
-    
+
     success = await group_service.add_member_to_group(
         group_id=group_id,
         member_type=request.type,
@@ -179,10 +179,10 @@ async def add_member(
         display_name=request.displayName,
         tenant_id=current_user.tenant_id
     )
-    
+
     if not success:
         raise HTTPException(status_code=400, detail="Failed to add member")
-    
+
     return {"success": True, "message": f"{request.type} added"}
 
 
@@ -194,14 +194,14 @@ async def remove_member(
 ):
     """Remove member from group"""
     success = await group_service.remove_member_from_group(
-        group_id, 
-        member_id, 
+        group_id,
+        member_id,
         current_user.tenant_id
     )
-    
+
     if not success:
         raise HTTPException(status_code=400, detail="Failed to remove member")
-    
+
     return {"success": True, "message": "Member removed"}
 
 
@@ -213,7 +213,7 @@ async def set_permissions(
 ):
     """Set group permissions (superAdmin, per-model, and menus)"""
     model_perms = [{"modelId": m.modelId, "modelName": m.modelName, "role": m.role} for m in request.models]
-    
+
     success = await group_service.set_group_permissions(
         group_id=group_id,
         tenant_id=current_user.tenant_id,
@@ -221,10 +221,10 @@ async def set_permissions(
         model_permissions=model_perms,
         menu_permissions=request.menus
     )
-    
+
     if not success:
         raise HTTPException(status_code=400, detail="Failed to set permissions")
-    
+
     return {"success": True, "message": "Permissions updated"}
 
 
@@ -235,8 +235,8 @@ async def delete_group(
 ):
     """Delete group"""
     success = await group_service.delete_group(group_id, current_user.tenant_id)
-    
+
     if not success:
         raise HTTPException(status_code=400, detail="Failed to delete group")
-    
+
     return {"success": True, "message": "Group deleted"}

@@ -1,7 +1,7 @@
 """
 Extraction endpoints - Logs management
 """
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, Depends, Request
 from typing import Optional, List
 from app.services import extraction_logs
 from app.services.audit import log_action, AuditAction, AuditResource
@@ -28,7 +28,7 @@ async def get_extraction_logs_by_model(
     # Fix IDOR: Enforce tenant isolation
     tenant_id = current_user.tenant_id if current_user else None
     logs = extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
-    
+
     # Enterprise Hardening: Audit bulk data access for exfiltration detection
     await log_action(
         user=current_user,
@@ -38,7 +38,7 @@ async def get_extraction_logs_by_model(
         details={"count": len(logs), "limit": limit},
         request=request
     )
-    
+
     return [log.model_dump() for log in logs]
 
 
@@ -55,12 +55,12 @@ async def get_all_extraction_logs(
     Optional filter by model_id
     """
     tenant_id = current_user.tenant_id if current_user else None
-    
+
     if model_id:
         logs = extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
     else:
         logs = extraction_logs.get_all_logs(limit=limit, tenant_id=tenant_id)
-    
+
     # Enterprise Hardening: Audit bulk data access for exfiltration detection
     await log_action(
         user=current_user,
@@ -70,7 +70,7 @@ async def get_all_extraction_logs(
         details={"count": len(logs), "limit": limit, "model_id": model_id},
         request=request
     )
-    
+
     return [log.model_dump() for log in logs]
 
 

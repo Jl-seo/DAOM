@@ -53,10 +53,10 @@ async def update_prompt(key: str, request: PromptUpdateRequest):
         content=request.content,
         description=request.description or ""
     )
-    
+
     if not success:
         raise HTTPException(status_code=500, detail="Failed to save prompt")
-    
+
     prompt = await get_prompt(key)
     return {"success": True, "prompt": prompt}
 
@@ -65,9 +65,9 @@ async def update_prompt(key: str, request: PromptUpdateRequest):
 async def reset_prompt_to_default(key: str):
     """Reset a prompt to its default value"""
     success = await reset_prompt(key)
-    
+
     if not success:
         raise HTTPException(status_code=500, detail="Failed to reset prompt")
-    
+
     prompt = await get_prompt(key)
     return {"success": True, "prompt": prompt}

@@ -5,7 +5,7 @@ Persists to Cosmos DB for durability across deployments
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+from typing import Optional
 from app.db.cosmos import get_config_container
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -61,7 +61,7 @@ def load_config() -> dict:
     container = get_config_container()
     if not container:
         return {}
-    
+
     try:
         item = container.read_item(item=SITE_CONFIG_ID, partition_key=SITE_CONFIG_ID)
         # Remove Cosmos metadata
@@ -80,7 +80,7 @@ def save_config(config: dict):
     container = get_config_container()
     if not container:
         raise HTTPException(status_code=500, detail="Database not available")
-    
+
     try:
         doc = {"id": SITE_CONFIG_ID, **config}
         container.upsert_item(doc)

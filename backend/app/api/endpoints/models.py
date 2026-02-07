@@ -16,15 +16,15 @@ from app.core.auth import get_current_user, CurrentUser
 async def list_models(current_user: CurrentUser = Depends(get_current_user)):
     # 1. Load active models
     all_models = [m for m in load_models() if getattr(m, "is_active", True)]
-    
+
     # 2. Check permissions
     from app.core.auth import is_super_admin
     from app.core.group_permission_utils import get_accessible_model_ids
-    
+
     # Super Admin sees all
     if await is_super_admin(current_user):
         return all_models
-        
+
     # Standard User / Model Admin sees only accessible models
     accessible_ids = await get_accessible_model_ids(current_user.id, current_user.tenant_id)
     return [m for m in all_models if m.id in accessible_ids]
@@ -72,7 +72,7 @@ def delete_model(model_id: str):
             models[i] = updated_model
             save_models(models)
             return {"message": "Model deactivated"}
-            
+
     raise HTTPException(status_code=404, detail="Model not found")
 
 @router.get("/options/list", dependencies=[Depends(require_admin)])
@@ -91,18 +91,18 @@ async def analyze_sample(
     and return a list of suggested fields (schema).
     """
     from app.services import doc_intel
-    
+
     # 1. Read file bytes
     file_bytes = await file.read()
-    
+
     try:
         # 2. Run analysis (pass bytes directly)
         result = await doc_intel.extract_with_strategy(file_bytes, model_type)
-        
+
         # 3. Heuristic Field Discovery
         suggested_fields = []
         seen_keys = set()
-        
+
         # Strategy A: Key-Value Pairs (common in Forms)
         if "key_value_pairs" in result:
             for kv in result["key_value_pairs"]:
@@ -121,7 +121,7 @@ async def analyze_sample(
             for table in result["tables"]:
                 # Assume first row is header
                 headers = [
-                    c.get("content") for c in table.get("cells", []) 
+                    c.get("content") for c in table.get("cells", [])
                     if c.get("row_index") == 0
                 ]
                 for h in headers:
@@ -134,7 +134,7 @@ async def analyze_sample(
                             "type": "string",
                             "description": "Detected from Table Header"
                         })
-        
+
         # Strategy C: Prebuilt Fields (Documents)
         if "documents" in result:
              for doc in result["documents"]:
@@ -155,13 +155,13 @@ async def analyze_sample(
                 from app.services import llm
                 content = result.get("content", "")
                 tables = result.get("tables", [])
-                
+
                 llm_fields = await llm.generate_schema_from_content(content, tables)
-                
+
                 if llm_fields and len(llm_fields) > 0:
-                    # User requested "Processed by LLM only". 
+                    # User requested "Processed by LLM only".
                     # So if LLM succeeds, we discard the "noisy" raw heuristics (Strategy A/B)
-                    # We might want to keep 'Prebuilt' (Strategy C) if it was Invoice/Receipt, 
+                    # We might want to keep 'Prebuilt' (Strategy C) if it was Invoice/Receipt,
                     # but for Layout/Read, LLM is definitely better.
                     suggested_fields = llm_fields
                 else:
@@ -174,7 +174,7 @@ async def analyze_sample(
 
         return {
             "fields": suggested_fields,
-            "raw_result": result 
+            "raw_result": result
         }
 
     except Exception as e:
@@ -191,13 +191,13 @@ async def refine_schema_endpoint(
     Refine schema based on natural language instruction
     """
     from app.services import llm
-    
+
     fields = payload.get("fields", [])
     instruction = payload.get("instruction", "")
-    
+
     if not instruction:
         return {"fields": fields}
-        
+
     try:
         refined_fields = await llm.refine_schema(fields, instruction)
         return {"fields": refined_fields}

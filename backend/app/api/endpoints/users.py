@@ -47,13 +47,13 @@ async def get_current_user_info(current_user: CurrentUser = Depends(get_current_
     except Exception as e:
         # Don't block login if startup tasks fail
         logger.error(f"Failed to run startup tasks: {e}")
-    
+
     user = await user_service.get_or_create_user(current_user)
-    
+
     # Check if user is Super Admin
     from app.core.auth import is_super_admin
     is_super = await is_super_admin(current_user)
-    
+
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -79,7 +79,7 @@ async def list_users(
     - all_tenants=True: 모든 테넌트의 사용자 (Super Admin 전용)
     """
     from app.core.auth import is_super_admin
-    
+
     if all_tenants:
         # Super Admin 권한 체크
         if not await is_super_admin(current_user):
@@ -87,7 +87,7 @@ async def list_users(
         users = await user_service.get_all_users(search_term=search)
     else:
         users = await user_service.get_users_by_tenant(current_user.tenant_id, search_term=search)
-    
+
     return [
         UserResponse(
             id=u.id,
@@ -114,7 +114,7 @@ async def get_user(
     user = await user_service.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -137,14 +137,14 @@ async def update_user_role(
     Update user's role (Admin only)
     """
     success = await user_service.update_user_role(
-        user_id, 
-        request.role, 
+        user_id,
+        request.role,
         current_user.tenant_id
     )
-    
+
     if not success:
         raise HTTPException(status_code=400, detail="Failed to update role")
-    
+
     return {"success": True, "message": f"Role updated to {request.role}"}
 
 
@@ -179,8 +179,7 @@ async def bulk_import_users(
     Processes in batches of 100 for performance.
     """
     from app.services import group_service
-    from datetime import datetime
-    
+
     result = BulkImportResult(
         total=len(request.users),
         created=0,
@@ -188,16 +187,16 @@ async def bulk_import_users(
         failed=0,
         errors=[]
     )
-    
+
     # Pre-load groups for name lookup
     all_groups = await group_service.get_groups_by_tenant(current_user.tenant_id)
     group_name_to_id = {g.name.lower(): g.id for g in all_groups}
-    
+
     # Process in batches
     BATCH_SIZE = 100
     for i in range(0, len(request.users), BATCH_SIZE):
         batch = request.users[i:i + BATCH_SIZE]
-        
+
         for user_entry in batch:
             try:
                 # Map group names to IDs
@@ -208,10 +207,10 @@ async def bulk_import_users(
                         group_ids.append(gid)
                     else:
                         result.errors.append(f"Group '{gname}' not found for user {user_entry.email}")
-                
+
                 # Check if user exists
                 existing = await user_service.get_user_by_email(user_entry.email, current_user.tenant_id)
-                
+
                 if existing:
                     # Update user groups
                     await user_service.update_user_groups(existing.id, group_ids, current_user.tenant_id)
@@ -225,11 +224,11 @@ async def bulk_import_users(
                         groups=group_ids
                     )
                     result.created += 1
-                    
+
             except Exception as e:
                 result.failed += 1
                 result.errors.append(f"{user_entry.email}: {str(e)}")
                 logger.error(f"Failed to import user {user_entry.email}: {e}")
-    
+
     return result
 

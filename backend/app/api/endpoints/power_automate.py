@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from app.core.auth import get_current_user, CurrentUser
-from app.services import extraction_jobs, extraction_logs
+from app.services import extraction_logs
 from app.services.models import load_models
 from app.services.storage import upload_file_to_blob
 from app.core.group_permission_utils import get_accessible_model_ids
@@ -64,19 +64,19 @@ class ModelsListResponse(BaseModel):
 # ============================================
 
 async def run_extraction_with_metadata(
-    job_id: str, 
-    model_id: str, 
-    file_urls: List[str], 
+    job_id: str,
+    model_id: str,
+    file_urls: List[str],
     filenames: List[str],
     metadata: Optional[Dict[str, Any]] = None
 ):
     """Run extraction and store metadata alongside results"""
     from app.services.extraction_service import run_extraction_pipeline
-    
+
     try:
         # Run the actual extraction
         result = await run_extraction_pipeline(job_id, model_id, file_urls, filenames)
-        
+
         # Update log with metadata if provided
         if metadata:
             log = extraction_logs.get_log(job_id)
@@ -100,7 +100,7 @@ async def run_extraction_with_metadata(
 # Endpoints
 # ============================================
 
-@router.post("/upload", response_model=UploadResponse, 
+@router.post("/upload", response_model=UploadResponse,
              summary="📄 문서 업로드",
              description="파일을 업로드하고 추출 작업을 시작합니다. 비동기로 처리되며 job_id로 결과를 조회할 수 있습니다.")
 async def upload_document(
@@ -120,18 +120,18 @@ async def upload_document(
     """
     import json
     import os
-    
+
     # ========== FILE TYPE VALIDATION ==========
     # Check 1: Extension validation
     ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp'}
     file_ext = os.path.splitext(file.filename)[1].lower()
-    
+
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
             detail=f"지원하지 않는 파일 확장자입니다: {file_ext}. PDF 또는 이미지 파일만 업로드 가능합니다."
         )
-    
+
     # Check 2: MIME type validation
     ALLOWED_MIME_TYPES = {
         'application/pdf',
@@ -141,13 +141,13 @@ async def upload_document(
         'image/bmp',
         'image/x-ms-bmp'
     }
-    
+
     if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"지원하지 않는 파일 타입입니다: {file.content_type}. PDF 또는 이미지 파일만 업로드 가능합니다."
         )
-    
+
     # Parse metadata if provided
     # Parse metadata if provided
     parsed_metadata = None
@@ -156,17 +156,17 @@ async def upload_document(
             parsed_metadata = json.loads(metadata)
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="metadata must be valid JSON")
-    
+
     # Upload file to blob
     file_content = await file.read()
     job_id = str(uuid.uuid4())
-    
+
     try:
         file_url = upload_file_to_blob(file_content, file.filename, f"connector/{job_id}")
     except Exception as e:
         logger.error(f"[Connector] File upload failed: {e}")
         raise HTTPException(status_code=500, detail="File upload failed")
-    
+
     # Create initial log entry with metadata
     extraction_logs.save_extraction_log(
         model_id=model_id,
@@ -181,7 +181,7 @@ async def upload_document(
         user_email=current_user.email if hasattr(current_user, 'email') else None,
         metadata=parsed_metadata
     )
-    
+
     # Start background extraction
     background_tasks.add_task(
         run_extraction_with_metadata,
@@ -191,7 +191,7 @@ async def upload_document(
         filenames=[file.filename],
         metadata=parsed_metadata
     )
-    
+
     # Send webhook if provided
     if webhook_url:
         from app.services.webhook import send_webhook_background
@@ -201,7 +201,7 @@ async def upload_document(
             "model_id": model_id,
             "filename": file.filename
         })
-    
+
     return UploadResponse(
         job_id=job_id,
         status="pending",
@@ -210,7 +210,7 @@ async def upload_document(
     )
 
 
-@router.get("/result/{job_id}", 
+@router.get("/result/{job_id}",
             summary="🔍 추출 결과 조회",
             description="Job ID로 추출 상태 및 결과를 조회합니다.")
 async def get_extraction_result(
@@ -225,10 +225,10 @@ async def get_extraction_result(
     - 실패 시: 200 + error 필드
     """
     log = extraction_logs.get_log(job_id)
-    
+
     if not log:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     # Get model name
     model_name = None
     try:
@@ -238,7 +238,7 @@ async def get_extraction_result(
             model_name = model.name
     except Exception:
         pass
-    
+
     response_data = {
         "job_id": job_id,
         "status": log.status,
@@ -250,7 +250,7 @@ async def get_extraction_result(
         "metadata": log.metadata,
         "created_at": log.created_at
     }
-    
+
     # Calculate confidence if available
     if log.extracted_data:
         confidences = []
@@ -259,7 +259,7 @@ async def get_extraction_result(
                 confidences.append(field_data["confidence"])
         if confidences:
             response_data["confidence"] = sum(confidences) / len(confidences)
-    
+
     # Return 202 if still processing (for async polling pattern)
     if log.status in ["pending", "processing"]:
         return JSONResponse(
@@ -270,7 +270,7 @@ async def get_extraction_result(
                 "Location": f"/api/v1/connectors/result/{job_id}"
             }
         )
-    
+
     return response_data
 
 
@@ -299,14 +299,14 @@ async def list_available_models(
     Super Admin은 모든 모델, 일반 사용자는 권한 있는 모델만 표시됩니다.
     """
     all_models = [m for m in load_models() if getattr(m, "is_active", True)]
-    
+
     # Filter by permission
     if await is_super_admin(current_user):
         accessible = all_models
     else:
         accessible_ids = await get_accessible_model_ids(current_user.id, current_user.tenant_id)
         accessible = [m for m in all_models if m.id in accessible_ids]
-    
+
     return ModelsListResponse(
         models=[
             ModelInfo(
@@ -332,13 +332,13 @@ async def cancel_extraction(
     이미 완료된 작업은 취소할 수 없습니다.
     """
     log = extraction_logs.get_log(job_id)
-    
+
     if not log:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     if log.status in ["success", "error"]:
         raise HTTPException(status_code=400, detail="Cannot cancel completed job")
-    
+
     # Update status to cancelled
     extraction_logs.save_extraction_log(
         model_id=log.model_id,
@@ -351,5 +351,5 @@ async def cancel_extraction(
         metadata=log.metadata,
         error="Cancelled by user"
     )
-    
+
     return {"job_id": job_id, "status": "cancelled", "message": "작업이 취소되었습니다"}

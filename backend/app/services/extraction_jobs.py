@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class ExtractionJob(BaseModel):
     """Extraction job with lifecycle tracking"""
     model_config = ConfigDict(extra="ignore")  # Ignore Cosmos system fields (_rid, _etag, etc.)
-    
+
     id: str
     model_id: str
     user_id: str
@@ -59,7 +59,7 @@ def create_job(
     """Create a new extraction job with pending status"""
     job_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    
+
     # Validation: Ensure at least one file source
     if not file_url and not file_urls:
          # Fallback or strict error? For now allow if one is missing but warn.
@@ -83,7 +83,7 @@ def create_job(
         original_log_id=original_log_id,
         tenant_id=tenant_id
     )
-    
+
     container = get_extractions_container()
     if container:
         try:
@@ -93,7 +93,7 @@ def create_job(
             })
         except Exception as e:
             logger.info(f"[ExtractionJobs] Failed to save job: {e}")
-    
+
     return job
 
 
@@ -102,7 +102,7 @@ def get_job(job_id: str) -> Optional[ExtractionJob]:
     container = get_extractions_container()
     if not container:
         return None
-    
+
     try:
         query = "SELECT * FROM c WHERE c.id = @job_id AND c.type = 'extraction_job'"
         items = list(container.query_items(
@@ -114,7 +114,7 @@ def get_job(job_id: str) -> Optional[ExtractionJob]:
             return ExtractionJob(**items[0])
     except Exception as e:
         logger.info(f"[ExtractionJobs] Failed to get job: {e}")
-    
+
     return None
 
 
@@ -134,13 +134,13 @@ def update_job(
     """Update job status and data — v2026.02.07 (blob-unified)"""
     global _last_update_error
     _last_update_error = None
-    
+
     container = get_extractions_container()
     if not container:
         _last_update_error = "step0: Cosmos container is None"
         logger.error(f"[ExtractionJobs] update_job({job_id}): {_last_update_error}")
         return None
-    
+
     try:
         # Get existing job
         logger.info(f"[ExtractionJobs] update_job({job_id}): step 1 — querying job")
@@ -150,14 +150,14 @@ def update_job(
             parameters=[{"name": "@job_id", "value": job_id}],
             enable_cross_partition_query=True
         ))
-        
+
         if not items:
             _last_update_error = f"step1: job {job_id} not found in Cosmos (type={ExtractionType.JOB.value})"
             logger.error(f"[ExtractionJobs] update_job({job_id}): {_last_update_error}")
             return None
-        
+
         job_data = items[0]
-        
+
         # Update fields
         if status:
             job_data["status"] = status
@@ -170,7 +170,7 @@ def update_job(
         if error is not None:
             job_data["error"] = error
         job_data["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        
+
         # Safety: Cosmos DB has 2MB document size limit
         # Truncate large fields if total payload is too big
         try:
@@ -201,39 +201,39 @@ def update_job(
                 logger.info(f"[ExtractionJobs] Payload after truncation: {payload_size_after} bytes")
         except Exception as size_err:
             logger.warning(f"[ExtractionJobs] Size check failed (non-fatal): {size_err}")
-        
+
         # Upsert
         payload_size = len(_json.dumps(job_data, ensure_ascii=False, default=str))
         logger.info(f"[ExtractionJobs] update_job({job_id}): step 2 — upserting ({payload_size} bytes)")
         container.upsert_item(body=job_data)
         logger.info(f"[ExtractionJobs] update_job({job_id}): step 3 — upsert OK, creating ExtractionJob")
-        
+
         job = ExtractionJob(**job_data)
-        
-        
+
+
         # Log audit if status changed
         if status and status != job_data.get("status"):
             previous_status = job_data.get("status")
-            
+
             # Extract token_usage from debug_data for audit
             token_usage = None
             if debug_data and isinstance(debug_data, dict):
                 token_usage = debug_data.get("token_usage")
-            
+
             audit.log_extraction_action(
-                job, 
-                "UPDATE_STATUS", 
+                job,
+                "UPDATE_STATUS",
                 status="SUCCESS" if status != "error" else "FAILURE",
                 changes={
                     "status": {
-                        "old": previous_status, 
+                        "old": previous_status,
                         "new": status
                     }
                 },
                 details={"error": error} if error else None,
                 token_usage=token_usage  # Pass token usage to audit
             )
-            
+
         # Auto-sync status to ExtractionLog to ensure history consistency
         # This handles SUCCESS, ERROR, CANCELLED, etc. automatically
         if (job.original_log_id or job.log_id) and status:
@@ -241,21 +241,21 @@ def update_job(
                 from app.services import extraction_logs
                 log_id_to_update = job.original_log_id or job.log_id
                 extraction_logs.update_log_status(
-                    log_id_to_update, 
+                    log_id_to_update,
                     status=status,
                     preview_data=preview_data,
                     debug_data=debug_data # FIXED: Propagate debug_data
                 )
             except Exception as e:
                 logger.info(f"[ExtractionJobs] Failed to sync status to log {job.original_log_id}: {e}")
-            
+
         return job
-        
+
     except Exception as e:
         import traceback
         _last_update_error = f"step2/3 exception: {type(e).__name__}: {e}"
         logger.error(f"[ExtractionJobs] update_job({job_id}): {_last_update_error}\n{traceback.format_exc()}")
-    
+
     return None
 
 
@@ -264,7 +264,7 @@ def get_jobs_by_model(model_id: str, limit: int = 50) -> List[ExtractionJob]:
     container = get_extractions_container()
     if not container:
         return []
-    
+
     try:
         query = """
             SELECT * FROM c 
@@ -284,7 +284,7 @@ def get_jobs_by_model(model_id: str, limit: int = 50) -> List[ExtractionJob]:
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
         logger.info(f"[ExtractionJobs] Failed to get jobs: {e}")
-    
+
     return []
 
 
@@ -293,7 +293,7 @@ def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 50) -> 
     container = get_extractions_container()
     if not container:
         return []
-    
+
     try:
         query = """
             SELECT * FROM c 
@@ -315,7 +315,7 @@ def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 50) -> 
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
         logger.info(f"[ExtractionJobs] Failed to get model user jobs: {e}")
-    
+
     return []
 
 
@@ -324,7 +324,7 @@ def get_jobs_by_user(user_id: str, limit: int = 50, tenant_id: Optional[str] = N
     container = get_extractions_container()
     if not container:
         return []
-    
+
     try:
         query = """
             SELECT * FROM c 
@@ -350,7 +350,7 @@ def get_jobs_by_user(user_id: str, limit: int = 50, tenant_id: Optional[str] = N
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
         logger.info(f"[ExtractionJobs] Failed to get user jobs: {e}")
-    
+
     return []
 
 
@@ -359,7 +359,7 @@ def get_latest_job_by_log_id(log_id: str) -> Optional[ExtractionJob]:
     container = get_extractions_container()
     if not container:
         return None
-    
+
     try:
         query = """
             SELECT TOP 1 * FROM c 
@@ -376,7 +376,7 @@ def get_latest_job_by_log_id(log_id: str) -> Optional[ExtractionJob]:
             return ExtractionJob(**items[0])
     except Exception as e:
         logger.info(f"[ExtractionJobs] Failed to get job by log_id: {e}")
-    
+
     return None
 
 
@@ -385,7 +385,7 @@ def delete_job(job_id: str) -> bool:
     container = get_extractions_container()
     if not container:
         return False
-    
+
     try:
         # Find item by ID to get partition key (model_id)
         # We query without type restriction to handle both Jobs and Logs
@@ -395,15 +395,15 @@ def delete_job(job_id: str) -> bool:
             parameters=[{"name": "@id", "value": job_id}],
             enable_cross_partition_query=True
         ))
-        
+
         if not items:
             return False
 
         item = items[0]
         partition_key = item.get("model_id") # Most items use model_id as PK
-        
+
         if not partition_key:
-             # Fallback or check if it's a legacy item. 
+             # Fallback or check if it's a legacy item.
              # If no model_id, maybe we can't delete if PK is required.
              # Tries deleting using id as PK? (unlikely for this container)
              logger.info(f"[ExtractionJobs] Item {job_id} has no model_id partition key.")
@@ -423,17 +423,17 @@ def cancel_job(job_id: str) -> Optional[ExtractionJob]:
     # But updating status prevents frontend from polling it as active.
     # But updating status prevents frontend from polling it as active.
     job = update_job(job_id, status=ExtractionStatus.CANCELLED.value, error="Cancelled by user")
-    
+
     # Sync cancellation status to ExtractionLog if linked
     if job and (job.original_log_id or job.log_id):
         from app.services import extraction_logs
         log_id_to_update = job.original_log_id or job.log_id
         try:
             extraction_logs.update_log_status(
-                log_id_to_update, 
+                log_id_to_update,
                 status=ExtractionStatus.CANCELLED.value
             )
         except Exception as e:
             logger.info(f"[ExtractionJobs] Failed to sync cancel status to log: {e}")
-            
+
     return job

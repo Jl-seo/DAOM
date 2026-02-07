@@ -1,6 +1,6 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from app.services.transformation.parser import RuleParser
 from app.services.transformation.engine import TransformationEngine, TransformationRule
 
@@ -32,9 +32,9 @@ async def test_rules(req: TestRequest):
     engine = TransformationEngine()
     # Convert dicts back to TransformationRule objects
     rules_objs = [TransformationRule(**r) for r in req.rules]
-    
+
     result = engine.apply(req.sample_data, rules_objs)
-    
+
     return {
         "result": result["processed"],
         "audit": result["audit"]

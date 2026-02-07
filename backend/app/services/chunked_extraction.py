@@ -63,7 +63,7 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
     paragraphs = doc_intel_output.get("paragraphs", [])
     tables = doc_intel_output.get("tables", [])
     content = doc_intel_output.get("content", "")
-    
+
     if not pages:
         # Single chunk for small documents
         return [Chunk(
@@ -75,35 +75,35 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
             pages_data=pages, # Pass all pages
             token_estimate=estimate_tokens(content)
         )]
-    
+
     chunks: List[Chunk] = []
     current_chunk_pages: List[int] = []
     current_chunk_content = ""
     current_chunk_paragraphs: List[Dict] = []
     current_chunk_tables: List[Dict] = []
     current_chunk_pages_data: List[Dict] = []
-    
+
     for page in pages:
         # IMPORTANT: doc_intel.py uses snake_case "page_number", not camelCase "pageNumber"
         page_num = page.get("page_number") or page.get("pageNumber", 1)
-        
+
         # Get content for this page (handle both snake_case and camelCase keys)
         def get_regions(obj):
             return obj.get("bounding_regions") or obj.get("boundingRegions") or []
-            
+
         def is_on_page(obj, p_num):
             regions = get_regions(obj)
             return any((br.get("page_number") or br.get("pageNumber")) == p_num for br in regions)
 
         page_paragraphs = [p for p in paragraphs if is_on_page(p, page_num)]
         page_tables = [t for t in tables if is_on_page(t, page_num)]
-        
+
         page_content = "\n".join([p.get("content", "") for p in page_paragraphs])
         page_tokens = estimate_tokens(page_content)
-        
+
         # Check if adding this page exceeds limit
         current_tokens = estimate_tokens(current_chunk_content)
-        
+
         if current_tokens + page_tokens > max_tokens and current_chunk_pages:
             # Save current chunk and start new one
             chunks.append(Chunk(
@@ -120,14 +120,14 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
             current_chunk_content = ""
             current_chunk_paragraphs = []
             current_chunk_tables = []
-        
+
         # Add page to current chunk
         current_chunk_pages.append(page_num)
         current_chunk_pages_data.append(page.copy()) # Collect high-fidelity page data
         current_chunk_content += f"\n--- Page {page_num} ---\n{page_content}"
         current_chunk_paragraphs.extend(page_paragraphs)
         current_chunk_tables.extend(page_tables)
-    
+
     # Don't forget the last chunk
     if current_chunk_pages:
         chunks.append(Chunk(
@@ -139,11 +139,11 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
             pages_data=current_chunk_pages_data,
             token_estimate=estimate_tokens(current_chunk_content)
         ))
-    
+
     logger.info(f"[Chunking] Split document into {len(chunks)} chunks")
     for i, chunk in enumerate(chunks):
         logger.info(f"  Chunk {i}: pages {chunk.page_numbers}, ~{chunk.token_estimate} tokens")
-    
+
     return chunks
 
 
@@ -158,7 +158,7 @@ async def process_chunk_with_retry(
     Process a single chunk with retry logic and exponential backoff.
     """
     last_error = None
-    
+
     for attempt in range(max_retries):
         try:
             # Build prompt for this chunk - USES HIGH FIDELITY ENGLISH PROMPT
@@ -174,7 +174,7 @@ async def process_chunk_with_retry(
                     key = field.get('key')
                     label = field.get('label')
                     description = field.get('description')
-                
+
                 desc = f"- {key}: {label}"
                 if description:
                     desc += f" ({description})"
@@ -185,11 +185,11 @@ async def process_chunk_with_retry(
             # Prepare Lean Data for Prompt
             # Use text content + tables (with cell bboxes) - NOT full pages_data (too heavy)
             doc_context = chunk.content
-            
+
             # DEBUG: Log table data being sent
             tables_to_use = chunk.tables if chunk.tables else []
             logger.info(f"[Chunk {chunk.index}] Tables count: {len(tables_to_use)}, Content length: {len(chunk.content)}")
-            
+
             if tables_to_use:
                 doc_context += f"\n\n--- TABLES DATA ---\n{json.dumps(tables_to_use, ensure_ascii=False)}"
             else:
@@ -235,16 +235,16 @@ IMPORTANT:
                 temperature=0.1,
                 response_format={"type": "json_object"}
             )
-            
+
             result_text = response.choices[0].message.content.strip()
-            
+
             # DEBUG: Log prompt size and response
             logger.info(f"[Chunk {chunk.index}] Prompt size: {len(prompt)} chars, Response size: {len(result_text)} chars")
             logger.info(f"[Chunk {chunk.index}] LLM Response preview: {result_text[:500]}...")
-            
+
             # Parse JSON response
             extracted = json.loads(result_text)
-            
+
             # Normalize structure if LLM responds weirdly (sometimes returns list)
             if "guide_extracted" not in extracted:
                  # Try to see if it's the old flat format or something else
@@ -253,7 +253,7 @@ IMPORTANT:
                      extracted = {"guide_extracted": extracted}
 
             guide = extracted.get("guide_extracted", {})
-            
+
             # Ensure every field in guide is an object
             for k, v in guide.items():
                 if not isinstance(v, dict):
@@ -263,15 +263,15 @@ IMPORTANT:
                         "bbox": None,
                         "page_number": chunk.page_numbers[0] if chunk.page_numbers else 1
                     }
-            
+
             extracted["guide_extracted"] = guide
-            
+
             # Add page metadata
             extracted["_chunk_index"] = chunk.index
             extracted["_pages"] = chunk.page_numbers
-            
+
             logger.info(f"[Chunk {chunk.index}] Successfully processed pages {chunk.page_numbers}")
-            
+
             return ChunkResult(
                 chunk_index=chunk.index,
                 success=True,
@@ -284,11 +284,11 @@ IMPORTANT:
                     "tables_count": len(tables_to_use)
                 }
             )
-            
+
         except Exception as e:
             last_error = str(e)
             logger.warning(f"[Chunk {chunk.index}] Attempt {attempt + 1} failed: {last_error}")
-            
+
             if "429" in str(e) or "rate" in str(e).lower():
                 # Rate limit - wait longer
                 wait_time = RETRY_DELAY_BASE * (2 ** attempt) * 2
@@ -298,7 +298,7 @@ IMPORTANT:
                 # Other error - standard backoff
                 wait_time = RETRY_DELAY_BASE * (2 ** attempt)
                 await asyncio.sleep(wait_time)
-    
+
     return ChunkResult(
         chunk_index=chunk.index,
         success=False,
@@ -319,21 +319,21 @@ async def process_chunks_parallel(
         api_version=settings.AZURE_OPENAI_API_VERSION,
         azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
     )
-    
+
     # Use dynamic model from admin settings
     from app.services.llm import get_current_model
     deployment = get_current_model()
     semaphore = asyncio.Semaphore(max_concurrent)
-    
+
     async def process_with_semaphore(chunk: Chunk) -> ChunkResult:
         async with semaphore:
             return await process_chunk_with_retry(client, chunk, model_fields, deployment)
-    
+
     logger.info(f"[Parallel] Processing {len(chunks)} chunks with max {max_concurrent} concurrent")
-    
+
     tasks = [process_with_semaphore(chunk) for chunk in chunks]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     # Handle any unexpected exceptions
     processed_results = []
     for i, result in enumerate(results):
@@ -345,7 +345,7 @@ async def process_chunks_parallel(
             ))
         else:
             processed_results.append(result)
-    
+
     return processed_results
 
 
@@ -372,33 +372,33 @@ def merge_chunk_results(
     merged_other: List[Any] = []
     field_sources: Dict[str, int] = {}  # Track which page gave us each field
     errors: List[str] = []
-    
+
     # Sort results by chunk index
     sorted_results = sorted(results, key=lambda r: r.chunk_index)
-    
+
     for result in sorted_results:
         if not result.success:
             errors.append(f"Chunk {result.chunk_index} failed: {result.error}")
             continue
-        
+
         if not result.extracted_data:
             continue
-        
+
         chunk_data = result.extracted_data
         guide = chunk_data.get("guide_extracted", {})
         other = chunk_data.get("other_data", [])
-        
+
         if isinstance(other, list):
             merged_other.extend(other)
-            
+
         pages = chunk_data.get("_pages", [])
-        
+
         for key, item in guide.items():
             # item is expected to be {value, confidence, bbox, page}
             if not isinstance(item, dict): continue
-            
+
             val = item.get("value")
-            
+
             # Strategy: If field not present, take it.
             # If present, only replace if current is null.
             # Actually, we should take non-null over null.
@@ -418,12 +418,12 @@ def merge_chunk_results(
     # Wait, the caller loop in extraction_service needs update too if we change return type.
     # checking extraction_service line 623:
     # "guide_extracted": {k: {"value": v, "confidence": 0.8} for k, v in merged_result.items() if not k.startswith("_")},
-    
+
     # WE MUST CHANGE extraction_service TO ACCEPT THIS RICHER RETURN or CHANGE THIS TO MATCH.
     # The plan says "Update merge_chunk_results Logic to merge the richer object structure".
     # I should change this to return the dictionary of Objects.
     # And I need to update extraction_service to use it directly instead of wrapping it again.
-    
+
     # Collect debug info from chunks
     chunk_debug = []
     for r in sorted_results:
@@ -434,17 +434,17 @@ def merge_chunk_results(
                 "error": r.error,
                 **r.debug_info
             })
-    
+
     merged_guide["_merge_info"] = {
         "total_chunks": len(results),
         "successful_chunks": sum(1 for r in results if r.success),
         "field_sources": field_sources,
         "chunk_debug": chunk_debug  # LLM prompt/response info for each chunk
     }
-    
+
     success_rate = sum(1 for r in results if r.success) / len(results) if results else 0
     logger.info(f"[Merge] Merged {len(merged_guide)} fields from {len(results)} chunks (success rate: {success_rate:.0%})")
-    
+
     return merged_guide, errors
 
 
@@ -468,16 +468,16 @@ async def extract_with_chunking(
     """
     # Step 1: Chunk the document
     chunks = chunk_document_data(doc_intel_output, max_tokens_per_chunk)
-    
+
     if len(chunks) == 1:
         logger.info("[Extract] Small document, processing without chunking")
     else:
         logger.info(f"[Extract] Large document, processing in {len(chunks)} chunks")
-    
+
     # Step 2: Process chunks in parallel
     results = await process_chunks_parallel(chunks, model_fields, max_concurrent)
-    
+
     # Step 3: Merge results
     merged, errors = merge_chunk_results(results, model_fields)
-    
+
     return merged, errors

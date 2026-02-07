@@ -1,9 +1,7 @@
 import os
 import shutil
 from abc import ABC, abstractmethod
-from typing import BinaryIO
 from fastapi import UploadFile
-from app.core.config import settings
 
 class FileStorage(ABC):
     @abstractmethod
@@ -15,7 +13,7 @@ class FileStorage(ABC):
     def get_file_url(self, filename: str) -> str:
         """Get public URL for a filename"""
         pass
-    
+
     @abstractmethod
     def get_file_path(self, filename: str) -> str:
         """Get internal file path (if applicable)"""
@@ -36,7 +34,7 @@ class LocalFileStorage(FileStorage):
         # Assuming main.py mounts self.upload_dir at /static
         # In production with a real domain, this might need full URL
         return f"/static/{filename}"
-    
+
     def get_file_path(self, filename: str) -> str:
         return os.path.join(self.upload_dir, filename)
 
@@ -53,7 +51,7 @@ class AzureBlobStorage(FileStorage):
     def get_file_url(self, filename: str) -> str:
         # Placeholder
         return ""
-    
+
     def get_file_path(self, filename: str) -> str:
         return filename
 

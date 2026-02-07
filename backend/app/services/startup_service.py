@@ -25,7 +25,7 @@ async def seed_system_admin_group(tenant_id: str, current_user_email: str = None
     container = get_container("groups", "/tenant_id")
     if not container:
         return False
-    
+
     try:
         # Check if System Admins group exists for this tenant
         items = list(container.query_items(
@@ -36,7 +36,7 @@ async def seed_system_admin_group(tenant_id: str, current_user_email: str = None
             ],
             enable_cross_partition_query=True
         ))
-        
+
         if items:
             group_data = items[0]
         else:
@@ -58,13 +58,13 @@ async def seed_system_admin_group(tenant_id: str, current_user_email: str = None
             }
             container.create_item(body=group_data)
             logger.info(f"Created System Admins group for tenant {tenant_id}")
-        
+
         # If current user's email is in INITIAL_ADMIN_EMAILS, add them
         initial_admins = get_initial_admin_emails()
         if current_user_email and current_user_email.lower() in initial_admins:
             members = group_data.get("members", [])
             user_id = current_user_id or current_user_email
-            
+
             if not any(m.get("id") == user_id for m in members):
                 members.append({
                     "type": "user",
@@ -74,9 +74,9 @@ async def seed_system_admin_group(tenant_id: str, current_user_email: str = None
                 group_data["members"] = members
                 container.upsert_item(body=group_data)
                 logger.info(f"Added {current_user_email} to System Admins group")
-        
+
         return True
-        
+
     except Exception as e:
         logger.error(f"Error seeding System Admins group: {e}")
         return False
@@ -84,19 +84,19 @@ async def seed_system_admin_group(tenant_id: str, current_user_email: str = None
 async def run_startup_tasks(tenant_id: str = "default", current_user_email: str = None, current_user_id: str = None, current_user_name: str = None):
     """Run all startup tasks"""
     logger.info(f"Running startup tasks for tenant {tenant_id}...")
-    
+
     # Initialize LLM settings from DB
     initialize_llm_settings()
-    
+
     # Seed menus
     await menu_service.seed_menus(tenant_id)
-    
+
     # Seed System Admins group
     await seed_system_admin_group(tenant_id, current_user_email, current_user_id, current_user_name)
-    
+
     # Seed default models
     await seed_default_models(tenant_id)
-    
+
     logger.info("Startup tasks completed")
 
 
@@ -158,7 +158,7 @@ async def seed_default_models(tenant_id: str):
                 }
             ]
         }
-        
+
         container.create_item(body=invoice_model)
         logger.info(f"Seeded default 'Invoice' model for tenant {tenant_id}")
 

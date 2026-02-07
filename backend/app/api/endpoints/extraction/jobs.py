@@ -2,11 +2,10 @@
 Extraction endpoints - Jobs management
 """
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File, Form, Request
-from typing import Dict, Any, Optional, List
+from typing import Optional, List
 from app.services import extraction_jobs, extraction_logs
 from app.services.models import get_model_by_id
 from app.core.auth import get_current_user, CurrentUser
-from app.core.config import settings
 from app.core.enums import ExtractionStatus
 from app.core.rate_limit import limiter
 import logging
@@ -22,10 +21,10 @@ async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str
     # Pass necessary mapping for file_id generation if needed
     user_id = "bg-task" # TODO: Pass user_id
     filename = filenames[0] if filenames else "unknown"
-    
+
     await extraction_service.run_extraction_pipeline(
-        file_urls=file_urls, 
-        model_id=model_id, 
+        file_urls=file_urls,
+        model_id=model_id,
         user_id=user_id,
         filename=filename,
         job_id=job_id,
@@ -46,42 +45,42 @@ async def start_job_with_upload(
     """
     from app.services.storage import upload_file_to_blob
     import asyncio
-    
+
     # Upload files to Azure Blob Storage (Parallel)
     # Permission check: Verify user has access to this model
     from app.core.group_permission_utils import get_model_role_by_group
     from app.core.auth import is_super_admin
-    
+
     is_super = await is_super_admin(current_user)
     if not is_super:
         model_role = await get_model_role_by_group(
-            current_user.id, 
-            current_user.tenant_id, 
+            current_user.id,
+            current_user.tenant_id,
             model_id
         )
         if model_role is None:
             raise HTTPException(
-                status_code=403, 
+                status_code=403,
                 detail="You do not have permission to use this model"
             )
-    
+
     upload_tasks = []
     filenames = []
-    
+
     for f in files:
         filenames.append(f.filename)
         upload_tasks.append(upload_file_to_blob(f))
-    
+
     uploaded_urls = await asyncio.gather(*upload_tasks)
-    
+
     # Filter failed uploads
     valid_urls = [url for url in uploaded_urls if url]
     if not valid_urls:
          raise HTTPException(status_code=500, detail="Failed to upload any files")
-         
+
     primary_url = valid_urls[0]
     primary_filename = filenames[0]
-    
+
     # Create extraction log
     log = extraction_logs.save_extraction_log(
         model_id=model_id,
@@ -95,7 +94,7 @@ async def start_job_with_upload(
         status=ExtractionStatus.PENDING.value,
         tenant_id=current_user.tenant_id if current_user else None
     )
-    
+
     # Create extraction job linked to log
     job = extraction_jobs.create_job(
         model_id=model_id,
@@ -109,7 +108,7 @@ async def start_job_with_upload(
         original_log_id=log.id if log else None,
         tenant_id=current_user.tenant_id if current_user else None
     )
-    
+
     # Update log to reference job
     if log:
         extraction_logs.save_extraction_log(
@@ -126,7 +125,7 @@ async def start_job_with_upload(
             job_id=job.id,
             tenant_id=current_user.tenant_id if current_user else None
         )
-    
+
     # Start background extraction
     background_tasks.add_task(
         process_extraction_job,
@@ -135,7 +134,7 @@ async def start_job_with_upload(
         valid_urls,
         filenames
     )
-    
+
     return {
         "job_id": job.id,
         "log_id": log.id if log else None,
@@ -155,7 +154,7 @@ def get_latest_job_for_log(
     job = extraction_jobs.get_latest_job_by_log_id(log_id)
     if not job:
         raise HTTPException(status_code=404, detail="No active job found for this log")
-    
+
     return {
         "job_id": job.id,
         "status": job.status,
@@ -173,7 +172,7 @@ async def get_job_status(
     job = extraction_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     # Hydrate debug_data from Blob if needed
     debug_data = job.debug_data
     if debug_data and debug_data.get("source") == "blob_storage":
@@ -242,7 +241,7 @@ async def get_jobs(
 ):
     """Get jobs for current user or model with scope control"""
     from app.core.permissions import check_model_permission
-    from app.services.audit import log_action, AuditAction, AuditResource
+    from app.services.audit import log_action, AuditAction
 
     jobs = []
 
@@ -250,7 +249,7 @@ async def get_jobs(
     # We use check_model_permission("Admin") which handles Super Admin logic internally
     if scope == "team" and model_id:
         has_permission = await check_model_permission(current_user, model_id, "Admin")
-        
+
         if has_permission:
             jobs = extraction_jobs.get_jobs_by_model(model_id, limit=limit)
         else:
@@ -260,12 +259,12 @@ async def get_jobs(
     # 2. Mine View (My jobs in specific model)
     elif model_id:
         jobs = extraction_jobs.get_jobs_by_model_and_user(model_id, current_user.id, limit=limit)
-        
+
     # 3. Global My View (All my jobs across models)
     else:
         tenant_id = current_user.tenant_id if current_user else None
         jobs = extraction_jobs.get_jobs_by_user(
-            current_user.id if current_user else "unknown", 
+            current_user.id if current_user else "unknown",
             limit=limit,
             tenant_id=tenant_id
         )
@@ -279,7 +278,7 @@ async def get_jobs(
         details={"count": len(jobs), "scope": scope, "limit": limit},
         request=request
     )
-    
+
     return [{
         "id": job.id,
         "model_id": job.model_id,
@@ -306,15 +305,15 @@ async def retry_extraction(
     log = extraction_logs.get_log(log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Extraction log not found")
-        
+
     if not log.file_url:
         raise HTTPException(status_code=400, detail="Original file URL not found in log")
-        
+
     # 2. Check model existence
     model = get_model_by_id(log.model_id)
     if not model:
          raise HTTPException(status_code=404, detail=f"Model {log.model_id} not found")
-    
+
     # 3. Get previous job to recover candidate_file_urls (for comparison models)
     previous_job = extraction_jobs.get_latest_job_by_log_id(log_id)
     candidate_file_urls = None
@@ -323,7 +322,7 @@ async def retry_extraction(
         candidate_file_urls = previous_job.candidate_file_urls
         candidate_file_url = previous_job.candidate_file_url
         logger.info(f"[Retry] Recovered candidate_file_urls from previous job: {len(candidate_file_urls) if candidate_file_urls else 0} files")
-    
+
     # 4. Create new job with reference to original log AND preserved candidate files
     job = extraction_jobs.create_job(
         model_id=log.model_id,
@@ -351,7 +350,7 @@ async def retry_extraction(
         job_id=job.id,   # Link to the new job
         tenant_id=current_user.tenant_id if current_user else None
     )
-    
+
     # 6. Start background task
     background_tasks.add_task(
         process_extraction_job,
@@ -359,7 +358,7 @@ async def retry_extraction(
         log.model_id,
         log.file_url
     )
-    
+
     return {
         "job_id": job.id,
         "status": job.status,

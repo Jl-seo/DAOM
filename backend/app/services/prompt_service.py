@@ -4,7 +4,6 @@ Prompt Service - Manage system prompts in database
 import logging
 from typing import Optional, Dict
 from datetime import datetime
-from functools import lru_cache
 from app.db.cosmos import get_container
 
 logger = logging.getLogger(__name__)
@@ -127,13 +126,13 @@ def _get_container():
 async def get_prompt(key: str, tenant_id: str = "default") -> Optional[dict]:
     """Get a prompt by key, with caching"""
     cache_key = f"{tenant_id}:{key}"
-    
+
     # Check cache
     if cache_key in _prompt_cache:
         cached_time = _cache_time.get(cache_key)
         if cached_time and (datetime.utcnow() - cached_time).seconds < CACHE_TTL_SECONDS:
             return _prompt_cache[cache_key]
-    
+
     # Try DB
     container = _get_container()
     if container:
@@ -150,7 +149,7 @@ async def get_prompt(key: str, tenant_id: str = "default") -> Optional[dict]:
                 return result
         except Exception as e:
             logger.debug(f"Error fetching prompt from DB: {e}")
-    
+
     # Return default
     if key in DEFAULT_PROMPTS:
         default = {
@@ -162,7 +161,7 @@ async def get_prompt(key: str, tenant_id: str = "default") -> Optional[dict]:
         _prompt_cache[cache_key] = default
         _cache_time[cache_key] = datetime.utcnow()
         return default
-    
+
     return None
 
 
@@ -177,7 +176,7 @@ async def get_prompt_content(key: str, tenant_id: str = "default") -> str:
 async def get_all_prompts(tenant_id: str = "default") -> list:
     """Get all prompts (from DB + defaults for missing)"""
     result = {}
-    
+
     # Start with defaults
     for key, value in DEFAULT_PROMPTS.items():
         result[key] = {
@@ -186,7 +185,7 @@ async def get_all_prompts(tenant_id: str = "default") -> list:
             **value,
             "is_default": True
         }
-    
+
     # Override with DB values
     container = _get_container()
     if container:
@@ -202,7 +201,7 @@ async def get_all_prompts(tenant_id: str = "default") -> list:
                     result[key] = item
         except Exception as e:
             logger.debug(f"Error fetching prompts from DB: {e}")
-    
+
     return list(result.values())
 
 
@@ -218,13 +217,13 @@ async def save_prompt(
     if not container:
         logger.error("Prompts container not available")
         return False
-    
+
     try:
         # Get variables from default if exists
         variables = []
         if key in DEFAULT_PROMPTS:
             variables = DEFAULT_PROMPTS[key].get("variables", [])
-        
+
         doc = {
             "id": key,
             "tenant_id": tenant_id,
@@ -235,15 +234,15 @@ async def save_prompt(
             "updated_by": updated_by
         }
         container.upsert_item(body=doc)
-        
+
         # Invalidate cache
         cache_key = f"{tenant_id}:{key}"
         _prompt_cache.pop(cache_key, None)
         _cache_time.pop(cache_key, None)
-        
+
         logger.info(f"Saved prompt: {key}")
         return True
-        
+
     except Exception as e:
         logger.error(f"Error saving prompt: {e}")
         return False
@@ -254,18 +253,18 @@ async def reset_prompt(key: str, tenant_id: str = "default") -> bool:
     container = _get_container()
     if not container:
         return False
-    
+
     try:
         container.delete_item(item=key, partition_key=key)
-        
+
         # Invalidate cache
         cache_key = f"{tenant_id}:{key}"
         _prompt_cache.pop(cache_key, None)
         _cache_time.pop(cache_key, None)
-        
+
         logger.info(f"Reset prompt to default: {key}")
         return True
-        
+
     except Exception as e:
         logger.debug(f"Error resetting prompt (may not exist): {e}")
         return True  # Not an error if it doesn't exist

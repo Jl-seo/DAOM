@@ -5,9 +5,7 @@ from app.services import doc_intel, extraction_logs
 from app.services.models import get_model_by_id
 from app.services import extraction_jobs
 from app.core.auth import get_current_user, is_admin, CurrentUser
-from app.core.config import settings
 from app.core.enums import ExtractionStatus
-from openai import AsyncAzureOpenAI
 import json
 import logging
 
@@ -91,7 +89,7 @@ async def start_job_with_upload(
     model = get_model_by_id(model_id)
     if model and hasattr(model, 'beta_features') and model.beta_features.get('use_virtual_excel_ocr', False):
         allowed_exts = ('.pdf', '.jpg', '.jpeg', '.png', '.xlsx', '.xls', '.csv')
-    
+
     if not file.filename.lower().endswith(allowed_exts):
         raise HTTPException(status_code=400, detail=f"Invalid file type. Allowed: {', '.join(allowed_exts)}")
 
@@ -99,7 +97,7 @@ async def start_job_with_upload(
     from app.services.storage import upload_file_to_blob
     try:
         file_url = await upload_file_to_blob(file)
-        
+
         candidate_file_urls = []
         candidate_filenames = []  # NEW: Store original filenames
         candidate_file_url = None # Legacy support
@@ -109,17 +107,17 @@ async def start_job_with_upload(
                 url = await upload_file_to_blob(c_file)
                 candidate_file_urls.append(url)
                 candidate_filenames.append(c_file.filename)  # NEW: Store original filename
-            
+
             # Set legacy single URL to the first one for backward compatibility
             if candidate_file_urls:
                 candidate_file_url = candidate_file_urls[0]
-            
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
 
     # 2. Create Log (Initial Pending State)
     user_id = current_user.id if current_user else "unknown"
-    
+
     # Logs might need schema update too, but for now specific log fields are flexible or we use extracted_data
     # We won't break log schema yet, just store primary candidate in legacy field if needed
     log = extraction_logs.save_extraction_log(
@@ -180,7 +178,7 @@ async def start_extraction(
     Client should poll /job/{job_id} for status.
     """
     user_id = current_user.id if current_user else "unknown"
-    
+
     # 1. Create Log first (status=P100 pending)
     log = extraction_logs.save_extraction_log(
         model_id=request.model_id,
@@ -193,7 +191,7 @@ async def start_extraction(
         tenant_id=current_user.tenant_id if current_user else None
     )
     log_id = log.id if log else None
-    
+
     # 2. Create Job with reference to Log
     job = extraction_jobs.create_job(
         model_id=request.model_id,
@@ -205,7 +203,7 @@ async def start_extraction(
         original_log_id=log_id,
         tenant_id=current_user.tenant_id if current_user else None
     )
-    
+
     # 3. Run extraction in background
     background_tasks.add_task(
         process_extraction_job,
@@ -213,7 +211,7 @@ async def start_extraction(
         request.model_id,
         request.file_url
     )
-    
+
     return {
         "job_id": job.id,
         "log_id": log_id,
@@ -280,7 +278,7 @@ def get_latest_job_for_log(
     job = extraction_jobs.get_latest_job_by_log_id(log_id)
     if not job:
         raise HTTPException(status_code=404, detail="No active job found for this log")
-    
+
     return {
         "job_id": job.id,
         "status": job.status,
@@ -298,7 +296,7 @@ async def get_job_status(
     job = extraction_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     # Hydrate preview_data from Blob if offloaded
     preview_data = job.preview_data
     if preview_data and isinstance(preview_data, dict) and preview_data.get("_preview_blob_path"):
@@ -309,7 +307,7 @@ async def get_job_status(
                 preview_data = full_preview
         except Exception as e:
             logger.warning(f"[API] Failed to hydrate preview from blob: {e}")
-    
+
     # Hydrate debug_data from Blob if offloaded
     debug_data = job.debug_data
     if debug_data and isinstance(debug_data, dict) and debug_data.get("_debug_blob_path"):
@@ -320,7 +318,7 @@ async def get_job_status(
                 debug_data = full_debug
         except Exception as e:
             logger.warning(f"[API] Failed to hydrate debug from blob: {e}")
-    
+
     return {
         "job_id": job.id,
         "status": job.status,
@@ -357,7 +355,7 @@ async def delete_extraction_job(
     success = extraction_jobs.delete_job(job_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete job")
-    
+
     return {"success": True, "job_id": job_id}
 
 
@@ -370,7 +368,7 @@ async def cancel_extraction_job(
     job = extraction_jobs.get_job(job_id)
     if not job:
          raise HTTPException(status_code=404, detail="Job not found")
-    
+
     if job.user_id != current_user.id and not await is_admin(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
@@ -391,27 +389,27 @@ def confirm_job(
     job = extraction_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    
+
     # Extract user_id early for use throughout the function
     user_id = current_user.id if current_user else "unknown"
-    
+
     # Check for S100 (SUCCESS) status - only success jobs can be edited/confirmed
     if job.status != ExtractionStatus.SUCCESS.value:
         raise HTTPException(status_code=400, detail=f"Job is not ready for confirmation. Status: {job.status}")
-    
+
     # Use edited data if provided, otherwise use preview data
     edited_data = request.get("edited_data") if request else None
     final_data = edited_data if edited_data else job.preview_data.get("guide_extracted", {})
-    
+
     # Update job status (use SUCCESS since CONFIRMED was deprecated)
     extraction_jobs.update_job(job_id, status=ExtractionStatus.SUCCESS.value, extracted_data=final_data)
-    
+
     try:
         # Multi-Document Support: Save extraction log for EACH sub-document
         saved_logs = []
         sub_docs = job.preview_data.get("sub_documents")
         logger.info(f"[ConfirmJob] Job {job_id} | SubDocs: {len(sub_docs) if sub_docs else 0} | original_log_id: {job.original_log_id}")
-        
+
         if sub_docs and len(sub_docs) > 0:
             # Save each split as a separate record
             for idx, sub in enumerate(sub_docs):
@@ -419,7 +417,7 @@ def confirm_job(
                     if sub.get("status") == "success":  # Sub-doc internal status
                         # Flatten the data for this split
                         split_data = sub.get("data", {}).get("guide_extracted", {})
-                        
+
                         # Use original_log_id for the FIRST sub-doc (updates existing record)
                         # Additional sub-docs get new IDs
                         target_log_id = job.original_log_id if idx == 0 and job.original_log_id else None
@@ -441,7 +439,7 @@ def confirm_job(
                         if log: saved_logs.append(log)
                 except Exception as e:
                      logger.error(f"[ConfirmJob] Failed to save sub-doc {sub.get('index')}: {e}")
-            
+
             # Use first doc data for return
             final_data = sub_docs[0].get("data", {}).get("guide_extracted", {}) if sub_docs else {}
 
@@ -463,7 +461,7 @@ def confirm_job(
                 tenant_id=current_user.tenant_id if current_user else None,
                 debug_data=job.debug_data
             )
-            
+
     except Exception as e:
         logger.error(f"[ConfirmJob] Critical error saving logs: {e}")
         with open("last_error.txt", "w") as f:
@@ -497,7 +495,7 @@ def confirm_job(
         logger.error(f"[Webhook] Failed: {webhook_err}")
         webhook_result = {"error": str(webhook_err)}
     # ---------------------
-    
+
     return {
         "success": True,
         "job_id": job_id,
@@ -518,7 +516,7 @@ async def get_jobs(
     else:
         user_id = current_user.id if current_user else "unknown"
         jobs = extraction_jobs.get_jobs_by_user(user_id, limit)
-    
+
     return [
         {
             "job_id": j.id,
@@ -546,20 +544,20 @@ async def retry_extraction(
     log = extraction_logs.get_log(log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Extraction log not found")
-        
+
     if not log.file_url:
         raise HTTPException(status_code=400, detail="Original file URL not found in log")
-        
+
     # 2. Check model existence
     model = get_model_by_id(log.model_id)
     if not model:
          raise HTTPException(status_code=404, detail=f"Model {log.model_id} not found")
-    
+
     # 3. Recover candidate_file_urls from original log (for comparison models)
     candidate_file_urls = log.candidate_file_urls or []
     candidate_file_url = log.candidate_file_url or (candidate_file_urls[0] if candidate_file_urls else None)
     logger.info(f"[Retry] Recovered candidate_file_urls from log: {len(candidate_file_urls)} files")
-    
+
     # 4. Create new job with reference to original log
     job = extraction_jobs.create_job(
         model_id=log.model_id,
@@ -589,7 +587,7 @@ async def retry_extraction(
         job_id=job.id,   # Link to the new job
         tenant_id=current_user.tenant_id if current_user else None
     )
-    
+
     # 6. Start background task
     background_tasks.add_task(
         process_extraction_job,
@@ -599,7 +597,7 @@ async def retry_extraction(
         candidate_file_url,
         candidate_file_urls
     )
-    
+
     return {
         "job_id": job.id,
         "status": job.status,
@@ -621,16 +619,16 @@ async def save_extraction(
     try:
         # Combine guide_extracted and any selected other_data
         extracted_data = dict(request.guide_extracted)
-        
+
         # Add selected other_data as additional fields
         if request.other_data:
             for item in request.other_data:
                 if 'column' in item and 'value' in item:
                     extracted_data[item['column']] = item['value']
-        
+
         # Get user ID
         user_id = current_user.id if current_user else 'unknown'
-        
+
         # Save to extraction logs
         log = extraction_logs.save_extraction_log(
             model_id=request.model_id,
@@ -645,17 +643,17 @@ async def save_extraction(
             tenant_id=current_user.tenant_id if current_user else None,
             debug_data=request.debug_data
         )
-        
+
         return {
             "success": True,
             "log_id": log.id if log else None,
             "extracted_data": extracted_data
         }
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
-        
+
         # Save error log
         try:
             user_id = current_user.id if current_user else 'unknown'
@@ -671,7 +669,7 @@ async def save_extraction(
         except Exception as log_err:
             logger.warning(f"[SaveExtraction] Failed to save error log: {log_err}")
             pass
-        
+
         raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
 
 
@@ -684,18 +682,18 @@ async def match_columns_with_ai(request: MatchColumnsRequest):
     try:
         from openai import AsyncAzureOpenAI
         from app.core.config import settings
-        
+
         client = AsyncAzureOpenAI(
             api_key=settings.AZURE_OPENAI_API_KEY,
             api_version=settings.AZURE_OPENAI_API_VERSION,
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
         )
-        
+
         model_field_descriptions = [
-            f"- {f.get('key', '')}: {f.get('label', '')}" 
+            f"- {f.get('key', '')}: {f.get('label', '')}"
             for f in request.target_fields
         ]
-        
+
         prompt = f"""You are a data field matching expert.
 
 Given these extracted column names from a document:
@@ -723,10 +721,10 @@ Return ONLY valid JSON, no markdown code blocks."""
             ],
             temperature=0.1
         )
-        
+
         result = json.loads(response.choices[0].message.content)
         return {"matched_columns": result if isinstance(result, list) else []}
-        
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -748,11 +746,11 @@ async def get_preview_with_guide(
     # Extract filename from URL for logging
     filename = request.file_url.split('/')[-1] if request.file_url else 'unknown'
     user_id = current_user.id if current_user else 'unknown'
-    
+
     try:
         from openai import AsyncAzureOpenAI
         from app.core.config import settings
-        
+
         # Get model definition
         model = get_model_by_id(request.model_id)
         if not model:
@@ -766,11 +764,11 @@ async def get_preview_with_guide(
                 error='Model not found'
             )
             raise HTTPException(status_code=404, detail="Model not found")
-        
+
         # Get raw Document Intelligence output using Dynamic Strategy
         azure_model = getattr(model, "azure_model_id", "prebuilt-layout")
         doc_intel_output = await doc_intel.extract_with_strategy(request.file_url, azure_model)
-        
+
         # Build field descriptions for AI
         field_descriptions = []
         for field in model.fields:
@@ -778,7 +776,7 @@ async def get_preview_with_guide(
             if hasattr(field, 'description') and field.description:
                 desc += f" ({field.description})"
             field_descriptions.append(desc)
-        
+
         # AI prompt to extract values for each model field with confidence and positions
         extraction_prompt = f"""You are a document data extractor.
 
@@ -826,7 +824,7 @@ IMPORTANT:
             api_version=settings.AZURE_OPENAI_API_VERSION,
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
         )
-        
+
         response = await client.chat.completions.create(
             model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
             messages=[
@@ -835,22 +833,22 @@ IMPORTANT:
             ],
             temperature=0.1
         )
-        
+
         result = json.loads(response.choices[0].message.content)
-        
+
         # Ensure proper structure
         return {
             "guide_extracted": result.get("guide_extracted", {}),
             "other_data": result.get("other_data", []),
             "model_fields": [{"key": f.key, "label": f.label} for f in model.fields]
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         import traceback
         traceback.print_exc()
-        
+
         # Save error log for any failure
         try:
             extraction_logs.save_extraction_log(
@@ -864,7 +862,7 @@ IMPORTANT:
         except Exception as log_err:
             logger.warning(f"[PreviewWithGuide] Failed to save error log: {log_err}")
             pass  # Don't fail if logging fails
-        
+
         raise HTTPException(status_code=500, detail=f"Guide extraction failed: {str(e)}")
 
 
@@ -877,7 +875,7 @@ async def get_extraction_preview(request: PreviewRequest):
     try:
         # Get raw Document Intelligence output (Defaults to Layout)
         doc_intel_output = await doc_intel.extract_full_preview(request.file_url)
-        
+
         # Ask AI to structure this into a meaningful table
         structuring_prompt = f"""
 You are a data structuring expert. Given the following Document Intelligence extraction results (tables and key-value pairs), 
@@ -903,17 +901,17 @@ Your task:
 Make column names clear and descriptive in Korean. Include up to 5 sample values per column.
 Return ONLY valid JSON, no markdown code blocks.
 """
-        
+
         # Call LLM to structure the data
         from openai import AsyncAzureOpenAI
         from app.core.config import settings
-        
+
         client = AsyncAzureOpenAI(
             api_key=settings.AZURE_OPENAI_API_KEY,
             api_version=settings.AZURE_OPENAI_API_VERSION,
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
         )
-        
+
         response = await client.chat.completions.create(
             model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
             messages=[
@@ -922,9 +920,9 @@ Return ONLY valid JSON, no markdown code blocks.
             ],
             temperature=0.1
         )
-        
+
         structured_result = json.loads(response.choices[0].message.content)
-        
+
         return {
             "raw_data": doc_intel_output,  # Keep for debugging
             "structured_table": structured_result
@@ -951,7 +949,7 @@ async def refine_extraction(
 
         # Get Document Intelligence output using correct strategy
         doc_intel_output = await doc_intel.extract_with_strategy(request.file_url, azure_model)
-        
+
         # Extract only selected columns
         extraction_prompt = f"""
 Given this Document Intelligence data:
@@ -965,16 +963,16 @@ Example: {{"상호명": "회사이름", "공급가액": "1000000"}}
 
 Return ONLY valid JSON, no markdown.
 """
-        
+
         from openai import AsyncAzureOpenAI
         from app.core.config import settings
-        
+
         client = AsyncAzureOpenAI(
             api_key=settings.AZURE_OPENAI_API_KEY,
             api_version=settings.AZURE_OPENAI_API_VERSION,
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
         )
-        
+
         response = await client.chat.completions.create(
             model=settings.AZURE_OPENAI_DEPLOYMENT_NAME,
             messages=[
@@ -983,12 +981,12 @@ Return ONLY valid JSON, no markdown.
             ],
             temperature=0.1
         )
-        
+
         extracted_data = json.loads(response.choices[0].message.content)
-        
+
         # Save extraction log
         user_id = current_user.id if current_user else 'unknown'
-        
+
         extraction_logs.save_extraction_log(
             model_id=request.model_id,
             user_id=user_id,
@@ -1000,7 +998,7 @@ Return ONLY valid JSON, no markdown.
             extracted_data=extracted_data,
             tenant_id=current_user.tenant_id if current_user else None
         )
-        
+
         return {
             "structured_data": extracted_data,
             "selected_columns": request.selected_columns
@@ -1010,11 +1008,11 @@ Return ONLY valid JSON, no markdown.
     except Exception as e:
         import traceback
         traceback.print_exc()
-        
+
         # Save error log
         try:
             user_id = current_user.id if current_user else 'unknown'
-            
+
             extraction_logs.save_extraction_log(
                 model_id=request.model_id,
                 user_id=user_id,
@@ -1027,7 +1025,7 @@ Return ONLY valid JSON, no markdown.
         except Exception as log_err:
             logger.warning(f"[Refine] Failed to save error log: {log_err}")
             pass  # Don't fail if logging fails
-        
+
         raise HTTPException(status_code=500, detail=f"Refinement failed: {str(e)}")
 
 
@@ -1060,17 +1058,17 @@ async def get_all_extraction_logs(
     Optional filter by model_id
     """
     user_oid = current_user.id
-    
+
     # Admin can see all logs, regular users see only their logs
     if await is_admin(current_user):
         logs = extraction_logs.get_all_logs(limit=limit)
     else:
         logs = extraction_logs.get_logs_by_user(user_id=user_oid, limit=limit)
-    
+
     # Filter by model_id if provided
     if model_id:
         logs = [log for log in logs if log.model_id == model_id]
-    
+
     return [log.model_dump() for log in logs]
 
 
@@ -1085,7 +1083,7 @@ async def bulk_delete_logs(
     """
     if not log_ids:
         raise HTTPException(status_code=400, detail="No log IDs provided")
-    
+
     # Verify permissions for each log
     if not await is_admin(current_user):
         # Non-admin: verify they own all logs
@@ -1096,9 +1094,9 @@ async def bulk_delete_logs(
                     status_code=403,
                     detail=f"You don't have permission to delete log {log_id}"
                 )
-    
+
     deleted_count = extraction_logs.delete_logs(log_ids)
-    
+
     return {
         "success": True,
         "deleted_count": deleted_count,

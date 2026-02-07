@@ -11,11 +11,11 @@ class ExtractionStatus(str, Enum):
     ANALYZING = "P300"     # OCR / Doc Intelligence analysis
     REFINING = "P400"      # LLM processing / Refining
     # PREVIEW_READY (P500) - Deprecated, merged into SUCCESS
-    
+
     # Success states (S-Series)
     SUCCESS = "S100"       # Completed successfully (auto)
     # CONFIRMED (S200) - Deprecated, merged into SUCCESS
-    
+
     # Error states (E-Series)
     FAILED = "E100"        # Extraction failed
     ERROR = "E200"         # System error

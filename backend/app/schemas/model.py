@@ -26,12 +26,12 @@ class ComparisonSettings(BaseModel):
     ignore_compression_noise: bool = True  # JPEG/이미지 압축 노이즈 무시 (기본 활성화)
     custom_ignore_rules: Optional[str] = None  # 추가 무시 규칙 (자연어)
     output_language: str = "Korean"  # 출력 언어 (기본값: Korean)
-    
+
     # Method Toggles (Component-Based Architecture)
     use_ssim_analysis: bool = True # 물리적 구조 분석 (Pixel/SSIM)
     use_vision_analysis: bool = True # 시각적 의미 분석 (Azure AI Vision)
     align_images: bool = True # 이미지 정렬 (Registration) 활성화 여부
-    
+
     # 카테고리 커스터마이징
     allowed_categories: Optional[List[str]] = None  # 허용할 카테고리 목록 (설정 시 이것만 사용)
     excluded_categories: Optional[List[str]] = None  # 제외할 카테고리 목록
@@ -46,7 +46,7 @@ class ExcelExportColumn(BaseModel):
 
 class ExtractionModel(BaseModel):
     model_config = ConfigDict(extra="ignore")  # Ignore Cosmos system fields
-    
+
     id: str
     name: str
     description: Optional[str] = None # 대체 내용 정의 등

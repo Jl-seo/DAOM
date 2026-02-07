@@ -4,7 +4,7 @@ Audit Log API endpoints - Admin only
 from fastapi import APIRouter, Depends, Query
 from typing import Optional
 from pydantic import BaseModel
-from app.core.auth import get_current_user, CurrentUser, is_super_admin
+from app.core.auth import CurrentUser, is_super_admin
 from app.core.permissions import require_admin
 from app.services.audit import get_audit_logs
 from app.services import models, stats_service
@@ -54,22 +54,22 @@ def list_audit_logs(
     - start_date/end_date: Date range filter
     """
 
-    
+
     # RBAC Filtering
     target_model_ids = None
     if not is_super_admin(user):
         # Model Admin: Filter logs by accessible groups
         all_models = models.load_models()
         user_groups = set(user.groups or [])
-        
+
         # Find models where allowedGroups intersects with user's groups
         accessible_models = [
-            m for m in all_models 
+            m for m in all_models
             if m.allowedGroups and set(m.allowedGroups) & user_groups
         ]
-        
+
         target_model_ids = [m.id for m in accessible_models]
-        
+
         # If no accessible models, return empty result (or handle as no permission)
         if not target_model_ids:
             return AuditLogsListResponse(items=[], total=0)
@@ -91,7 +91,7 @@ def list_audit_logs(
         limit=limit,
         offset=offset
     )
-    
+
     return AuditLogsListResponse(
         items=[AuditLogResponse(**log) for log in logs],
         total=len(logs)  # Simplified - in production, use separate count query

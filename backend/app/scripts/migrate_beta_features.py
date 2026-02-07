@@ -14,7 +14,7 @@ This script:
 """
 import asyncio
 import logging
-from typing import Dict, Any
+from typing import Dict
 from azure.cosmos import CosmosClient
 from app.core.config import settings
 
@@ -36,15 +36,15 @@ def merge_beta_features(existing: Dict[str, bool] | None) -> tuple[Dict[str, boo
     """
     if existing is None:
         return DEFAULT_BETA_FEATURES.copy(), True
-    
+
     merged = existing.copy()
     has_changes = False
-    
+
     for key, default_value in DEFAULT_BETA_FEATURES.items():
         if key not in merged:
             merged[key] = default_value
             has_changes = True
-    
+
     return merged, has_changes
 
 
@@ -53,51 +53,51 @@ async def migrate_models():
     Migrate all models in Cosmos DB to have proper beta_features.
     """
     logger.info("Starting beta_features migration...")
-    
+
     # Initialize Cosmos client
     client = CosmosClient(settings.COSMOS_ENDPOINT, settings.COSMOS_KEY)
     database = client.get_database_client(settings.COSMOS_DATABASE)
     models_container = database.get_container_client("DocumentModels")
-    
+
     # Track stats
     total = 0
     updated = 0
     skipped = 0
     errors = 0
-    
+
     # Query all models
     query = "SELECT * FROM c"
     items = list(models_container.query_items(query=query, enable_cross_partition_query=True))
-    
+
     logger.info(f"Found {len(items)} models to process")
-    
+
     for item in items:
         total += 1
         model_id = item.get("id", "unknown")
         model_name = item.get("name", "unknown")
-        
+
         try:
             existing_features = item.get("beta_features")
             merged_features, has_changes = merge_beta_features(existing_features)
-            
+
             if not has_changes:
                 logger.debug(f"[SKIP] {model_name} ({model_id}) - already has all beta_features")
                 skipped += 1
                 continue
-            
+
             # Update the item
             item["beta_features"] = merged_features
-            
+
             # Upsert (replace) the item
             models_container.upsert_item(item)
-            
+
             logger.info(f"[UPDATED] {model_name} ({model_id}) - added missing beta_features")
             updated += 1
-            
+
         except Exception as e:
             logger.error(f"[ERROR] Failed to update {model_name} ({model_id}): {e}")
             errors += 1
-    
+
     # Summary
     logger.info("=" * 50)
     logger.info("Migration Complete!")

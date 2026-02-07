@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any
 import json
 import logging
 from app.schemas.model import ExtractionModel
@@ -9,7 +9,7 @@ class RefinerEngine:
     """
     Constructs dynamic prompts based on natural language rules defined in the Studio.
     """
-    
+
     @staticmethod
     def construct_prompt(model_info: ExtractionModel, language: str = "en") -> str:
         """
@@ -20,7 +20,7 @@ class RefinerEngine:
         4. Reference Data (Phase 1)
         5. Output Format Instructions
         """
-        
+
         # 1. Base Context
         prompt = f"""You are an advanced document intelligence AI.
 Target Domain: {model_info.name}
@@ -46,7 +46,7 @@ INSTRUCTIONS FOR REFERENCE DATA:
 
         # 3. Field Instructions
         is_table = getattr(model_info, 'data_structure', 'data') == 'table'
-        
+
         prompt += "\nREQUIRED EXTRACTION FIELDS:\n"
         for field in model_info.fields:
             prompt += f"- {field.key} ({field.label}):\n"
@@ -115,7 +115,7 @@ Example JSON Output:
         from thefuzz import fuzz, process
 
         processed_data = {}
-        
+
         # Build indexed words dict: {index: word_info}
         all_words_flat = []
         word_choices = {}  # {index: content_string} for process.extractOne
@@ -132,28 +132,28 @@ Example JSON Output:
                     "page": page_num_val,
                 })
                 word_choices[idx] = content
-        
+
         for key, item in llm_result.items():
             if not isinstance(item, dict):
                  processed_data[key] = item # Legacy or simple format
                  continue
-                 
+
             value = item.get("value")
             confidence = item.get("confidence", 0.0)
             source_text = item.get("source_text", "")
-            
+
             bbox = None
             page_num = 1
-            
+
             if source_text and word_choices:
                 # For multi-word phrases, search the longest word for best match
                 is_phrase = len(source_text.split()) > 1
                 search_term = source_text if not is_phrase else max(source_text.split(), key=len)
-                
+
                 try:
                     # extractOne with dict returns (match_text, score, key)
                     extracted = process.extractOne(search_term, word_choices, scorer=fuzz.ratio)
-                    
+
                     if extracted and len(extracted) >= 3:
                         _match_text, score, match_idx = extracted
                         if score >= 85 and match_idx < len(all_words_flat):
@@ -178,5 +178,5 @@ Example JSON Output:
                 "bbox": bbox,
                 "page": page_num
             }
-            
+
         return processed_data

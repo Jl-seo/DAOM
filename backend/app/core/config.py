@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 class Settings(BaseSettings):
     PROJECT_NAME: str = "DAOM"
     API_V1_STR: str = "/api/v1"
-    
+
     # CORS - Include Azure Container Apps URL and localhost for development
     BACKEND_CORS_ORIGINS: Union[List[AnyHttpUrl], str] = [
         "http://localhost:5173",
@@ -73,21 +73,21 @@ class Settings(BaseSettings):
         missing = []
         if not self.AZURE_FORM_ENDPOINT: missing.append("AZURE_FORM_ENDPOINT")
         if not self.AZURE_FORM_KEY: missing.append("AZURE_FORM_KEY")
-        
+
         # Check AI Foundry OR legacy OpenAI settings
         has_foundry = bool(self.AZURE_AIPROJECT_ENDPOINT and self.AZURE_OPENAI_API_KEY)
         has_legacy = bool(self.AZURE_OPENAI_ENDPOINT and self.AZURE_OPENAI_API_KEY)
-        
+
         if not (has_foundry or has_legacy):
             missing.append("AZURE_AIPROJECT_ENDPOINT or AZURE_OPENAI_ENDPOINT")
             missing.append("AZURE_OPENAI_API_KEY")
-        
+
         if missing:
              logger.warning(f"CRITICAL WARNING: Missing configuration for {missing}. Document processing will fail.")
         else:
             mode = "AI Foundry" if has_foundry else "Legacy OpenAI"
             logger.info(f"[CONFIG] Mode: {mode}")
             logger.info(f"[CONFIG] CORS Origins: {self.cors_origins}")
-             
+
 settings = Settings()
 settings.validate_setup()

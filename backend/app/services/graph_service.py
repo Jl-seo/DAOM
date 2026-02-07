@@ -3,7 +3,6 @@ Microsoft Graph API Service - Search Entra ID users and groups
 Requires: pip install httpx
 """
 import logging
-from typing import Optional
 from dataclasses import dataclass
 import httpx
 from app.core.config import settings
@@ -19,7 +18,7 @@ class EntraUser:
     displayName: str
     mail: str
     userPrincipalName: str
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "EntraUser":
         return cls(
@@ -35,7 +34,7 @@ class EntraGroup:
     id: str
     displayName: str
     description: str
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "EntraGroup":
         return cls(
@@ -53,19 +52,19 @@ async def search_entra_users(access_token: str, query: str, limit: int = 10) -> 
     """
     if not query or len(query) < 2:
         return []
-    
+
     headers = {
         "Authorization": f"Bearer {access_token}",
         "ConsistencyLevel": "eventual"
     }
-    
+
     # Search by displayName or mail
     params = {
         "$search": f'"displayName:{query}" OR "mail:{query}"',
         "$top": str(limit),
         "$select": "id,displayName,mail,userPrincipalName"
     }
-    
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -73,15 +72,15 @@ async def search_entra_users(access_token: str, query: str, limit: int = 10) -> 
                 headers=headers,
                 params=params
             )
-            
+
             if response.status_code != 200:
                 logger.error(f"Graph API error: {response.status_code} - {response.text}")
                 return []
-            
+
             data = response.json()
             users = [EntraUser.from_dict(u) for u in data.get("value", [])]
             return users
-            
+
     except Exception as e:
         logger.error(f"Error searching Entra users: {e}")
         return []
@@ -95,19 +94,19 @@ async def search_entra_groups(access_token: str, query: str, limit: int = 10) ->
     """
     if not query or len(query) < 2:
         return []
-    
+
     headers = {
         "Authorization": f"Bearer {access_token}",
         "ConsistencyLevel": "eventual"
     }
-    
+
     params = {
         "$search": f'"displayName:{query}"',
         "$filter": "securityEnabled eq true",
         "$top": str(limit),
         "$select": "id,displayName,description"
     }
-    
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -115,15 +114,15 @@ async def search_entra_groups(access_token: str, query: str, limit: int = 10) ->
                 headers=headers,
                 params=params
             )
-            
+
             if response.status_code != 200:
                 logger.error(f"Graph API error: {response.status_code} - {response.text}")
                 return []
-            
+
             data = response.json()
             groups = [EntraGroup.from_dict(g) for g in data.get("value", [])]
             return groups
-            
+
     except Exception as e:
         logger.error(f"Error searching Entra groups: {e}")
         return []
@@ -138,7 +137,7 @@ async def get_user_group_memberships(access_token: str, user_id: str) -> list[st
     headers = {
         "Authorization": f"Bearer {access_token}"
     }
-    
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -146,14 +145,14 @@ async def get_user_group_memberships(access_token: str, user_id: str) -> list[st
                 headers=headers,
                 json={"securityEnabledOnly": True}
             )
-            
+
             if response.status_code != 200:
                 logger.error(f"Graph API error: {response.status_code}")
                 return []
-            
+
             data = response.json()
             return data.get("value", [])
-            
+
     except Exception as e:
         logger.error(f"Error getting user groups: {e}")
         return []

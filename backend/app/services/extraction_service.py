@@ -12,7 +12,7 @@ from app.services.llm import get_current_model
 from app.core.enums import ExtractionStatus
 from app.services import doc_intel, models, extraction_jobs, extraction_logs
 from app.services.extraction_utils import parse_number, parse_date, normalize_bbox
-from app.schemas.model import ExtractionModel, FieldDefinition
+from app.schemas.model import ExtractionModel
 
 logger = logging.getLogger(__name__)
 
@@ -36,16 +36,16 @@ class ExtractionService:
         """
         # Capture current LLM model for logging
         current_llm_model = get_current_model()
-        
+
         try:
             with open("debug_pipeline.log", "a") as f:
                 f.write(f"\n=== JOB {job_id} STARTED (Model: {current_llm_model}) ===\n")
 
             # Update status
             extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
-            
+
             # ... (omitted similar lines for brevity, focusing on log save)
-            
+
             # 1. Get Model & OCR
             # UNIVERSAL MODE CHECK
             if model_id == "system-universal":
@@ -64,13 +64,13 @@ class ExtractionService:
                     model = models.get_model_by_id(model_id)
                 except Exception:
                     model = None
-                
+
                 if not model:
                     # Fallback for transient model errors or if model_id is just a string in some contexts
                     # But usually it should exist. If comparison, maybe strict model check isn't needed?
                     # For now keep strict check unless it's a comparison job without strict model reqs
                     # But comparison usually uses a generic "Comparison" model or similar.
-                    pass 
+                    pass
 
                 # Dynamic Strategy
                 azure_model = getattr(model, "azure_model_id", "prebuilt-layout") if model else "prebuilt-layout"
@@ -87,7 +87,7 @@ class ExtractionService:
                 logger.info(f"[Pipeline] Starting 1:N Comparison for Job {job_id} on {len(all_candidates)} candidates")
                 from app.services import llm
                 import asyncio
-                
+
                 # Prepare custom rules if model exists
                 custom_rules = model.global_rules if model and model.global_rules else None
                 if custom_rules:
@@ -99,10 +99,10 @@ class ExtractionService:
                     try:
                         # Extract comparison settings safely
                         comp_settings = model.comparison_settings.dict() if model and model.comparison_settings else None
-                        
+
                         res = await llm.compare_images(
-                            file_url, 
-                            c_url, 
+                            file_url,
+                            c_url,
                             custom_instructions=custom_rules,
                             comparison_settings=comp_settings # PASS SETTINGS HERE
                         )
@@ -139,13 +139,13 @@ class ExtractionService:
                             "error": str(comp_error),
                             "result": {}
                         }
-                
+
                 # Build filename lookup (safely handle None or mismatched lengths)
                 all_filenames = candidate_filenames or []
-                
+
                 # Run all comparisons in PARALLEL using asyncio.gather
                 comparison_tasks = [
-                    compare_single(idx, c_url, all_filenames[idx] if idx < len(all_filenames) else None) 
+                    compare_single(idx, c_url, all_filenames[idx] if idx < len(all_filenames) else None)
                     for idx, c_url in enumerate(all_candidates)
                 ]
                 comparison_results = await asyncio.gather(*comparison_tasks)
@@ -155,24 +155,24 @@ class ExtractionService:
                 # We store differences in 'preview_data'
                 # For backward compatibility, if there's only 1 candidate, we might want to structure it simply
                 # BUT new frontend expects 'comparisons' list.
-                
+
                 preview_payload = {
                     "comparisons": comparison_results,
                     "mode": "comparison",
                     "comparison_count": len(all_candidates)
                 }
-                
+
                 # If single result, populate legacy field 'comparison_result' for older frontends if needed
                 if len(comparison_results) == 1:
                     preview_payload["comparison_result"] = comparison_results[0]["result"]
 
                 result = extraction_jobs.update_job(
-                    job_id, 
-                    status=ExtractionStatus.SUCCESS.value, 
+                    job_id,
+                    status=ExtractionStatus.SUCCESS.value,
                     preview_data=preview_payload,
                     extracted_data={"comparisons": comparison_results} # Use extracted_data for final persistence?
                 )
-                
+
                 if not result:
                     logger.error(f"Failed to update job {job_id} with comparison results.")
                     return
@@ -182,11 +182,11 @@ class ExtractionService:
                 if job and (job.original_log_id or job.log_id):
                     log_id_to_update = job.original_log_id or job.log_id
                     extraction_logs.update_log_status(
-                        log_id_to_update, 
+                        log_id_to_update,
                         status=ExtractionStatus.SUCCESS.value,
                         preview_data=preview_payload
                     )
-                
+
                 return # Exit pipeline for comparison jobs
             # -----------------------------
 
@@ -196,11 +196,11 @@ class ExtractionService:
             file_ext = file_url.rsplit(".", 1)[-1].lower().split("?")[0]  # strip query params
             is_excel_file = file_ext in ("xlsx", "xls", "csv")
             use_excel_ocr = (
-                model 
-                and hasattr(model, "beta_features") 
+                model
+                and hasattr(model, "beta_features")
                 and model.beta_features.get("use_virtual_excel_ocr", False)
             )
-            
+
             if is_excel_file and use_excel_ocr:
                 logger.info(f"[Pipeline] Excel file detected ({file_ext}), using ExcelMapper (virtual OCR)")
                 from app.services.excel_mapper import ExcelMapper
@@ -208,9 +208,9 @@ class ExtractionService:
             else:
                 logger.info(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
                 doc_intel_output = await doc_intel.extract_with_strategy(file_url, azure_model)
-            
+
             # ... (OCR log) ...
-            
+
             # --- DEBUG DATA PERSISTENCE (PARALLEL) ---
             # OPTIMIZATION: Run Blob Upload in parallel with LLM extraction.
             # Await it at the end to ensure data integrity without race conditions.
@@ -227,7 +227,7 @@ class ExtractionService:
                 except Exception as e:
                     logger.error(f"Failed to persist debug data: {e}")
                     return None
-            
+
             # Start task but don't await yet
             debug_upload_task = asyncio.create_task(_upload_debug_data())
             # ------------------------------
@@ -240,7 +240,7 @@ class ExtractionService:
 
             # 3. Process Each Split (Parallel with rate limit protection)
             import asyncio
-            
+
             async def process_split(split):
                 try:
                     if model.id == "system-universal":
@@ -257,20 +257,20 @@ class ExtractionService:
                         "error": str(e),
                         "data": {"guide_extracted": {}}
                     }
-            
+
             # Process splits in parallel (max 3 concurrent to avoid rate limits)
             semaphore = asyncio.Semaphore(3)
-            
+
             async def process_with_limit(split):
                 async with semaphore:
                     return await process_split(split)
-            
+
             sub_documents = await asyncio.gather(*[process_with_limit(s) for s in splits])
             sub_documents = list(sub_documents)  # Convert tuple to list
-            
+
             # 4. Save Results
             logger.info(f"[Pipeline-Debug] All splits processed. Total sub_documents: {len(sub_documents)}")
-            
+
             # --- DEBUG DATA MERGE (Parallel Await) ---
             debug_info_final = None
             if debug_upload_task:
@@ -279,7 +279,7 @@ class ExtractionService:
                     if blob_path:
                         debug_info_final = {
                             "source": "blob_storage",
-                            "raw_data_blob_path": blob_path, 
+                            "raw_data_blob_path": blob_path,
                             "doc_intel_summary": {
                                 "page_count": len(doc_intel_output.get("pages", [])),
                                 "model_id": doc_intel_output.get("model_id"),
@@ -337,7 +337,7 @@ class ExtractionService:
                     # Pipeline stage diagnostics (for step-by-step debugging)
                     if "_beta_pipeline_stages" in first_doc_data:
                         llm_debug_info["beta_pipeline_stages"] = first_doc_data["_beta_pipeline_stages"]
-                
+
                 # Merge OCR debug and LLM debug
                 if debug_info_final:
                     debug_info_final.update(llm_debug_info)
@@ -353,13 +353,13 @@ class ExtractionService:
                 "raw_content": doc_intel_output.get("content", ""),
                 "raw_tables": doc_intel_output.get("tables", [])
             }
-            
+
             # ============================================================
-            # UNIFIED BLOB STORAGE: Always store large data in Blob 
+            # UNIFIED BLOB STORAGE: Always store large data in Blob
             # Cosmos only holds blob_path references (same as ocr_cache pattern)
             # ============================================================
             from app.services import storage
-            
+
             # 1. Save preview_data to Blob (always)
             preview_blob_path = f"preview_data/{job_id}.preview.json"
             try:
@@ -368,7 +368,7 @@ class ExtractionService:
             except Exception as blob_err:
                 logger.error(f"[Pipeline] Failed to save preview_data to blob: {blob_err}")
                 preview_blob_path = None
-            
+
             # 2. Save debug_data to Blob (always, if exists)
             debug_blob_path = None
             if debug_info_final:
@@ -379,15 +379,15 @@ class ExtractionService:
                 except Exception as blob_err:
                     logger.error(f"[Pipeline] Failed to save debug_data to blob: {blob_err}")
                     debug_blob_path = None
-            
+
             # 3. Cosmos gets lightweight references only
             # - sub_documents: needed for rendering extracted fields (stripped of debug data)
             # - raw_content: truncated for "OCR Text" tab quick preview
             # - blob paths: for hydration of raw_tables/raw_content/debug
-            
+
             # Sub_documents: KEEP guide_extracted (core data), strip debug/internal/large keys
             # CRITICAL: TABLE MODE puts raw_tables in data — this contains full ExcelMapper
-            # table cells with polygons/bounding_regions and is the root cause of 
+            # table cells with polygons/bounding_regions and is the root cause of
             # RequestEntityTooLarge for Excel files
             _internal_keys = {
                 "_debug_chunking", "_chunked", "_chunking_errors", "_token_usage",
@@ -410,50 +410,50 @@ class ExtractionService:
                         if k not in _internal_keys
                     }
                 cosmos_sub_docs.append(light_sd)
-            
+
             cosmos_preview = {
                 "sub_documents": cosmos_sub_docs,
                 "raw_content": doc_intel_output.get("content", "")[:5000],  # Truncated preview
                 "raw_tables": [],  # Full data in blob only
                 "_preview_blob_path": preview_blob_path,
             }
-            
+
             cosmos_debug = {
                 "_debug_blob_path": debug_blob_path,
                 "token_usage": debug_info_final.get("token_usage") if debug_info_final else None,
             } if debug_info_final else None
-            
+
             # Don't duplicate guide_extracted in extracted_data — it's already in sub_documents
             # This saves ~50% of Cosmos payload size
-            
+
             import json as _diag_json
             _cosmos_size = len(_diag_json.dumps(cosmos_preview, ensure_ascii=False, default=str))
             logger.info(f"[Pipeline] Saving to Cosmos: preview={_cosmos_size}b, blob={preview_blob_path}")
-            
+
             result = extraction_jobs.update_job(
-                job_id, 
-                status=ExtractionStatus.SUCCESS.value, 
+                job_id,
+                status=ExtractionStatus.SUCCESS.value,
                 preview_data=cosmos_preview,
                 extracted_data=None,  # Not duplicated — use sub_documents[0].data.guide_extracted
                 debug_data=cosmos_debug
             )
-            
+
             if not result:
                 diag_reason = extraction_jobs.get_last_update_error() or "unknown"
                 logger.error(f"[Pipeline] update_job returned None for job {job_id}: {diag_reason}")
                 extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=f"Failed to save extraction results [{diag_reason}]")
                 return
-            
-            
+
+
             logger.info(f"[Pipeline-Debug] Job {job_id} completed successfully!")
-            
+
             # Sync status to ExtractionLog if linked
             job = extraction_jobs.get_job(job_id)
             if job and (job.original_log_id or job.log_id):
                 log_id_to_update = job.original_log_id or job.log_id
                 # Also save preview_data to log so it can be viewed later
                 extraction_logs.update_log_status(
-                    log_id_to_update, 
+                    log_id_to_update,
                     status=ExtractionStatus.SUCCESS.value,
                     preview_data=cosmos_preview,  # Blob refs only, not raw data
                     extracted_data=None, # Pass None is fine, update_log_status will derive if needed
@@ -463,14 +463,14 @@ class ExtractionService:
         except Exception as e:
             logger.error(f"Pipeline error for job {job_id}: {e}")
             extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
-            
+
             # Sync error status to ExtractionLog if linked
             try:
                 job = extraction_jobs.get_job(job_id)
                 if job and (job.original_log_id or job.log_id):
                     log_id_to_update = job.original_log_id or job.log_id
                     extraction_logs.update_log_status(
-                        log_id_to_update, 
+                        log_id_to_update,
                         status=ExtractionStatus.ERROR.value
                     )
             except Exception as sync_error:
@@ -480,12 +480,12 @@ class ExtractionService:
         """Universal extraction without predefined schema"""
         # Unwrap LLM Extraction (Universal)
         raw_extraction = await self._unwrap_universal_extraction(full_ocr_data, focus_pages=split["page_ranges"])
-        
+
         # In universal mode, we trust the LLM's structure mostly
         # But we still try to normalize bboxes if possible
         start_page = split["page_ranges"][0] if split["page_ranges"] else 1
         validated_data = self._validate_and_format_universal(raw_extraction, full_ocr_data.get("pages", []), default_page=start_page)
-        
+
         return {
             "index": split["index"],
             "type": split["type"],
@@ -501,7 +501,7 @@ class ExtractionService:
         """
         if not page_numbers:
             return ocr_data
-        
+
         # Robust check: ocr_data must be a dict
         if not isinstance(ocr_data, dict):
             logger.warning(f"[_filter_ocr_data] ocr_data is not a dict: {type(ocr_data)}")
@@ -510,8 +510,8 @@ class ExtractionService:
                  return {"pages": ocr_data} # Best effort fallback
             return {}
 
-        # PRESERVE CONTENT: Essential for LLM context! 
-        # If filtering pages, we can't easily filter content string without spans, 
+        # PRESERVE CONTENT: Essential for LLM context!
+        # If filtering pages, we can't easily filter content string without spans,
         # but providing full content is safer than providing none.
         # We'll truncate if absolutely massive (e.g. > 100k chars), but 32k is handled by chunking.
         filtered_data = {
@@ -522,12 +522,12 @@ class ExtractionService:
             "tables": [],
             "paragraphs": [] # Optional, might be heavy
         }
-        
+
 
 
         # 1. Filter Pages
         target_pages = set(page_numbers)
-        
+
         pages = ocr_data.get("pages", [])
         if isinstance(pages, list):
             for p in pages:
@@ -541,7 +541,7 @@ class ExtractionService:
         if isinstance(tables, list):
             for t in tables:
                 if not isinstance(t, dict): continue
-                
+
                 # Check bounding regions for page number
                 # If bounding_regions missing (e.g. old doc_intel), include table conservatively or check cells?
                 # We'll rely on doc_intel update.
@@ -554,7 +554,7 @@ class ExtractionService:
                             break
                 if matches:
                     filtered_data["tables"].append(t)
-                
+
         # 3. Filter Paragraphs (if present)
         paragraphs = ocr_data.get("paragraphs", [])
         if isinstance(paragraphs, list):
@@ -569,12 +569,12 @@ class ExtractionService:
 
     async def _unwrap_universal_extraction(self, full_ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
         """Ask LLM to discover ANY relevant fields"""
-        
+
         # OPTIMIZATION: Filter payload to only relevant pages
         ocr_data_to_send = self._filter_ocr_data(full_ocr_data, focus_pages) if focus_pages else full_ocr_data.copy()
-        
 
-        
+
+
         focus_instruction = ""
         if focus_pages:
             logger.info(f"[LLM-Universal] Focusing on pages: {focus_pages}")
@@ -607,12 +607,12 @@ Return a JSON object with:
 IMPORTANT: 
 - Be granular. Don't lump big chunks of text.
 - Return ONLY valid JSON.{focus_instruction}"""
-        
+
         # ... (Call LLM similar to _unwrap_llm_extraction)
         try:
             from app.services.llm import get_current_model
             current_model_name = get_current_model()
-            
+
             response = await self.azure_openai.chat.completions.create(
                 model=current_model_name,
                 messages=[
@@ -628,29 +628,29 @@ IMPORTANT:
             return json.loads(raw_content)
         except Exception as e:
             error_str = str(e).lower()
-            
+
             # Check if token limit exceeded - fallback to chunked processing
-            # Only switch to chunked if it's genuinely a context length issue. 
+            # Only switch to chunked if it's genuinely a context length issue.
             # 429 Rate Limit should be handled by retry, not chunking.
             if "context_length" in error_str or "maximum context" in error_str:
                 logger.warning(f"[LLM-Universal] Token limit exceeded, switching to chunked extraction...")
-                
+
                 try:
                     from app.services.chunked_extraction import extract_with_chunking
-                    
+
                     # Universal mode: discover all fields
                     model_fields = [{"key": "_discover", "label": "Discover all fields", "description": "Extract all key-value pairs"}]
-                    
+
                     merged_result, errors = await extract_with_chunking(
                         ocr_data_to_send,
                         model_fields,
                         max_tokens_per_chunk=8000, # Increased chunk size
                         max_concurrent=8 # Increased concurrency
                     )
-                    
+
                     if errors:
                         logger.warning(f"[LLM-Universal-Chunked] Some chunks failed: {errors}")
-                    
+
                     # Merge structured result
                     return {
                         "guide_extracted": {k: {"value": v.get("value"), "confidence": v.get("confidence", 0.0), "bbox": v.get("bbox"), "page_number": v.get("page_number")} for k, v in merged_result.items() if not k.startswith("_")},
@@ -659,14 +659,14 @@ IMPORTANT:
                     }
                 except Exception as chunk_error:
                     logger.error(f"[LLM-Universal-Chunked] Fallback also failed: {chunk_error}")
-            
+
             logger.error(f"[LLM] Universal Extraction Error: {e}")
             return {"guide_extracted": {}, "error": str(e)}
 
     def _validate_and_format_universal(self, raw_data: Dict[str, Any], pages_info: List[Dict[str, Any]], default_page: int = 1) -> Dict[str, Any]:
         """Relaxed validation for universal mode"""
         guide_extracted = raw_data.get("guide_extracted", {})
-        
+
         # Defensive: if LLM returns a list instead of dict, convert or skip
         if isinstance(guide_extracted, list):
             logger.warning(f"[Validation-Universal] guide_extracted is a list, converting to dict")
@@ -674,21 +674,21 @@ IMPORTANT:
         elif not isinstance(guide_extracted, dict):
             logger.error(f"[Validation-Universal] guide_extracted is not a dict or list: {type(guide_extracted)}")
             guide_extracted = {}
-        
+
         validated_extracted = {}
-        
+
         page_dims = {p["page_number"]: (p["width"], p["height"]) for p in pages_info}
 
         for key, item in guide_extracted.items():
             if not isinstance(item, dict): continue
-            
+
             value = item.get("value")
             bbox = item.get("bbox")
             try:
                 page_number = int(item.get("page_number")) if item.get("page_number") else None
             except (ValueError, TypeError):
                 page_number = None
-            
+
             # --- SMART PAGE DISCOVERY (Universal Mode) ---
             detected_page = page_number
             if not detected_page:
@@ -712,14 +712,14 @@ IMPORTANT:
                   for p_info in pages_info:
                      p_num = p_info["page_number"]
                      if p_num == final_page_number: continue
-                     
+
                      found_bbox = search_page_univ(p_num)
                      if found_bbox:
                          snapped_bbox = found_bbox
                          final_page_number = p_num
                          logger.info(f"[SmartDiscovery-Univ] Value '{value}' found on Page {p_num}")
                          break
-            
+
             page_number = final_page_number
             # ---------------------------------------------
 
@@ -746,17 +746,17 @@ IMPORTANT:
             "other_data": raw_data.get("other_data", []),
             "model_fields": [{"key": k, "label": k} for k in validated_extracted.keys()] # Dynamic fields
         }
-        
+
         # Preserve Raw Content (Critical for UI)
         if "raw_content" in raw_data:
             result["raw_content"] = raw_data["raw_content"]
-            
+
         # Preserve Beta Fields (LayoutParser) if present
         if "_beta_parsed_content" in raw_data:
             result["_beta_parsed_content"] = raw_data["_beta_parsed_content"]
         if "_beta_ref_map" in raw_data:
             result["_beta_ref_map"] = raw_data["_beta_ref_map"]
-            
+
         return result
 
 
@@ -766,12 +766,12 @@ IMPORTANT:
         """
         # Unwrap LLM Extraction with focus on specific pages
         raw_extraction = await self._unwrap_llm_extraction(full_ocr_data, model, focus_pages=split["page_ranges"])
-        
+
         # Validation
         # Pass the first page of the split as default_page to handle missing page_number from LLM
         start_page = split["page_ranges"][0] if split["page_ranges"] else 1
         validated_data = self._validate_and_format(raw_extraction, model, full_ocr_data.get("pages", []), default_page=start_page)
-        
+
         return {
             "index": split["index"],
             "type": split["type"],
@@ -781,30 +781,30 @@ IMPORTANT:
 
     async def _unwrap_llm_extraction(self, ocr_data: Dict[str, Any], model: ExtractionModel, focus_pages: List[int] = None) -> Dict[str, Any]:
         """ask LLM to extract data based on model fields"""
-        
+
         # OPTIMIZATION: Filter payload to only relevant pages
         ocr_data_to_send = self._filter_ocr_data(ocr_data, focus_pages) if focus_pages else ocr_data.copy()
-        
+
         # BETA FEATURE: Delegate to centralized LLM service for LayoutParser support
         use_beta = False
-        
+
         # Robust check for beta_features (handle Pydantic model, ORM object, or Dict)
         beta_features = None
         if hasattr(model, "beta_features"):
             beta_features = model.beta_features
         elif isinstance(model, dict) and "beta_features" in model:
             beta_features = model["beta_features"]
-            
+
         if beta_features and isinstance(beta_features, dict):
             use_beta = beta_features.get("use_optimized_prompt", False)
-            
+
             # OPTIMIZATION: If input source requested bypass (Excel), we STILL want to use beta
             # to leverage CHUNKING for large files, but the beta service itself will skip
             # the LayoutParser step because of the flag.
             if ocr_data.get("_layout_parser_bypass"):
                 logger.info(f"[LLM-Beta-Check] _layout_parser_bypass flag detected. Forcing use_beta=True to enable CHUNKING.")
                 use_beta = True
-                
+
             logger.info(f"[LLM-Beta-Check] Beta detected. features={beta_features}, use_beta={use_beta}")
         else:
             # Even if no beta features configured, if it's Excel (Bypass), we might want to force chunking?
@@ -815,7 +815,7 @@ IMPORTANT:
                  use_beta = True
             else:
                  logger.info(f"[LLM-Beta-Check] No beta_features found or disabled. model_type={type(model)}, features={beta_features}")
-        
+
         if use_beta:
             from app.services.beta_chunking import extract_beta_with_chunking
             logger.info("[LLM] Beta feature enabled. Delegating to beta_chunking...")
@@ -825,7 +825,7 @@ IMPORTANT:
                 language="ko",
                 max_concurrent=4, # Increased after resource scale-up
             )
-            
+
             # DIAGNOSTIC: Log result shape (wrapped in try/except — diagnostics must NEVER crash extraction)
             try:
                 logger.info(f"[LLM-Beta] Result keys: {list(llm_result.keys()) if llm_result else 'None'}")
@@ -833,7 +833,7 @@ IMPORTANT:
                 logger.info(f"[LLM-Beta] guide_extracted: {len(guide)} fields")
                 for k in list(guide.keys())[:3]:
                     logger.info(f"[LLM-Beta] guide_extracted['{k}']: {str(guide.get(k, ''))[:200]}")
-                
+
                 chunking_info = llm_result.get("_beta_chunking_info")
                 if chunking_info:
                     logger.info(
@@ -857,18 +857,18 @@ IMPORTANT:
                 llm_result["raw_tables"] = ocr_data_to_send.get("tables", [])
 
             return llm_result
-        
+
         # --- LEGACY PATH (No Beta) ---
-        
+
         # PRE-EMPTIVE CHUNKING: If document is too large, skip direct call and chunk immediately.
         # Check actual JSON payload size, not just text content (metadata can be huge)
         json_payload = json.dumps(ocr_data_to_send, ensure_ascii=False)
         payload_len = len(json_payload)
         page_count = len(ocr_data_to_send.get("pages", []))
-        
+
         # DEBUG: Print to ensure logging works
         logger.debug(f"[DEBUG-LLM] Payload size: {payload_len}, Pages: {page_count}")
-        
+
         # Threshold: 20k chars or 5 pages (Production Tuned)
         if payload_len > 20000 or page_count > 5:
             logger.debug(f"[DEBUG-LLM] CHUNKING TRIGGERED! Size: {payload_len}, Pages: {page_count}")
@@ -881,17 +881,17 @@ IMPORTANT:
                     max_tokens_per_chunk=8000,
                     max_concurrent=8
                 )
-                
+
                 if errors:
                     logger.warning(f"[LLM-Chunked] Some chunks failed: {errors}")
-                
+
                 # Merge structured result
                 # Include raw tables in other_data so user can see something even if LLM fails
                 raw_tables = ocr_data_to_send.get("tables", [])
-                
+
                 # IMPORTANT: Preserve _merge_info for debugging (contains LLM prompt/response info)
                 merge_debug = merged_result.get("_merge_info", {})
-                
+
                 return {
                     "guide_extracted": {k: {"value": v.get("value"), "confidence": v.get("confidence", 0.0), "bbox": v.get("bbox"), "page_number": v.get("page_number")} for k, v in merged_result.items() if not k.startswith("_")},
                     "other_data": [{"type": "raw_tables", "tables": raw_tables}] if raw_tables else [],
@@ -904,7 +904,7 @@ IMPORTANT:
                 # Don't silently fallback - raise error so user knows what happened
                 raise Exception(f"DOCUMENT_CHUNKING_FAILED: {chunk_error}")
 
-        
+
         field_descriptions = []
         for field in model.fields:
             desc = f"- {field.key}: {field.label}"
@@ -972,7 +972,7 @@ IMPORTANT:
             # Use dynamic model from Admin Settings
             from app.services.llm import get_current_model
             current_model_name = get_current_model()
-            
+
             response = await self.azure_openai.chat.completions.create(
                 model=current_model_name,
                 messages=[
@@ -983,7 +983,7 @@ IMPORTANT:
                 response_format={"type": "json_object"}
             )
             raw_content = response.choices[0].message.content or ""
-            
+
             # Capture token usage
             token_usage = None
             if response.usage:
@@ -993,32 +993,32 @@ IMPORTANT:
                     "total_tokens": response.usage.total_tokens
                 }
                 logger.info(f"[LLM-Token] Usage: {token_usage}")
-            
+
             logger.info(f"[LLM-Custom-Debug] Success! Length: {len(raw_content)}")
             logger.info(f"[LLM-Custom-Debug] Preview: {raw_content[:200]}")
-            
+
             result = json.loads(raw_content)
             result["_token_usage"] = token_usage  # Include token usage in result
-            
+
             # ATTACH RAW CONTENT (CRITICAL FIX FOR LEGACY PATH)
             # Ensure OCR text is available even when not using Beta LayoutParser
             if "raw_content" not in result:
                 result["raw_content"] = ocr_data_to_send.get("content", "")
-                
+
             return result
         except Exception as e:
             error_str = str(e).lower()
-            
+
             # Check if token limit exceeded - fallback to chunked processing
             if "token" in error_str or "context_length" in error_str or ("429" in str(e) and "rate" not in error_str):
                 logger.warning(f"[LLM] Token limit exceeded, switching to chunked extraction...")
-                
+
                 try:
                     from app.services.chunked_extraction import extract_with_chunking
-                    
+
                     # Convert model fields to dict format for chunked extraction
                     model_fields = [{"key": f.key, "label": f.label, "description": f.description} for f in model.fields]
-                    
+
                     # Use chunked extraction
                     merged_result, errors = await extract_with_chunking(
                         ocr_data_to_send,
@@ -1026,10 +1026,10 @@ IMPORTANT:
                         max_tokens_per_chunk=16000,  # Increased from 4000 for fewer LLM calls
                         max_concurrent=8  # Increased from 5 for better parallelism
                     )
-                    
+
                     if errors:
                         logger.warning(f"[LLM-Chunked] Some chunks failed: {errors}")
-                    
+
                     # Convert to expected format (Merged result is now rich object dict)
                     return {
                         "guide_extracted": {k: v for k, v in merged_result.items() if not k.startswith("_")},
@@ -1041,7 +1041,7 @@ IMPORTANT:
                 except Exception as chunk_error:
                     logger.error(f"[LLM-Chunked] Fallback also failed: {chunk_error}")
                     raise e  # Re-raise original error
-            
+
             logger.error(f"[LLM] Extraction failed: {e}")
             raise e
 
@@ -1067,9 +1067,9 @@ IMPORTANT:
                 "_beta_ref_map": raw_data.get("_beta_ref_map"),
                 "error": raw_data.get("error"),
             }
-        
+
         guide_extracted = raw_data.get("guide_extracted", {})
-        
+
         # Defensive: if LLM returns a list instead of dict, convert or handle gracefully
         if isinstance(guide_extracted, list):
             logger.warning(f"[Validation] guide_extracted is a list, converting to dict")
@@ -1084,11 +1084,11 @@ IMPORTANT:
         elif not isinstance(guide_extracted, dict):
             logger.error(f"[Validation] guide_extracted is not a dict or list: {type(guide_extracted)}")
             guide_extracted = {}
-        
+
         validated_extracted = {}
 
         CONFIDENCE_THRESHOLD = 0.7  # Flag values below this
-        
+
         # Create a lookup for page dimensions (handle both snake_case and camelCase)
         page_dims = {
             (p.get("page_number") or p.get("pageNumber", i+1)): (p.get("width", 0), p.get("height", 0))
@@ -1113,7 +1113,7 @@ IMPORTANT:
                 page_number = int(raw_page) if raw_page else None
             except (ValueError, TypeError):
                 page_number = None
-            
+
             # Type Validation Logic (Restored)
             validation_status = "valid"
             if value is not None:
@@ -1129,19 +1129,19 @@ IMPORTANT:
                     if parsed != original_value:
                         validation_status = "normalized"
                     value = parsed
-            
+
             # --- SMART PAGE DISCOVERY (FIX FOR PAGE MISMATCH) ---
             # If page_number is missing, or if we want to be robust, check if the value actually exists on that page.
             # If not, search other pages in the split.
-            
+
             detected_page = page_number
             if not detected_page:
                  detected_page = default_page
-            
+
             # 1. Try to find the value on the detected/default page first
             snapped_bbox = None
             final_page_number = detected_page
-            
+
             # Helper to search a specific page
             def search_page(p_num):
                 p_data = next((p for p in pages_info if p["page_number"] == p_num), None)
@@ -1151,20 +1151,20 @@ IMPORTANT:
 
             # Attempt 1: Default/Provided Page
             snapped_bbox = search_page(final_page_number)
-            
+
             # Attempt 2: If no match, search ALL other pages in the split
             if not snapped_bbox and pages_info:
                  for p_info in pages_info:
                      p_num = p_info["page_number"]
                      if p_num == final_page_number: continue # Already checked
-                     
+
                      found_bbox = search_page(p_num)
                      if found_bbox:
                          snapped_bbox = found_bbox
                          final_page_number = p_num
                          logger.info(f"[SmartDiscovery] Value '{value}' found on Page {p_num} (was defaulting to {detected_page})")
                          break
-            
+
             page_number = final_page_number
             # ----------------------------------------------------
 
@@ -1177,9 +1177,9 @@ IMPORTANT:
                 p_w, p_h = 100, 100 # Default fallback
                 if page_number and page_number in page_dims:
                      p_w, p_h = page_dims[page_number]
-                
+
                 normalized_bbox = self._normalize_bbox(snapped_bbox, page_width=p_w, page_height=p_h)
-            
+
             validated_extracted[key] = {
                 "value": value,
                 "original_value": original_value if value != original_value else None,
@@ -1196,17 +1196,17 @@ IMPORTANT:
             "other_data": raw_data.get("other_data", []),
             "model_fields": [{"key": f.key, "label": f.label} for f in model.fields]
         }
-        
+
         # Preserve Beta Fields (LayoutParser)
         if "_beta_parsed_content" in raw_data:
             result["_beta_parsed_content"] = raw_data["_beta_parsed_content"]
         if "_beta_ref_map" in raw_data:
             result["_beta_ref_map"] = raw_data["_beta_ref_map"]
-            
+
         # Preserve Raw Content (Critical for UI)
         if "raw_content" in raw_data:
             result["raw_content"] = raw_data["raw_content"]
-            
+
         # Passthrough debug metadata if present
         if "_debug_chunking" in raw_data:
             result["_debug_chunking"] = raw_data["_debug_chunking"]
@@ -1214,74 +1214,74 @@ IMPORTANT:
             result["_chunked"] = raw_data["_chunked"]
         if "_chunking_errors" in raw_data:
             result["_chunking_errors"] = raw_data["_chunking_errors"]
-            
+
         # Preserve Raw Tables (for Tables Tab)
         if "raw_tables" in raw_data:
             result["raw_tables"] = raw_data["raw_tables"]
-        
+
         # Preserve Token Usage (for debug panel)
         if "_token_usage" in raw_data:
             result["_token_usage"] = raw_data["_token_usage"]
-        
+
         # Preserve Beta Chunking Info (for debug panel)
         if "_beta_chunking_info" in raw_data:
             result["_beta_chunking_info"] = raw_data["_beta_chunking_info"]
-        
+
         # Preserve Pipeline Stage Diagnostics (for debug panel)
         if "_beta_pipeline_stages" in raw_data:
             result["_beta_pipeline_stages"] = raw_data["_beta_pipeline_stages"]
-        
+
         # Preserve Beta Parsed Content (for Parsed Text tab — includes tables as markdown)
         if raw_data.get("_beta_parsed_content"):
             result["_beta_parsed_content"] = raw_data["_beta_parsed_content"]
         if raw_data.get("_beta_ref_map"):
             result["_beta_ref_map"] = raw_data["_beta_ref_map"]
-        
+
         # Preserve LLM error info (for diagnostics)
         if "error" in raw_data:
             result["error"] = raw_data["error"]
-        
+
         return result
-    
+
     def _snap_bbox_to_words(self, value: str, approximate_bbox: Optional[List[float]], words: List[Dict[str, Any]]) -> Optional[List[float]]:
         """
         Refines the bounding box by snapping to the exact coordinates of the matching words from OCR.
         """
         if not value:
             return None
-            
+
         value_clean = str(value).replace(" ", "").replace(",", "").replace(".", "").replace("-", "").lower()
         if not value_clean:
             return None
 
-        # 1. Build a list of candidate words sequences that match the value 
+        # 1. Build a list of candidate words sequences that match the value
         import math
 
         def get_bbox_center(b):
             return ((b[0]+b[2])/2, (b[1]+b[3])/2)
-            
+
         def get_dist(b1, b2):
              c1 = get_bbox_center(b1)
              c2 = get_bbox_center(b2)
              return math.sqrt((c1[0]-c2[0])**2 + (c1[1]-c2[1])**2)
 
         candidate_polygons = []
-        
+
         # Extended cleaning for token matching
         def clean_token(t):
              return str(t).replace(" ","").replace(",","").replace(".","").replace("-","").lower()
 
         # Try to find the exact value as a single token first
         exact_matches = [w for w in words if clean_token(w.get("content", "")) == value_clean]
-        
+
         if exact_matches:
              for m in exact_matches:
                  poly = m.get("polygon")
-                 if poly and len(poly) >= 8: 
+                 if poly and len(poly) >= 8:
                      xs = poly[0::2]
                      ys = poly[1::2]
                      candidate_polygons.append([min(xs), min(ys), max(xs), max(ys)])
-        
+
         # Also try partial contains logical if no exact match (e.g. currency symbol in OCR)
         if not candidate_polygons:
              partial_matches = [w for w in words if value_clean in clean_token(w.get("content", ""))]
@@ -1298,16 +1298,16 @@ IMPORTANT:
         # 2. Select best match
         if not approximate_bbox:
             return candidate_polygons[0] # Return first match
-            
+
         best_bbox = approximate_bbox
         min_dist = float('inf')
-        
+
         for cand in candidate_polygons:
             d = get_dist(approximate_bbox, cand)
             if d < min_dist:
                 min_dist = d
                 best_bbox = cand
-                
+
         return best_bbox
 
     def _parse_number(self, value: Any) -> Optional[float]:

@@ -18,12 +18,12 @@ class UpdateLLMModelRequest(BaseModel):
 async def get_llm_settings():
     """현재 LLM 설정 조회 및 사용 가능한 모델 목록"""
     available_models = await fetch_available_models()
-    
+
     # 현재 모델이 목록에 없으면 추가
     current = get_current_model()
     if current and current not in available_models:
         available_models.insert(0, current)
-    
+
     return LLMSettingsResponse(
         current_model=current,
         available_models=available_models,

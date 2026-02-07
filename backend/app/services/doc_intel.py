@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from enum import Enum
 from azure.ai.documentintelligence.aio import DocumentIntelligenceClient
 from azure.ai.documentintelligence.models import AnalyzeResult
@@ -21,7 +21,7 @@ class AzureModelType(str, Enum):
 def get_supported_models() -> List[Dict[str, str]]:
     """Return list of supported models for frontend"""
     return [
-        {"id": m.value, "name": f"{m.name} ({m.value})"} 
+        {"id": m.value, "name": f"{m.name} ({m.value})"}
         for m in AzureModelType
     ]
 
@@ -39,21 +39,21 @@ async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-la
          import base64
          safe_name = base64.urlsafe_b64encode(file_source.encode()).decode().strip("=")
          cache_blob_name = f"ocr_cache/{model_type}/{safe_name}.ocr.json"
-         
+
          from app.services import storage
          cached_data = await storage.load_json_from_blob(cache_blob_name)
          if cached_data:
              logger.info(f"[DocIntel] Cache HIT for {cache_blob_name}")
              return cached_data
-             
+
     logger.info(f"[DocIntel] Analyzing document using model {model_type}")
-    
+
     try:
         async with DocumentIntelligenceClient(
             endpoint=settings.AZURE_FORM_ENDPOINT,
             credential=AzureKeyCredential(settings.AZURE_FORM_KEY)
         ) as client:
-            
+
             # Check if file_source is a string (URL)
             if isinstance(file_source, str):
                 poller = await client.begin_analyze_document(
@@ -68,9 +68,9 @@ async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-la
                     body=file_source,
                     content_type="application/octet-stream"
                 )
-                
+
             result: AnalyzeResult = await poller.result()
-            
+
             # Base extraction (Always available)
             output = {
                 "content": result.content,
@@ -84,13 +84,13 @@ async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-la
             # Strategy-Specific Enrichment
             if model_type == AzureModelType.INVOICE:
                  output["invoice_metadata"] = _map_invoice_fields(result.documents)
-            
+
             # Save to Cache
             if cache_blob_name:
                  await storage.save_json_as_blob(output, cache_blob_name)
                  output["_cache_blob_path"] = cache_blob_name # Expose for debugging
                  logger.info(f"[DocIntel] Cache SAVED to {cache_blob_name}")
-                 
+
             return output
 
     except Exception as e:
@@ -118,13 +118,13 @@ def _process_tables(tables):
     processed = []
     for table in tables:
         cells = [{
-            "row_index": c.row_index, "column_index": c.column_index, 
+            "row_index": c.row_index, "column_index": c.column_index,
             "content": c.content, "kind": getattr(c, "kind", "content"),
             "bounding_regions": [{"page_number": r.page_number, "polygon": r.polygon} for r in (c.bounding_regions or [])]
         } for c in table.cells]
         processed.append({
-            "row_count": table.row_count, 
-            "column_count": table.column_count, 
+            "row_count": table.row_count,
+            "column_count": table.column_count,
             "cells": cells,
             "bounding_regions": [{"page_number": r.page_number, "polygon": r.polygon} for r in (table.bounding_regions or [])]
         })
@@ -132,27 +132,27 @@ def _process_tables(tables):
 
 def _process_kv_pairs(kv_pairs, pages=None):
     if not kv_pairs: return []
-    
+
     # Create page map for dimension lookup
     page_map = {p.page_number: p for p in (pages or [])}
-    
+
     processed = []
     for k in kv_pairs:
         if not k.key: continue
-        
+
         item = {
             "key": k.key.content,
             "value": k.value.content if k.value else "",
             "confidence": k.confidence
         }
-        
+
         # Extract bbox from value (preferred) or key
         target_region = None
         if k.value and k.value.bounding_regions:
             target_region = k.value.bounding_regions[0]
         elif k.key.bounding_regions:
             target_region = k.key.bounding_regions[0]
-            
+
         if target_region:
             p_num = target_region.page_number
             if p_num in page_map:
@@ -164,7 +164,7 @@ def _process_kv_pairs(kv_pairs, pages=None):
                     ys = poly[1::2]
                     min_x, max_x = min(xs), max(xs)
                     min_y, max_y = min(ys), max(ys)
-                    
+
                     item["bbox"] = [min_x, min_y, max_x, max_y]
                     item["page_number"] = p_num
 
@@ -176,7 +176,7 @@ def _process_documents(documents, pages=None):
     Extracts high-level fields from prebuilt models with normalized BBox.
     """
     if not documents: return []
-    
+
     # Create page map for quick lookup {page_number: page_obj}
     page_map = {p.page_number: p for p in (pages or [])}
 
@@ -190,19 +190,19 @@ def _process_documents(documents, pages=None):
                     "type": field.type,
                     "confidence": field.confidence
                 }
-                
+
                 # Extract and normalize bounding box
                 try:
                     if field.bounding_regions:
                         # Use first region
                         region = field.bounding_regions[0]
                         p_num = region.page_number
-                        
+
                         if p_num in page_map:
                             page = page_map[p_num]
                             p_w = page.width
                             p_h = page.height
-                            
+
                             # Polygon: [x1, y1, x2, y2, x3, y3, x4, y4] (Inches/Pixels)
                             poly = region.polygon
                             if poly and len(poly) >= 4:
@@ -210,7 +210,7 @@ def _process_documents(documents, pages=None):
                                 ys = poly[1::2]
                                 min_x, max_x = min(xs), max(xs)
                                 min_y, max_y = min(ys), max(ys)
-                                
+
                                 # Use Raw Coordinates
                                 field_data["bbox"] = [min_x, min_y, max_x, max_y]
                                 field_data["page_number"] = p_num
@@ -218,17 +218,17 @@ def _process_documents(documents, pages=None):
                     logger.warning(f"Failed to extract bbox for field {key}: {e}")
 
                 fields[key] = field_data
-        
+
         # Extract page numbers from bounding regions
         page_numbers = []
         if doc.bounding_regions:
             # Azure page numbers are 1-based
             page_numbers = sorted(list(set(r.page_number for r in doc.bounding_regions)))
-            
+
         processed.append({
             "doc_type": doc.doc_type,
             "fields": fields,
-            "page_numbers": page_numbers, 
+            "page_numbers": page_numbers,
             "confidence": doc.confidence
         })
     return processed
@@ -241,7 +241,7 @@ def _map_invoice_fields(documents):
     doc = documents[0] # Assume single invoice per file for now
     fields = doc.fields
     if not fields: return {}
-    
+
     return {
         "vendor_name": fields.get("VendorName", {}).get("content"),
         "customer_name": fields.get("CustomerName", {}).get("content"),

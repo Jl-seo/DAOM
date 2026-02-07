@@ -25,10 +25,10 @@ class User:
     created_at: str
     last_login: str
     groups: list[str]    # List of group IDs
-    
+
     def to_dict(self) -> dict:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "User":
         return cls(
@@ -62,7 +62,7 @@ async def get_or_create_user(current_user: CurrentUser) -> User:
             last_login=datetime.utcnow().isoformat(),
             groups=[]
         )
-    
+
     try:
         # Try to get existing user
         items = list(container.query_items(
@@ -70,7 +70,7 @@ async def get_or_create_user(current_user: CurrentUser) -> User:
             parameters=[{"name": "@id", "value": current_user.id}],
             enable_cross_partition_query=True
         ))
-        
+
         if items:
             # Update last login
             user_data = items[0]
@@ -78,7 +78,7 @@ async def get_or_create_user(current_user: CurrentUser) -> User:
             container.upsert_item(body=user_data)
             logger.info(f"User login: {current_user.email}")
             return User.from_dict(user_data)
-        
+
         # Create new user (first login)
         new_user = User(
             id=current_user.id,
@@ -93,7 +93,7 @@ async def get_or_create_user(current_user: CurrentUser) -> User:
         container.create_item(body=new_user.to_dict())
         logger.info(f"New user registered: {current_user.email}")
         return new_user
-        
+
     except Exception as e:
         logger.error(f"Error in get_or_create_user: {e}")
         raise
@@ -104,7 +104,7 @@ async def get_user_by_id(user_id: str) -> Optional[User]:
     container = get_container(USERS_CONTAINER, "/tenant_id")
     if not container:
         return None
-    
+
     try:
         items = list(container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
@@ -122,15 +122,15 @@ async def get_users_by_tenant(tenant_id: str, search_term: str = None) -> list[U
     container = get_container(USERS_CONTAINER, "/tenant_id")
     if not container:
         return []
-    
+
     try:
         query = "SELECT * FROM c WHERE c.tenant_id = @tenant_id"
         parameters = [{"name": "@tenant_id", "value": tenant_id}]
-        
+
         if search_term:
             query += " AND (CONTAINS(LOWER(c.name), @search) OR CONTAINS(LOWER(c.email), @search))"
             parameters.append({"name": "@search", "value": search_term.lower()})
-            
+
         items = list(container.query_items(
             query=query,
             parameters=parameters,
@@ -147,15 +147,15 @@ async def get_all_users(search_term: str = None) -> list[User]:
     container = get_container(USERS_CONTAINER, "/tenant_id")
     if not container:
         return []
-    
+
     try:
         query = "SELECT * FROM c"
         parameters = []
-        
+
         if search_term:
             query += " WHERE CONTAINS(LOWER(c.name), @search) OR CONTAINS(LOWER(c.email), @search)"
             parameters.append({"name": "@search", "value": search_term.lower()})
-            
+
         items = list(container.query_items(
             query=query,
             parameters=parameters if parameters else None,
@@ -171,11 +171,11 @@ async def update_user_role(user_id: str, new_role: str, tenant_id: str) -> bool:
     """Update user's role (Admin only)"""
     if new_role not in ["Admin", "Editor", "Viewer"]:
         return False
-    
+
     container = get_container(USERS_CONTAINER, "/tenant_id")
     if not container:
         return False
-    
+
     try:
         items = list(container.query_items(
             query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
@@ -185,16 +185,16 @@ async def update_user_role(user_id: str, new_role: str, tenant_id: str) -> bool:
             ],
             enable_cross_partition_query=True
         ))
-        
+
         if not items:
             return False
-        
+
         user_data = items[0]
         user_data["role"] = new_role
         container.upsert_item(body=user_data)
         logger.info(f"Updated role for {user_id} to {new_role}")
         return True
-        
+
     except Exception as e:
         logger.error(f"Error updating user role: {e}")
         return False
@@ -205,7 +205,7 @@ async def add_user_to_group(user_id: str, group_id: str, tenant_id: str) -> bool
     container = get_container(USERS_CONTAINER, "/tenant_id")
     if not container:
         return False
-    
+
     try:
         items = list(container.query_items(
             query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
@@ -215,16 +215,16 @@ async def add_user_to_group(user_id: str, group_id: str, tenant_id: str) -> bool
             ],
             enable_cross_partition_query=True
         ))
-        
+
         if not items:
             return False
-        
+
         user_data = items[0]
         if group_id not in user_data.get("groups", []):
             user_data.setdefault("groups", []).append(group_id)
             container.upsert_item(body=user_data)
         return True
-        
+
     except Exception as e:
         logger.error(f"Error adding user to group: {e}")
         return False
@@ -235,7 +235,7 @@ async def get_user_by_email(email: str, tenant_id: str) -> Optional[User]:
     container = get_container(USERS_CONTAINER, "/tenant_id")
     if not container:
         return None
-    
+
     try:
         items = list(container.query_items(
             query="SELECT * FROM c WHERE LOWER(c.email) = @email AND c.tenant_id = @tenant_id",
@@ -256,7 +256,7 @@ async def update_user_groups(user_id: str, group_ids: list[str], tenant_id: str)
     container = get_container(USERS_CONTAINER, "/tenant_id")
     if not container:
         return False
-    
+
     try:
         items = list(container.query_items(
             query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
@@ -266,16 +266,16 @@ async def update_user_groups(user_id: str, group_ids: list[str], tenant_id: str)
             ],
             enable_cross_partition_query=True
         ))
-        
+
         if not items:
             return False
-        
+
         user_data = items[0]
         user_data["groups"] = group_ids
         container.upsert_item(body=user_data)
         logger.info(f"Updated groups for user {user_id}: {group_ids}")
         return True
-        
+
     except Exception as e:
         logger.error(f"Error updating user groups: {e}")
         return False
@@ -287,14 +287,14 @@ async def pre_register_user(email: str, name: str, tenant_id: str, groups: list[
     Creates a placeholder user record that will be updated on first login.
     """
     import uuid
-    
+
     container = get_container(USERS_CONTAINER, "/tenant_id")
     if not container:
         raise Exception("Users container not available")
-    
+
     # Generate temporary ID (will be replaced with oid on first login)
     temp_id = f"pre-{uuid.uuid4().hex[:12]}"
-    
+
     new_user = User(
         id=temp_id,
         email=email.lower(),
@@ -305,7 +305,7 @@ async def pre_register_user(email: str, name: str, tenant_id: str, groups: list[
         last_login="",  # Empty = never logged in
         groups=groups or []
     )
-    
+
     container.create_item(body=new_user.to_dict())
     logger.info(f"Pre-registered user: {email}")
     return new_user

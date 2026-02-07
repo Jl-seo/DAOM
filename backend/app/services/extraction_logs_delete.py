@@ -11,10 +11,10 @@ logger = logging.getLogger(__name__)
 def delete_logs(log_ids: List[str]) -> int:
     """Delete multiple extraction logs by IDs"""
     container = get_extractions_container()
-    
+
     if not container:
         return 0
-    
+
     deleted_count = 0
     for log_id in log_ids:
         try:
@@ -26,5 +26,5 @@ def delete_logs(log_ids: List[str]) -> int:
                 logger.info(f"[ExtractionLogs] Deleted log {log_id}")
         except Exception as e:
             logger.error(f"[ExtractionLogs] Failed to delete log {log_id}: {e}")
-    
+
     return deleted_count

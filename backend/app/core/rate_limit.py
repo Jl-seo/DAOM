@@ -20,7 +20,7 @@ def get_tenant_id(request: Request) -> str:
     # Try to get tenant from JWT (if available in state)
     if hasattr(request.state, "user") and hasattr(request.state.user, "tenant_id"):
         return f"tenant:{request.state.user.tenant_id}"
-    
+
     # Fallback to IP address
     return get_remote_address(request)
 

@@ -67,7 +67,7 @@ def get_template_client():
     """Get OpenAI client for template chat"""
     if not settings.AZURE_OPENAI_ENDPOINT or not settings.AZURE_OPENAI_API_KEY:
         return None
-    
+
     return AzureOpenAI(
         azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
         api_key=settings.AZURE_OPENAI_API_KEY,
@@ -92,17 +92,17 @@ async def process_template_chat(
         dict with 'message' and 'config' keys
     """
     client = get_template_client()
-    
+
     if not client:
         logger.warning("OpenAI client not configured, using fallback")
         return fallback_process(message, current_config, model_fields)
-    
+
     try:
         # Format model fields for prompt
         fields_str = json.dumps(model_fields, ensure_ascii=False, indent=2)
-        
+
         system_prompt = TEMPLATE_SYSTEM_PROMPT.format(model_fields=fields_str)
-        
+
         user_prompt = f"""현재 템플릿 설정:
 {json.dumps(current_config, ensure_ascii=False, indent=2)}
 
@@ -111,7 +111,7 @@ async def process_template_chat(
 위 요청에 맞게 템플릿을 수정해주세요."""
 
         from app.services.llm import get_current_model
-        
+
         response = client.chat.completions.create(
             model=get_current_model(),
             messages=[
@@ -122,15 +122,15 @@ async def process_template_chat(
             max_tokens=1000,
             response_format={"type": "json_object"}
         )
-        
+
         result_text = response.choices[0].message.content
         result = json.loads(result_text)
-        
+
         return {
             "message": result.get("message", "템플릿을 업데이트했어요!"),
             "config": result.get("config", {})
         }
-        
+
     except Exception as e:
         logger.error(f"Template chat error: {e}")
         return fallback_process(message, current_config, model_fields)
@@ -141,7 +141,7 @@ def fallback_process(message: str, current_config: dict, model_fields: list[dict
     lower_msg = message.lower()
     config = dict(current_config)
     response_msg = ""
-    
+
     if '테이블' in lower_msg or '표' in lower_msg:
         config['layout'] = 'table'
         config['columns'] = [
@@ -154,7 +154,7 @@ def fallback_process(message: str, current_config: dict, model_fields: list[dict
             for f in model_fields
         ]
         response_msg = f"테이블 형태로 변경했어요! {len(model_fields)}개 컬럼을 포함했습니다."
-    
+
     elif '헤더' in lower_msg or '제목' in lower_msg:
         import re
         title_match = re.search(r'[\'\"\""](.+?)[\'\"\""]', message)
@@ -163,14 +163,14 @@ def fallback_process(message: str, current_config: dict, model_fields: list[dict
             'title': title_match.group(1) if title_match else '데이터 보고서'
         }
         response_msg = "헤더에 제목을 추가했어요!"
-    
+
     elif '합계' in lower_msg or '총' in lower_msg:
         config['aggregation'] = {
             **config.get('aggregation', {}),
             'showTotal': True
         }
         response_msg = "합계 행을 추가했어요!"
-    
+
     elif '색' in lower_msg or '컬러' in lower_msg:
         if '빨간' in lower_msg or 'red' in lower_msg:
             config['style'] = {**config.get('style', {}), 'primaryColor': '#ef4444'}
@@ -180,15 +180,15 @@ def fallback_process(message: str, current_config: dict, model_fields: list[dict
             response_msg = "주요 색상을 파란색으로 변경했어요!"
         else:
             response_msg = "어떤 색상을 원하시나요? 예: '빨간색으로 해줘'"
-    
+
     elif '크게' in lower_msg or '폰트' in lower_msg:
         current_size = config.get('style', {}).get('fontSize', 14)
         config['style'] = {**config.get('style', {}), 'fontSize': current_size + 2}
         response_msg = f"폰트 크기를 {current_size + 2}pt로 키웠어요!"
-    
+
     else:
         response_msg = "죄송해요, 잘 이해하지 못했어요. '테이블로 만들어줘', '헤더 추가해줘' 같이 말씀해주세요!"
-    
+
     return {
         "message": response_msg,
         "config": config

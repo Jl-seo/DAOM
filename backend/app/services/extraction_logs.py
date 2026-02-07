@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from app.db.cosmos import get_extractions_container
 from app.core.enums import ExtractionType, ExtractionStatus
 import logging
-from app.services import audit
 from app.services.audit import AuditAction, AuditResource
 
 logger = logging.getLogger(__name__)
@@ -74,11 +73,11 @@ def save_extraction_log(
 ) -> Optional[ExtractionLog]:
     """Save a new extraction log entry"""
     container = get_extractions_container()
-    
+
     if not container:
         logger.warning("[ExtractionLogs] Cosmos not available, skipping log")
         return None
-    
+
     # If log_id is provided, we're updating an existing log - preserve created_at
     existing_created_at = None
     if log_id:
@@ -88,7 +87,7 @@ def save_extraction_log(
                 existing_created_at = existing.created_at
         except Exception:
             pass
-    
+
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     log = ExtractionLog(
         id=log_id if log_id else str(uuid.uuid4()),
@@ -115,13 +114,13 @@ def save_extraction_log(
         token_usage=token_usage,
         metadata=metadata
     )
-    
+
     try:
         log_dict = log.model_dump()
         log_dict["type"] = ExtractionType.LOG.value
         container.upsert_item(log_dict)
         logger.info(f"[ExtractionLogs] Saved log {log.id} (Overwrite: {bool(log_id)}) for user {user_id}, model {model_id}, llm={llm_model}")
-        
+
         # Log to Audit System
         # We only log significant state changes or new creations to avoid noise?
         # For now, log everything to ensure visibility as requested.
@@ -135,7 +134,7 @@ def save_extraction_log(
                 tenant_id=tenant_id or "default",
                 roles=[]
             )
-            
+
             audit_action = AuditAction.CREATE if not log_id else AuditAction.UPDATE
             if status == ExtractionStatus.ERROR.value:
                 audit_action = "ERROR"
@@ -146,15 +145,15 @@ def save_extraction_log(
 
             # Avoid circular import or complex dependency - just call log_action synchronously?
             # log_action is async. We are in a sync function here.
-            # We can use a background task approach if we were in FastAPI context, 
+            # We can use a background task approach if we were in FastAPI context,
             # but here we might just fire-and-forget or use the async loop if available.
             # Wait, log_action is likely async. `async def log_action`.
             # We can't await it here easily in a sync function.
-            
+
             # Alternative: Use `audit.log_extraction_action` which takes a job, but we have a log.
             # Or make a sync wrapper for audit logging?
             # Or just use the container directly like audit.py does?
-            
+
             # Let's write directly to audit container to avoid async issues in sync wrapper
             # Re-using the logic from audit.log_extraction_action essentially
             from app.db.cosmos import get_audit_container
@@ -195,10 +194,10 @@ def save_extraction_log(
 def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
     """Get extraction logs for a specific model, enforcing tenant isolation"""
     container = get_extractions_container()
-    
+
     if not container:
         return []
-    
+
     try:
         # Only return extraction_logs (Jobs are temp processing records)
         query = f"""
@@ -206,16 +205,16 @@ def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] =
             WHERE c.model_id = @model_id 
             AND (NOT IS_DEFINED(c.type) OR c.type = '{ExtractionType.LOG.value}')
         """
-        
+
         parameters = [{"name": "@model_id", "value": model_id}]
-        
+
         # Enforce Tenant Isolation
         if tenant_id:
             query += " AND c.tenant_id = @tenant_id"
             parameters.append({"name": "@tenant_id", "value": tenant_id})
-            
+
         query += " ORDER BY c.created_at DESC"
-            
+
         items = list(container.query_items(
             query=query,
             parameters=parameters,
@@ -230,10 +229,10 @@ def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] =
 def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
     """Get all recent extraction logs, enforcing tenant isolation"""
     container = get_extractions_container()
-    
+
     if not container:
         return []
-    
+
     try:
         # Only return extraction_logs (Jobs are temp processing records)
         query = f"""
@@ -241,14 +240,14 @@ def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> List[Extr
             WHERE (NOT IS_DEFINED(c.type) OR c.type = '{ExtractionType.LOG.value}')
         """
         parameters = []
-        
+
         # Enforce Tenant Isolation
         if tenant_id:
             query += " AND c.tenant_id = @tenant_id"
             parameters.append({"name": "@tenant_id", "value": tenant_id})
-            
+
         query += " ORDER BY c.created_at DESC"
-            
+
         items = list(container.query_items(
             query=query,
             parameters=parameters,
@@ -263,10 +262,10 @@ def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> List[Extr
 def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
     """Get extraction logs for a specific user, enforcing tenant isolation"""
     container = get_extractions_container()
-    
+
     if not container:
         return []
-    
+
     try:
         # Only return extraction_logs (Jobs are temp processing records)
         query = f"""
@@ -280,7 +279,7 @@ def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[str] = 
         if tenant_id:
             query += " AND c.tenant_id = @tenant_id"
             parameters.append({"name": "@tenant_id", "value": tenant_id})
-            
+
         query += " ORDER BY c.created_at DESC"
 
         items = list(container.query_items(
@@ -297,10 +296,10 @@ def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[str] = 
 def get_log_by_id(log_id: str, model_id: str) -> Optional[ExtractionLog]:
     """Get a single log by ID"""
     container = get_extractions_container()
-    
+
     if not container:
         return None
-    
+
     try:
         item = container.read_item(item=log_id, partition_key=model_id)
         return ExtractionLog(**item)
@@ -312,10 +311,10 @@ def get_log_by_id(log_id: str, model_id: str) -> Optional[ExtractionLog]:
 def get_log(log_id: str) -> Optional[ExtractionLog]:
     """Get log by ID via query (useful when partition key is unknown)"""
     container = get_extractions_container()
-    
+
     if not container:
         return None
-    
+
     try:
         query = "SELECT * FROM c WHERE c.id = @id"
         items = list(container.query_items(
@@ -332,34 +331,34 @@ def get_log(log_id: str) -> Optional[ExtractionLog]:
 
 
 def update_log_status(
-    log_id: str, 
-    status: str, 
-    preview_data: Optional[dict] = None, 
+    log_id: str,
+    status: str,
+    preview_data: Optional[dict] = None,
     extracted_data: Optional[dict] = None,
     debug_data: Optional[dict] = None
 ) -> bool:
     """Update just the status (and optionally data) of an existing log"""
     container = get_extractions_container()
-    
+
     if not container:
         return False
-    
+
     try:
         # Get existing log
         log = get_log(log_id)
         if not log:
             logger.warning(f"[ExtractionLogs] Log {log_id} not found for status update")
             return False
-        
+
         # Update fields
         log_dict = log.model_dump()
         log_dict["status"] = status
         log_dict["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         log_dict["type"] = ExtractionType.LOG.value
-        
+
         if preview_data:
             log_dict["preview_data"] = preview_data
-            
+
             # Auto-populate extracted_data from preview_data if not explicitly provided
             # This handles the case where extraction_service passes None for Cosmos size optimization
             if not extracted_data and "sub_documents" in preview_data:
@@ -372,10 +371,10 @@ def update_log_status(
 
         if extracted_data:
             log_dict["extracted_data"] = extracted_data
-        
+
         if debug_data:
             log_dict["debug_data"] = debug_data
-        
+
         container.upsert_item(log_dict)
         logger.info(f"[ExtractionLogs] Updated log {log_id} status to {status}")
         return True
@@ -387,10 +386,10 @@ def update_log_status(
 def delete_logs(log_ids: List[str]) -> int:
     """Delete multiple extraction logs by IDs"""
     container = get_extractions_container()
-    
+
     if not container:
         return 0
-    
+
     deleted_count = 0
     for log_id in log_ids:
         try:
@@ -402,5 +401,5 @@ def delete_logs(log_ids: List[str]) -> int:
                 logger.info(f"[ExtractionLogs] Deleted log {log_id}")
         except Exception as e:
             logger.error(f"[ExtractionLogs] Failed to delete log {log_id}: {e}")
-    
+
     return deleted_count

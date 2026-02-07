@@ -9,9 +9,8 @@ Handles large documents by:
 4. Merging results with best-confidence field selection
 """
 import asyncio
-import json
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -49,15 +48,15 @@ def normalize_llm_response(llm_json: Dict[str, Any], model_info) -> Dict[str, An
     if not llm_json:
         logger.warning("[Normalize] Empty LLM response")
         return {}
-    
+
     # Get expected field keys from model
     expected_keys = {f.key for f in model_info.fields} if hasattr(model_info, 'fields') else set()
     is_table = getattr(model_info, 'data_structure', 'data') == 'table'
-    
+
     # Log raw structure for diagnostics
     top_keys = list(llm_json.keys()) if isinstance(llm_json, dict) else ["(array)"]
     logger.info(f"[Normalize] Raw LLM response keys: {top_keys}, expected: {list(expected_keys)[:5]}..., table_mode={is_table}")
-    
+
     # TABLE MODE: detect and pass through row arrays
     if is_table:
         rows = None
@@ -65,7 +64,7 @@ def normalize_llm_response(llm_json: Dict[str, Any], model_info) -> Dict[str, An
             rows = llm_json["rows"]
         elif isinstance(llm_json, list):
             rows = llm_json
-        
+
         if isinstance(rows, list):
             logger.info(f"[Normalize] TABLE MODE: {len(rows)} rows extracted")
             # Clean each row: ensure consistent structure
@@ -80,21 +79,21 @@ def normalize_llm_response(llm_json: Dict[str, Any], model_info) -> Dict[str, An
                 cleaned_row["_confidence"] = row.get("_confidence", 0.8)
                 cleaned_row["_source_text"] = row.get("_source_text", "")
                 cleaned_rows.append(cleaned_row)
-            
+
             return {
                 "_table_rows": cleaned_rows,
                 "_is_table": True,
             }
         else:
             logger.warning("[Normalize] TABLE MODE but no 'rows' array found, falling back to standard mode")
-    
+
     result = llm_json
-    
+
     # Step 1: Unwrap if response is array
     if isinstance(result, list):
         logger.warning(f"[Normalize] Response is array with {len(result)} items, using first")
         result = result[0] if result else {}
-    
+
     # Step 2: Unwrap nested containers
     # If top-level keys don't match expected fields, look for a wrapper
     if expected_keys and not (expected_keys & set(result.keys())):
@@ -110,7 +109,7 @@ def normalize_llm_response(llm_json: Dict[str, Any], model_info) -> Dict[str, An
                     logger.info(f"[Normalize] Unwrapped from '{wrapper_key}' array")
                     result = inner[0] if isinstance(inner[0], dict) else {}
                     break
-    
+
     # Step 3: Normalize each field value
     normalized = {}
     for key, item in result.items():
@@ -143,14 +142,14 @@ def normalize_llm_response(llm_json: Dict[str, Any], model_info) -> Dict[str, An
                 "confidence": 0.7,
                 "source_text": str(item) if item is not None else "",
             }
-    
+
     # Step 4: Report coverage
     found_fields = expected_keys & set(normalized.keys())
     missing_fields = expected_keys - set(normalized.keys())
     if missing_fields:
         logger.warning(f"[Normalize] Missing {len(missing_fields)} fields: {list(missing_fields)[:5]}")
     logger.info(f"[Normalize] Coverage: {len(found_fields)}/{len(expected_keys)} fields found")
-    
+
     return normalized
 
 
@@ -256,9 +255,9 @@ def split_ocr_into_chunks(
             # Propagate bypass flag
             if ocr_data.get("_layout_parser_bypass"):
                 new_chunk.ocr_subset["_layout_parser_bypass"] = True
-            
+
             chunks.append(new_chunk)
-            
+
             current_pages = []
             current_page_objs = []
             current_chars = 0
@@ -304,7 +303,7 @@ def _build_chunk(
     chunk_paragraphs = [p for p in paragraphs if any(
         _is_on_page(p, pn) for pn in page_set
     )]
-    
+
     # Fallback to lines if paragraphs are empty (e.g. ExcelMapper output)
     chunk_lines = []
     if not chunk_paragraphs and page_objs:
@@ -314,7 +313,7 @@ def _build_chunk(
         for page in page_objs:
             if _get_page_number(page) in page_set:
                  chunk_lines.extend(page.get("lines", []))
-    
+
     chunk_tables = [t for t in tables if any(
         _is_on_page(t, pn) for pn in page_set
     )]
@@ -331,8 +330,8 @@ def _build_chunk(
         chunk_content = "" # Should satisfy via lines
     else:
         chunk_content = ""
-        
-    # Double fallback: if still empty, try to slice from main content? 
+
+    # Double fallback: if still empty, try to slice from main content?
     # Hard without offsets. ExcelMapper usually provides 'lines'.
     if not chunk_content and not chunk_paragraphs and not chunk_lines:
          # Special case for Excel: if tables exist, maybe use their content?
@@ -354,7 +353,7 @@ def _build_chunk(
         chunk_content = "\n".join(cell_contents)
     else:
         chunk_content = ""
-        
+
     ocr_subset = {
         "pages": page_objs,
         "paragraphs": chunk_paragraphs,
@@ -424,14 +423,14 @@ async def process_beta_chunk(
 
     # 2. Build prompts (deterministic — prepare once)
     system_prompt = RefinerEngine.construct_prompt(model_info, language)
-    
+
     # OPTIMIZATION: If LayoutParser was bypassed (Excel), content_text IS the table.
     # No need to append _build_tables_context which would duplicate the data.
     if chunk.ocr_subset.get("_layout_parser_bypass"):
         tables_context = ""
     else:
         tables_context = _build_tables_context(chunk.ocr_subset.get("tables", []))
-        
+
     user_prompt = f"Document Text (Pages {chunk.page_numbers}):\n{content_text}\n{tables_context}"
 
     prompt_size = len(user_prompt)
@@ -801,13 +800,13 @@ async def _single_call_extraction(
 
         # Stage 2: Prompt construction
         system_prompt = RefinerEngine.construct_prompt(model_info, language)
-        
+
         # OPTIMIZATION: Skip redundant table context for Excel
         if ocr_data.get("_layout_parser_bypass"):
             tables_context = ""
         else:
             tables_context = _build_tables_context(ocr_data.get("tables", []))
-            
+
         user_prompt = f"Document Text:\n{content_text}\n{tables_context}"
         stages["2_prompt"] = {
             "status": "ok",

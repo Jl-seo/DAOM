@@ -6,7 +6,6 @@ Provides database and container access for:
 - ExtractedData: Extraction results and logs
 """
 from azure.cosmos import CosmosClient, PartitionKey
-from azure.cosmos.exceptions import CosmosResourceNotFoundError
 from app.core.config import settings
 from typing import Optional
 import logging
@@ -30,14 +29,14 @@ _containers: dict = {}
 def get_cosmos_client() -> Optional[CosmosClient]:
     """Get or create Cosmos DB client singleton"""
     global _client
-    
+
     if _client is not None:
         return _client
-    
+
     if not settings.COSMOS_ENDPOINT or not settings.COSMOS_KEY:
         logger.warning("[Cosmos] No credentials configured, using local JSON fallback")
         return None
-    
+
     try:
         _client = CosmosClient(
             url=settings.COSMOS_ENDPOINT,
@@ -53,14 +52,14 @@ def get_cosmos_client() -> Optional[CosmosClient]:
 def get_database():
     """Get or create DAOM database"""
     global _database
-    
+
     if _database is not None:
         return _database
-    
+
     client = get_cosmos_client()
     if not client:
         return None
-    
+
     try:
         _database = client.create_database_if_not_exists(id=settings.COSMOS_DATABASE)
         logger.info(f"[Cosmos] Database '{settings.COSMOS_DATABASE}' ready")
@@ -73,14 +72,14 @@ def get_database():
 def get_container(container_name: str, partition_key_path: str = "/id", indexing_policy: dict = None):
     """Get or create a container by name with optional indexing policy"""
     global _containers
-    
+
     if container_name in _containers:
         return _containers[container_name]
-    
+
     database = get_database()
     if not database:
         return None
-    
+
     try:
         kwargs = {
             "id": container_name,
@@ -88,7 +87,7 @@ def get_container(container_name: str, partition_key_path: str = "/id", indexing
         }
         if indexing_policy:
             kwargs["indexing_policy"] = indexing_policy
-        
+
         container = database.create_container_if_not_exists(**kwargs)
         _containers[container_name] = container
         logger.info(f"[Cosmos] Container '{container_name}' ready")

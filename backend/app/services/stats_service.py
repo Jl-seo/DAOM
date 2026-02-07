@@ -15,27 +15,27 @@ def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
     """
     try:
         # Get all recent logs
-        # Note: In a production scenario with millions of logs, 
+        # Note: In a production scenario with millions of logs,
         # this should be replaced with a proper Cosmos DB aggregate query
         # or a dedicated analytics store.
         logs = extraction_logs.get_all_logs(limit=1000)
         all_models = models.load_models()
         model_map = {m.id: m.name for m in all_models}
-        
+
         # Initialize counters
         total_extractions = len(logs)
         success_count = sum(1 for log in logs if log.status == ExtractionStatus.SUCCESS.value)
         error_count = sum(1 for log in logs if log.status == ExtractionStatus.ERROR.value)
-        
+
         # Calculate success rate
         success_rate = round((success_count / total_extractions * 100) if total_extractions > 0 else 0, 1)
-        
+
         # 1. Daily Trend (Last 7 days)
         daily_trend = _calculate_daily_trend(logs, days=7)
-        
+
         # 2. Model Usage Distribution
         model_usage = _calculate_model_usage(logs, model_map)
-        
+
         # 3. Recent Activity (Top 5)
         recent_activity = [
             {
@@ -48,7 +48,7 @@ def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
             }
             for log in logs[:5]
         ]
-        
+
         return {
             "summary": {
                 "total_extractions": total_extractions,
@@ -59,7 +59,7 @@ def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
             "model_usage": model_usage,
             "recent_activity": recent_activity
         }
-        
+
     except Exception as e:
         logger.error(f"[StatsService] Failed to calculate stats: {e}")
         return {
@@ -73,12 +73,12 @@ def _calculate_daily_trend(logs: List[Any], days: int) -> List[Dict[str, Any]]:
     """Aggregate logs by day"""
     trend = {}
     today = datetime.utcnow().date()
-    
+
     # Initialize last N days with 0
     for i in range(days):
         date = (today - timedelta(days=i)).isoformat()
         trend[date] = 0
-        
+
     for log in logs:
         try:
             # Parse created_at (ISO format)
@@ -88,7 +88,7 @@ def _calculate_daily_trend(logs: List[Any], days: int) -> List[Dict[str, Any]]:
         except Exception as e:
             logger.debug(f"[StatsService] Failed to parse log date: {e}")
             continue
-            
+
     # Sort by date
     return [
         {"date": date, "count": count}
@@ -98,11 +98,11 @@ def _calculate_daily_trend(logs: List[Any], days: int) -> List[Dict[str, Any]]:
 def _calculate_model_usage(logs: List[Any], model_map: Dict[str, str]) -> List[Dict[str, Any]]:
     """Aggregate logs by model"""
     usage = {}
-    
+
     for log in logs:
         model_name = model_map.get(log.model_id, "Unknown")
         usage[model_name] = usage.get(model_name, 0) + 1
-        
+
     # Convert to list and sort by count desc
     return sorted(
         [{"name": name, "value": count} for name, count in usage.items()],

@@ -5,7 +5,6 @@ Now with Entra Group inheritance support!
 """
 import logging
 from typing import Optional
-from functools import lru_cache
 from datetime import datetime, timedelta
 from app.core.config import settings
 
@@ -31,14 +30,14 @@ async def _check_entra_membership_cached(access_token: str, user_id: str, entra_
     """
     cache_key = (user_id, entra_group_id)
     now = datetime.utcnow()
-    
+
     # Check cache
     if cache_key in _entra_membership_cache:
         is_member, cached_at = _entra_membership_cache[cache_key]
         if now - cached_at < timedelta(minutes=CACHE_TTL_MINUTES):
             logger.debug(f"[Permission] Cache hit for Entra group check: {user_id} in {entra_group_id}")
             return is_member
-    
+
     # Cache miss - call Graph API
     try:
         from app.services import graph_service
@@ -67,7 +66,7 @@ async def is_member_of_daom_group(user_id: str, group, access_token: Optional[st
     for member in group.members:
         member_type = member.type if hasattr(member, 'type') else member.get('type', 'user')
         member_id = member.id if hasattr(member, 'id') else member.get('id', '')
-        
+
         if member_type == "user" and member_id == user_id:
             return True
         elif member_type == "entra_group" and access_token:
@@ -75,7 +74,7 @@ async def is_member_of_daom_group(user_id: str, group, access_token: Optional[st
             is_in_entra = await _check_entra_membership_cached(access_token, user_id, member_id)
             if is_in_entra:
                 return True
-    
+
     return False
 
 
@@ -85,7 +84,7 @@ async def is_super_admin_by_group(user_id: str, tenant_id: str, access_token: Op
     Now supports Entra group inheritance!
     """
     from app.services import group_service
-    
+
     groups = await group_service.get_groups_by_tenant(tenant_id)
     for group in groups:
         # Enhanced: Check membership including Entra groups
@@ -107,7 +106,7 @@ async def get_model_role_by_group(user_id: str, tenant_id: str, model_id: str, a
     Now supports Entra group inheritance!
     """
     from app.services import group_service
-    
+
     groups = await group_service.get_groups_by_tenant(tenant_id)
     for group in groups:
         is_member = await is_member_of_daom_group(user_id, group, access_token)
@@ -118,7 +117,7 @@ async def get_model_role_by_group(user_id: str, tenant_id: str, model_id: str, a
                 models_list = group.permissions.models
             elif isinstance(group.permissions, dict):
                 models_list = group.permissions.get('models', [])
-            
+
             for model_perm in models_list:
                 perm_model_id = model_perm.modelId if hasattr(model_perm, 'modelId') else model_perm.get('modelId')
                 if perm_model_id == model_id:
@@ -132,10 +131,10 @@ async def get_accessible_model_ids(user_id: str, tenant_id: str, access_token: O
     Now supports Entra group inheritance!
     """
     from app.services import group_service
-    
+
     accessible_models = set()
     groups = await group_service.get_groups_by_tenant(tenant_id)
-    
+
     for group in groups:
         is_member = await is_member_of_daom_group(user_id, group, access_token)
         if is_member:
@@ -144,12 +143,12 @@ async def get_accessible_model_ids(user_id: str, tenant_id: str, access_token: O
                 models_list = group.permissions.models
             elif isinstance(group.permissions, dict):
                 models_list = group.permissions.get('models', [])
-            
+
             for model_perm in models_list:
                 perm_model_id = model_perm.modelId if hasattr(model_perm, 'modelId') else model_perm.get('modelId')
                 if perm_model_id:
                     accessible_models.add(perm_model_id)
-                    
+
     return accessible_models
 
 
@@ -158,10 +157,10 @@ async def get_accessible_menu_ids(user_id: str, tenant_id: str, access_token: Op
     사용자가 속한 그룹들의 메뉴 권한을 확인하여 접근 가능한 모든 메뉴 ID 집합 반환
     """
     from app.services import group_service
-    
+
     accessible_menus = set()
     groups = await group_service.get_groups_by_tenant(tenant_id)
-    
+
     for group in groups:
         is_member = await is_member_of_daom_group(user_id, group, access_token)
         if is_member:
@@ -171,18 +170,18 @@ async def get_accessible_menu_ids(user_id: str, tenant_id: str, access_token: Op
                 is_super = group.permissions.superAdmin
             elif isinstance(group.permissions, dict):
                 is_super = group.permissions.get('superAdmin', False)
-            
+
             if is_super:
                 return set()  # Empty set = all access (handled by caller)
-            
+
             # Get menu list
             menus_list = []
             if hasattr(group.permissions, 'menus'):
                 menus_list = group.permissions.menus
             elif isinstance(group.permissions, dict):
                 menus_list = group.permissions.get('menus', [])
-            
+
             accessible_menus.update(menus_list)
-                    
+
     return accessible_menus
 

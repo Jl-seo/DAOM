@@ -34,7 +34,7 @@ class AuditLogEntry:
     details: Optional[dict] = None
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
-    
+
     def to_dict(self) -> dict:
         data = asdict(self)
         if data["details"] is None:
@@ -93,14 +93,14 @@ async def log_action(
         if container is None:
             logger.warning("Audit log container not available")
             return None
-        
+
         # Extract request info
         ip_address = None
         user_agent = None
         if request:
             ip_address = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent")
-        
+
         # Create log entry
         entry = AuditLogEntry(
             id=str(uuid4()),
@@ -121,13 +121,13 @@ async def log_action(
             ip_address=ip_address,
             user_agent=user_agent
         )
-        
+
         # Insert into Cosmos DB
         container.create_item(body=entry.to_dict())
         logger.info(f"Audit: {user.email} {action} {resource_type}/{resource_id}")
-        
+
         return entry.id
-        
+
     except Exception as e:
         logger.error(f"Failed to create audit log: {e}")
         return None
@@ -154,27 +154,27 @@ def get_audit_logs(
         container = get_audit_container()
         if container is None:
             return []
-        
+
         # Build query
         conditions = ["1=1"]  # Always true base
         parameters = []
-        
+
         if user_id:
             conditions.append("c.user_id = @user_id")
             parameters.append({"name": "@user_id", "value": user_id})
-        
+
         if tenant_id:
             conditions.append("(c.tenant_id = @tenant_id OR c.tenant_id = 'default' OR NOT IS_DEFINED(c.tenant_id))")
             parameters.append({"name": "@tenant_id", "value": tenant_id})
-        
+
         if resource_type:
             conditions.append("c.resource_type = @resource_type")
             parameters.append({"name": "@resource_type", "value": resource_type})
-        
+
         if action:
             conditions.append("c.action = @action")
             parameters.append({"name": "@action", "value": action})
-            
+
         if target_model_ids:
             # Filter by model IDs
             # 1. Resource is the model itself
@@ -184,30 +184,30 @@ def get_audit_logs(
                 (c.resource_type = 'model' AND ARRAY_CONTAINS([{ids_str}], c.resource_id)) OR
                 (c.resource_type = 'extraction' AND ARRAY_CONTAINS([{ids_str}], c.details.model_id))
             )""")
-        
+
         if start_date:
             conditions.append("c.timestamp >= @start_date")
             parameters.append({"name": "@start_date", "value": start_date})
-        
+
         if end_date:
             conditions.append("c.timestamp <= @end_date")
             parameters.append({"name": "@end_date", "value": end_date})
-        
+
         query = f"""
             SELECT * FROM c 
             WHERE {' AND '.join(conditions)}
             ORDER BY c.timestamp DESC
             OFFSET {offset} LIMIT {limit}
         """
-        
+
         items = list(container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=True
         ))
-        
+
         return items
-        
+
     except Exception as e:
         logger.error(f"Failed to query audit logs: {e}")
         return []
@@ -229,18 +229,18 @@ def log_extraction_action(
         container = get_audit_container()
         if container is None:
             return None
-        
+
         # Build details with token usage
         audit_details = {
             "model_id": job.model_id,
             "filename": job.filename,
             **(details or {})
         }
-        
+
         # Add token usage if available
         if token_usage:
             audit_details["token_usage"] = token_usage
-        
+
         entry = AuditLogEntry(
             id=str(uuid4()),
             timestamp=datetime.utcnow().isoformat() + "Z",
@@ -257,15 +257,15 @@ def log_extraction_action(
             ip_address="system",  # System action
             user_agent="DaomBackend/ExtractionService"
         )
-        
+
         container.create_item(body=entry.to_dict())
-        
+
         # Log token usage if present
         if token_usage:
             logger.info(f"Audit [Extraction]: {entry.user_email} {action} {entry.resource_id} | Tokens: {token_usage.get('total_tokens', 'N/A')}")
         else:
             logger.info(f"Audit [Extraction]: {entry.user_email} {action} {entry.resource_id}")
-        
+
         return entry.id
     except Exception as e:
         logger.error(f"Failed to log extraction action: {e}")
