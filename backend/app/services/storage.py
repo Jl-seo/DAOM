@@ -131,3 +131,45 @@ async def load_json_from_blob(filename: str) -> Optional[dict]:
     except Exception as e:
         # Don't spam logs for cache miss
         return None
+
+async def download_file_from_url(file_url: str) -> Optional[bytes]:
+    """
+    Download file content from a URL (Local or Azure Blob).
+    Used to pass file stream to DocIntel when URL access is restricted.
+    """
+    client = get_blob_service_client()
+    
+    # 1. Local Fallback (for development)
+    if not client:
+        if "/static/" in file_url:
+            from urllib.parse import unquote
+            # Extract filename from local URL structure
+            try:
+                filename = unquote(file_url.split("/static/")[-1])
+                local_path = TEMP_DIR / filename
+                if local_path.exists():
+                    with open(local_path, "rb") as f:
+                        return f.read()
+            except Exception as e:
+                logger.error(f"[Storage] Local download failed: {e}")
+        return None
+
+    # 2. Azure Blob Storage
+    try:
+        container_name = settings.AZURE_CONTAINER_NAME
+        # Verify URL belongs to our container
+        if f"/{container_name}/" in file_url:
+            from urllib.parse import unquote
+            # Extract blob name after container/
+            # Example: https://<account>.blob.core.windows.net/documents/folder/file.pdf
+            blob_name = file_url.split(f"/{container_name}/", 1)[1]
+            blob_name = unquote(blob_name)
+            
+            blob_client = client.get_blob_client(container=container_name, blob=blob_name)
+            if blob_client.exists():
+                return blob_client.download_blob().readall()
+                
+    except Exception as e:
+        logger.error(f"[Storage] Blob download failed: {e}")
+        
+    return None
