@@ -297,10 +297,10 @@ class ExtractionService:
                 if "_token_usage" in first_doc_data:
                     llm_debug_info["token_usage"] = first_doc_data["_token_usage"]
                 # Beta-specific debug info
-                if "_beta_parsed_content" in first_doc_data:
+                if first_doc_data.get("_beta_parsed_content"):
                     llm_debug_info["beta_mode"] = True
                     llm_debug_info["beta_parsed_content_length"] = len(first_doc_data["_beta_parsed_content"])
-                if "_beta_ref_map" in first_doc_data:
+                if first_doc_data.get("_beta_ref_map"):
                     llm_debug_info["beta_ref_map_count"] = len(first_doc_data["_beta_ref_map"])
                 # Beta chunking info
                 if "_beta_chunking_info" in first_doc_data:
