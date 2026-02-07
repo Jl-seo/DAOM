@@ -675,76 +675,79 @@ export function ExtractionPreview({
                                 isExpanded={true}
                             />
                         </div>
-                    ) : (
+                    ) : (() => {
                         /* STANDARD MODE: field-by-field rendering */
-                        <table className="w-full text-sm table-fixed">
-                            <thead>
-                                <tr className="bg-muted text-xs uppercase text-muted-foreground">
-                                    <th className="px-6 py-3 text-left font-semibold w-[200px]">필드명</th>
-                                    <th className="px-6 py-3 text-left font-semibold">추출값 (편집 가능)</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                                {modelFields.map(field => {
-                                    const rawData = editedGuideData[field.key]
-                                    const value = extractValue(rawData)
-                                    const confidence = extractConfidence(rawData)
-                                    const hasValue = value !== null && value !== '' && value !== undefined
-                                    const isLowConfidence = confidence !== null && confidence < 0.9
+                        const guideDataDict = editedGuideData as Record<string, any>;
+                        return (
+                            <table className="w-full text-sm table-fixed">
+                                <thead>
+                                    <tr className="bg-muted text-xs uppercase text-muted-foreground">
+                                        <th className="px-6 py-3 text-left font-semibold w-[200px]">필드명</th>
+                                        <th className="px-6 py-3 text-left font-semibold">추출값 (편집 가능)</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border">
+                                    {modelFields.map(field => {
+                                        const rawData = guideDataDict[field.key]
+                                        const value = extractValue(rawData)
+                                        const confidence = extractConfidence(rawData)
+                                        const hasValue = value !== null && value !== '' && value !== undefined
+                                        const isLowConfidence = confidence !== null && confidence < 0.9
 
-                                    return (
-                                        <tr
-                                            key={field.key}
-                                            className={clsx(
-                                                hasValue ? "bg-card" : "bg-chart-4/5",
-                                                isLowConfidence && "bg-chart-4/5",
-                                                selectedField === field.key && "ring-2 ring-primary bg-primary/5",
-                                                "cursor-pointer hover:bg-accent transition-colors"
-                                            )}
-                                            id={`field-row-${field.key}`}
-                                            onClick={() => handleFieldClick(field.key)}
-                                            onMouseEnter={() => {
-                                                if (controlledSelectedField === undefined) {
-                                                    setInternalSelectedField(field.key)
-                                                }
-                                            }}
-                                        >
-                                            <td className="px-6 py-4 align-top">
-                                                <div className="font-medium text-foreground">{field.label}</div>
-                                                <div className="text-xs text-muted-foreground">{field.key}</div>
-                                                {selectedField === field.key && (
-                                                    <div className="text-xs text-primary mt-1">📍 PDF에서 보기</div>
+                                        return (
+                                            <tr
+                                                key={field.key}
+                                                className={clsx(
+                                                    hasValue ? "bg-card" : "bg-chart-4/5",
+                                                    isLowConfidence && "bg-chart-4/5",
+                                                    selectedField === field.key && "ring-2 ring-primary bg-primary/5",
+                                                    "cursor-pointer hover:bg-accent transition-colors"
                                                 )}
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center">
-                                                    <div className="flex-1">
+                                                id={`field-row-${field.key}`}
+                                                onClick={() => handleFieldClick(field.key)}
+                                                onMouseEnter={() => {
+                                                    if (controlledSelectedField === undefined) {
+                                                        setInternalSelectedField(field.key)
+                                                    }
+                                                }}
+                                            >
+                                                <td className="px-6 py-4 align-top">
+                                                    <div className="font-medium text-foreground">{field.label}</div>
+                                                    <div className="text-xs text-muted-foreground">{field.key}</div>
+                                                    {selectedField === field.key && (
+                                                        <div className="text-xs text-primary mt-1">📍 PDF에서 보기</div>
+                                                    )}
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center">
                                                         <div className="flex-1">
-                                                            {readOnly ? (
-                                                                <div className="py-0.5 min-h-[24px] flex items-center">
-                                                                    <span className="text-foreground break-all">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
-                                                                </div>
-                                                            ) : (
-                                                                <EditableValueCell
-                                                                    value={value}
-                                                                    onChange={(newValue) => updateGuideField(field.key,
-                                                                        rawData && typeof rawData === 'object' && 'confidence' in rawData
-                                                                            ? { ...rawData, value: newValue }
-                                                                            : newValue
-                                                                    )}
-                                                                />
-                                                            )}
+                                                            <div className="flex-1">
+                                                                {readOnly ? (
+                                                                    <div className="py-0.5 min-h-[24px] flex items-center">
+                                                                        <span className="text-foreground break-all">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
+                                                                    </div>
+                                                                ) : (
+                                                                    <EditableValueCell
+                                                                        value={value}
+                                                                        onChange={(newValue) => updateGuideField(field.key,
+                                                                            rawData && typeof rawData === 'object' && 'confidence' in rawData
+                                                                                ? { ...rawData, value: newValue }
+                                                                                : newValue
+                                                                        )}
+                                                                    />
+                                                                )}
+                                                            </div>
                                                         </div>
+                                                        <ConfidenceBadge confidence={confidence} />
                                                     </div>
-                                                    <ConfidenceBadge confidence={confidence} />
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )
-                                })}
-                            </tbody>
-                        </table>
-                    )}
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
+                        );
+                    })()}
                 </div>
 
                 {/* Other Data Section */}
