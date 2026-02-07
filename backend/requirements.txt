@@ -70,4 +70,6 @@ scikit-image
 azure-ai-vision-imageanalysis
 pandas
 openpyxl
+python-calamine
+
 

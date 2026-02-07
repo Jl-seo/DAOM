@@ -92,29 +92,40 @@ class ExcelMapper:
     def _parse_excel(cls, file_bytes: bytes) -> Dict[str, Any]:
         """
         Parse Excel file to Doc Intel format.
-        Each sheet becomes a separate page.
+        Prioritizes 'calamine' engine for performance (Rust-based), 
+        falling back to 'openpyxl' if not available.
         """
+        import pandas as pd
+        
+        # 1. Try Calamine (Fastest)
         try:
-            import openpyxl
+            # Calamine reads all sheets at once if sheet_name=None, but returns dict of dfs
+            # We open ExcelFile to iterate sheets comfortably
+            excel_file = pd.ExcelFile(io.BytesIO(file_bytes), engine="calamine")
+            logger.info("[ExcelMapper] Using 'calamine' engine for high-performance Excel reading.")
         except ImportError:
-            logger.warning("[ExcelMapper] openpyxl not available, falling back to pandas")
-            return cls._parse_excel_pandas(file_bytes)
-        
-        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
-        
+            logger.warning("[ExcelMapper] 'python-calamine' not found. Falling back to openpyxl (slower).")
+            try:
+                excel_file = pd.ExcelFile(io.BytesIO(file_bytes), engine="openpyxl")
+            except ImportError:
+                 # Last resort: just let pandas decide default
+                 excel_file = pd.ExcelFile(io.BytesIO(file_bytes))
+        except Exception as e:
+            logger.warning(f"[ExcelMapper] Calamine failed ({e}). Falling back to openpyxl.")
+            excel_file = pd.ExcelFile(io.BytesIO(file_bytes), engine="openpyxl")
+
         all_pages = []
         all_tables = []
         all_content_parts = []
         
-        for sheet_idx, sheet_name in enumerate(wb.sheetnames):
-            sheet = wb[sheet_name]
+        for sheet_idx, sheet_name in enumerate(excel_file.sheet_names):
+            # Parse sheet
+            df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
             page_number = sheet_idx + 1
             
-            # Extract rows
-            rows = []
-            for row in sheet.iter_rows():
-                row_values = [str(cell.value) if cell.value is not None else "" for cell in row]
-                rows.append(row_values)
+            # Convert DataFrame to list of rows
+            # 'fillna("")' ensures no NaN. 'astype(str)' ensures all are strings.
+            rows = df.fillna("").astype(str).values.tolist()
             
             if not rows:
                 continue
