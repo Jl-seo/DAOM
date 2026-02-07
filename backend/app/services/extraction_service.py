@@ -284,45 +284,54 @@ class ExtractionService:
             # -----------------------------------------
 
             # Extract LLM debug info from sub_documents and merge into debug_data
-            llm_debug_info = {}
-            if sub_documents and len(sub_documents) > 0:
-                first_doc_data = sub_documents[0].get("data", {})
-                if "_debug_chunking" in first_doc_data:
-                    llm_debug_info["_debug_chunking"] = first_doc_data["_debug_chunking"]
-                if "_chunked" in first_doc_data:
-                    llm_debug_info["_chunked"] = first_doc_data["_chunked"]
-                if "_chunking_errors" in first_doc_data:
-                    llm_debug_info["_chunking_errors"] = first_doc_data["_chunking_errors"]
-                # Extract token usage (from both beta and legacy paths)
-                if "_token_usage" in first_doc_data:
-                    llm_debug_info["token_usage"] = first_doc_data["_token_usage"]
-                # Beta-specific debug info
-                if first_doc_data.get("_beta_parsed_content"):
-                    llm_debug_info["beta_mode"] = True
-                    llm_debug_info["beta_parsed_content_length"] = len(first_doc_data["_beta_parsed_content"])
-                if first_doc_data.get("_beta_ref_map"):
-                    llm_debug_info["beta_ref_map_count"] = len(first_doc_data["_beta_ref_map"])
-                # Beta chunking info
-                if "_beta_chunking_info" in first_doc_data:
-                    chunking_info = first_doc_data["_beta_chunking_info"]
-                    llm_debug_info["beta_chunking"] = {
-                        "total_chunks": chunking_info.get("total_chunks"),
-                        "successful_chunks": chunking_info.get("successful_chunks"),
-                        "field_sources": chunking_info.get("field_sources"),
-                        "errors": chunking_info.get("errors"),
-                    }
-                # Capture LLM error if present
-                if "error" in first_doc_data:
-                    llm_debug_info["llm_error"] = first_doc_data["error"]
-                # Pipeline stage diagnostics (for step-by-step debugging)
-                if "_beta_pipeline_stages" in first_doc_data:
-                    llm_debug_info["beta_pipeline_stages"] = first_doc_data["_beta_pipeline_stages"]
-            
-            # Merge OCR debug and LLM debug
-            if debug_info_final:
-                debug_info_final.update(llm_debug_info)
-            else:
-                debug_info_final = llm_debug_info if llm_debug_info else None
+            # CRITICAL: This entire block is wrapped in try/except because debug info
+            # must NEVER crash the extraction pipeline. Any len()/key errors here are non-fatal.
+            try:
+                llm_debug_info = {}
+                if sub_documents and len(sub_documents) > 0:
+                    first_doc_data = sub_documents[0].get("data") or {}
+                    if "_debug_chunking" in first_doc_data:
+                        llm_debug_info["_debug_chunking"] = first_doc_data["_debug_chunking"]
+                    if "_chunked" in first_doc_data:
+                        llm_debug_info["_chunked"] = first_doc_data["_chunked"]
+                    if "_chunking_errors" in first_doc_data:
+                        llm_debug_info["_chunking_errors"] = first_doc_data["_chunking_errors"]
+                    # Extract token usage (from both beta and legacy paths)
+                    if first_doc_data.get("_token_usage"):
+                        llm_debug_info["token_usage"] = first_doc_data["_token_usage"]
+                    # Beta-specific debug info
+                    beta_content = first_doc_data.get("_beta_parsed_content")
+                    if beta_content:
+                        llm_debug_info["beta_mode"] = True
+                        llm_debug_info["beta_parsed_content_length"] = len(beta_content)
+                    beta_ref = first_doc_data.get("_beta_ref_map")
+                    if beta_ref:
+                        llm_debug_info["beta_ref_map_count"] = len(beta_ref)
+                    # Beta chunking info
+                    chunking_info = first_doc_data.get("_beta_chunking_info")
+                    if chunking_info:
+                        llm_debug_info["beta_chunking"] = {
+                            "total_chunks": chunking_info.get("total_chunks"),
+                            "successful_chunks": chunking_info.get("successful_chunks"),
+                            "field_sources": chunking_info.get("field_sources"),
+                            "errors": chunking_info.get("errors"),
+                        }
+                    # Capture LLM error if present
+                    if "error" in first_doc_data:
+                        llm_debug_info["llm_error"] = first_doc_data["error"]
+                    # Pipeline stage diagnostics (for step-by-step debugging)
+                    if "_beta_pipeline_stages" in first_doc_data:
+                        llm_debug_info["beta_pipeline_stages"] = first_doc_data["_beta_pipeline_stages"]
+                
+                # Merge OCR debug and LLM debug
+                if debug_info_final:
+                    debug_info_final.update(llm_debug_info)
+                else:
+                    debug_info_final = llm_debug_info if llm_debug_info else None
+            except Exception as debug_err:
+                import traceback
+                logger.error(f"[Pipeline] Debug info assembly failed (non-fatal): {debug_err}\n{traceback.format_exc()}")
+                # Don't let debug failure kill the pipeline
 
             preview_payload = {
                 "sub_documents": sub_documents,
@@ -1141,8 +1150,8 @@ IMPORTANT:
         
         if exact_matches:
              for m in exact_matches:
-                 poly = m["polygon"]
-                 if len(poly) >= 8: 
+                 poly = m.get("polygon")
+                 if poly and len(poly) >= 8: 
                      xs = poly[0::2]
                      ys = poly[1::2]
                      candidate_polygons.append([min(xs), min(ys), max(xs), max(ys)])
@@ -1151,8 +1160,8 @@ IMPORTANT:
         if not candidate_polygons:
              partial_matches = [w for w in words if value_clean in clean_token(w["content"])]
              for m in partial_matches:
-                 poly = m["polygon"]
-                 if len(poly) >= 8:
+                 poly = m.get("polygon")
+                 if poly and len(poly) >= 8:
                      xs = poly[0::2]
                      ys = poly[1::2]
                      candidate_polygons.append([min(xs), min(ys), max(xs), max(ys)])
