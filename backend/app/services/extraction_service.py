@@ -381,11 +381,35 @@ class ExtractionService:
                     debug_blob_path = None
             
             # 3. Cosmos gets lightweight references only
-            # - sub_documents: needed for rendering extracted fields
+            # - sub_documents: needed for rendering extracted fields (stripped of debug data)
             # - raw_content: truncated for "OCR Text" tab quick preview
             # - blob paths: for hydration when full data is needed
+            
+            # Strip internal/debug fields from sub_documents for Cosmos
+            # Full data is in Blob via preview_blob_path
+            _debug_keys = {
+                "_debug_chunking", "_chunked", "_chunking_errors", "_token_usage",
+                "_beta_parsed_content", "_beta_ref_map", "_beta_chunking_info",
+                "_beta_pipeline_stages", "_raw_llm_response", "_prompt_used",
+            }
+            cosmos_sub_docs = []
+            for sd in (sub_documents or []):
+                light_sd = {
+                    "index": sd.get("index"),
+                    "type": sd.get("type"),
+                    "page_ranges": sd.get("page_ranges"),
+                    "status": sd.get("status"),
+                }
+                # Keep guide_extracted inside data, strip debug keys
+                if isinstance(sd.get("data"), dict):
+                    light_sd["data"] = {
+                        k: v for k, v in sd["data"].items()
+                        if k not in _debug_keys
+                    }
+                cosmos_sub_docs.append(light_sd)
+            
             cosmos_preview = {
-                "sub_documents": sub_documents,
+                "sub_documents": cosmos_sub_docs,
                 "raw_content": doc_intel_output.get("content", "")[:10000],  # Truncated for quick view
                 "raw_tables": [],  # Full data in blob
                 "_preview_blob_path": preview_blob_path,
