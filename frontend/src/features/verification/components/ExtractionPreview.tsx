@@ -387,6 +387,8 @@ function ResizableNestedTable({
                                     >
                                         {isEditMode && onUpdate ? (
                                             <input
+                                                id={`table-cell-${rowIdx}-${key}`}
+                                                name={`table-cell-${rowIdx}-${key}`}
                                                 type="text"
                                                 className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none px-3 py-2"
                                                 value={renderValue(row?.[key] ?? '')}
@@ -522,7 +524,11 @@ export function ExtractionPreview({
     // -- Local State (Uncontrolled, initialized from props) --
     // We intentionally DO NOT sync this with useEffect to avoid infinite loops from parent updates.
     // The parent must force a re-mount (using key prop) to reset this component when switching documents.
-    const [editedGuideData, setEditedGuideData] = useState<Record<string, any>>(() => ({ ...guideExtracted }))
+    // TABLE MODE: state holds array; STANDARD MODE: state holds dict
+    const isTableMode = Array.isArray(guideExtracted)
+    const [editedGuideData, setEditedGuideData] = useState<Record<string, any> | any[]>(() =>
+        isTableMode ? [...(guideExtracted as any[])] : { ...guideExtracted }
+    )
     const [editedOtherData, setEditedOtherData] = useState<Array<{ column: any; value: any }>>(() => [...otherData])
 
     // Store callback in ref to prevent infinite loops
@@ -605,7 +611,9 @@ export function ExtractionPreview({
     }
 
     const guideFieldCount = modelFields.length
-    const filledFieldCount = Object.values(editedGuideData).filter(v => v !== null && v !== '' && v !== undefined).length
+    const filledFieldCount = isTableMode
+        ? (editedGuideData as any[]).length
+        : Object.values(editedGuideData).filter(v => v !== null && v !== '' && v !== undefined).length
 
     return (
         <Card className="flex flex-col h-full overflow-hidden">
@@ -649,76 +657,94 @@ export function ExtractionPreview({
                     <div className="px-6 py-3 bg-primary/10 flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-primary" />
                         <span className="text-sm font-semibold text-foreground">
-                            참고정보 기반 추출 ({filledFieldCount}개 값)
+                            {Array.isArray(guideExtracted)
+                                ? `테이블 추출 완료 (${(guideExtracted as any[]).length}행)`
+                                : `참고정보 기반 추출 (${filledFieldCount}개 값)`
+                            }
                         </span>
                     </div>
-                    <table className="w-full text-sm table-fixed">
-                        <thead>
-                            <tr className="bg-muted text-xs uppercase text-muted-foreground">
-                                <th className="px-6 py-3 text-left font-semibold w-[200px]">필드명</th>
-                                <th className="px-6 py-3 text-left font-semibold">추출값 (편집 가능)</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                            {modelFields.map(field => {
-                                const rawData = editedGuideData[field.key]
-                                const value = extractValue(rawData)
-                                const confidence = extractConfidence(rawData)
-                                const hasValue = value !== null && value !== '' && value !== undefined
-                                const isLowConfidence = confidence !== null && confidence < 0.9
 
-                                return (
-                                    <tr
-                                        key={field.key}
-                                        className={clsx(
-                                            hasValue ? "bg-card" : "bg-chart-4/5",
-                                            isLowConfidence && "bg-chart-4/5",
-                                            selectedField === field.key && "ring-2 ring-primary bg-primary/5",
-                                            "cursor-pointer hover:bg-accent transition-colors"
-                                        )}
-                                        id={`field-row-${field.key}`}
-                                        onClick={() => handleFieldClick(field.key)}
-                                        onMouseEnter={() => {
-                                            if (controlledSelectedField === undefined) {
-                                                setInternalSelectedField(field.key)
-                                            }
-                                        }}
-                                    >
-                                        <td className="px-6 py-4 align-top">
-                                            <div className="font-medium text-foreground">{field.label}</div>
-                                            <div className="text-xs text-muted-foreground">{field.key}</div>
-                                            {selectedField === field.key && (
-                                                <div className="text-xs text-primary mt-1">📍 PDF에서 보기</div>
+                    {/* TABLE MODE: render full editable table */}
+                    {Array.isArray(guideExtracted) ? (
+                        <div className="p-4">
+                            <ResizableNestedTable
+                                data={editedGuideData as any}
+                                onUpdate={!readOnly ? (newData) => {
+                                    setEditedGuideData(newData as any)
+                                } : undefined}
+                                isExpanded={true}
+                            />
+                        </div>
+                    ) : (
+                        /* STANDARD MODE: field-by-field rendering */
+                        <table className="w-full text-sm table-fixed">
+                            <thead>
+                                <tr className="bg-muted text-xs uppercase text-muted-foreground">
+                                    <th className="px-6 py-3 text-left font-semibold w-[200px]">필드명</th>
+                                    <th className="px-6 py-3 text-left font-semibold">추출값 (편집 가능)</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                                {modelFields.map(field => {
+                                    const rawData = editedGuideData[field.key]
+                                    const value = extractValue(rawData)
+                                    const confidence = extractConfidence(rawData)
+                                    const hasValue = value !== null && value !== '' && value !== undefined
+                                    const isLowConfidence = confidence !== null && confidence < 0.9
+
+                                    return (
+                                        <tr
+                                            key={field.key}
+                                            className={clsx(
+                                                hasValue ? "bg-card" : "bg-chart-4/5",
+                                                isLowConfidence && "bg-chart-4/5",
+                                                selectedField === field.key && "ring-2 ring-primary bg-primary/5",
+                                                "cursor-pointer hover:bg-accent transition-colors"
                                             )}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center">
-                                                <div className="flex-1">
+                                            id={`field-row-${field.key}`}
+                                            onClick={() => handleFieldClick(field.key)}
+                                            onMouseEnter={() => {
+                                                if (controlledSelectedField === undefined) {
+                                                    setInternalSelectedField(field.key)
+                                                }
+                                            }}
+                                        >
+                                            <td className="px-6 py-4 align-top">
+                                                <div className="font-medium text-foreground">{field.label}</div>
+                                                <div className="text-xs text-muted-foreground">{field.key}</div>
+                                                {selectedField === field.key && (
+                                                    <div className="text-xs text-primary mt-1">📍 PDF에서 보기</div>
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center">
                                                     <div className="flex-1">
-                                                        {readOnly ? (
-                                                            <div className="py-0.5 min-h-[24px] flex items-center">
-                                                                <span className="text-foreground break-all">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
-                                                            </div>
-                                                        ) : (
-                                                            <EditableValueCell
-                                                                value={value}
-                                                                onChange={(newValue) => updateGuideField(field.key,
-                                                                    rawData && typeof rawData === 'object' && 'confidence' in rawData
-                                                                        ? { ...rawData, value: newValue }
-                                                                        : newValue
-                                                                )}
-                                                            />
-                                                        )}
+                                                        <div className="flex-1">
+                                                            {readOnly ? (
+                                                                <div className="py-0.5 min-h-[24px] flex items-center">
+                                                                    <span className="text-foreground break-all">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
+                                                                </div>
+                                                            ) : (
+                                                                <EditableValueCell
+                                                                    value={value}
+                                                                    onChange={(newValue) => updateGuideField(field.key,
+                                                                        rawData && typeof rawData === 'object' && 'confidence' in rawData
+                                                                            ? { ...rawData, value: newValue }
+                                                                            : newValue
+                                                                    )}
+                                                                />
+                                                            )}
+                                                        </div>
                                                     </div>
+                                                    <ConfidenceBadge confidence={confidence} />
                                                 </div>
-                                                <ConfidenceBadge confidence={confidence} />
-                                            </div>
-                                        </td>
-                                    </tr>
-                                )
-                            })}
-                        </tbody>
-                    </table>
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
 
                 {/* Other Data Section */}

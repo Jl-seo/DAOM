@@ -35,6 +35,11 @@ def normalize_llm_response(llm_json: Dict[str, Any], model_info) -> Dict[str, An
     Normalize LLM response to the expected flat structure:
         {field_key: {value: ..., confidence: ..., source_text: ...}}
     
+    For TABLE mode models (data_structure == 'table'), the LLM returns:
+        {"rows": [{col1: val1, col2: val2, ...}, ...]}
+    This is passed through as:
+        {"_table_rows": [...], "_is_table": True}
+    
     Handles common LLM response anomalies:
     1. Nested wrappers: {"result": {"field_key": {...}}}
     2. Flat values: {"field_key": "some_value"} instead of {"field_key": {"value": ...}}
@@ -47,10 +52,41 @@ def normalize_llm_response(llm_json: Dict[str, Any], model_info) -> Dict[str, An
     
     # Get expected field keys from model
     expected_keys = {f.key for f in model_info.fields} if hasattr(model_info, 'fields') else set()
+    is_table = getattr(model_info, 'data_structure', 'data') == 'table'
     
     # Log raw structure for diagnostics
-    top_keys = list(llm_json.keys())
-    logger.info(f"[Normalize] Raw LLM response keys: {top_keys}, expected: {list(expected_keys)[:5]}...")
+    top_keys = list(llm_json.keys()) if isinstance(llm_json, dict) else ["(array)"]
+    logger.info(f"[Normalize] Raw LLM response keys: {top_keys}, expected: {list(expected_keys)[:5]}..., table_mode={is_table}")
+    
+    # TABLE MODE: detect and pass through row arrays
+    if is_table:
+        rows = None
+        if isinstance(llm_json, dict) and "rows" in llm_json:
+            rows = llm_json["rows"]
+        elif isinstance(llm_json, list):
+            rows = llm_json
+        
+        if isinstance(rows, list):
+            logger.info(f"[Normalize] TABLE MODE: {len(rows)} rows extracted")
+            # Clean each row: ensure consistent structure
+            cleaned_rows = []
+            for i, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    logger.warning(f"[Normalize] Row {i} is not a dict, skipping: {type(row)}")
+                    continue
+                cleaned_row = {}
+                for fkey in expected_keys:
+                    cleaned_row[fkey] = row.get(fkey)
+                cleaned_row["_confidence"] = row.get("_confidence", 0.8)
+                cleaned_row["_source_text"] = row.get("_source_text", "")
+                cleaned_rows.append(cleaned_row)
+            
+            return {
+                "_table_rows": cleaned_rows,
+                "_is_table": True,
+            }
+        else:
+            logger.warning("[Normalize] TABLE MODE but no 'rows' array found, falling back to standard mode")
     
     result = llm_json
     
@@ -717,10 +753,32 @@ async def _single_call_extraction(
             "input_keys": list(llm_json.keys())[:10],
             "output_keys": list(normalized.keys())[:10],
             "fields_recovered": len(normalized),
+            "is_table": normalized.get("_is_table", False),
         }
         logger.info(f"[BetaSingle] Stage 4 OK: {len(llm_json)} raw → {len(normalized)} normalized")
 
-        # Stage 5: Post-process (bbox matching)
+        # TABLE MODE: skip bbox post-processing, pass rows directly
+        if normalized.get("_is_table"):
+            table_rows = normalized.get("_table_rows", [])
+            stages["5_post_process"] = {
+                "status": "skipped (table mode)",
+                "row_count": len(table_rows),
+            }
+            logger.info(f"[BetaSingle] Stage 5 SKIPPED (table mode): {len(table_rows)} rows")
+
+            return {
+                "guide_extracted": table_rows,
+                "_is_table": True,
+                "other_data": [],
+                "_beta_parsed_content": f"{content_text}\n{tables_context}" if tables_context else content_text,
+                "_beta_ref_map": ref_map or {},
+                "_token_usage": llm_response.get("_token_usage"),
+                "_beta_pipeline_stages": stages,
+                "raw_content": ocr_data.get("content", ""),
+                "raw_tables": ocr_data.get("tables", []),
+            }
+
+        # Stage 5: Post-process (bbox matching) — standard mode only
         processed = RefinerEngine.post_process_result(normalized, ocr_data)
         stages["5_post_process"] = {
             "status": "ok",

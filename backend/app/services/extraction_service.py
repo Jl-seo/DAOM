@@ -949,7 +949,24 @@ IMPORTANT:
         Strictly validates and formats data based on field types.
         AI provides the raw string, Code ensures it matches the Type.
         Adds confidence flags and normalizes bbox for frontend rendering.
+        
+        For TABLE mode: passes through _table_rows directly without field-by-field validation.
         """
+        # TABLE MODE: early return — no field-by-field validation needed
+        if raw_data.get("_is_table"):
+            logger.info(f"[Validation] TABLE MODE: passing through {len(raw_data.get('_table_rows', []))} rows")
+            return {
+                "guide_extracted": raw_data.get("_table_rows", []),
+                "_is_table": True,
+                "raw_tables": raw_data.get("raw_tables"),
+                "_token_usage": raw_data.get("_token_usage"),
+                "_beta_chunking_info": raw_data.get("_beta_chunking_info"),
+                "_beta_pipeline_stages": raw_data.get("_beta_pipeline_stages"),
+                "_beta_parsed_content": raw_data.get("_beta_parsed_content"),
+                "_beta_ref_map": raw_data.get("_beta_ref_map"),
+                "error": raw_data.get("error"),
+            }
+        
         guide_extracted = raw_data.get("guide_extracted", {})
         
         # Defensive: if LLM returns a list instead of dict, convert or handle gracefully

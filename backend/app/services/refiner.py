@@ -42,6 +42,8 @@ INSTRUCTIONS FOR REFERENCE DATA:
 """
 
         # 3. Field Instructions
+        is_table = getattr(model_info, 'data_structure', 'data') == 'table'
+        
         prompt += "\nREQUIRED EXTRACTION FIELDS:\n"
         for field in model_info.fields:
             prompt += f"- {field.key} ({field.label}):\n"
@@ -50,8 +52,38 @@ INSTRUCTIONS FOR REFERENCE DATA:
                 prompt += f"  Refinement Rule: {field.rules}\n"
             prompt += f"  Type: {field.type}\n"
 
-        # 4. Output Formatting & Language
-        prompt += f"""
+        # 4. Output Formatting & Language — branched by data_structure
+        if is_table:
+            # Table mode: LLM returns array of row objects
+            field_keys = [f.key for f in model_info.fields]
+            prompt += f"""
+OUTPUT FORMAT (TABLE MODE):
+This document contains TABULAR/REPEATING data. Extract ALL rows from the document.
+Return a JSON object with a single key "rows" containing an array of row objects.
+
+Each row object MUST have:
+- One key per field listed above, where the value is the extracted cell value.
+- "_confidence": A number 0-1 for the overall row confidence.
+- "_source_text": A brief excerpt from the document identifying this row.
+
+Extract EVERY row you find — do NOT skip rows even if some cells are empty.
+For empty cells, use null as the value.
+
+LANGUAGE INSTRUCTION:
+Translate values to {language} unless the field rule says otherwise.
+Do not translate '_source_text'.
+
+Example JSON Output:
+{{
+  "rows": [
+    {{ "{field_keys[0] if field_keys else 'col1'}": "value1", "{field_keys[1] if len(field_keys) > 1 else 'col2'}": "value2", "_confidence": 0.95, "_source_text": "Row 1 source" }},
+    {{ "{field_keys[0] if field_keys else 'col1'}": "value3", "{field_keys[1] if len(field_keys) > 1 else 'col2'}": "value4", "_confidence": 0.90, "_source_text": "Row 2 source" }}
+  ]
+}}
+"""
+        else:
+            # Standard mode: field-by-field extraction
+            prompt += f"""
 OUTPUT FORMAT:
 Return a valid JSON object where keys match the field keys above.
 For each field, return an object with:
