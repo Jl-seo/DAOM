@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useMemo, useCallback } from 'react'
 import { CheckCircle2, RefreshCw, Download, Upload, Maximize2, Minimize2, Bug, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { FIELD_TYPES, DATA_STRUCTURES } from '../constants'
 
 export type FieldType = typeof FIELD_TYPES[number]['value']

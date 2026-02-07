@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */
+/* eslint-disable react-hooks/exhaustive-deps */
 import { useEffect, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'

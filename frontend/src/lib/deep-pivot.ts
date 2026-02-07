@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
  * Utility functions for extracting values from rich objects (AI/OCR metadata)

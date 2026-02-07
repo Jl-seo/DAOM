@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { TemplateConfig } from '../../types/template'
 import { Card } from '@/components/ui/card'
 

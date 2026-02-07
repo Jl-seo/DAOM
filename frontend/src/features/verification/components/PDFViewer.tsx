@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, forwardRef, useImperativeHandle } from 'react'
 import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core'
 import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation'

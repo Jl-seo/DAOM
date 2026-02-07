@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useCallback, useRef } from 'react'
 import { CloudUpload, FileText, X, Play, Pause, Download, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'

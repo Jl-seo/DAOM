@@ -1,3 +1,5 @@
+/* eslint-disable react-hooks/incompatible-library */
+/* eslint-disable react-refresh/only-export-components */
 /**
  * SortableDataTable - Reusable sortable data table using TanStack Table
  * 

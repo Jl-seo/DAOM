@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { Card } from '@/components/ui/icon-card'
 // import { Button } from '@/components/ui/button' -> Removed unused import

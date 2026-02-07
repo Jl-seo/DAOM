@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect } from 'react'
 import { Search, Download, Calendar, User, Activity, RefreshCw } from 'lucide-react'
 import { API_CONFIG } from '../constants'

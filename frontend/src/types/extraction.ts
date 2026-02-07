@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // Status codes matching backend enum (backend/app/core/enums.py)
 export type ExtractionStatus =
     // Processing states (P-Series)

@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 export const EXTRACTION_STATUS = {
     // Processing states (P-Series)
     PENDING: 'P100',

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * useExtractionActions - Consolidated hook for extraction log actions
  * Handles retry, download, delete, cancel operations

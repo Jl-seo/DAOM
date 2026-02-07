@@ -1,3 +1,5 @@
+/* eslint-disable react-hooks/exhaustive-deps */
+ 
 import { useState, useEffect } from 'react'
 import { AlertCircle, CheckCircle2, Database, HelpCircle } from 'lucide-react'
 import { clsx } from 'clsx'

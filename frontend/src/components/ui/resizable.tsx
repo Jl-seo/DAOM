@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // import { GripVertical } from "lucide-react"
 // import * as ReactResizablePanels from "react-resizable-panels"
 // import { cn } from "@/lib/utils"

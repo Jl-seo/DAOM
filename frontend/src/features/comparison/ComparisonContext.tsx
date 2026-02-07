@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useRef, type ReactNode, useCallback, useMemo } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'

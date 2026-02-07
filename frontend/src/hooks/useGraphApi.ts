@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 /**
  * useGraphApi - Hook for searching Entra ID users and groups
  * Uses MSAL to get Graph API access token

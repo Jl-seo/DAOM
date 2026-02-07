@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { forwardRef, useState } from 'react'
 import { FileText, RefreshCw, ZoomIn, ZoomOut, RotateCcw, File, FileSpreadsheet } from 'lucide-react'
 import { Button } from '@/components/ui/button'

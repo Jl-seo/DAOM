@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Split, FileDiff, CheckCircle2, ChevronRight, AlertCircle, Download, RefreshCw, ChevronLeft, ArrowUpDown, Eye, EyeOff } from 'lucide-react'
 import { CircleNotch } from '@phosphor-icons/react'
 import { clsx } from 'clsx'

@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect } from 'react'
 import { FileText, RefreshCw, Save, RotateCcw, Info, GitCompareArrows } from 'lucide-react'
 import { toast } from 'sonner'

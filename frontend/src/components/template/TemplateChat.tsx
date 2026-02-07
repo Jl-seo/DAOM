@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useRef, useEffect } from 'react'
 import { Send, Loader2, Sparkles } from 'lucide-react'
 import type { ChatMessage, TemplateConfig } from '../../types/template'

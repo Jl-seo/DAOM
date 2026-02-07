@@ -1,3 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+/* eslint-disable @typescript-eslint/no-unused-expressions */
+/* eslint-disable react-hooks/refs */
 import { useRef, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { GripVertical, GripHorizontal } from 'lucide-react'

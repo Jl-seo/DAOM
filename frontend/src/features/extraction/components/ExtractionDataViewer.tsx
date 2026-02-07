@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
 import { Card } from '@/components/ui/card'

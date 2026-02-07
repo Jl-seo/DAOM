@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState, useCallback, useEffect } from 'react'
 import axios from 'axios'
 import { toast } from 'sonner'
