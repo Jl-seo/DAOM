@@ -567,7 +567,7 @@ class ExtractionService:
 
         return filtered_data
 
-    async def _unwrap_universal_extraction(self, full_ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
+    async def _unwrap_universal_extraction(self, full_ocr_data: Dict[str, Any], focus_pages: Optional[List[int]] = None) -> Dict[str, Any]:
         """Ask LLM to discover ANY relevant fields"""
 
         # OPTIMIZATION: Filter payload to only relevant pages
@@ -779,7 +779,7 @@ IMPORTANT:
             "data": validated_data
         }
 
-    async def _unwrap_llm_extraction(self, ocr_data: Dict[str, Any], model: ExtractionModel, focus_pages: List[int] = None) -> Dict[str, Any]:
+    async def _unwrap_llm_extraction(self, ocr_data: Dict[str, Any], model: ExtractionModel, focus_pages: Optional[List[int]] = None) -> Dict[str, Any]:
         """ask LLM to extract data based on model fields"""
 
         # OPTIMIZATION: Filter payload to only relevant pages
