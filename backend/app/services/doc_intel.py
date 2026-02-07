@@ -63,10 +63,18 @@ async def extract_with_strategy(file_source: Any, model_type: str = "prebuilt-la
             else:
                 # Assume bytes/stream
                 # Azure SDK v1.0.0b1 uses 'body' for binary content
+                # Detect MIME type if possible
+                content_type = "application/octet-stream"
+                if hasattr(file_source, "name"):
+                    import mimetypes
+                    guessed_type, _ = mimetypes.guess_type(file_source.name)
+                    if guessed_type:
+                        content_type = guessed_type
+                
                 poller = await client.begin_analyze_document(
                     model_id=model_type,
                     body=file_source,
-                    content_type="application/octet-stream"
+                    content_type=content_type
                 )
 
             result: AnalyzeResult = await poller.result()

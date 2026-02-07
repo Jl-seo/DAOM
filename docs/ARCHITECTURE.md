@@ -83,6 +83,20 @@
 
 ---
 
+## 🔮 미래 로드맵 (2026+)
+
+> **전략적 전환**: Decoupled (이원화) → Unified (일원화)
+
+현재 DAOM은 **Decoupled Architecture** (`DI Layout` → `Local Chunking` → `LLM Reasoning`)를 채택하고 있습니다.
+이는 디버깅과 제어가 용이하고 비용 효율적입니다. 하지만 장기적으로는 다음 단계로 진화할 예정입니다.
+
+### **Azure AI Content Understanding (CU)** 도입
+- **개념**: 추출(Extraction)과 추론(Reasoning)을 단일 파이프라인으로 처리하는 GenAI 기반 서비스
+- **트리거**: CU 서비스의 비용/속도가 안정화되고, "단순 추출"보다 "맥락 기반 추론" 요구가 높아질 때
+- **액션**: `ExtractionPipeline`을 `ContentUnderstandingClient`로 대체하여 아키텍처 단순화
+
+---
+
 ## 📚 문서 목차
 
 | 문서 | 설명 |

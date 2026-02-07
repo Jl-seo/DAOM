@@ -46,9 +46,7 @@ export function ExtractionUploadView({
     const [selectedCandidates, setSelectedCandidates] = useState<File[]>([]) // CHANGED: Array
 
     // Handle single file (Extraction Mode)
-    const acceptTypes = model?.beta_features?.use_virtual_excel_ocr
-        ? '.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv'
-        : '.pdf,.jpg,.jpeg,.png'
+    const acceptTypes = '.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv'
 
     const handleFileSelect = (selectedFile: File | null | undefined) => {
         if (selectedFile) onFileSelect(selectedFile)
