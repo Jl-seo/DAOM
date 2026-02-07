@@ -4,7 +4,7 @@ Extraction Logs Service - Stores extraction results in Azure Cosmos DB
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from app.db.cosmos import get_extractions_container
 from app.core.enums import ExtractionType, ExtractionStatus
 import logging
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class ExtractionLog(BaseModel):
+    model_config = ConfigDict(extra="ignore")  # Ignore Cosmos system fields
     """Extraction result log entry"""
     id: str
     model_id: str

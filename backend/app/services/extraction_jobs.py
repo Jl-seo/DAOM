@@ -5,7 +5,7 @@ Job-based async extraction processing with status tracking
 import logging
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import uuid
 from ..db.cosmos import get_extractions_container
 from app.services import audit
@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 class ExtractionJob(BaseModel):
     """Extraction job with lifecycle tracking"""
+    model_config = ConfigDict(extra="ignore")  # Ignore Cosmos system fields (_rid, _etag, etc.)
+    
     id: str
     model_id: str
     user_id: str
