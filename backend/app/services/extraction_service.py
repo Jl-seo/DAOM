@@ -514,3 +514,6 @@ def parse_number(s: Any) -> Optional[float]:
         return float(clean)
     except:
         return None
+
+# Singleton Instance
+extraction_service = ExtractionService()
