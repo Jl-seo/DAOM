@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Check, ChevronDown, ChevronUp, ChevronRight, Sparkles, Database, Plus, Edit2, Save } from 'lucide-react'
 import { clsx } from 'clsx'
 import { Card } from '@/components/ui/card'
@@ -230,12 +230,25 @@ function ResizableNestedTable({
     const [isEditMode, setIsEditMode] = useState(false) // 편집 모드 토글
     const tableContainerRef = useRef<HTMLDivElement>(null)
 
+    // Local state to buffer edits and prevent lag from parent re-renders
+    const [localData, setLocalData] = useState<any[]>([])
+    const isLocalUpdate = useRef(false)
+    const updateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+    // Sync local state with props when props change (and not from our own update)
+    useEffect(() => {
+        if (!isLocalUpdate.current && Array.isArray(data)) {
+            setLocalData(data)
+        }
+        isLocalUpdate.current = false
+    }, [data])
+
     if (!Array.isArray(data) || data.length === 0) {
         return <span className="text-muted-foreground italic text-xs">빈 배열</span>
     }
 
     // Normalize: parse stringified JSON objects within array
-    const normalizedData = useMemo(() => data.map(item => {
+    const normalizedData = useMemo(() => localData.map((item: any) => {
         if (item === null || item === undefined) return item
         if (typeof item === 'string') {
             const trimmed = item.trim()
@@ -248,7 +261,7 @@ function ResizableNestedTable({
             }
         }
         return item
-    }), [data])
+    }), [localData])
 
     // 중첩 데이터를 풀어내기 (편집 모드가 아닐 때만)
     // Memoize to prevent recalculation on every render
@@ -257,15 +270,15 @@ function ResizableNestedTable({
     const hasNestedData = keyColumn !== null // 플래터닝이 적용되었는지
 
     // 키 컬럼을 맨 앞에 배치하기 위해 컬럼 순서 조정
-    const allKeysRaw = useMemo(() => Array.from(new Set(displayData.flatMap(item =>
+    const allKeysRaw = useMemo(() => Array.from(new Set(displayData.flatMap((item: any) =>
         typeof item === 'object' && item !== null ? Object.keys(item) : []
     ))), [displayData])
 
     // bbox, confidence, page_number 제외 및 키 컬럼 맨 앞에 배치
     const hiddenColumns = ['bbox', 'confidence', 'page_number']
     const allKeys = useMemo(() => allKeysRaw
-        .filter(k => !hiddenColumns.includes(k))
-        .sort((a, b) => {
+        .filter((k: string) => !hiddenColumns.includes(k))
+        .sort((a: string, b: string) => {
             if (a === keyColumn) return -1
             if (b === keyColumn) return 1
             return 0
@@ -276,7 +289,7 @@ function ResizableNestedTable({
         if (allKeys.length > 0 && Object.keys(columnWidths).length === 0) {
             const initialWidths: Record<string, number> = {}
             const defaultWidth = Math.max(100, Math.floor(800 / allKeys.length))
-            allKeys.forEach(key => {
+            allKeys.forEach((key: string) => {
                 initialWidths[key] = defaultWidth
             })
             setColumnWidths(initialWidths)
@@ -285,18 +298,6 @@ function ResizableNestedTable({
     }, [data.length, columnWidths]) // Use data.length instead of allKeys array
 
     // Virtualizer setup
-    const rowVirtualizer = useWindowVirtualizer({
-        count: displayData.length,
-        estimateSize: () => 35, // Estimated row height in pixels
-        overscan: 5,
-        scrollMargin: tableContainerRef.current?.offsetTop ?? 0,
-    })
-
-    // However, useWindowVirtualizer tracks window scroll. 
-    // If the table is inside a container, we should use useVirtualizer with the container ref.
-    // The previous implementation had `max-h-[400px] overflow-y-auto`.
-
-    // Let's us useVirtualizer instead for the container scrolling
     const virtualizer = useVirtualizer({
         count: displayData.length,
         getScrollElement: () => tableContainerRef.current,
@@ -333,6 +334,35 @@ function ResizableNestedTable({
         document.body.style.cursor = 'col-resize'
         document.body.style.userSelect = 'none'
     }
+
+    // Handle Local Update
+    const handleLocalUpdate = (index: number, key: string, value: string) => {
+        setLocalData(prev => {
+            const newData = [...prev]
+            if (newData[index] != null && typeof newData[index] === 'object') {
+                newData[index] = { ...newData[index], [key]: value }
+            }
+            return newData
+        })
+
+        // Mark as local update to avoid immediate overwrite provided by prop effect
+        isLocalUpdate.current = true
+    }
+
+    // Effect to sync to parent after debounce
+    useEffect(() => {
+        if (isLocalUpdate.current && onUpdate) {
+            if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current)
+            updateTimeoutRef.current = setTimeout(() => {
+                onUpdate(localData)
+                // Keep isLocalUpdate true until prop actually changes back? 
+                // No, we reset it in the prop effect.
+            }, 800)
+        }
+        return () => {
+            if (updateTimeoutRef.current) clearTimeout(updateTimeoutRef.current)
+        }
+    }, [localData, onUpdate])
 
     if (allKeys.length === 0) {
         return (
@@ -396,12 +426,12 @@ function ResizableNestedTable({
             <div
                 ref={tableContainerRef}
                 className="overflow-auto relative bg-card flex-1"
-                style={{ height: '400px' }}
+                style={{ height: '100%' }}
             >
                 <table className="text-sm w-full relative border-collapse" style={{ minWidth: '100%' }}>
                     <thead className="sticky top-0 z-10 bg-muted shadow-sm">
                         <tr>
-                            {allKeys.map((key, idx) => (
+                            {allKeys.map((key: string, idx: number) => (
                                 <th
                                     key={key}
                                     className="text-left font-medium text-muted-foreground border-b border-border relative group select-none"
@@ -441,7 +471,7 @@ function ResizableNestedTable({
                                         transform: `translateY(${virtualRow.start}px)`
                                     }}
                                 >
-                                    {allKeys.map(key => (
+                                    {allKeys.map((key: string) => (
                                         <td
                                             key={key}
                                             className={clsx(
@@ -464,15 +494,8 @@ function ResizableNestedTable({
                                                     className="w-full h-full bg-transparent border-none hover:bg-accent/30 focus:bg-accent focus:ring-1 focus:ring-primary outline-none px-3 text-sm"
                                                     value={renderValue(row != null ? row[key] : '')}
                                                     onChange={(e) => {
-                                                        try {
-                                                            const newData = [...normalizedData]
-                                                            if (newData[virtualRow.index] != null && typeof newData[virtualRow.index] === 'object') {
-                                                                newData[virtualRow.index] = { ...newData[virtualRow.index], [key]: e.target.value }
-                                                            }
-                                                            onUpdate(newData)
-                                                        } catch {
-                                                            // Silently handle data mutation errors
-                                                        }
+                                                        // Update local state immediately
+                                                        handleLocalUpdate(virtualRow.index, key, e.target.value)
                                                     }}
                                                 />
                                             ) : (
