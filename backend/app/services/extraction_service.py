@@ -197,7 +197,17 @@ class ExtractionService:
             logger.info(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
             doc_intel_output = await doc_intel.extract_with_strategy(file_url, azure_model)
 
-            # ... (OCR log) ...
+            # --- EXCEL/CSV DETECTION ---
+            # Excel/CSV files through Azure DI lack structured paragraphs/pages
+            # that LayoutParser needs. Set bypass flag so beta path skips
+            # LayoutParser and uses raw DI content directly with LLM.
+            from urllib.parse import urlparse, unquote
+            parsed_url = urlparse(file_url)
+            file_ext = unquote(parsed_url.path).rsplit(".", 1)[-1].lower() if "." in parsed_url.path else ""
+            _SPREADSHEET_EXTENSIONS = {"xlsx", "xls", "csv", "xlsm", "xlsb", "tsv"}
+            if file_ext in _SPREADSHEET_EXTENSIONS:
+                doc_intel_output["_layout_parser_bypass"] = True
+                logger.info(f"[Pipeline] Excel/CSV detected (ext={file_ext}). Setting _layout_parser_bypass=True")
 
             # --- DEBUG DATA PERSISTENCE (PARALLEL) ---
             # OPTIMIZATION: Run Blob Upload in parallel with LLM extraction.
@@ -221,10 +231,14 @@ class ExtractionService:
             # ------------------------------
             # ------------------------------
 
-            # 2. Splitting (Same as before)
-            # 2. Splitting (Use new Splitting Service or simple page iteration)
+            # 2. Splitting
             # For MVP, we treat the whole document as one split unless user hints otherwise
-            splits = [{"index": 0, "type": "document", "page_ranges": [p["page_number"] for p in doc_intel_output.get("pages", [])]}]
+            # SAFETY: Excel DI output may have empty pages array — fallback to [1]
+            page_list = [p["page_number"] for p in doc_intel_output.get("pages", [])]
+            if not page_list:
+                page_list = [1]  # Fallback for Excel/CSV with no page metadata
+                logger.info(f"[Pipeline] No pages in DI output, using fallback page_list={page_list}")
+            splits = [{"index": 0, "type": "document", "page_ranges": page_list}]
 
             # 3. Process Each Split (Parallel with rate limit protection)
             import asyncio
