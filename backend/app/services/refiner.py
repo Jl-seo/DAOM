@@ -112,12 +112,30 @@ LANGUAGE: Translate values to {language} unless the field rule says otherwise.
         else:
             prompt += f"""
 OUTPUT INSTRUCTIONS:
-User will provide the extraction schema. You must strictly follow it.
-Extract ALL valid data rows/fields found in the document.
+You must extract the data into a valid JSON object with a specific structure.
+Root key: "guide_extracted"
+
+Format:
+{{
+  "guide_extracted": {{
+    "FIELD_KEY": {{
+      "value": "extracted value or null",
+      "confidence": 0.0 to 1.0,
+      "source_text": "exact substring from document used for extraction",
+      "page_number": integer (1-based)
+    }},
+    ... (repeat for all required fields)
+  }}
+}}
+
+CRITICAL RULES:
+1. "source_text" MUST be the EXACT substring found in the document.
+2. If a field is not found, set "value": null.
+3. Do not add fields that are not in the REQUIRED EXTRACTION FIELDS list.
 
 LANGUAGE INSTRUCTION:
-Translate values to {language} unless the field rule says otherwise.
-Do not translate '_source_text'.
+Translate "value" to {language} unless the field rule says otherwise.
+Do NOT translate "source_text".
 """
         return prompt
 

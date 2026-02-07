@@ -870,8 +870,11 @@ async def get_extraction_preview(request: PreviewRequest):
     Returns AI-structured data with clear columns and sample rows
     """
     try:
-        # Get raw Document Intelligence output (Defaults to Layout)
-        doc_intel_output = await doc_intel.extract_full_preview(request.file_url)
+        # Get raw Document Intelligence output using Dynamic Strategy
+        # Use analyze_document_layout for backward compatibility with layout model
+        # Or specifically use extract_with_strategy if model ID is available
+        # Here we follow existing logic: Layout model for "full preview" unless specified otherwise
+        doc_intel_output = await doc_intel.analyze_document_layout(request.file_url)
 
         # Ask AI to structure this into a meaningful table
         structuring_prompt = f"""

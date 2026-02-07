@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 import logging
 from app.schemas.document import DocumentUploadResponse, AnalysisResponse, AnalysisRequest
 from app.services.storage import upload_file_to_blob
-from app.services.doc_intel import extract_content_from_url
+from app.services.doc_intel import analyze_document_layout
 from app.services.llm import analyze_document_content
 from app.services.models import get_model_by_id
 from app.services.extraction_logs import save_extraction_log, get_logs_by_model, get_all_logs
@@ -34,7 +34,7 @@ async def analyze_document(request: AnalysisRequest):
 
     try:
         # 1. Extract Text & Layout
-        ocr_result = await extract_content_from_url(request.file_url)
+        ocr_result = await analyze_document_layout(request.file_url)
 
         # 2. Analyze with LLM
         model_info = None

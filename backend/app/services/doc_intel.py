@@ -25,7 +25,7 @@ def get_supported_models() -> List[Dict[str, str]]:
         for m in AzureModelType
     ]
 
-async def extract_with_strategy(file_source: Any, model_type: str = settings.OCR_DEFAULT_MODEL, filename: str = None) -> Dict[str, Any]:
+async def extract_with_strategy(file_source: Any, model_type: str = settings.OCR_DEFAULT_MODEL, filename: str = None, mime_type: str = None) -> Dict[str, Any]:
     """
     Universal extraction, strategy determined by model_type.
     file_source: str (URL) or bytes/stream
@@ -62,19 +62,22 @@ async def extract_with_strategy(file_source: Any, model_type: str = settings.OCR
                 # Assume bytes/stream
                 # Detect MIME type from filename or file_source.name
                 import mimetypes
-                content_type = "application/octet-stream"
-                detect_name = filename or getattr(file_source, "name", None)
-                if detect_name:
-                    guessed_type, _ = mimetypes.guess_type(detect_name)
-                    if guessed_type:
-                        content_type = guessed_type
-                logger.info(f"[DocIntel] Sending bytes with content_type={content_type} (filename={detect_name})")
+                content_type = mime_type or "application/octet-stream" 
+                if not mime_type:
+                    detect_name = filename or getattr(file_source, "name", None)
+                    if detect_name:
+                        guessed_type, _ = mimetypes.guess_type(detect_name)
+                        if guessed_type:
+                            content_type = guessed_type
+                
+                logger.info(f"[DocIntel] Sending bytes with content_type={content_type} (filename={filename})")
                 
                 poller = await client.begin_analyze_document(
                     model_id=model_type,
                     body=file_source,
                     content_type=content_type
                 )
+
 
             result: AnalyzeResult = await poller.result()
 
@@ -258,11 +261,7 @@ def _map_invoice_fields(documents):
     }
 
 # --- Backward Compatibility Maps ---
-async def extract_content_from_url(file_url: str):
-    return await extract_with_strategy(file_url, AzureModelType.LAYOUT)
 
-async def extract_full_preview(file_url: str):
-    return await extract_with_strategy(file_url, AzureModelType.LAYOUT)
 
 def _process_paragraphs(paragraphs):
     if not paragraphs: return []
@@ -274,3 +273,10 @@ def _process_paragraphs(paragraphs):
             "role": getattr(p, "role", None)
         })
     return processed
+
+async def analyze_document_layout(file_content: Any, mime_type: str = None) -> Dict[str, Any]:
+    """
+    Wrapper for backward compatibility.
+    Calls extract_with_strategy with LAYOUT model.
+    """
+    return await extract_with_strategy(file_content, model_type=AzureModelType.LAYOUT, mime_type=mime_type)
