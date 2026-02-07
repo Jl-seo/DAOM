@@ -207,22 +207,19 @@ class ExtractionService:
             # Beta ON:  DI result → Layout Parser → LLM
             
             # [FIX] Retry Logic: If file_url is a private blob, DocIntel can't access it via URL.
-            # We must download it to memory and pass as stream.
-            file_source = file_url
+            # We must generate a SAS token (Shared Access Signature) to grant temporary access.
             if isinstance(file_url, str) and file_url.startswith("http"):
                 try:
                     from app.services import storage
-                    downloaded_bytes = await storage.download_file_from_url(file_url)
-                    if downloaded_bytes:
-                        file_source = downloaded_bytes
-                        logger.info(f"[Pipeline] Downloaded {len(downloaded_bytes)} bytes from Blob for extraction (bypassing URL access)")
-                    else:
-                        logger.warning(f"[Pipeline] Failed to download blob from {file_url}, proceeding with URL (risk of 403)")
+                    sas_url = storage.generate_blob_sas_url(file_url)
+                    if sas_url != file_url:
+                        logger.info(f"[Pipeline] Generated SAS URL for DocIntel access")
+                        file_url = sas_url
                 except Exception as e:
-                    logger.error(f"[Pipeline] Blob download error: {e}")
+                    logger.error(f"[Pipeline] SAS generation failed: {e}")
 
-            logger.info(f"[Pipeline-Debug] Calling doc_intel with {azure_model} (Source type: {type(file_source)})")
-            doc_intel_output = await doc_intel.extract_with_strategy(file_source, azure_model)
+            logger.info(f"[Pipeline-Debug] Calling doc_intel with {azure_model}")
+            doc_intel_output = await doc_intel.extract_with_strategy(file_url, azure_model)
 
             # --- SYNTHETIC PAGE FALLBACK ---
             # Excel/CSV DI output may have empty `pages` array. LayoutParser

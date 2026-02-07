@@ -1,10 +1,11 @@
 from typing import Optional
 from fastapi import UploadFile
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 from app.core.config import settings
 import uuid
 import logging
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -173,3 +174,52 @@ async def download_file_from_url(file_url: str) -> Optional[bytes]:
         logger.error(f"[Storage] Blob download failed: {e}")
         
     return None
+
+def generate_blob_sas_url(file_url: str, expiry_minutes: int = 60) -> str:
+    """
+    Generate a SAS URL for a private blob so external services (DocIntel) can access it.
+    Parsing connection string manually to get AccountKey.
+    """
+    if not settings.AZURE_STORAGE_CONNECTION_STRING:
+        return file_url
+
+    try:
+        # Parse connection string
+        # Format: DefaultEndpointsProtocol=https;AccountName=...;AccountKey=...;EndpointSuffix=...
+        conn_str = settings.AZURE_STORAGE_CONNECTION_STRING
+        creds = {item.split('=', 1)[0]: item.split('=', 1)[1] for item in conn_str.split(';') if '=' in item}
+        
+        account_name = creds.get('AccountName')
+        account_key = creds.get('AccountKey')
+        
+        if not account_name or not account_key:
+            logger.warning("[Storage] Could not parse AccountName/Key from connection string")
+            return file_url
+            
+        container_name = settings.AZURE_CONTAINER_NAME
+        
+        # Check if URL belongs to our container
+        if f"/{container_name}/" not in file_url:
+            return file_url
+            
+        from urllib.parse import unquote
+        # Extract blob name: https://<account>.blob.core.windows.net/<container>/<blob_name>
+        blob_name = file_url.split(f"/{container_name}/", 1)[1]
+        blob_name = unquote(blob_name)
+
+        sas_token = generate_blob_sas(
+            account_name=account_name,
+            container_name=container_name,
+            blob_name=blob_name,
+            account_key=account_key,
+            permission=BlobSasPermissions(read=True),
+            expiry=datetime.now(timezone.utc) + timedelta(minutes=expiry_minutes)
+        )
+        
+        # Append SAS token
+        separator = "&" if "?" in file_url else "?"
+        return f"{file_url}{separator}{sas_token}"
+        
+    except Exception as e:
+        logger.error(f"[Storage] Failed to generate SAS: {e}")
+        return file_url
