@@ -428,8 +428,8 @@ class ExtractionService:
                 extraction_logs.update_log_status(
                     log_id_to_update, 
                     status=ExtractionStatus.SUCCESS.value,
-                    preview_data=preview_payload,
-                    debug_data=debug_info_final # PASS DEBUG DATA TO LOG
+                    preview_data=cosmos_preview,  # Blob refs only, not raw data
+                    debug_data=cosmos_debug
                 )
 
         except Exception as e:

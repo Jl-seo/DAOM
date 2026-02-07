@@ -222,14 +222,36 @@ async def start_extraction(
 
 
 @router.get("/log/{log_id}")
-def get_log_by_id(
+async def get_log_by_id(
     log_id: str,
     current_user: CurrentUser = Depends(get_current_user)
 ):
-    """Get a single extraction log by ID (for deep-linking)"""
+    """Get a single extraction log by ID (for deep-linking) — hydrates from Blob"""
     log = extraction_logs.get_log(log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Extraction log not found")
+
+    # Hydrate preview_data from Blob if offloaded
+    preview_data = log.preview_data
+    if preview_data and isinstance(preview_data, dict) and preview_data.get("_preview_blob_path"):
+        try:
+            from app.services.storage import load_json_from_blob
+            full_preview = await load_json_from_blob(preview_data["_preview_blob_path"])
+            if full_preview:
+                preview_data = full_preview
+        except Exception as e:
+            logger.warning(f"[API] Failed to hydrate log preview from blob: {e}")
+
+    # Hydrate debug_data from Blob if offloaded
+    debug_data = log.debug_data
+    if debug_data and isinstance(debug_data, dict) and debug_data.get("_debug_blob_path"):
+        try:
+            from app.services.storage import load_json_from_blob
+            full_debug = await load_json_from_blob(debug_data["_debug_blob_path"])
+            if full_debug:
+                debug_data = full_debug
+        except Exception as e:
+            logger.warning(f"[API] Failed to hydrate log debug from blob: {e}")
 
     return {
         "id": log.id,
@@ -238,8 +260,8 @@ def get_log_by_id(
         "file_url": log.file_url,
         "status": log.status,
         "extracted_data": log.extracted_data,
-        "preview_data": log.preview_data,
-        "debug_data": log.debug_data,
+        "preview_data": preview_data,
+        "debug_data": debug_data,
         "candidate_file_url": log.candidate_file_url,
         "candidate_file_urls": log.candidate_file_urls,
         "created_at": log.created_at,
