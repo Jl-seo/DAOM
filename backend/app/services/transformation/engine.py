@@ -1,7 +1,7 @@
 import logging
 from typing import List, Dict, Any
 from pydantic import BaseModel
-from simpleeval import simple_eval, EvalWithCompoundTypes
+from simpleeval import EvalWithCompoundTypes
 
 logger = logging.getLogger(__name__)
 
