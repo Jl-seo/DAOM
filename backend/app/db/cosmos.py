@@ -117,12 +117,12 @@ _EXTRACTIONS_INDEX_POLICY = {
     "compositeIndexes": [
         # get_logs_by_model: WHERE model_id ORDER BY created_at DESC
         [{"path": "/model_id", "order": "ascending"}, {"path": "/created_at", "order": "descending"}],
-        # get_all_logs: ORDER BY created_at DESC (cross-partition)
-        [{"path": "/created_at", "order": "descending"}],
         # get_logs_by_user: WHERE user_id ORDER BY created_at DESC
         [{"path": "/user_id", "order": "ascending"}, {"path": "/created_at", "order": "descending"}],
         # tenant-filtered: WHERE tenant_id ORDER BY created_at DESC
         [{"path": "/tenant_id", "order": "ascending"}, {"path": "/created_at", "order": "descending"}],
+        # type-filtered: WHERE type ORDER BY created_at DESC
+        [{"path": "/type", "order": "ascending"}, {"path": "/created_at", "order": "descending"}],
     ]
 }
 
@@ -136,11 +136,14 @@ _AUDIT_INDEX_POLICY = {
         {"path": '/"_etag"/?'},
     ],
     "compositeIndexes": [
-        # get_audit_logs: WHERE ... ORDER BY timestamp DESC
-        [{"path": "/timestamp", "order": "descending"}],
+        # get_audit_logs: WHERE tenant_id ORDER BY timestamp DESC
         [{"path": "/tenant_id", "order": "ascending"}, {"path": "/timestamp", "order": "descending"}],
+        # user-filtered: WHERE user_id ORDER BY timestamp DESC
         [{"path": "/user_id", "order": "ascending"}, {"path": "/timestamp", "order": "descending"}],
+        # resource-filtered: WHERE resource_type ORDER BY timestamp DESC
         [{"path": "/resource_type", "order": "ascending"}, {"path": "/timestamp", "order": "descending"}],
+        # action-filtered: WHERE action ORDER BY timestamp DESC
+        [{"path": "/action", "order": "ascending"}, {"path": "/timestamp", "order": "descending"}],
     ]
 }
 
