@@ -12,7 +12,7 @@ import { useAuth } from './auth'
 import { Menu, Loader2 } from 'lucide-react'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "./components/ui/sheet"
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 
 // Lazy loaded components for code splitting
 const ModelStudio = lazy(() => import('./components/ModelStudio').then(m => ({ default: m.ModelStudio })))
@@ -27,6 +27,8 @@ const QuickExtractionView = lazy(() => import('./features/quick/QuickExtractionV
 // Layout wrapper for authenticated pages
 function AppLayout({ children }: { children: React.ReactNode }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const toggleSidebar = useCallback(() => setIsSidebarCollapsed(prev => !prev), [])
 
   return (
     <div className="h-screen flex flex-col md:flex-row bg-background overflow-hidden">
@@ -53,8 +55,8 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Desktop Sidebar */}
-      <div className="hidden md:flex flex-shrink-0">
-        <Sidebar />
+      <div className={`hidden md:flex flex-shrink-0 transition-all duration-200 ${isSidebarCollapsed ? 'w-16' : 'w-64'}`}>
+        <Sidebar collapsed={isSidebarCollapsed} onToggleCollapse={toggleSidebar} />
       </div>
 
       <div className="flex-1 flex flex-col overflow-auto relative">

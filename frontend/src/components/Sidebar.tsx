@@ -9,7 +9,9 @@ import {
     History,
     Palette,
     Loader2,
-    ClipboardList
+    ClipboardList,
+    PanelLeftClose,
+    PanelLeftOpen
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { modelsApi } from '../lib/api'
@@ -24,7 +26,7 @@ interface Model {
     is_active?: boolean
 }
 
-export function Sidebar({ className, onClose }: { className?: string, onClose?: () => void }) {
+export function Sidebar({ className, onClose, collapsed = false, onToggleCollapse }: { className?: string, onClose?: () => void, collapsed?: boolean, onToggleCollapse?: () => void }) {
     const navigate = useNavigate()
     const location = useLocation()
     const { config } = useSiteConfig()
@@ -73,12 +75,13 @@ export function Sidebar({ className, onClose }: { className?: string, onClose?: 
     }
 
     return (
-        <aside className={clsx("bg-sidebar text-sidebar-foreground flex flex-col h-full", className || "w-64")}>
+        <aside className={clsx("bg-sidebar text-sidebar-foreground flex flex-col h-full transition-all duration-200", className || (collapsed ? "w-16" : "w-64"))}>
             {/* Logo */}
-            <div className="p-6 border-b border-sidebar-border">
+            <div className={clsx("border-b border-sidebar-border", collapsed ? "p-3" : "p-6")}>
                 <button
                     onClick={() => handleNavigate('/models')}
-                    className="flex items-center gap-3 w-full text-left hover:opacity-80 transition-opacity"
+                    className={clsx("flex items-center w-full text-left hover:opacity-80 transition-opacity", collapsed ? "justify-center" : "gap-3")}
+                    title={collapsed ? config.siteName : undefined}
                 >
                     {config.logoUrl ? (
                         <img
@@ -91,22 +94,26 @@ export function Sidebar({ className, onClose }: { className?: string, onClose?: 
                             <LayoutDashboard className="w-6 h-6" />
                         </div>
                     )}
-                    <div>
-                        <h1 className="text-xl font-bold">{config.siteName}</h1>
-                        <p className="text-xs text-sidebar-foreground/60">{config.siteDescription}</p>
-                    </div>
+                    {!collapsed && (
+                        <div>
+                            <h1 className="text-xl font-bold">{config.siteName}</h1>
+                            <p className="text-xs text-sidebar-foreground/60">{config.siteDescription}</p>
+                        </div>
+                    )}
                 </button>
 
                 <button
                     onClick={() => handleNavigate('/quick-extraction')}
                     className={clsx(
-                        "mt-6 w-full flex items-center justify-center gap-2 font-semibold py-2.5 rounded-lg shadow-md transition-all active:scale-[0.98]",
+                        "mt-4 w-full flex items-center justify-center font-semibold rounded-lg shadow-md transition-all active:scale-[0.98]",
+                        collapsed ? "p-2" : "gap-2 py-2.5",
                         location.pathname === '/quick-extraction'
                             ? "bg-sidebar-primary text-sidebar-primary-foreground"
                             : "bg-gradient-to-r from-primary to-chart-5 text-primary-foreground hover:opacity-90"
                     )}
+                    title={collapsed ? '빠른 추출 시작' : undefined}
                 >
-                    <span className="text-lg">⚡</span> 빠른 추출 시작
+                    <span className="text-lg">⚡</span> {!collapsed && '빠른 추출 시작'}
                 </button>
             </div>
 
@@ -116,15 +123,16 @@ export function Sidebar({ className, onClose }: { className?: string, onClose?: 
                 <div>
                     <SidebarItem
                         icon={FileText}
-                        label="문서 추출"
+                        label={collapsed ? '' : '문서 추출'}
                         isActive={activeGroup === 'models'}
-                        hasSubmenu
-                        isExpanded={expandedGroups.includes('models')}
-                        onClick={() => toggleGroup('models')}
+                        hasSubmenu={!collapsed}
+                        isExpanded={!collapsed && expandedGroups.includes('models')}
+                        onClick={() => collapsed ? handleNavigate('/models') : toggleGroup('models')}
+                        tooltip={collapsed ? '문서 추출' : undefined}
                     />
 
-                    {/* Submenu */}
-                    {expandedGroups.includes('models') && (
+                    {/* Submenu - hidden when collapsed */}
+                    {!collapsed && expandedGroups.includes('models') && (
                         <div className="mt-1 ml-4 space-y-1">
                             {loading ? (
                                 <div className="flex items-center gap-2 px-3 py-2 text-muted-foreground text-sm">
@@ -165,14 +173,15 @@ export function Sidebar({ className, onClose }: { className?: string, onClose?: 
                 <div>
                     <SidebarItem
                         icon={Palette}
-                        label="모델 관리"
+                        label={collapsed ? '' : '모델 관리'}
                         isActive={activeGroup === 'admin-model'}
-                        hasSubmenu
-                        isExpanded={expandedGroups.includes('admin-model')}
-                        onClick={() => toggleGroup('admin-model')}
+                        hasSubmenu={!collapsed}
+                        isExpanded={!collapsed && expandedGroups.includes('admin-model')}
+                        onClick={() => collapsed ? handleNavigate('/admin/model-studio') : toggleGroup('admin-model')}
+                        tooltip={collapsed ? '모델 관리' : undefined}
                     />
 
-                    {expandedGroups.includes('admin-model') && (
+                    {!collapsed && expandedGroups.includes('admin-model') && (
                         <div className="mt-1 ml-4 space-y-1">
                             <button
                                 onClick={() => handleNavigate('/admin/model-studio')}
@@ -206,14 +215,15 @@ export function Sidebar({ className, onClose }: { className?: string, onClose?: 
                 <div>
                     <SidebarItem
                         icon={Users}
-                        label="시스템 설정"
+                        label={collapsed ? '' : '시스템 설정'}
                         isActive={activeGroup === 'admin'}
-                        hasSubmenu
-                        isExpanded={expandedGroups.includes('admin')}
-                        onClick={() => toggleGroup('admin')}
+                        hasSubmenu={!collapsed}
+                        isExpanded={!collapsed && expandedGroups.includes('admin')}
+                        onClick={() => collapsed ? handleNavigate('/admin/dashboard') : toggleGroup('admin')}
+                        tooltip={collapsed ? '시스템 설정' : undefined}
                     />
 
-                    {expandedGroups.includes('admin') && (
+                    {!collapsed && expandedGroups.includes('admin') && (
                         <div className="mt-1 ml-4 space-y-1">
                             <button
                                 onClick={() => handleNavigate('/admin/dashboard')}
@@ -270,16 +280,28 @@ export function Sidebar({ className, onClose }: { className?: string, onClose?: 
                 {/* History */}
                 <SidebarItem
                     icon={History}
-                    label="전체 추출 기록"
+                    label={collapsed ? '' : '전체 추출 기록'}
                     isActive={location.pathname === '/history'}
                     onClick={() => handleNavigate('/history')}
+                    tooltip={collapsed ? '전체 추출 기록' : undefined}
                 />
 
             </nav>
 
-            {/* User Menu */}
-            <div className="p-4 border-t border-sidebar-border">
-                <UserMenu />
+            {/* Collapse Toggle + User Menu */}
+            <div className="border-t border-sidebar-border">
+                {onToggleCollapse && (
+                    <button
+                        onClick={onToggleCollapse}
+                        className="w-full flex items-center justify-center p-3 text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent/30 transition-colors"
+                        title={collapsed ? '사이드바 펼치기' : '사이드바 접기'}
+                    >
+                        {collapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+                    </button>
+                )}
+                <div className={clsx("p-4", collapsed && "px-2")}>
+                    {!collapsed && <UserMenu />}
+                </div>
             </div>
         </aside >
     )

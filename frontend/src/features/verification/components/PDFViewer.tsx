@@ -312,17 +312,24 @@ export const PDFViewer = forwardRef<PDFViewerHandle, PDFViewerProps>(({ fileUrl,
                                     {rawTables.map((table: any, tableIndex: number) => (
                                         <div key={tableIndex} className="border rounded-lg overflow-hidden">
                                             <div className="bg-muted/50 px-4 py-2 text-sm font-medium border-b">
-                                                표 {tableIndex + 1} {table.rowCount && table.columnCount && (
-                                                    <span className="text-muted-foreground ml-2">({table.rowCount}행 × {table.columnCount}열)</span>
-                                                )}
+                                                표 {tableIndex + 1} {(() => {
+                                                    const rc = table.rowCount || (table.cells?.length > 0 ? Math.max(...table.cells.map((c: any) => (c.rowIndex || 0) + (c.rowSpan || 1))) : 0)
+                                                    const cc = table.columnCount || (table.cells?.length > 0 ? Math.max(...table.cells.map((c: any) => (c.columnIndex || 0) + (c.columnSpan || 1))) : 0)
+                                                    return rc > 0 && cc > 0 ? <span className="text-muted-foreground ml-2">({rc}행 × {cc}열)</span> : null
+                                                })()}
                                             </div>
                                             <div className="overflow-x-auto">
                                                 <table className="w-full text-sm">
                                                     <tbody>
                                                         {table.cells && (() => {
-                                                            // 1. Initialize Grid
-                                                            const rowCount = table.rowCount || 0
-                                                            const colCount = table.columnCount || 0
+                                                            // Calculate dimensions from cells if not provided
+                                                            const maxRow = table.cells.reduce((max: number, cell: any) =>
+                                                                Math.max(max, (cell.rowIndex || 0) + (cell.rowSpan || 1)), 0)
+                                                            const maxCol = table.cells.reduce((max: number, cell: any) =>
+                                                                Math.max(max, (cell.columnIndex || 0) + (cell.columnSpan || 1)), 0)
+                                                            const rowCount = table.rowCount || maxRow
+                                                            const colCount = table.columnCount || maxCol
+                                                            if (rowCount === 0 || colCount === 0) return null
                                                             const grid: any[][] = Array(rowCount).fill(null).map(() => Array(colCount).fill(null))
 
                                                             // 2. Populate Grid with Cells

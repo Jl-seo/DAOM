@@ -176,8 +176,10 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
  * Wraps the container with the ExtractionProvider
  */
 export function DocumentExtractionView(props: DocumentExtractionViewProps) {
+    // key={modelId} forces React to unmount/remount the entire tree when switching models
+    // This ensures all extraction state is reset cleanly
     return (
-        <ExtractionProvider modelId={props.modelId} initialJobId={props.jobId} initialLogId={props.logId}>
+        <ExtractionProvider key={props.modelId} modelId={props.modelId} initialJobId={props.jobId} initialLogId={props.logId}>
             <ExtractionContainer {...props} />
         </ExtractionProvider>
     )
