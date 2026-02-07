@@ -86,8 +86,14 @@ async def start_job_with_upload(
     Upload file(s) and start extraction/comparison job.
     If candidate_files provided, it's a comparison job.
     """
-    if not file.filename.endswith(('.pdf', '.jpg', '.jpeg', '.png')):
-        raise HTTPException(status_code=400, detail="Invalid file type")
+    # Dynamic file type validation based on model beta features
+    allowed_exts = ('.pdf', '.jpg', '.jpeg', '.png')
+    model = get_model_by_id(model_id)
+    if model and hasattr(model, 'beta_features') and model.beta_features.get('use_virtual_excel_ocr', False):
+        allowed_exts = ('.pdf', '.jpg', '.jpeg', '.png', '.xlsx', '.xls', '.csv')
+    
+    if not file.filename.lower().endswith(allowed_exts):
+        raise HTTPException(status_code=400, detail=f"Invalid file type. Allowed: {', '.join(allowed_exts)}")
 
     # 1. Upload files
     from app.services.storage import upload_file_to_blob
