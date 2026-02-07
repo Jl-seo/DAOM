@@ -4,7 +4,10 @@ from fastapi import UploadFile
 from azure.storage.blob import BlobServiceClient
 from app.core.config import settings
 import uuid
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Resolve absolute path to backend root
 BASE_DIR = Path(__file__).resolve().parent.parent.parent

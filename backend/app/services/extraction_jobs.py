@@ -2,6 +2,7 @@
 Extraction Jobs Service
 Job-based async extraction processing with status tracking
 """
+import logging
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
@@ -9,6 +10,8 @@ import uuid
 from ..db.cosmos import get_extractions_container
 from app.services import audit
 from app.core.enums import ExtractionType, ExtractionStatus
+
+logger = logging.getLogger(__name__)
 
 
 class ExtractionJob(BaseModel):
