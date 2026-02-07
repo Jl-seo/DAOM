@@ -66,10 +66,17 @@ function ConfidenceBadge({ confidence }: { confidence: number | null }) {
 
 function renderValue(value: any): string {
     if (value === null || value === undefined) return ''
-    // First unwrap if it's a rich object with .value
-    const unwrapped = extractValue(value)
-    if (typeof unwrapped === 'object') return JSON.stringify(unwrapped, null, 2)
-    return String(unwrapped)
+    try {
+        // First unwrap if it's a rich object with .value
+        const unwrapped = extractValue(value)
+        if (typeof unwrapped === 'object') {
+            return JSON.stringify(unwrapped, null, 2) ?? ''
+        }
+        return String(unwrapped ?? '')
+    } catch {
+        // Fallback for circular references or other serialization errors
+        return String(value ?? '')
+    }
 }
 
 /**
@@ -96,29 +103,33 @@ function flattenNestedRows(data: any[]): { flattenedData: any[], keyColumn: stri
 
     data.forEach(row => {
         if (typeof row !== 'object' || row === null) return
-        Object.entries(row).forEach(([key, rawValue]) => {
-            // Skip metadata columns
-            if (key === 'bbox' || key === 'confidence' || key === 'page_number') {
-                simpleColumns.add(key)
-                return
-            }
-
-            // 먼저 래핑된 값을 언래핑 (예: { value: {...}, confidence: 0.9 } → {...})
-            const value = extractValue(rawValue)
-
-            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-                // 중첩 객체 발견 (예: { "20'DV": "1440", "40'DV": "1800" })
-                const subKeys = Object.keys(value)
-                if (subKeys.length > 0) {
-                    if (!nestedColumns[key]) {
-                        nestedColumns[key] = new Set()
-                    }
-                    subKeys.forEach(sk => nestedColumns[key].add(sk))
+        try {
+            Object.entries(row).forEach(([key, rawValue]) => {
+                // Skip metadata columns
+                if (key === 'bbox' || key === 'confidence' || key === 'page_number') {
+                    simpleColumns.add(key)
+                    return
                 }
-            } else {
-                simpleColumns.add(key)
-            }
-        })
+
+                // 먼저 래핑된 값을 언래핑 (예: { value: {...}, confidence: 0.9 } → {...})
+                const value = extractValue(rawValue)
+
+                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    // 중첩 객체 발견 (예: { "20'DV": "1440", "40'DV": "1800" })
+                    const subKeys = Object.keys(value)
+                    if (subKeys.length > 0) {
+                        if (!nestedColumns[key]) {
+                            nestedColumns[key] = new Set()
+                        }
+                        subKeys.forEach(sk => nestedColumns[key].add(sk))
+                    }
+                } else {
+                    simpleColumns.add(key)
+                }
+            })
+        } catch {
+            // Skip malformed rows
+        }
     })
 
     const nestedColumnKeys = Object.keys(nestedColumns)
@@ -216,9 +227,25 @@ function ResizableNestedTable({
         return <span className="text-muted-foreground italic text-xs">빈 배열</span>
     }
 
+    // Normalize: parse stringified JSON objects within array
+    const normalizedData = data.map(item => {
+        if (item === null || item === undefined) return item
+        if (typeof item === 'string') {
+            const trimmed = item.trim()
+            if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                try {
+                    const parsed = JSON.parse(trimmed)
+                    // Only use parsed result if it's an actual object/array
+                    if (typeof parsed === 'object' && parsed !== null) return parsed
+                } catch { /* keep as string */ }
+            }
+        }
+        return item
+    })
+
     // 중첩 데이터를 풀어내기 (편집 모드가 아닐 때만)
-    const { flattenedData, keyColumn } = flattenNestedRows(data)
-    const displayData = isEditMode ? data : flattenedData
+    const { flattenedData, keyColumn } = flattenNestedRows(normalizedData)
+    const displayData = isEditMode ? normalizedData : flattenedData
     const hasNestedData = keyColumn !== null // 플래터닝이 적용되었는지
 
     // 키 컬럼을 맨 앞에 배치하기 위해 컬럼 순서 조정
@@ -391,18 +418,22 @@ function ResizableNestedTable({
                                                 name={`table-cell-${rowIdx}-${key}`}
                                                 type="text"
                                                 className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none px-3 py-2"
-                                                value={renderValue(row?.[key] ?? '')}
+                                                value={renderValue(row != null ? row[key] : '')}
                                                 onChange={(e) => {
-                                                    const newData = [...data]
-                                                    if (typeof newData[rowIdx] === 'object') {
-                                                        newData[rowIdx] = { ...newData[rowIdx], [key]: e.target.value }
+                                                    try {
+                                                        const newData = [...normalizedData]
+                                                        if (newData[rowIdx] != null && typeof newData[rowIdx] === 'object') {
+                                                            newData[rowIdx] = { ...newData[rowIdx], [key]: e.target.value }
+                                                        }
+                                                        onUpdate(newData)
+                                                    } catch {
+                                                        // Silently handle data mutation errors
                                                     }
-                                                    onUpdate(newData)
                                                 }}
                                             />
                                         ) : (
                                             <div className="px-3 py-2 truncate">
-                                                {renderValue(row?.[key])}
+                                                {renderValue(row != null ? row[key] : '')}
                                             </div>
                                         )}
                                     </td>
