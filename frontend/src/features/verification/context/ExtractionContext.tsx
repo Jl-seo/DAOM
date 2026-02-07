@@ -295,10 +295,8 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
         setCurrentJobId(null)
 
         const formData = new FormData()
-        // Use 'files' key for list (Backend expects List[UploadFile])
-        fileList.forEach(f => {
-            formData.append('files', f)
-        })
+        // Primary file — backend expects 'file' (singular UploadFile)
+        formData.append('file', fileList[0])
 
         // Append multiple candidate files
         if (selectedCandidateFiles && selectedCandidateFiles.length > 0) {
