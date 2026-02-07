@@ -36,8 +36,8 @@ class ExcelMapper:
                         raise ValueError(f"Failed to download file: {response.status}")
                     file_bytes = await response.read()
             
-            # Determine file type from URL
-            ext = file_url.rsplit(".", 1)[-1].lower()
+            # Determine file type from URL (strip SAS query params)
+            ext = file_url.rsplit(".", 1)[-1].lower().split("?")[0]
             
             if ext == "csv":
                 return cls._parse_csv(file_bytes)
