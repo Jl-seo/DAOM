@@ -84,11 +84,8 @@ async def start_job_with_upload(
     Upload file(s) and start extraction/comparison job.
     If candidate_files provided, it's a comparison job.
     """
-    # Dynamic file type validation based on model beta features
-    allowed_exts = ('.pdf', '.jpg', '.jpeg', '.png')
-    model = get_model_by_id(model_id)
-    if model and hasattr(model, 'beta_features') and model.beta_features.get('use_virtual_excel_ocr', False):
-        allowed_exts = ('.pdf', '.jpg', '.jpeg', '.png', '.xlsx', '.xls', '.csv')
+    # Unified file type validation — Azure DI Layout supports all these formats
+    allowed_exts = ('.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.xlsx', '.xls', '.csv', '.docx')
 
     if not file.filename.lower().endswith(allowed_exts):
         raise HTTPException(status_code=400, detail=f"Invalid file type. Allowed: {', '.join(allowed_exts)}")
