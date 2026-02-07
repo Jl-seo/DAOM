@@ -268,17 +268,25 @@ class ExcelMapper:
 
         # Build content string — TOKEN-OPTIMIZED FORMAT
         # Use pipe-separated (|) instead of tabs (\t).
-        # Why: Each \t = 1 token. 106 rows × 15 tabs = 1,590 wasted tokens.
-        # Pipe is part of surrounding word tokens, not a separate token.
+        # CRITICAL FIX: Sanitize cell content to prevent structure corruption.
+        # - Replace | with \| (or similar) to avoid column confusion
+        # - Replace \n with space to avoid row confusion
         content_lines = []
         for row in rows:
             # Strip each cell, remove trailing empties
-            parts = [cell.strip() for cell in row]
-            while parts and not parts[-1]:
-                parts.pop()
-            if not parts:
+            sanitized_parts = []
+            for cell in row:
+                val = cell.strip()
+                # Sanitize: Remove newlines, escape pipes
+                val = val.replace("\n", " ").replace("|", "｜") # Use full-width pipe for safe display
+                sanitized_parts.append(val)
+            
+            while sanitized_parts and not sanitized_parts[-1]:
+                sanitized_parts.pop()
+            
+            if not sanitized_parts:
                 continue  # Skip fully empty rows
-            content_lines.append("|".join(parts))
+            content_lines.append("|".join(sanitized_parts))
         content = "\n".join(content_lines)
 
         # Build words (each non-empty cell as a word)
