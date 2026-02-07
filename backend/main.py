@@ -61,7 +61,9 @@ try:
         try:
             init_cosmos()
             # Run startup tasks (seed menus, create System Admins group, etc.)
-            await startup_service.run_startup_tasks()
+            # OPTIMIZATION: Run in background to prevent Container App Startup Probe timeout
+            import asyncio
+            asyncio.create_task(startup_service.run_startup_tasks())
         except Exception as e:
             logging.error(f"CRITICAL: Startup failed: {e}")
             # Do not raise exception to keep container running for debugging
