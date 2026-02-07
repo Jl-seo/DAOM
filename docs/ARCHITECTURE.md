@@ -90,6 +90,11 @@
 | [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) | 설치 가이드 (Azure 리소스 생성 ~ 배포) |
 | [backend_guide.md](./backend_guide.md) | 백엔드 API, 스키마, 서비스 설명 |
 | [frontend_guide.md](./frontend_guide.md) | 프론트엔드 컴포넌트, 훅, 스타일 설명 |
+| **운영 매뉴얼 (2026-02 신규)** | |
+| [extraction-pipeline.md](./dataflow/extraction-pipeline.md) | 추출 파이프라인 데이터 플로우 (함수 + 스키마 수준) |
+| [frontend-components.md](./dataflow/frontend-components.md) | 컴포넌트 트리, 상태 관리, 라우팅 매핑 |
+| [api-contracts.md](./dataflow/api-contracts.md) | API 엔드포인트 & 요청/응답 스키마 |
+| [troubleshooting.md](./dataflow/troubleshooting.md) | 자주 발생하는 버그 패턴 & 해결법 |
 
 ---
 
