@@ -131,6 +131,44 @@ export function DataReviewPanel({
                                     </pre>
                                 </details>
                             )}
+                            {/* Pipeline Stage Diagnostics */}
+                            {debugData.beta_pipeline_stages && (
+                                <div className="mt-3 pt-3 border-t border-yellow-500/20">
+                                    <div className="font-semibold text-xs mb-2">📊 파이프라인 단계별 상태</div>
+                                    <div className="space-y-1">
+                                        {Object.entries(debugData.beta_pipeline_stages as Record<string, any>).map(([stage, info]: [string, any]) => {
+                                            const isOk = info?.status === 'ok'
+                                            const label: Record<string, string> = {
+                                                '1_layout_parser': '1️⃣ LayoutParser',
+                                                '2_prompt': '2️⃣ 프롬프트 생성',
+                                                '3_llm_call': '3️⃣ LLM 호출',
+                                                '4_normalize': '4️⃣ 응답 정규화',
+                                                '5_post_process': '5️⃣ 후처리',
+                                                'exception': '💥 예외',
+                                            }
+                                            return (
+                                                <div key={stage} className="flex items-start gap-2 text-xs font-mono">
+                                                    <span>{isOk ? '✅' : '❌'}</span>
+                                                    <span className="font-semibold min-w-[120px]">{label[stage] || stage}</span>
+                                                    <span className="text-muted-foreground">
+                                                        {info?.content_chars && `${info.content_chars.toLocaleString()}자`}
+                                                        {info?.field_count && `${info.field_count}필드`}
+                                                        {info?.raw_key_count !== undefined && `응답 ${info.raw_key_count}키`}
+                                                        {info?.fields_recovered !== undefined && `${info.fields_recovered}필드 복구`}
+                                                        {info?.fields_with_values !== undefined && (
+                                                            <span>
+                                                                <span className="text-green-600">{info.fields_with_values}값</span>
+                                                                {info.fields_null > 0 && <span className="text-red-600 ml-1">{info.fields_null}null</span>}
+                                                            </span>
+                                                        )}
+                                                        {info?.error && <span className="text-red-600">{info.error.slice(0, 100)}</span>}
+                                                    </span>
+                                                </div>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         <Button
                             variant="outline"
