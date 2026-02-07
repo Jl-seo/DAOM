@@ -686,6 +686,13 @@ IMPORTANT:
                 model_info=model
             )
             
+            # DIAGNOSTIC: Log raw LLM output before any transformation
+            logger.info(f"[LLM-Beta-Diag] Raw LLM result keys: {list(llm_result.keys())}")
+            for k, v in list(llm_result.items())[:5]:
+                if k not in ('_beta_parsed_content', '_beta_ref_map', '_token_usage', 'raw_content', 'raw_tables'):
+                    logger.info(f"[LLM-Beta-Diag] Raw field '{k}': {str(v)[:300]}")
+            logger.info(f"[LLM-Beta-Diag] Model field keys: {[f.key for f in model.fields]}")
+            
             # GUARD: If LLM returned an error, propagate it with empty guide_extracted
             if "error" in llm_result and len(llm_result) <= 2:  # {"error": "..."} or {"error": "...", "raw_content": "..."}
                 logger.error(f"[LLM-Beta] LLM returned error: {llm_result['error']}")
@@ -724,7 +731,13 @@ IMPORTANT:
             if "raw_tables" not in llm_result:
                 llm_result["raw_tables"] = ocr_data_to_send.get("tables", [])
 
-            logger.info(f"[LLM-Beta] Result keys: {list(llm_result.keys())}")
+            logger.info(f"[LLM-Beta] Final result keys: {list(llm_result.keys())}")
+            guide_keys = list(llm_result.get('guide_extracted', {}).keys())
+            logger.info(f"[LLM-Beta] guide_extracted keys: {guide_keys}")
+            # Log sample values from guide_extracted
+            for k in guide_keys[:3]:
+                v = llm_result['guide_extracted'][k]
+                logger.info(f"[LLM-Beta] guide_extracted['{k}']: {str(v)[:200]}")
             return llm_result
         
         # --- LEGACY PATH (No Beta) ---
@@ -948,6 +961,8 @@ IMPORTANT:
         for field in model.fields:
             key = field.key
             item = guide_extracted.get(key, {})
+            if not item:
+                logger.debug(f"[Validation] Field '{key}' NOT found in guide_extracted. Available keys: {list(guide_extracted.keys())[:10]}")
             # Defensive: item must also be a dict
             if not isinstance(item, dict):
                 item = {"value": item} if item is not None else {}
