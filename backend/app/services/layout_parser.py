@@ -1,6 +1,11 @@
 import re
 from typing import Dict, Any, List, Optional, Tuple
-from rapidfuzz import fuzz, utils
+try:
+    from rapidfuzz import fuzz, utils
+except ImportError:
+    fuzz = None
+    utils = None
+
 import logging
 
 from app.core.config import settings
@@ -27,6 +32,10 @@ class LayoutParser:
             file_ids: Optional list of file IDs corresponding to inputs. 
                       If None, defaults to ["file_0", "file_1", ...].
         """
+        # 0. Dependency Check
+        if fuzz is None or utils is None:
+            raise RuntimeError("Dependency 'rapidfuzz' is missing or failed to import. Service cannot run.")
+
         # 1. Normalize Input to List
         if isinstance(inputs, dict):
             self.ocr_list = [inputs]
