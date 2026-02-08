@@ -86,26 +86,33 @@ INSTRUCTIONS FOR REFERENCE DATA:
         )
 
         if is_table:
-            # TABLE MODE: Compact format to maximize row count within token budget.
-            # Per-cell {value, confidence, source_text} wrappers waste ~80% of tokens.
+            # [Refactored Phase 7] NESTED TABLE MODE (User Request)
+            # Instead of flat "rows", we extract as a field containing a list of objects.
+            # This matches General Mode structure but authorized for Beta pipeline.
             prompt += f"""
 OUTPUT INSTRUCTIONS (TABLE MODE):
-You must extract ALL rows from the document. Do NOT truncate or sample.
+You must extract the table data into a valid JSON object.
+Root key: "guide_extracted"
 
-Return a JSON object where the output key is "rows" (list of objects).
-Each object in the list must represent a row.
-**CRITICAL**: Use the exact keys defined in the 'REQUIRED EXTRACTION FIELDS' section above.
-Do NOT wrap each cell in {{"value": ..., "confidence": ...}} — output flat values directly.
-
-Example format:
+Format:
 {{
-  "rows": [
-    {{"field_key_1": "value1", "field_key_2": "value2"}},
-    ...
-  ]
+  "guide_extracted": {{
+    "FIELD_KEY": [  <-- Table Field
+      {{
+        "column_key_1": "value1",
+        "column_key_2": "value2"
+      }},
+      ...
+    ],
+    "OTHER_FIELD": {{ "value": "..." }} <-- Non-table fields if any
+  }}
 }}
 
-CRITICAL: Extract EVERY row. Missing rows is unacceptable.
+CRITICAL RULES:
+1. Extract ALL rows. Do not truncate.
+2. Use the exact keys defined in 'REQUIRED EXTRACTION FIELDS'.
+3. For table fields, return a LIST of Objects (Simulating Nested Table).
+4. Do NOT wrap cell values in "value"/"confidence" objects inside the table list. Keep it flat row objects for token efficiency.
 
 LANGUAGE: Translate values to {language} unless the field rule says otherwise.
 """

@@ -283,22 +283,46 @@ class BetaPipeline(ExtractionPipeline):
         res = ExtractionResult()
         
         # Mapping logic
+        # Mapping logic
+        # [Refactor Phase 7] Nested Table structure
+        # LLM now returns {"guide_extracted": {"some_table_field": [{...}, {...}]}}
+        # We must find the list field and populate table_rows for backward compat.
+        
+        extracted = raw_llm.get("guide_extracted", {})
+        res.guide_extracted = extracted
+        
+        # Check if any field in guide_extracted is a list of dicts (Candidate for Table)
+        # Or if "rows" still exists (fallback)
         if "rows" in raw_llm:
-            rows = raw_llm["rows"]
-            # [Fix] Sanitize: If LLM returns {"0": {...}, "1": {...}} instead of list
-            if isinstance(rows, dict):
-                logger.warning("[BetaPipeline] LLM returned 'rows' as dict (indexed). Converting to list.")
-                # Sort by key if numeric text "0", "1" to preserve order
+             rows = raw_llm["rows"]
+             # [Fix] Sanitize Dict->List
+             if isinstance(rows, dict):
                 try:
                     sorted_keys = sorted(rows.keys(), key=lambda x: int(x) if str(x).isdigit() else x)
                     rows = [rows[k] for k in sorted_keys]
                 except:
                     rows = list(rows.values())
-            
-            res.table_rows = rows
-            res.is_table = True
+             res.table_rows = rows
+             res.is_table = True
         else:
-            res.guide_extracted = raw_llm.get("guide_extracted", {})
+            # Look for table field in guide_extracted
+            found_table = False
+            for k, v in extracted.items():
+                if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict):
+                    # Found a potential table!
+                    # We promote this to res.table_rows for consistency with chunk merging logic
+                    # But we also keep it in guide_extracted.
+                    res.table_rows = v
+                    res.is_table = True
+                    found_table = True
+                    # Break or continue? Assuming one main table for Beta Mode usually.
+                    # If multiple, chunk merging logic might need robust handling.
+                    # For now, take the first valid table.
+                    break
+            
+            if not found_table and extracted:
+                # Fallback: maybe it's just a form
+                pass
         
         # Token Usage
         usage = raw_llm.get("_token_usage", {})
