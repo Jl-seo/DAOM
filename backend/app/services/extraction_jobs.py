@@ -92,7 +92,7 @@ def create_job(
                 "type": "extraction_job"
             })
         except Exception as e:
-            logger.info(f"[ExtractionJobs] Failed to save job: {e}")
+            logger.error(f"[ExtractionJobs] Failed to save job: {e}")
 
     return job
 
@@ -113,7 +113,7 @@ def get_job(job_id: str) -> Optional[ExtractionJob]:
         if items:
             return ExtractionJob(**items[0])
     except Exception as e:
-        logger.info(f"[ExtractionJobs] Failed to get job: {e}")
+        logger.error(f"[ExtractionJobs] Failed to get job: {e}")
 
     return None
 
@@ -247,7 +247,7 @@ def update_job(
                     debug_data=debug_data # FIXED: Propagate debug_data
                 )
             except Exception as e:
-                logger.info(f"[ExtractionJobs] Failed to sync status to log {job.original_log_id}: {e}")
+                logger.error(f"[ExtractionJobs] Failed to sync status to log {job.original_log_id}: {e}")
 
         return job
 
@@ -283,7 +283,7 @@ def get_jobs_by_model(model_id: str, limit: int = 50) -> List[ExtractionJob]:
         ))
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
-        logger.info(f"[ExtractionJobs] Failed to get jobs: {e}")
+        logger.error(f"[ExtractionJobs] Failed to get jobs: {e}")
 
     return []
 
@@ -314,7 +314,7 @@ def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 50) -> 
         ))
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
-        logger.info(f"[ExtractionJobs] Failed to get model user jobs: {e}")
+        logger.error(f"[ExtractionJobs] Failed to get model user jobs: {e}")
 
     return []
 
@@ -349,7 +349,7 @@ def get_jobs_by_user(user_id: str, limit: int = 50, tenant_id: Optional[str] = N
         ))
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
-        logger.info(f"[ExtractionJobs] Failed to get user jobs: {e}")
+        logger.error(f"[ExtractionJobs] Failed to get user jobs: {e}")
 
     return []
 
@@ -375,7 +375,7 @@ def get_latest_job_by_log_id(log_id: str) -> Optional[ExtractionJob]:
         if items:
             return ExtractionJob(**items[0])
     except Exception as e:
-        logger.info(f"[ExtractionJobs] Failed to get job by log_id: {e}")
+        logger.error(f"[ExtractionJobs] Failed to get job by log_id: {e}")
 
     return None
 
@@ -412,7 +412,7 @@ def delete_job(job_id: str) -> bool:
         container.delete_item(item=job_id, partition_key=partition_key)
         return True
     except Exception as e:
-        logger.info(f"[ExtractionJobs] Failed to delete item {job_id}: {e}")
+        logger.error(f"[ExtractionJobs] Failed to delete item {job_id}: {e}")
         return False
 
 
@@ -434,6 +434,6 @@ def cancel_job(job_id: str) -> Optional[ExtractionJob]:
                 status=ExtractionStatus.CANCELLED.value
             )
         except Exception as e:
-            logger.info(f"[ExtractionJobs] Failed to sync cancel status to log: {e}")
+            logger.error(f"[ExtractionJobs] Failed to sync cancel status to log: {e}")
 
     return job

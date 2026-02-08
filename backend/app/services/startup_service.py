@@ -159,7 +159,7 @@ async def seed_default_models(tenant_id: str):
             ]
         }
 
-        container.create_item(body=invoice_model)
+        container.upsert_item(body=invoice_model)
         logger.info(f"Seeded default 'Invoice' model for tenant {tenant_id}")
 
     except Exception as e:

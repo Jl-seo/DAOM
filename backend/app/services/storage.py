@@ -61,7 +61,7 @@ async def upload_file_to_blob(file: UploadFile) -> str:
         return blob_client.url
 
     except Exception as e:
-        logger.info(f"[Storage] Error uploading to blob: {e}")
+        logger.error(f"[Storage] Error uploading to blob: {e}")
         raise e
 
 async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
@@ -80,7 +80,7 @@ async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
                 json.dump(data, f)
             return str(local_path)
         except Exception as e:
-            logger.info(f"[Storage] Local cache save failed: {e}")
+            logger.error(f"[Storage] Local cache save failed: {e}")
             return None
 
     try:

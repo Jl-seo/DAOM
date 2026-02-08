@@ -195,7 +195,7 @@ class TransformationEngine:
 
         if check_expr:
             if not safe_eval(check_expr, data):
-                logger.info(f"Validation failed: {check_expr}")
+                logger.warning(f"Validation failed: {check_expr}")
                 # Add validation failure to audit
                 if "validation_errors" not in data:
                     data["validation_errors"] = []

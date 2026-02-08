@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 _current_model = settings.AZURE_OPENAI_DEPLOYMENT_NAME
 LLM_CONFIG_ID = "llm_config"
 
+# Safety clamp: deployed model's actual max completion tokens.
+# GPT-4o = 16384, GPT-4o-2024-08-06+ = 16384, GPT-4.1 = 32768
+# Update this when changing the Azure deployment model.
+MODEL_MAX_COMPLETION_TOKENS = 32768
+
 # Singleton client — reuse across all calls
 _openai_client: Optional[AsyncAzureOpenAI] = None
 
@@ -445,8 +450,9 @@ async def call_llm_single(
     else:
         response_format = {"type": "json_object"}
 
-    # GPT-4.1: max output = 52K tokens. Table extraction needs more for many rows.
-    max_tokens = settings.LLM_TABLE_MAX_TOKENS if is_table_model else settings.LLM_DEFAULT_MAX_TOKENS
+    # Pick table vs default, then clamp to model's actual limit
+    raw_max = settings.LLM_TABLE_MAX_TOKENS if is_table_model else settings.LLM_DEFAULT_MAX_TOKENS
+    max_tokens = min(raw_max, MODEL_MAX_COMPLETION_TOKENS)
 
     try:
         response = await client.chat.completions.create(

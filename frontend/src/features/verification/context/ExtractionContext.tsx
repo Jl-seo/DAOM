@@ -17,7 +17,7 @@ import type {
     Highlight,
     ExtractionLog
 } from '../types'
-import { POLLING_INTERVAL_MS } from '../constants'
+import { POLLING_INTERVAL_MS, MAX_POLLING_ATTEMPTS } from '../constants'
 
 // Development-only logging helper
 const devLog = (...args: any[]) => {
@@ -209,21 +209,37 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
 
     // Polling ref
     const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+    const pollingAttemptRef = useRef(0)
 
     // Polling function for job status
     const startPolling = useCallback((jobId: string) => {
         if (pollingRef.current) {
             clearInterval(pollingRef.current)
         }
+        pollingAttemptRef.current = 0
 
         const poll = async () => {
+            pollingAttemptRef.current += 1
+
+            // Enforce polling timeout
+            if (pollingAttemptRef.current > MAX_POLLING_ATTEMPTS) {
+                if (pollingRef.current) {
+                    clearInterval(pollingRef.current)
+                    pollingRef.current = null
+                }
+                setStatus(EXTRACTION_STATUS.ERROR)
+                setError('추출 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.')
+                toast.error('추출 시간 초과')
+                return
+            }
+
             try {
                 const res = await apiClient.get(`/extraction/job/${jobId}`)
                 // Backend returns 'extracted_data' not 'result' — support both for safety
                 const { status: jobStatus, result: jobResult, extracted_data, preview_data, error: jobError } = res.data
                 const effectiveResult = jobResult || extracted_data
 
-                devLog('[Polling] Status:', jobStatus, 'Preview:', !!preview_data, 'Result:', !!effectiveResult)
+                devLog('[Polling] Status:', jobStatus, 'Preview:', !!preview_data, 'Result:', !!effectiveResult, 'Attempt:', pollingAttemptRef.current)
 
                 // Check for SUCCESS(S100) or legacy 'completed'
                 if ((jobStatus === EXTRACTION_STATUS.SUCCESS || jobStatus === 'completed' || jobStatus === 'preview_ready' || jobStatus === EXTRACTION_STATUS.PREVIEW_READY) && (effectiveResult || preview_data || res.data.preview_data)) {
