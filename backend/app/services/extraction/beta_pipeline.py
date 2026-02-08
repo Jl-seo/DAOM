@@ -40,9 +40,12 @@ class BetaPipeline(ExtractionPipeline):
         CHUNK_PAGE_LIMIT = 3
         CHUNK_CHAR_LIMIT = 10000 
         
-        should_chunk = (page_count > CHUNK_PAGE_LIMIT or json_payload_len > CHUNK_CHAR_LIMIT)
-        
-        if should_chunk:
+        # [Fix] Excel/Digital files have page_count=0. Chunking with 0 pages
+        # causes an empty loop → empty result. Always use single-shot for 0-page files.
+        if page_count == 0:
+            logger.info(f"[BetaPipeline] No pages detected (Excel/Digital file). Forcing Single-Shot. ({json_payload_len} chars)")
+            result = await self._execute_single_shot(model, ocr_data, focus_pages)
+        elif page_count > CHUNK_PAGE_LIMIT or json_payload_len > CHUNK_CHAR_LIMIT:
             logger.info(f"[BetaPipeline] Triggering Chunked Execution: {page_count} pages, {json_payload_len} chars")
             result = await self._execute_chunked(model, ocr_data, page_count)
         else:
