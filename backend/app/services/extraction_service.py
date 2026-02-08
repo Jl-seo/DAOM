@@ -57,8 +57,10 @@ class ExtractionService:
             # We pass the full model object to allow checking flags/rules
             processed_data = await self._unwrap_llm_extraction(ocr_result, model)
         except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
             logger.error(f"[Extraction] LLM Extraction failed: {e}", exc_info=True)
-            return {"error": f"Extraction failed: {str(e)}"}
+            return {"error": f"Extraction failed: {str(e)}\n\nTraceback:\n{tb}"}
 
         # 4. Validation & Formatting
         final_result = self._validate_and_format(processed_data, model, ocr_result.get("pages", []))
