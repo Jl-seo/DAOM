@@ -37,6 +37,13 @@ jobs:
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
+      - name: Python Syntax Check
+        run: |
+          echo "🔍 Checking Python syntax..."
+          find backend/app -name '*.py' -exec python3 -m py_compile {} +
+          echo "✅ All Python files pass syntax check"
+        continue-on-error: false
+
       - name: Build and push Backend image
         uses: docker/build-push-action@v5
         with:

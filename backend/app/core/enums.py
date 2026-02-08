@@ -10,10 +10,10 @@ class ExtractionStatus(str, Enum):
     UPLOADING = "P200"     # File uploading to storage
     ANALYZING = "P300"     # OCR / Doc Intelligence analysis
     REFINING = "P400"      # LLM processing / Refining
-    # PREVIEW_READY (P500) - Deprecated, merged into SUCCESS
+    PREVIEW_READY = "P500"  # Extraction done, preview available for review
 
     # Success states (S-Series)
-    SUCCESS = "S100"       # Completed successfully (auto)
+    SUCCESS = "S100"       # Confirmed/finalized by user
     # CONFIRMED (S200) - Deprecated, merged into SUCCESS
 
     # Error states (E-Series)

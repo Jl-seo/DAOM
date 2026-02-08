@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from app.core.auth import get_current_user, CurrentUser
+from app.core.enums import ExtractionStatus
 from app.services import extraction_logs
 from app.services.models import load_models
 from app.services.storage import upload_file_to_blob
@@ -79,7 +80,7 @@ async def run_extraction_with_metadata(
 
     try:
         # 1. Update Status
-        update_job(job_id, status="analyzing")
+        update_job(job_id, status=ExtractionStatus.ANALYZING.value)
 
         # 2. Download Primary File
         primary_url = file_urls[0]
@@ -89,7 +90,7 @@ async def run_extraction_with_metadata(
                 raise ValueError("Downloaded file content is empty or None")
         except Exception as e:
              logger.error(f"[Connector] Failed to download {primary_url}: {e}")
-             update_job(job_id, status="error", error=f"Download failed: {e}")
+             update_job(job_id, status=ExtractionStatus.ERROR.value, error=f"Download failed: {e}")
              return
 
         # 3. Detect MIME
@@ -106,12 +107,12 @@ async def run_extraction_with_metadata(
         
         # 5. Handle Result
         if "error" in result:
-             update_job(job_id, status="error", error=result["error"])
+             update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
         else:
              # Success -> Update Job
              update_job(
                 job_id, 
-                status="preview_ready", 
+                status=ExtractionStatus.PREVIEW_READY.value, 
                 preview_data=result
             )
 
@@ -132,7 +133,7 @@ async def run_extraction_with_metadata(
                 )
     except Exception as e:
         logger.error(f"[Connector] Extraction failed for job {job_id}: {e}")
-        update_job(job_id, status="error", error=str(e))
+        update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
 
 
 # ============================================
