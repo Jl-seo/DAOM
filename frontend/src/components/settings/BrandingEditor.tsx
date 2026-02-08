@@ -73,13 +73,42 @@ export function BrandingEditor() {
                 <CardContent className="space-y-4">
                     <div>
                         <label className="text-sm font-medium text-muted-foreground mb-2 block">
-                            로고 URL (선택사항)
+                            로고 업로드 (또는 URL 입력)
                         </label>
-                        <Input
-                            value={logoUrl}
-                            onChange={handleChange(setLogoUrl)}
-                            placeholder="https://example.com/logo.png"
-                        />
+                        <div className="flex gap-2">
+                            <Button variant="outline" onClick={() => document.getElementById('logo-upload')?.click()}>
+                                <Image className="w-4 h-4 mr-2" />
+                                파일 선택
+                            </Button>
+                            <Input
+                                id="logo-upload"
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) {
+                                        // Quick implementation: Base64 or Object URL for now?
+                                        // For persistence in simple config, Base64 is okay for small logos.
+                                        // Or better, trigger an upload API.
+                                        // Given no specific upload endpoint for logos, we use Base64 to save in JSON config directly.
+                                        const reader = new FileReader();
+                                        reader.onloadend = () => {
+                                            setLogoUrl(reader.result as string);
+                                            setHasChanges(true);
+                                        };
+                                        reader.readAsDataURL(file);
+                                    }
+                                }}
+                            />
+                        </div>
+                        <div className="mt-2">
+                            <Input
+                                value={logoUrl}
+                                onChange={handleChange(setLogoUrl)}
+                                placeholder="https://example.com/logo.png"
+                            />
+                        </div>
                     </div>
 
                     {/* Preview */}
