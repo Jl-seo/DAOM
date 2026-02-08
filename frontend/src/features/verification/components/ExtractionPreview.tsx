@@ -435,12 +435,12 @@ function ResizableNestedTable({
                 style={{ height: '100%' }}
             >
                 <table className="text-sm w-full relative border-collapse" style={{ minWidth: '100%' }}>
-                    <thead className="sticky top-0 z-10 bg-muted shadow-sm">
-                        <tr>
+                    <thead className="sticky top-0 z-10 bg-muted shadow-sm block w-full">
+                        <tr className="flex w-full">
                             {allKeys.map((key: string, idx: number) => (
                                 <th
                                     key={key}
-                                    className="text-left font-medium text-muted-foreground border-b border-border relative group select-none"
+                                    className="text-left font-medium text-muted-foreground border-b border-border relative group select-none shrink-0 block"
                                     style={{
                                         width: columnWidths[key] || 100,
                                         minWidth: 60,
@@ -465,7 +465,7 @@ function ResizableNestedTable({
                             ))}
                         </tr>
                     </thead>
-                    <tbody style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+                    <tbody style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative', display: 'block' }}>
                         {virtualizer.getVirtualItems().map((virtualRow) => {
                             const row = displayData[virtualRow.index]
                             return (
