@@ -124,13 +124,17 @@ class ExtractionService:
         logger.info(f"[LLM] Dispatching to mode: {'BETA (LayoutParser)' if use_beta else 'GENERAL (Legacy)'}")
 
         if use_beta:
-            # Check for Chunking Condition (e.g., > 5 pages)
+            # Check for Chunking Condition (e.g., > 3 pages OR massive text > 10k chars)
             page_count = len(ocr_data_to_send.get("pages", []))
-            CHUNK_PAGE_LIMIT = 5
+            json_payload_len = len(json.dumps(ocr_data_to_send))
             
-            if page_count > CHUNK_PAGE_LIMIT:
-                logger.info(f"[Beta] Large Document ({page_count} pages). Triggering Beta Chunking.")
-                return await self._extract_beta_chunked(model, ocr_data_to_send, page_count, CHUNK_PAGE_LIMIT)
+            CHUNK_PAGE_LIMIT = 3
+            CHUNK_CHAR_LIMIT = 10000 # Approx 2.5k tokens
+            
+            if page_count > CHUNK_PAGE_LIMIT or json_payload_len > CHUNK_CHAR_LIMIT:
+                logger.info(f"[Beta] Large Document ({page_count} pages, {json_payload_len} chars). Triggering Beta Chunking.")
+                # Use smaller chunks (2 pages) to avoid output truncation
+                return await self._extract_beta_chunked(model, ocr_data_to_send, page_count, chunk_size=2)
             
             return await self._extract_beta_mode(model, ocr_data_to_send, focus_pages)
         else:
@@ -150,7 +154,14 @@ class ExtractionService:
         logger.info(f"[Beta Chunking] Created {len(chunks)} chunks: {chunks}")
         
         # Run in parallel
-        tasks = [self._extract_beta_mode(model, ocr_data, chunk) for chunk in chunks]
+        tasks = []
+        for chunk in chunks:
+             # OPTIMIZATION: Create a mini-OCR payload for this chunk only
+             # This ensures LayoutParser only processes these specific pages, preventing token overflow.
+             chunk_ocr_data = self._filter_ocr_data(ocr_data, chunk)
+             # Disable further chunking to prevent infinite recursion
+             tasks.append(self._extract_beta_mode(model, chunk_ocr_data, focus_pages=None, allow_chunking=False))
+             
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Merge Results
@@ -172,7 +183,32 @@ class ExtractionService:
                 
             # Filter empty rows
             if rows:
-                merged_rows.extend(rows)
+                # Patch Page Numbers (Relative -> Absolute)
+                # LayoutParser in the chunk thinks pages are 1..N.
+                # We need to map them back to the real page numbers in 'chunks[idx]'.
+                current_chunk_pages = chunks[idx] # e.g. [3, 4]
+                
+                patched_rows = []
+                for row in rows:
+                    new_row = row.copy()
+                    # Check extraction metadata fields
+                    for key, val in new_row.items():
+                        if isinstance(val, dict) and "page_number" in val:
+                            rel_page = val.get("page_number", 1)
+                            # Map relative 1-based index to real page
+                            # If rel_page is 1, it's current_chunk_pages[0]
+                            if isinstance(rel_page, int) and 1 <= rel_page <= len(current_chunk_pages):
+                                val["page_number"] = current_chunk_pages[rel_page - 1]
+                                
+                    # Also check row-level metadata if any (e.g. _page)
+                    if "_page" in new_row:
+                        rel_page = new_row["_page"]
+                         if isinstance(rel_page, int) and 1 <= rel_page <= len(current_chunk_pages):
+                                new_row["_page"] = current_chunk_pages[rel_page - 1]
+
+                    patched_rows.append(new_row)
+                    
+                merged_rows.extend(patched_rows)
                 
             # Accumulate Token Usage
             usage = res.get("_token_usage", {})
@@ -194,10 +230,10 @@ class ExtractionService:
             "error": f"Chunk failures: {errors}" if errors else None
         }
 
-    async def _extract_beta_mode(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
+    async def _extract_general_mode(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
         """
-        [Beta Mode] Advanced extraction using LayoutParser + RefinerEngine.
-        Target: Complex layouts, tables, heavy documents.
+        [General Mode] Legacy extraction using raw text and admin prompt.
+        Target: Simple documents, key-value pairs.
         """
         json_payload = json.dumps(ocr_data, ensure_ascii=False)
         payload_len = len(json_payload)
@@ -403,6 +439,24 @@ Return valid JSON.
         #   2+ Rows -> Table View (List)
         if raw_data.get("_is_table") and not is_single_row:
             logger.info(f"[Validation] TABLE MODE (Multi-Row): passing through {len(table_rows)} rows")
+            
+            # CRITICAL FIX: Even in Table Mode, we must parse nested JSON strings for complex fields
+            # The LLM often returns "[{...}]" as a string for nested lists.
+            for row in table_rows:
+                for col_key, col_val in row.items():
+                    # Check against model schema if possible, or just heuristic
+                    # We can use model.fields to find type
+                    field_def = next((f for f in model.fields if f.key == col_key), None)
+                    if field_def and field_def.type in ("array", "list", "object", "table"):
+                         if isinstance(col_val, str):
+                            col_val = col_val.strip()
+                            if (col_val.startswith("[") and col_val.endswith("]")) or \
+                               (col_val.startswith("{") and col_val.endswith("}")):
+                                try:
+                                    row[col_key] = json.loads(col_val)
+                                except:
+                                    pass
+
             return {
                 "guide_extracted": table_rows,
                 "_is_table": True,
@@ -507,9 +561,25 @@ Return valid JSON.
                 normalized_bbox = bbox
             
 
-            # Type Validation
+            # Type Validation & JSON Parsing for Complex Fields
             validation_status = "valid"
-            if field.type == "number":
+            
+            # 1. Complex Types (Array/List/Object/Table) - Auto-Parse JSON strings
+            if field.type in ("array", "list", "object", "table"):
+                if isinstance(value, str):
+                    value = value.strip()
+                    # Only attempt if it looks like JSON
+                    if (value.startswith("[") and value.endswith("]")) or \
+                       (value.startswith("{") and value.endswith("}")):
+                        try:
+                            value = json.loads(value)
+                            # logger.debug(f"[Validation] Auto-parsed JSON string for field '{key}'")
+                        except json.JSONDecodeError:
+                            validation_status = "error_json_format"
+                            logger.warning(f"[Validation] Failed to parse JSON for field '{key}': {value[:50]}...")
+
+            # 2. Simple Types
+            elif field.type == "number":
                 parsed = parse_number(value)
                 if parsed is not None:
                     value = parsed
