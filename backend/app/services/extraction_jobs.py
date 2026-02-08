@@ -208,9 +208,43 @@ def update_job(
             logger.warning(f"[ExtractionJobs] Size check failed (non-fatal): {size_err}")
 
         # Upsert
-        payload_size = len(_json.dumps(job_data, ensure_ascii=False, default=str))
-        logger.info(f"[ExtractionJobs] update_job({job_id}): step 2 — upserting ({payload_size} bytes)")
-        container.upsert_item(body=job_data)
+        # Upsert with 413 Handling
+        try:
+            container.upsert_item(body=job_data)
+        except Exception as upsert_err:
+            # Check for 413 Request Entity Too Large (Cosmos DB limit 2MB)
+            err_str = str(upsert_err)
+            if "RequestEntityTooLarge" in err_str or "413" in err_str:
+                logger.warning(f"[ExtractionJobs] 413 Payload Too Large for job {job_id}. Aggressively truncating.")
+                
+                # Aggressive Truncation Strategy
+                if "preview_data" in job_data and isinstance(job_data["preview_data"], dict):
+                    pd = job_data["preview_data"]
+                    # Remove heavy fields
+                    pd.pop("raw_tables", None) 
+                    pd.pop("_beta_parsed_content", None)
+                    pd.pop("_beta_ref_map", None)
+                    pd.pop("_beta_chunking_info", None)
+                    pd.pop("raw_content", None)
+                    pd["_truncation_warning"] = "Data truncated due to size limit. Check Blob Storage."
+                
+                if "debug_data" in job_data:
+                    job_data["debug_data"] = {"error": "Debug data truncated due to size limit", "source": "blob_storage"}
+
+                try:
+                    container.upsert_item(body=job_data)
+                    logger.info(f"[ExtractionJobs] Retry upsert successful after truncation.")
+                except Exception as retry_err:
+                     logger.error(f"[ExtractionJobs] Retry failed: {retry_err}")
+                     # Last resort: clear everything except status and error
+                     job_data["preview_data"] = None
+                     job_data["extracted_data"] = None
+                     job_data["debug_data"] = None
+                     job_data["error"] = f"Code 413: Result too large to save. {str(retry_err)}" + (job_data.get("error") or "")
+                     container.upsert_item(body=job_data)
+            else:
+                raise upsert_err
+
         logger.info(f"[ExtractionJobs] update_job({job_id}): step 3 — upsert OK, creating ExtractionJob")
 
         job = ExtractionJob(**job_data)
