@@ -28,8 +28,9 @@ INSTRUCTIONS:
 3. If a field represents a list of items (e.g. line items in a table), extract it as a JSON Array of objects with relevant keys.
 4. Distinguish between 'Item' (product code/name) and 'Description' (details).
 5. **Key-Value Tables**: If a table has a structure like [Field Name | Value], map the 'Value' column to the corresponding requested field.
-6. **CRITICAL**: Extract values EXACTLY as they appear in the text. Do not reformat dates or numbers.
-7. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value. Copy it exactly from source.
+6. **Complex Tables**: Identify headers first. Ensure values are aligned under their respective headers. Do NOT merge neighboring columns (e.g. Description + Width).
+7. **CRITICAL**: Extract values EXACTLY as they appear in the text. Do not reformat dates or numbers.
+8. **CRITICAL**: You MUST include the 'bbox' (bounding box) for every extracted value. Copy it exactly from source.
 8. **CRITICAL**: You MUST include the 'page_number' (1-based index) for every extracted value.
 
 Return a JSON object with TWO parts:
