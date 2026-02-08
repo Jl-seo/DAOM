@@ -226,7 +226,7 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
                 devLog('[Polling] Status:', jobStatus, 'Preview:', !!preview_data, 'Result:', !!effectiveResult)
 
                 // Check for SUCCESS(S100) or legacy 'completed'
-                if ((jobStatus === EXTRACTION_STATUS.SUCCESS || jobStatus === 'completed') && (effectiveResult || preview_data || res.data.preview_data)) {
+                if ((jobStatus === EXTRACTION_STATUS.SUCCESS || jobStatus === 'completed' || jobStatus === 'preview_ready' || jobStatus === EXTRACTION_STATUS.PREVIEW_READY) && (effectiveResult || preview_data || res.data.preview_data)) {
                     if (pollingRef.current) {
                         clearInterval(pollingRef.current)
                         pollingRef.current = null

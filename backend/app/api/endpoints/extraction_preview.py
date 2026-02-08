@@ -101,7 +101,7 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         logger.info(f"[Background] Completed extraction job {job_id}")
 
     except Exception as e:
-        logger.info(f"[Background] FATAL ERROR in job {job_id}: {e}")
+        logger.error(f"[Background] FATAL ERROR in job {job_id}: {e}")
         import traceback
         traceback.print_exc()
         # Update job with error status
