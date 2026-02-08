@@ -240,6 +240,7 @@ TASK: Extract the required fields based on the system instructions.
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=settings.LLM_DEFAULT_TEMPERATURE,
+                max_tokens=settings.LLM_DEFAULT_MAX_TOKENS,
                 response_format={"type": "json_object"}
             )
             raw_content = response.choices[0].message.content or ""

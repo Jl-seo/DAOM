@@ -252,6 +252,7 @@ IMPORTANT:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=settings.LLM_DEFAULT_TEMPERATURE,
+                max_tokens=settings.LLM_DEFAULT_MAX_TOKENS,
                 response_format={"type": "json_object"}
             )
 
