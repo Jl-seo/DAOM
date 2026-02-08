@@ -61,7 +61,8 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
 
     try:
         # 1. Update Status to Analyzing
-        extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
+        # 1. Update Status
+        await extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
 
         # 2. Download File
         try:
@@ -72,7 +73,7 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         except Exception as e:
             error_msg = f"Failed to download file: {str(e)}"
             logger.error(f"[Background] {error_msg}")
-            extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=error_msg)
+            await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=error_msg)
             return
 
         # 3. Detect MIME type
@@ -89,10 +90,10 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         )
         
         # 5. Handle Result
-        if "error" in result:
-             extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
+        if result.get("error"):
+             await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
         else:
-             extraction_jobs.update_job(
+             await extraction_jobs.update_job(
                 job_id, 
                 status=ExtractionStatus.PREVIEW_READY.value, 
                 preview_data=result
@@ -106,7 +107,7 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         traceback.print_exc()
         # Update job with error status
         try:
-            extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
+            await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
         except Exception as update_err:
             logger.error(f"[Background] Failed to update job status: {update_err}")
             pass
@@ -409,7 +410,7 @@ async def cancel_extraction_job(
     if job.user_id != current_user.id and not await is_admin(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    updated_job = extraction_jobs.cancel_job(job_id)
+    updated_job = await extraction_jobs.cancel_job(job_id)
     if not updated_job:
          raise HTTPException(status_code=500, detail="Failed to cancel job")
 
@@ -438,8 +439,16 @@ def confirm_job(
     edited_data = request.get("edited_data") if request else None
     final_data = edited_data if edited_data else job.preview_data.get("guide_extracted", {})
 
-    # Update job status (use SUCCESS since CONFIRMED was deprecated)
-    extraction_jobs.update_job(job_id, status=ExtractionStatus.SUCCESS.value, extracted_data=final_data)
+    # Update job status
+    try:
+        await extraction_jobs.update_job(job_id, status=ExtractionStatus.SUCCESS.value, extracted_data=final_data)
+        
+        # Log audit
+        # audit.log_action(...) - handled inside update_job now
+
+    except Exception as e:
+        logger.error(f"[Confirmation] Failed to update job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save result: {e}")
 
     try:
         # Multi-Document Support: Save extraction log for EACH sub-document

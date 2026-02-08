@@ -29,7 +29,7 @@ async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str
     
     try:
         # 1. Update Status
-        extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
+        await extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
 
         # 2. Download Primary File (Index 0)
         # TODO: Handle multi-file extraction if model supports it (Legacy code handled only primary)
@@ -42,7 +42,7 @@ async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str
         except Exception as e:
             error_msg = f"Failed to download file: {str(e)}"
             logger.error(f"[Background] {error_msg}")
-            extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=error_msg)
+            await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=error_msg)
             return
 
         # 3. Detect MIME
@@ -57,10 +57,10 @@ async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str
         )
         
         # 5. Handle Result
-        if "error" in result:
-             extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
+        if result.get("error"):
+             await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
         else:
-             extraction_jobs.update_job(
+             await extraction_jobs.update_job(
                 job_id, 
                 status=ExtractionStatus.PREVIEW_READY.value, 
                 preview_data=result
@@ -70,7 +70,7 @@ async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str
         
     except Exception as e:
         logger.error(f"[Background] Fatal error in job {job_id}: {e}", exc_info=True)
-        extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
+        await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
 
 
 @router.post("/start-job")
@@ -265,7 +265,7 @@ def cancel_extraction_job(
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Cancel a running job"""
-    job = extraction_jobs.cancel_job(job_id)
+    job = await extraction_jobs.cancel_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"status": "cancelled", "job_id": job.id}
