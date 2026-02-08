@@ -183,8 +183,8 @@ class ExtractionService:
         # DEBUG: Print to ensure logging works
         logger.debug(f"[DEBUG-LLM] Payload size: {payload_len}, Pages: {page_count}, Est. Tokens: {total_estimated}")
 
-        # Threshold: 20k chars OR > 30k tokens (catch rules bloat) OR > 5 pages
-        if payload_len > 20000 or total_estimated > TOKEN_SAFEGUARD or page_count > 5:
+        # Threshold: Use config CHUNK_THRESHOLD_CHARS OR > TOKEN_SAFEGUARD tokens OR > 15 pages
+        if payload_len > settings.CHUNK_THRESHOLD_CHARS or total_estimated > TOKEN_SAFEGUARD or page_count > 15:
             logger.debug(f"[DEBUG-LLM] CHUNKING TRIGGERED! Size: {payload_len}, Tokens: {total_estimated}")
             logger.info(f"[LLM] Payload too large/complex, starting Pre-emptive Chunking...")
             try:

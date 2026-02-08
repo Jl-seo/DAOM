@@ -223,7 +223,7 @@ def update_job(
             audit.log_extraction_action(
                 job,
                 "UPDATE_STATUS",
-                status="SUCCESS" if status != "error" else "FAILURE",
+                status="SUCCESS" if status not in (ExtractionStatus.ERROR.value, ExtractionStatus.FAILED.value) else "FAILURE",
                 changes={
                     "status": {
                         "old": previous_status,
