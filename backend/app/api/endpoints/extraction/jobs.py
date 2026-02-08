@@ -48,7 +48,8 @@ async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str
         # 3. Detect MIME
         mime_type, _ = mimetypes.guess_type(filename)
 
-        # 4. Call Pure Extraction Service
+        # 4. Call Pure Extraction Service (Standard Flow)
+        # This returns the FULL result including raw_content and pages.
         result = await extraction_service.run_extraction_pipeline(
             file_content=file_content,
             model_id=model_id,
@@ -58,8 +59,10 @@ async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str
         
         # 5. Handle Result
         if result.get("error"):
+             # If error, log it
              await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
         else:
+             # Success - Persist the FULL result (preview_data) which now includes raw_content
              await extraction_jobs.update_job(
                 job_id, 
                 status=ExtractionStatus.PREVIEW_READY.value, 

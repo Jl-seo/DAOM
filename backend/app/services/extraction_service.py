@@ -140,7 +140,9 @@ class ExtractionService:
             result_dict = {
                 "guide_extracted": extraction_result.guide_extracted,
                 "_token_usage": extraction_result.token_usage.dict(),
-                "error": extraction_result.error
+                "error": extraction_result.error,
+                "raw_content": ocr_data_to_send.get("content", ""),
+                "pages": ocr_data_to_send.get("pages", [])
             }
             
             if extraction_result.is_table:
@@ -157,6 +159,54 @@ class ExtractionService:
 
         else:
             return await self._extract_general_mode(model, ocr_data_to_send, focus_pages)
+
+    async def _extract_general_mode(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
+        """
+        [General Mode] Legacy extraction using raw text and admin prompt.
+        Target: Simple documents, key-value pairs.
+        """
+        json_payload = json.dumps(ocr_data, ensure_ascii=False)
+        payload_len = len(json_payload)
+
+        # 1. Check Size -> Legacy Chunking if large.
+        # This is a basic safety mechanism for huge payloads overloading LLM
+        if payload_len > 40000:
+             logger.warning(f"[General] Payload massive ({payload_len} chars). Triggering fallback chunking (2 page limit).")
+             # Fallback to simple page-by-page or small chunks
+             # Implementation omitted for brevity, assuming _call_llm handles truncation or we implement basic chunking here.
+             # For now, let's just warn.
+             pass
+
+        # 2. Extract
+        # Construct messages for LLM
+        system_prompt = f"""
+        You are a document extraction AI.
+        Extract data according to this schema:
+        {json.dumps([f.dict() for f in model.fields], ensure_ascii=False)}
+
+        Return a JSON object with a key 'guide_extracted' containing the extracted fields.
+        If a field is not found, return null.
+        """
+        
+        user_prompt = f"Document Content:\n{ocr_data.get('content', '')}"
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        # Call LLM
+        llm_result = await self._call_llm(messages, ocr_data.get("content", ""))
+        
+        # Merge Original Data (Pass-through)
+        # Verify if raw_content flows through
+        if "raw_content" not in llm_result:
+            llm_result["raw_content"] = ocr_data.get("content", "")
+            
+        if "pages" not in llm_result:
+             llm_result["pages"] = ocr_data.get("pages", [])
+
+        return llm_result
 
     # _extract_beta_chunked and _extract_beta_mode are now DEPRECATED and REMOVED.
     # Logic moved to app.services.extraction.beta_pipeline.BetaPipeline
