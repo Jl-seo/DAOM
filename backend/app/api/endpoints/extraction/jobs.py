@@ -36,6 +36,8 @@ async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str
         primary_url = file_urls[0]
         try:
             file_content = await download_blob_to_bytes(primary_url)
+            if not file_content:
+                raise ValueError("Downloaded file content is empty or None")
             logger.info(f"[Background] Downloaded {len(file_content)} bytes from {primary_url}")
         except Exception as e:
             error_msg = f"Failed to download file: {str(e)}"

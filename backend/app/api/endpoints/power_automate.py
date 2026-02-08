@@ -85,6 +85,8 @@ async def run_extraction_with_metadata(
         primary_url = file_urls[0]
         try:
             file_content = await download_blob_to_bytes(primary_url)
+            if not file_content:
+                raise ValueError("Downloaded file content is empty or None")
         except Exception as e:
              logger.error(f"[Connector] Failed to download {primary_url}: {e}")
              update_job(job_id, status="error", error=f"Download failed: {e}")
