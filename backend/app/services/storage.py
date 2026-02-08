@@ -223,3 +223,7 @@ def generate_blob_sas_url(file_url: str, expiry_minutes: int = 60) -> str:
     except Exception as e:
         logger.error(f"[Storage] Failed to generate SAS: {e}")
         return file_url
+
+# Alias for backward compatibility
+# Extraction endpoints expect download_blob_to_bytes
+download_blob_to_bytes = download_file_from_url
