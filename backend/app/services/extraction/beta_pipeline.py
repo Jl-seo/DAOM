@@ -284,7 +284,18 @@ class BetaPipeline(ExtractionPipeline):
         
         # Mapping logic
         if "rows" in raw_llm:
-            res.table_rows = raw_llm["rows"]
+            rows = raw_llm["rows"]
+            # [Fix] Sanitize: If LLM returns {"0": {...}, "1": {...}} instead of list
+            if isinstance(rows, dict):
+                logger.warning("[BetaPipeline] LLM returned 'rows' as dict (indexed). Converting to list.")
+                # Sort by key if numeric text "0", "1" to preserve order
+                try:
+                    sorted_keys = sorted(rows.keys(), key=lambda x: int(x) if str(x).isdigit() else x)
+                    rows = [rows[k] for k in sorted_keys]
+                except:
+                    rows = list(rows.values())
+            
+            res.table_rows = rows
             res.is_table = True
         else:
             res.guide_extracted = raw_llm.get("guide_extracted", {})
