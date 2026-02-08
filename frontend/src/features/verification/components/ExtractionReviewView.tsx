@@ -143,12 +143,39 @@ export function ExtractionReviewView({
     }, [selectedFieldKey])
 
     const handleDownload = () => {
-        // Use latest edited data if available, otherwise fall back to result or initial preview
-        const dataToExport = latestData
-            ? { ...latestData.guide, other_data: latestData.other }
-            : (result || { ...currentGuideExtracted, other_data: currentOtherData })
+        // Source selection
+        const guide = latestData ? latestData.guide : (currentGuideExtracted || result || {})
+        const other = latestData ? latestData.other : (currentOtherData || [])
 
-        if (!dataToExport) return
+        if (!guide) return
+
+        let dataToExport: any
+
+        if (Array.isArray(guide)) {
+            // TABLE MODE:
+            // Convert other_data (List of KV) to a flat object to append to every row
+            const otherDataFlat = (other || []).reduce((acc: any, item: any) => {
+                if (item && item.column) {
+                    acc[item.column] = item.value
+                }
+                return acc
+            }, {})
+
+            // Merge into every row
+            dataToExport = guide.map(row => ({
+                ...row,
+                ...otherDataFlat
+            }))
+        } else {
+            // FORM MODE:
+            // Keep object structure. 'other_data' is separate.
+            // Excel util's flattenDataToRows will handle 'other_data' as detail rows if it's an array,
+            // or we can flatten it here to be safe?
+            // Existing logic passed { ...guide, other_data: other }
+            // Let's rely on the existing utility which seems to handle nested arrays for Form Mode.
+            dataToExport = { ...guide, other_data: other }
+        }
+
         downloadAsExcel(dataToExport, `${model.name}_extraction.xlsx`)
     }
 

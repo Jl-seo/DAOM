@@ -325,11 +325,21 @@ Return valid JSON.
         
         For TABLE mode: passes through _table_rows directly without field-by-field validation.
         """
-        # TABLE MODE: early return — no field-by-field validation needed
-        if raw_data.get("_is_table"):
-            logger.info(f"[Validation] TABLE MODE: passing through {len(raw_data.get('_table_rows', []))} rows")
+        # TABLE MODE: standard logic
+        # If strictly ONE row, we prefer falling through to standard Validation
+        # to render as "Form View" in Frontend (matching General Mode).
+        # Multi-row (2+) will keep using Table Mode.
+        table_rows = raw_data.get("_table_rows", [])
+        is_single_row = len(table_rows) == 1
+        
+        # Only treat as "Table Mode" (List return) if it is NOT a single row
+        # This effectively toggles: 
+        #   1 Row -> Form View (Dict)
+        #   2+ Rows -> Table View (List)
+        if raw_data.get("_is_table") and not is_single_row:
+            logger.info(f"[Validation] TABLE MODE (Multi-Row): passing through {len(table_rows)} rows")
             return {
-                "guide_extracted": raw_data.get("_table_rows", []),
+                "guide_extracted": table_rows,
                 "_is_table": True,
                 "raw_tables": raw_data.get("raw_tables"),
                 "_token_usage": raw_data.get("_token_usage"),

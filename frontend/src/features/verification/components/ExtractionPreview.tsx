@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-unused-expressions */
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable react-hooks/exhaustive-deps */
- 
+
 /* eslint-disable react-hooks/rules-of-hooks */
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { Check, ChevronDown, ChevronUp, ChevronRight, Sparkles, Database, Plus, Edit2, Save } from 'lucide-react'
@@ -300,7 +300,7 @@ function ResizableNestedTable({
             })
             setColumnWidths(initialWidths)
         }
-         
+
     }, [data.length, columnWidths]) // Use data.length instead of allKeys array
 
     // Virtualizer setup
@@ -481,7 +481,7 @@ function ResizableNestedTable({
                                         <td
                                             key={key}
                                             className={clsx(
-                                                "text-muted-foreground border-b border-transparent",
+                                                "text-muted-foreground border-b border-transparent shrink-0",
                                                 key === keyColumn && "bg-muted/50 font-medium"
                                             )}
                                             style={{
