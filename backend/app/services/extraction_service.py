@@ -124,15 +124,80 @@ class ExtractionService:
         logger.info(f"[LLM] Dispatching to mode: {'BETA (LayoutParser)' if use_beta else 'GENERAL (Legacy)'}")
 
         if use_beta:
+            # Check for Chunking Condition (e.g., > 5 pages)
+            page_count = len(ocr_data_to_send.get("pages", []))
+            CHUNK_PAGE_LIMIT = 5
+            
+            if page_count > CHUNK_PAGE_LIMIT:
+                logger.info(f"[Beta] Large Document ({page_count} pages). Triggering Beta Chunking.")
+                return await self._extract_beta_chunked(model, ocr_data_to_send, page_count, CHUNK_PAGE_LIMIT)
+            
             return await self._extract_beta_mode(model, ocr_data_to_send, focus_pages)
         else:
             return await self._extract_general_mode(model, ocr_data_to_send, focus_pages)
 
-    async def _extract_general_mode(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
+    async def _extract_beta_chunked(self, model: ExtractionModel, ocr_data: Dict[str, Any], total_pages: int, chunk_size: int) -> Dict[str, Any]:
         """
-        [General Mode]
-        1. Check Size -> Legacy Chunking if large.
-        2. Else -> Legacy Single Shot (Admin Prompt).
+        [Beta Chunking]
+        Splits document into page groups, processes them in parallel using Beta Mode, and merges results.
+        """
+        chunks = []
+        for i in range(0, total_pages, chunk_size):
+            # focus_pages is 1-based index list
+            chunk_pages = list(range(i + 1, min(i + chunk_size + 1, total_pages + 1)))
+            chunks.append(chunk_pages)
+            
+        logger.info(f"[Beta Chunking] Created {len(chunks)} chunks: {chunks}")
+        
+        # Run in parallel
+        tasks = [self._extract_beta_mode(model, ocr_data, chunk) for chunk in chunks]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Merge Results
+        merged_rows = []
+        errors = []
+        token_usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        
+        for idx, res in enumerate(results):
+            if isinstance(res, Exception):
+                logger.error(f"[Beta Chunking] Chunk {idx} failed: {res}")
+                errors.append(str(res))
+                continue
+                
+            # Merge rows
+            rows = res.get("rows", [])
+            # If standard Beta mode normalized it to _table_rows, capture that too if 'rows' missing
+            if not rows and res.get("_table_rows"):
+                rows = res.get("_table_rows")
+                
+            # Filter empty rows
+            if rows:
+                merged_rows.extend(rows)
+                
+            # Accumulate Token Usage
+            usage = res.get("_token_usage", {})
+            if usage:
+                token_usage_total["prompt_tokens"] += usage.get("prompt_tokens", 0)
+                token_usage_total["completion_tokens"] += usage.get("completion_tokens", 0)
+                token_usage_total["total_tokens"] += usage.get("total_tokens", 0)
+
+        logger.info(f"[Beta Chunking] Merged {len(merged_rows)} rows from {len(results)} chunks.")
+        
+        return {
+            "rows": merged_rows,
+            "_table_rows": merged_rows,
+            "_is_table": True, # Chunking always implies table/list output
+            "_token_usage": token_usage_total,
+            "_beta_chunking_debug": {"chunks": chunks, "errors": errors},
+            # We don't merge parsed_content or ref_map for now as they are huge and mostly for debugging single-shot.
+            # If needed, we could merge them, but it might blow up memory.
+            "error": f"Chunk failures: {errors}" if errors else None
+        }
+
+    async def _extract_beta_mode(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
+        """
+        [Beta Mode] Advanced extraction using LayoutParser + RefinerEngine.
+        Target: Complex layouts, tables, heavy documents.
         """
         json_payload = json.dumps(ocr_data, ensure_ascii=False)
         payload_len = len(json_payload)
