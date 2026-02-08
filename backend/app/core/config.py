@@ -66,8 +66,8 @@ class Settings(BaseSettings):
 
     # LLM Settings
     # GPT-4.1: max output = 52K tokens. Table extraction needs more for many rows.
-    LLM_TABLE_MAX_TOKENS: int = 32000  # Model max completion: 32768
-    LLM_DEFAULT_MAX_TOKENS: int = 8192
+    LLM_TABLE_MAX_TOKENS: int = 32768  # Model max completion: 32768
+    LLM_DEFAULT_MAX_TOKENS: int = 16384
     LLM_DEFAULT_TEMPERATURE: float = 0.0
     # Max user prompt chars (~100K tokens, leave 28K for system + response)
     LLM_MAX_USER_PROMPT_CHARS: int = 400_000

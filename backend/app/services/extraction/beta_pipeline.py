@@ -24,8 +24,8 @@ class BetaPipeline(ExtractionPipeline):
     
     def __init__(self, azure_client: AsyncAzureOpenAI):
         self.azure_client = azure_client
-        # Semaphore for Rate Limiting (Max 3 concurrent LLM calls)
-        self.semaphore = asyncio.Semaphore(3)
+        # Semaphore for Rate Limiting (Increased parallelism to 5 for speed)
+        self.semaphore = asyncio.Semaphore(5)
 
     async def execute(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: Optional[List[int]] = None) -> ExtractionResult:
         """
@@ -75,16 +75,22 @@ class BetaPipeline(ExtractionPipeline):
 
     async def _execute_chunked(self, model: ExtractionModel, ocr_data: Dict[str, Any], total_pages: int) -> ExtractionResult:
         # Chunking Config
+        CHUNK_SIZE = 1
+        OVERLAP = 0 # No overlap needed for single page chunks unless specifically requested for cross-page tables.
+        # Actually, let's keep overlap logic but default to CHUNK_SIZE=1.
+        # If CHUNK_SIZE=1 and OVERLAP=1, we get [1], [2], [3]... (no overlap)?
+        # Wait, if step = 1-1 = 0, steps stop.
+        # Let's use CHUNK_SIZE=1, OVERLAP=0 for safety first.
+        # Or better: CHUNK_SIZE=1. Overlap logic is complex with size 1.
+        # [SAFE OPTIMIZATION]
+        # Chunk Size = 2 + Overlap = 1: Preserves table context across pages.
+        # Semaphore = 5: High parallelism.
         CHUNK_SIZE = 2
-        OVERLAP = 1 # Overlap 1 page to preserve context
+        OVERLAP = 1 
         
         chunks = []
         # Create overlapping chunks: [1,2], [2,3], [3,4]...
-        # If total_pages=5: [1,2], [2,3], [3,4], [4,5]
-        # This is expensive but safer for context.
-        # Alternatively, [1,2,3], [3,4,5] (overlap 1)
-        
-        # Simple Sliding Window: Step = Chunk - Overlap
+        # Step = Chunk - Overlap = 2 - 1 = 1
         step = CHUNK_SIZE - OVERLAP
         if step < 1: step = 1
         
@@ -164,8 +170,48 @@ class BetaPipeline(ExtractionPipeline):
             chunk_ocr = self._filter_ocr_data(ocr_data, chunk_pages)
             
             # Execute Single Shot (LayoutParser inside sees 1..N pages)
-            result = await self._execute_single_shot(model, chunk_ocr, focus_pages=None)
-            
+            try:
+                result = await self._execute_single_shot(model, chunk_ocr, focus_pages=None)
+            except Exception as e:
+                # [ADAPTIVE CHUNKING ALERT]
+                # If a chunk fails (esp. JSONDecodeError via Unterminated string == Token Limit),
+                # and chunk size > 1, we must SPLIT THE CHUNK and retry.
+                if len(chunk_pages) > 1:
+                    logger.warning(f"[BetaPipeline] Chunk {chunk_pages} failed: {e}. Splitting into sub-chunks...")
+                    mid = len(chunk_pages) // 2
+                    left_pages = chunk_pages[:mid]
+                    right_pages = chunk_pages[mid:]
+                    
+                    # Recursive call
+                    left_res, right_res = await asyncio.gather(
+                        self._process_chunk_safe(model, ocr_data, left_pages),
+                        self._process_chunk_safe(model, ocr_data, right_pages)
+                    )
+                    
+                    # Merge Results manually (simplified merge of two ExtractionResults)
+                    merged = ExtractionResult()
+                    merged.table_rows = left_res.table_rows + right_res.table_rows
+                    merged.is_table = True
+                    merged.token_usage.prompt_tokens = left_res.token_usage.prompt_tokens + right_res.token_usage.prompt_tokens
+                    merged.token_usage.completion_tokens = left_res.token_usage.completion_tokens + right_res.token_usage.completion_tokens
+                    merged.token_usage.total_tokens = left_res.token_usage.total_tokens + right_res.token_usage.total_tokens
+                    # Guide extracted? Take first or merge? Usually guide is global.
+                    # If both have it, take whichever has higher confidence or non-empty.
+                    merged.guide_extracted = left_res.guide_extracted or right_res.guide_extracted
+                    
+                    # Metadata merge (complex but we just need parsed content for debug)
+                    merged.beta_metadata = left_res.beta_metadata # Best effort
+                    
+                    return merged
+                else:
+                    # Single page failure: Cannot split further.
+                    # This happens if 1 page > 16k tokens output or critical error.
+                    logger.error(f"[BetaPipeline] Single-Page Chunk {chunk_pages} FAILED irrecoverably: {e}")
+                    # Return error result object instead of crashing whole pipeline
+                    err_res = ExtractionResult()
+                    err_res.error = str(e)
+                    return err_res
+
             # Patch Page Numbers
             # LayoutParser relative 1..N -> Absolute chunk_pages
             self._patch_page_numbers(result, chunk_pages)
