@@ -158,6 +158,11 @@ def update_job(
 
         job_data = items[0]
 
+        # Validate Error Message Presence
+        if status in [ExtractionStatus.ERROR.value, ExtractionStatus.FAILED.value] and not error:
+            error = "Unknown Error (No error message provided by caller)"
+            logger.warning(f"[ExtractionJobs] Job {job_id} set to ERROR but no message provided. Using fallback.")
+
         # Update fields
         if status:
             job_data["status"] = status
@@ -244,7 +249,8 @@ def update_job(
                     log_id_to_update,
                     status=status,
                     preview_data=preview_data,
-                    debug_data=debug_data # FIXED: Propagate debug_data
+                    debug_data=debug_data, # FIXED: Propagate debug_data
+                    error=error # FIXED: Propagate error
                 )
             except Exception as e:
                 logger.error(f"[ExtractionJobs] Failed to sync status to log {job.original_log_id}: {e}")

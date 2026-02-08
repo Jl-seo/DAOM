@@ -343,7 +343,8 @@ def update_log_status(
     status: str,
     preview_data: Optional[dict] = None,
     extracted_data: Optional[dict] = None,
-    debug_data: Optional[dict] = None
+    debug_data: Optional[dict] = None,
+    error: Optional[str] = None
 ) -> bool:
     """Update just the status (and optionally data) of an existing log"""
     container = get_extractions_container()
@@ -382,6 +383,9 @@ def update_log_status(
 
         if debug_data:
             log_dict["debug_data"] = debug_data
+
+        if error:
+             log_dict["error"] = error
 
         container.upsert_item(log_dict)
         logger.info(f"[ExtractionLogs] Updated log {log_id} status to {status}")
