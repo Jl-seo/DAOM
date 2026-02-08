@@ -72,4 +72,6 @@ pandas
 openpyxl
 python-calamine
 
+
 simpleeval
+rapidfuzz
