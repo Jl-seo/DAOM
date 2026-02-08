@@ -199,7 +199,6 @@ def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] =
         return []
 
     try:
-    try:
         # Only return extraction_logs (Jobs are temp processing records)
         # OPTIMIZATION: Select only metadata fields, exclude heavy JSON objects (preview_data, extracted_data, debug_data)
         # This significantly speeds up list views. Full data is fetched via GET /logs/{id}
