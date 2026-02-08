@@ -84,6 +84,10 @@ async def get_all_menus(tenant_id: str) -> list[Menu]:
     if not container:
         return []
 
+    if not tenant_id:
+        logger.warning("get_all_menus called with empty tenant_id")
+        return []
+
     try:
         # Seed if needed
         await seed_menus(tenant_id)
@@ -96,7 +100,7 @@ async def get_all_menus(tenant_id: str) -> list[Menu]:
         return [Menu.from_dict(item) for item in items]
 
     except Exception as e:
-        logger.error(f"Error getting menus: {e}")
+        logger.error(f"Error getting menus for tenant '{tenant_id}': {e}")
         return []
 
 

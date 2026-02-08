@@ -260,7 +260,7 @@ def delete_extraction_job(
 
 
 @router.post("/job/{job_id}/cancel")
-def cancel_extraction_job(
+async def cancel_extraction_job(
     job_id: str,
     current_user: CurrentUser = Depends(get_current_user)
 ):
