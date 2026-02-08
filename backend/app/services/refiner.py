@@ -141,8 +141,8 @@ CRITICAL RULES:
 3. Do not add fields that are not in the REQUIRED EXTRACTION FIELDS list.
 
 LANGUAGE INSTRUCTION:
-Translate "value" to {language} unless the field rule says otherwise.
-Do NOT translate "source_text".
+Extract the value exactly as it appears in the document (Original Language).
+Do NOT translate unless the field rule explicitly mentions translation.
 """
         return prompt
 

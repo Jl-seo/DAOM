@@ -208,41 +208,44 @@ class LayoutParser:
                 regions = cell.get("boundingRegions") or cell.get("bounding_regions", [])
                 spans = cell.get("spans", [])
 
-                if not regions:
-                    continue
-
-                # Spans may be missing (doc_intel.py doesn't include them for cells)
-                # Fall back to fuzzy offset estimation from content position
-                if spans:
+                # BBox & Page Safety
+                bbox = None
+                global_page = self._find_global_page(fid, 1) # Default to Page 1 if no layout info
+                
+                if regions:
+                     bbox = regions[0].get("polygon")
+                     local_page = regions[0].get("pageNumber") or regions[0].get("page_number")
+                     global_page = self._find_global_page(fid, local_page)
+                
+                # Without spans, try to find content in full_content
+                if not spans:
+                    found_pos = self.full_content.find(content, offset_shift)
+                    if found_pos == -1:
+                        # Fallback: Can't locate even by string search? Skip.
+                        # Actually for Excel, content might be exact match of cell content.
+                        # But offset_shift points to start of file content.
+                        # If full_content was built properly, it implies content exists.
+                        continue
+                    local_offset = found_pos - offset_shift
+                    local_length = len(content)
+                else:
                     primary_span = spans[0]
                     local_offset = primary_span["offset"]
                     local_length = primary_span["length"]
-                else:
-                    # Without spans, try to find content in full_content
-                    found_pos = self.full_content.find(content, offset_shift)
-                    if found_pos == -1:
-                        continue  # Can't locate in text
-                    local_offset = found_pos - offset_shift
-                    local_length = len(content)
 
                 # Convert to Global Offset
                 global_offset = offset_shift + local_offset
 
-                # Get Global Page Number (support both pageNumber and page_number)
-                local_page = regions[0].get("pageNumber") or regions[0].get("page_number")
-                # Find global page match (inefficient but safe)
-                global_page = self._find_global_page(fid, local_page)
-
                 # Register
                 self._register_tag(
                     text=content,
-                    bbox=regions[0].get("polygon"),
+                    bbox=bbox,
                     global_page=global_page,
                     file_id=fid,
                     type_code="C",
                     offset=global_offset,
                     length=local_length,
-                    priority=0 # Highest priority
+                    priority=0
                 )
 
     def _pass_entities(self):
@@ -340,13 +343,16 @@ class LayoutParser:
 
         # BBox Safety (support both camelCase and snake_case)
         regions = parent_para.get("boundingRegions") or parent_para.get("bounding_regions", [])
-        if not regions: return
-
-        bbox = regions[0].get("polygon")
-
-        # Get Global Page (support both pageNumber and page_number)
-        local_page = regions[0].get("pageNumber") or regions[0].get("page_number")
-        global_page = self._find_global_page(file_id, local_page)
+        if not regions:
+             # Fallback for Excel/Digital: Use dummy bbox or None if strict
+             # Azure Layout model for Office files often omits polygons.
+             # We should register it anyway to capture text, even if highlighting fails.
+             bbox = None
+             global_page = self._find_global_page(file_id, 1) # Default page 1
+        else:
+             bbox = regions[0].get("polygon")
+             local_page = regions[0].get("pageNumber") or regions[0].get("page_number")
+             global_page = self._find_global_page(file_id, local_page)
 
         self._register_tag(
             text=text_segment,
