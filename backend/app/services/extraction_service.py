@@ -113,87 +113,49 @@ class ExtractionService:
         # OPTIMIZATION: Filter payload to only relevant pages
         ocr_data_to_send = self._filter_ocr_data(ocr_data, focus_pages) if focus_pages else ocr_data.copy()
 
-        # [REFACTOR] Respect Beta Config + Token Safeguards
-        # Restored logic order: Check config -> Beta vs Legacy -> Size Check -> Execution
-        
-        use_beta = False
-        
-        # 1. Check Model Config
-        if hasattr(model, "beta_features") and isinstance(model.beta_features, dict):
-            use_beta = model.beta_features.get("use_optimized_prompt", False)
-        elif isinstance(model, dict) and "beta_features" in model:
-             use_beta = model.get("beta_features", {}).get("use_optimized_prompt", False)
 
-        # 2. Force Beta for Excel bypass (REMOVED: User wants standard Azure DI path for Excel unless Beta is explicitly on)
-        # if ocr_data.get("_layout_parser_bypass"):
-        #      logger.info("[LLM] Excel bypass detected, forcing Beta for chunking.")
-        #      use_beta = True
+
+        # [Scenario Router] - FIRST STEP
+        # Decide strategy immediately based on model configuration.
+        use_beta = model.beta_features.get("use_optimized_prompt", False) if model.beta_features else False
+        
+        logger.info(f"[LLM] Dispatching to mode: {'BETA (LayoutParser)' if use_beta else 'GENERAL (Legacy)'}")
 
         if use_beta:
-            from app.services.beta_chunking import extract_beta_with_chunking
-            logger.info("[LLM] Delegating to Beta Extraction Service (RefinerEngine).")
-            
-            # extract_beta_with_chunking handles:
-            # 1. Prompt construction via RefinerEngine
-            # 2. LayoutParser (unless bypassed)
-            # 3. Intelligent chunking
-            llm_result = await extract_beta_with_chunking(
-                ocr_data=ocr_data_to_send,
-                model_info=model,
-                language="ko",
-                max_concurrent=4,
-            )
+            return await self._extract_beta_mode(model, ocr_data_to_send, focus_pages)
+        else:
+            return await self._extract_general_mode(model, ocr_data_to_send, focus_pages)
 
-            # Ensure minimal valid response structure
-            if not llm_result.get("guide_extracted"):
-                llm_result["guide_extracted"] = {}
-            if "raw_content" not in llm_result:
-                llm_result["raw_content"] = ocr_data_to_send.get("content", "")
-            if "raw_tables" not in llm_result:
-                llm_result["raw_tables"] = ocr_data_to_send.get("tables", [])
-
-            return llm_result
-
-        # --- LEGACY PATH (Restored & Fortified) ---
-        logger.info("[LLM] Using Legacy Extraction Path (Standard JSON Prompt).")
-
-        # PRE-EMPTIVE CHUNKING: Only for genuinely large documents
-        json_payload = json.dumps(ocr_data_to_send, ensure_ascii=False)
+    async def _extract_general_mode(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
+        """
+        [General Mode]
+        1. Check Size -> Legacy Chunking if large.
+        2. Else -> Legacy Single Shot (Admin Prompt).
+        """
+        json_payload = json.dumps(ocr_data, ensure_ascii=False)
         payload_len = len(json_payload)
-        page_count = len(ocr_data_to_send.get("pages", []))
+        page_count = len(ocr_data.get("pages", []))
         
-        logger.info(f"[LLM] Payload size: {payload_len} chars, Pages: {page_count}")
-
-        # Construct system prompt (needed for both single-shot and chunking)
-        from app.services.refiner import RefinerEngine
-        try:
-            system_prompt = RefinerEngine.construct_prompt(model, language="ko")
-        except Exception as e:
-            logger.warning(f"[LLM-Refiner] Failed to construct prompt: {e}")
-            system_prompt = "You are a document extraction AI. Extract JSON."
-
-        # Threshold: payload chars > config limit OR > 15 pages
-        # GPT-4o has 128K context — let single-shot handle most documents.
-        # If it fails with context_length_exceeded, fallback to chunking below.
+        # 1. Legacy Chunking Check
         if payload_len > settings.CHUNK_THRESHOLD_CHARS or page_count > 15:
-            logger.info(f"[LLM] CHUNKING TRIGGERED — Size: {payload_len} chars, Pages: {page_count}")
-            logger.info(f"[LLM] Payload too large/complex, starting Pre-emptive Chunking...")
+            logger.info(f"[LLM-General] Payload > Threshold ({payload_len} chars). Triggering Legacy Chunking.")
             try:
                 from app.services.chunked_extraction import extract_with_chunking
-                # Convert model fields to dict format if needed, but extract_with_chunking handles model object now
+                
+                # General Mode = Always use Legacy Chunking (model_info=None)
                 merged_result, errors = await extract_with_chunking(
-                    doc_intel_output=ocr_data_to_send,
+                    doc_intel_output=ocr_data,
                     model_fields=model.fields,
-                    model_info=model, # Pass full model for RefinerEngine rules
+                    model_info=None, 
                     max_tokens_per_chunk=settings.LLM_CHUNK_MAX_TOKENS,
                     max_concurrent=8
                 )
 
                 if errors:
-                    logger.warning(f"[LLM-Chunked] Some chunks failed: {errors}")
+                    logger.warning(f"[LLM-General] Chunking errors: {errors}")
 
                 # Merge structured result
-                raw_tables = ocr_data_to_send.get("tables", [])
+                raw_tables = ocr_data.get("tables", [])
                 merge_debug = merged_result.get("_merge_info", {})
 
                 return {
@@ -202,39 +164,138 @@ class ExtractionService:
                     "_chunked": True,
                     "_debug_chunking": merge_debug,
                     "_chunking_errors": errors if errors else None,
-                    "raw_content": ocr_data_to_send.get("content", "")
+                    "raw_content": ocr_data.get("content", "")
                 }
             except Exception as chunk_error:
-                logger.error(f"[LLM-Chunked] Pre-emptive chunking failed: {chunk_error}")
-                raise Exception(f"DOCUMENT_CHUNKING_FAILED: {chunk_error}")
+                logger.error(f"[LLM-General] Legacy Chunking Failed: {chunk_error}")
+                # Fallback to Single Shot? Or Fail?
+                # Legacy behavior was fail if chunking fails.
+                raise chunk_error
 
+        # 2. Legacy Single Shot (Reference Admin Prompt)
+        from app.services import prompt_service
 
-        # [Legacy Single Shot]
-        # Uses RefinerEngine for prompt (includes rules) + JSON dump for content
-        # Note: RefinerEngine asks for 'bbox' output, and JSON dump provides 'boundingRequests'/etc.
-        # This aligns correctly.
+        try:
+            system_template = await prompt_service.get_prompt_content("extraction_system")
+            if not system_template:
+                logger.warning("[LLM] Admin prompt 'extraction_system' not found, using default.")
+                system_template = prompt_service.DEFAULT_PROMPTS["extraction_system"]["content"]
+
+            # 2. Prepare Variables
+            field_descs = []
+            for field in model.fields:
+                desc = f"- {field.key} ({field.label})"
+                if field.description: desc += f": {field.description}"
+                if field.type: desc += f" [Type: {field.type}]"
+                field_descs.append(desc)
+            field_block = "\n".join(field_descs)
+
+            rules_block = f"\nGLOBAL RULES:\n{model.global_rules}\n" if model.global_rules else ""
+            focus_block = f"\nFOCUS ONLY ON PAGES: {focus_pages}" if focus_pages else ""
+
+            # 3. Format Prompt
+            formatted_system_prompt = system_template.replace("{ocr_data}", json_payload) \
+                                                     .replace("{field_descriptions}", field_block) \
+                                                     .replace("{global_rules}", rules_block) \
+                                                     .replace("{focus_instruction}", focus_block)
+            
+            messages = [
+                {"role": "system", "content": formatted_system_prompt},
+                {"role": "user", "content": "Start extraction now."}
+            ]
+        except Exception as e:
+            logger.error(f"[LLM] General Mode Prompt Error: {e}")
+            raise e
+
+        # 4. Call LLM
+        return await self._call_llm(messages, ocr_data.get("content", ""))
+
+    async def _extract_beta_mode(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
+        """
+        [Beta Mode] Advanced extraction using LayoutParser + RefinerEngine.
+        Target: Complex layouts, tables, heavy documents.
+        """
+        # 1. Layout Parsing (Structure-Aware Tagging)
+        from app.services.layout_parser import LayoutParser
+        parser = LayoutParser(ocr_data)
+        tagged_text, ref_map = parser.parse(focus_pages=focus_pages)
+        
+        # 2. Refiner Prompt
+        from app.services.refiner import RefinerEngine
+        system_prompt = RefinerEngine.construct_prompt(model, language="ko")
         
         user_prompt = f"""
-DOCUMENT DATA (JSON Format with Bounding Boxes):
-{json_payload}
+DOCUMENT DATA (Tagged Layout Format):
+{tagged_text}
 
-TASK: Extract the required fields based on the system instructions.
+TASK: Extract fields based on system instructions.
+Return valid JSON.
 """
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        # 3. Call LLM
+        result = await self._call_llm(messages, ocr_data.get("content", ""))
+        
+        # 4. Post-processing (Refiner/Parser specifics)
+        # Store technical metadata for debugging
+        result["_beta_parsed_content"] = tagged_text
+        result["_beta_ref_map"] = ref_map
+        
+        # Normalization: Map 'rows' to 'guide_extracted' for Frontend Compatibility
+        if "rows" in result:
+             result["_is_table"] = True
+             result["_table_rows"] = result["rows"]
+             
+             # If guide_extracted is missing/empty, try to populate from first row
+             # This handles cases where Refiner uses Table Mode for Key-Value documents
+             if not result.get("guide_extracted") and len(result["rows"]) > 0:
+                 first_row = result["rows"][0]
+                 converted_guide = {}
+                 
+                 # Refiner might return values directly, or maybe we can improve prompt to return tags?
+                 # ideally prompt should return value. LayoutParser has value->bbox map.
+                 
+                 for key, val in first_row.items():
+                     # Default (Missing)
+                     bbox = None
+                     page = 1
+                     confidence = 0.9
 
-        logger.info(f"[LLM] Prompt prepared via RefinerEngine. Sending request to Azure OpenAI (Focus: {focus_pages})...")
+                     # Attempt to find BBox via LayoutParser's ref_map logic
+                     # We can use parser.find_coordinate_by_text(val)
+                     if val and isinstance(val, str):
+                         found_result = parser.find_coordinate_by_text(val)
+                         if found_result:
+                             bbox, page = found_result
+                             # bbox is List[float], page is int
+
+                     converted_guide[key] = {
+                         "value": val,
+                         "confidence": confidence,
+                         "bbox": bbox, 
+                         "page_number": page
+                     }
+                 result["guide_extracted"] = converted_guide
+                 logger.info(f"[Beta] Converted 1st row to guide_extracted ({len(converted_guide)} fields) with BBox lookup")
+             
+        return result
+
+    async def _call_llm(self, messages: List[Dict[str, str]], raw_content: str) -> Dict[str, Any]:
+        """Shared LLM Caller"""
+        logger.info(f"[LLM] Sending request to Azure OpenAI...")
         try:
             current_model_name = get_current_model()
             response = await self.azure_openai.chat.completions.create(
                 model=current_model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+                messages=messages,
                 temperature=settings.LLM_DEFAULT_TEMPERATURE,
                 max_tokens=settings.LLM_DEFAULT_MAX_TOKENS,
                 response_format={"type": "json_object"}
             )
-            raw_content = response.choices[0].message.content or ""
+            content = response.choices[0].message.content or "{}"
             
             token_usage = None
             if response.usage:
@@ -245,15 +306,13 @@ TASK: Extract the required fields based on the system instructions.
                 }
                 logger.info(f"[LLM-Token] Usage: {token_usage}")
 
-            result = json.loads(raw_content)
+            result = json.loads(content)
             result["_token_usage"] = token_usage
-
             if "raw_content" not in result:
-                result["raw_content"] = ocr_data_to_send.get("content", "")
-
+                result["raw_content"] = raw_content
             return result
         except Exception as e:
-            logger.error(f"[LLM] Extraction failed: {e}")
+            logger.error(f"[LLM] Call Failed: {e}")
             raise e
 
     def _validate_and_format(self, raw_data: Dict[str, Any], model: ExtractionModel, pages_info: List[Dict[str, Any]] = [], default_page: int = 1) -> Dict[str, Any]:

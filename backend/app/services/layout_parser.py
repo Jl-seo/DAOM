@@ -404,16 +404,10 @@ class LayoutParser:
         return False
 
 
-    def find_coordinate_by_text(self, target_text: str, page_limit: Optional[int] = None, file_id: Optional[str] = None) -> Optional[List[float]]:
+    def find_coordinate_by_text(self, target_text: str, page_limit: Optional[int] = None, file_id: Optional[str] = None) -> Optional[Tuple[List[float], int]]:
         """
         Fallback: Fuzzy search in the document text using a 2-Pass Strategy with RapidFuzz.
-        Pass 1: Strict - fuzz.ratio (>= 95) with symbols kept.
-        Pass 2: Lenient - fuzz.partial_ratio after stripping symbols.
-        
-        Args:
-            target_text: Text to search for.
-            page_limit: Restrict search to specific Global Page Number.
-            file_id: Restrict search to specific File ID (Critical for Multi-file context).
+        Returns: (bbox, page_number) or None
         """
         if not target_text or len(target_text) < 2:
             return None
@@ -424,9 +418,9 @@ class LayoutParser:
             return None
 
         # --- Internal Helper for Scanning RefMap ---
-        def _scan_ref_map(normalized_target: str, is_strict: bool) -> Optional[List[float]]:
+        def _scan_ref_map(normalized_target: str, is_strict: bool) -> Optional[Tuple[List[float], int]]:
             best_score = 0.0
-            best_bbox = None
+            best_result = None # (bbox, page)
 
             for idx, info in self.ref_map.items():
                 ref_page = info.get("page_number")
@@ -451,11 +445,11 @@ class LayoutParser:
                 # 1. Exact Match Check (fast path)
                 if normalized_target == ref_norm:
                     if page_limit and ref_page == page_limit:
-                        return info["bbox"]  # Immediate return for exact match on correct page
-                    if not best_bbox:
-                        best_bbox = info["bbox"]
+                        return (info["bbox"], ref_page)
+                    if not best_result:
+                        best_result = (info["bbox"], ref_page)
                     if not page_limit:
-                        return info["bbox"]
+                        return (info["bbox"], ref_page)
                     continue
 
                 # 2. Fuzzy Match using RapidFuzz
@@ -475,13 +469,13 @@ class LayoutParser:
                 if score >= threshold:
                     # Very high score - return immediately
                     if score >= 98:
-                        return info["bbox"]
+                        return (info["bbox"], ref_page)
 
                     if score > best_score:
                         best_score = score
-                        best_bbox = info["bbox"]
+                        best_result = (info["bbox"], ref_page)
 
-            return best_bbox
+            return best_result
 
         # --- PASS 1: Strict (using fuzz.ratio) ---
         result_strict = _scan_ref_map(target_processed, is_strict=True)
