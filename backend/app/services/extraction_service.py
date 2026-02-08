@@ -124,267 +124,42 @@ class ExtractionService:
         logger.info(f"[LLM] Dispatching to mode: {'BETA (LayoutParser)' if use_beta else 'GENERAL (Legacy)'}")
 
         if use_beta:
-            # Check for Chunking Condition (e.g., > 3 pages OR massive text > 10k chars)
-            page_count = len(ocr_data_to_send.get("pages", []))
-            json_payload_len = len(json.dumps(ocr_data_to_send))
+            # [Refactored Phase 7] Use BetaPipeline
+            from app.services.extraction.beta_pipeline import BetaPipeline
             
-            CHUNK_PAGE_LIMIT = 3
-            CHUNK_CHAR_LIMIT = 10000 # Approx 2.5k tokens
+            # Lazy init or singleton? Better to init once. 
+            # For now, instantiate here to avoid circular imports in __init__ if any.
+            # Actually, let's keep it simple.
+            pipeline = BetaPipeline(self.azure_openai)
             
-            if page_count > CHUNK_PAGE_LIMIT or json_payload_len > CHUNK_CHAR_LIMIT:
-                logger.info(f"[Beta] Large Document ({page_count} pages, {json_payload_len} chars). Triggering Beta Chunking.")
-                # Use smaller chunks (2 pages) to avoid output truncation
-                return await self._extract_beta_chunked(model, ocr_data_to_send, page_count, chunk_size=2)
+            # Execute Pipeline (Standardized Result)
+            extraction_result = await pipeline.execute(model, ocr_data_to_send, focus_pages)
             
-            return await self._extract_beta_mode(model, ocr_data_to_send, focus_pages)
+            # Convert to Dictionary for Compatibility with _validate_and_format
+            # We map Standard Schema -> Legacy Dict Schema
+            result_dict = {
+                "guide_extracted": extraction_result.guide_extracted,
+                "_token_usage": extraction_result.token_usage.dict(),
+                "error": extraction_result.error
+            }
+            
+            if extraction_result.is_table:
+                result_dict["_is_table"] = True
+                result_dict["_table_rows"] = extraction_result.table_rows
+                result_dict["rows"] = extraction_result.table_rows # Legacy compat
+                
+            # Metadata
+            if extraction_result.beta_metadata:
+                result_dict["_beta_parsed_content"] = extraction_result.beta_metadata.get("parsed_content")
+                result_dict["_beta_ref_map"] = extraction_result.beta_metadata.get("ref_map")
+                
+            return result_dict
+
         else:
             return await self._extract_general_mode(model, ocr_data_to_send, focus_pages)
 
-    async def _extract_beta_chunked(self, model: ExtractionModel, ocr_data: Dict[str, Any], total_pages: int, chunk_size: int) -> Dict[str, Any]:
-        """
-        [Beta Chunking]
-        Splits document into page groups, processes them in parallel using Beta Mode, and merges results.
-        """
-        chunks = []
-        for i in range(0, total_pages, chunk_size):
-            # focus_pages is 1-based index list
-            chunk_pages = list(range(i + 1, min(i + chunk_size + 1, total_pages + 1)))
-            chunks.append(chunk_pages)
-            
-        logger.info(f"[Beta Chunking] Created {len(chunks)} chunks: {chunks}")
-        
-        # Run in parallel
-        tasks = []
-        for chunk in chunks:
-             # OPTIMIZATION: Create a mini-OCR payload for this chunk only
-             # This ensures LayoutParser only processes these specific pages, preventing token overflow.
-             chunk_ocr_data = self._filter_ocr_data(ocr_data, chunk)
-             # Disable further chunking to prevent infinite recursion
-             tasks.append(self._extract_beta_mode(model, chunk_ocr_data, focus_pages=None, allow_chunking=False))
-             
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Merge Results
-        merged_rows = []
-        errors = []
-        token_usage_total = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-        
-        for idx, res in enumerate(results):
-            if isinstance(res, Exception):
-                logger.error(f"[Beta Chunking] Chunk {idx} failed: {res}")
-                errors.append(str(res))
-                continue
-                
-            # Merge rows
-            rows = res.get("rows", [])
-            # If standard Beta mode normalized it to _table_rows, capture that too if 'rows' missing
-            if not rows and res.get("_table_rows"):
-                rows = res.get("_table_rows")
-                
-            # Filter empty rows
-            if rows:
-                # Patch Page Numbers (Relative -> Absolute)
-                # LayoutParser in the chunk thinks pages are 1..N.
-                # We need to map them back to the real page numbers in 'chunks[idx]'.
-                current_chunk_pages = chunks[idx] # e.g. [3, 4]
-                
-                patched_rows = []
-                for row in rows:
-                    new_row = row.copy()
-                    # Check extraction metadata fields
-                    for key, val in new_row.items():
-                        if isinstance(val, dict) and "page_number" in val:
-                            rel_page = val.get("page_number", 1)
-                            # Map relative 1-based index to real page
-                            # If rel_page is 1, it's current_chunk_pages[0]
-                            if isinstance(rel_page, int) and 1 <= rel_page <= len(current_chunk_pages):
-                                val["page_number"] = current_chunk_pages[rel_page - 1]
-                                
-                    # Also check row-level metadata if any (e.g. _page)
-                    if "_page" in new_row:
-                        rel_page = new_row["_page"]
-                         if isinstance(rel_page, int) and 1 <= rel_page <= len(current_chunk_pages):
-                                new_row["_page"] = current_chunk_pages[rel_page - 1]
-
-                    patched_rows.append(new_row)
-                    
-                merged_rows.extend(patched_rows)
-                
-            # Accumulate Token Usage
-            usage = res.get("_token_usage", {})
-            if usage:
-                token_usage_total["prompt_tokens"] += usage.get("prompt_tokens", 0)
-                token_usage_total["completion_tokens"] += usage.get("completion_tokens", 0)
-                token_usage_total["total_tokens"] += usage.get("total_tokens", 0)
-
-        logger.info(f"[Beta Chunking] Merged {len(merged_rows)} rows from {len(results)} chunks.")
-        
-        return {
-            "rows": merged_rows,
-            "_table_rows": merged_rows,
-            "_is_table": True, # Chunking always implies table/list output
-            "_token_usage": token_usage_total,
-            "_beta_chunking_debug": {"chunks": chunks, "errors": errors},
-            # We don't merge parsed_content or ref_map for now as they are huge and mostly for debugging single-shot.
-            # If needed, we could merge them, but it might blow up memory.
-            "error": f"Chunk failures: {errors}" if errors else None
-        }
-
-    async def _extract_general_mode(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
-        """
-        [General Mode] Legacy extraction using raw text and admin prompt.
-        Target: Simple documents, key-value pairs.
-        """
-        json_payload = json.dumps(ocr_data, ensure_ascii=False)
-        payload_len = len(json_payload)
-        page_count = len(ocr_data.get("pages", []))
-        
-        # 1. Legacy Chunking Check
-        if payload_len > settings.CHUNK_THRESHOLD_CHARS or page_count > 15:
-            logger.info(f"[LLM-General] Payload > Threshold ({payload_len} chars). Triggering Legacy Chunking.")
-            try:
-                from app.services.chunked_extraction import extract_with_chunking
-                
-                # General Mode = Always use Legacy Chunking (model_info=None)
-                merged_result, errors = await extract_with_chunking(
-                    doc_intel_output=ocr_data,
-                    model_fields=model.fields,
-                    model_info=None, 
-                    max_tokens_per_chunk=settings.LLM_CHUNK_MAX_TOKENS,
-                    max_concurrent=8
-                )
-
-                if errors:
-                    logger.warning(f"[LLM-General] Chunking errors: {errors}")
-
-                # Merge structured result
-                raw_tables = ocr_data.get("tables", [])
-                merge_debug = merged_result.get("_merge_info", {})
-
-                return {
-                    "guide_extracted": {k: {"value": v.get("value"), "confidence": v.get("confidence", 0.0), "bbox": v.get("bbox"), "page_number": v.get("page_number")} for k, v in merged_result.items() if not k.startswith("_")},
-                    "other_data": [{"type": "raw_tables", "tables": raw_tables}] if raw_tables else [],
-                    "_chunked": True,
-                    "_debug_chunking": merge_debug,
-                    "_chunking_errors": errors if errors else None,
-                    "raw_content": ocr_data.get("content", "")
-                }
-            except Exception as chunk_error:
-                logger.error(f"[LLM-General] Legacy Chunking Failed: {chunk_error}")
-                # Fallback to Single Shot? Or Fail?
-                # Legacy behavior was fail if chunking fails.
-                raise chunk_error
-
-        # 2. Legacy Single Shot (Reference Admin Prompt)
-        from app.services import prompt_service
-
-        try:
-            system_template = await prompt_service.get_prompt_content("extraction_system")
-            if not system_template:
-                logger.warning("[LLM] Admin prompt 'extraction_system' not found, using default.")
-                system_template = prompt_service.DEFAULT_PROMPTS["extraction_system"]["content"]
-
-            # 2. Prepare Variables
-            field_descs = []
-            for field in model.fields:
-                desc = f"- {field.key} ({field.label})"
-                if field.description: desc += f": {field.description}"
-                if field.type: desc += f" [Type: {field.type}]"
-                field_descs.append(desc)
-            field_block = "\n".join(field_descs)
-
-            rules_block = f"\nGLOBAL RULES:\n{model.global_rules}\n" if model.global_rules else ""
-            focus_block = f"\nFOCUS ONLY ON PAGES: {focus_pages}" if focus_pages else ""
-
-            # 3. Format Prompt
-            formatted_system_prompt = system_template.replace("{ocr_data}", json_payload) \
-                                                     .replace("{field_descriptions}", field_block) \
-                                                     .replace("{global_rules}", rules_block) \
-                                                     .replace("{focus_instruction}", focus_block)
-            
-            messages = [
-                {"role": "system", "content": formatted_system_prompt},
-                {"role": "user", "content": "Start extraction now."}
-            ]
-        except Exception as e:
-            logger.error(f"[LLM] General Mode Prompt Error: {e}")
-            raise e
-
-        # 4. Call LLM
-        return await self._call_llm(messages, ocr_data.get("content", ""))
-
-    async def _extract_beta_mode(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: List[int] = None) -> Dict[str, Any]:
-        """
-        [Beta Mode] Advanced extraction using LayoutParser + RefinerEngine.
-        Target: Complex layouts, tables, heavy documents.
-        """
-        # 1. Layout Parsing (Structure-Aware Tagging)
-        from app.services.layout_parser import LayoutParser
-        parser = LayoutParser(ocr_data)
-        tagged_text, ref_map = parser.parse(focus_pages=focus_pages)
-        
-        # 2. Refiner Prompt
-        from app.services.refiner import RefinerEngine
-        system_prompt = RefinerEngine.construct_prompt(model, language="ko")
-        
-        user_prompt = f"""
-DOCUMENT DATA (Tagged Layout Format):
-{tagged_text}
-
-TASK: Extract fields based on system instructions.
-Return valid JSON.
-"""
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        
-        # 3. Call LLM
-        result = await self._call_llm(messages, ocr_data.get("content", ""))
-        
-        # 4. Post-processing (Refiner/Parser specifics)
-        # Store technical metadata for debugging
-        result["_beta_parsed_content"] = tagged_text
-        result["_beta_ref_map"] = ref_map
-        
-        # Normalization: Map 'rows' to 'guide_extracted' for Frontend Compatibility
-        if "rows" in result:
-             result["_is_table"] = True
-             result["_table_rows"] = result["rows"]
-             
-             # If guide_extracted is missing/empty, try to populate from first row
-             # This handles cases where Refiner uses Table Mode for Key-Value documents
-             if not result.get("guide_extracted") and len(result["rows"]) > 0:
-                 first_row = result["rows"][0]
-                 converted_guide = {}
-                 
-                 # Refiner might return values directly, or maybe we can improve prompt to return tags?
-                 # ideally prompt should return value. LayoutParser has value->bbox map.
-                 
-                 for key, val in first_row.items():
-                     # Default (Missing)
-                     bbox = None
-                     page = 1
-                     confidence = 0.9
-
-                     # Attempt to find BBox via LayoutParser's ref_map logic
-                     # We can use parser.find_coordinate_by_text(val)
-                     if val and isinstance(val, str):
-                         found_result = parser.find_coordinate_by_text(val)
-                         if found_result:
-                             bbox, page = found_result
-                             # bbox is List[float], page is int
-
-                     converted_guide[key] = {
-                         "value": val,
-                         "confidence": confidence,
-                         "bbox": bbox, 
-                         "page_number": page
-                     }
-                 result["guide_extracted"] = converted_guide
-                 logger.info(f"[Beta] Converted 1st row to guide_extracted ({len(converted_guide)} fields) with BBox lookup")
-             
-        return result
+    # _extract_beta_chunked and _extract_beta_mode are now DEPRECATED and REMOVED.
+    # Logic moved to app.services.extraction.beta_pipeline.BetaPipeline
 
     async def _call_llm(self, messages: List[Dict[str, str]], raw_content: str) -> Dict[str, Any]:
         """Shared LLM Caller"""
