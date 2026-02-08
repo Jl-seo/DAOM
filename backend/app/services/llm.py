@@ -7,7 +7,8 @@ from app.core.config import settings
 from app.core.enums import DEFAULT_COMPARISON_CATEGORIES
 from app.schemas.model import ExtractionModel
 from app.services.refiner import RefinerEngine
-from app.services.layout_parser import LayoutParser
+# DEPRECATED: LayoutParser moved to lazy import inside call_llm_for_extraction()
+# from app.services.layout_parser import LayoutParser
 from app.db.cosmos import get_config_container
 
 logger = logging.getLogger(__name__)
@@ -171,6 +172,7 @@ async def analyze_document_content(
     if use_optimized_prompt:
         logger.info("[LLM-Beta] Using LayoutParser for optimized prompt")
         try:
+            from app.services.layout_parser import LayoutParser  # Lazy import (Beta only)
             parser = LayoutParser(ocr_result)
             content_text, ref_map = parser.parse()
             logger.info(f"[LLM-Beta] Parsed content length: {len(content_text)}, ref_map entries: {len(ref_map)}")

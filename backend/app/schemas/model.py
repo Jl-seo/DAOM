@@ -6,7 +6,8 @@ def default_beta_features() -> Dict[str, bool]:
     """Default beta features - all disabled by default."""
     return {
         "use_optimized_prompt": False,
-        "use_virtual_excel_ocr": False
+        # DEPRECATED: ExcelMapper moved to _deprecated/
+        # "use_virtual_excel_ocr": False
     }
 
 

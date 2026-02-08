@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 # Default beta features - must match schema default_beta_features()
 DEFAULT_BETA_FEATURES = {
     "use_optimized_prompt": False,
-    "use_virtual_excel_ocr": False
+    # DEPRECATED: ExcelMapper moved to _deprecated/
+    # "use_virtual_excel_ocr": False
 }
 
 

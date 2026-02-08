@@ -45,8 +45,8 @@ Context: {description or 'General Document'}
             prompt += f"\nGLOBAL REFINEMENT RULES:\n{global_rules}\n"
 
         # 3. Reference Data (Phase 1: Structured JSON for mapping/validation)
-        if model_info.reference_data:
-            ref_json = json.dumps(model_info.reference_data, ensure_ascii=False, indent=2)
+        if reference_data:
+            ref_json = json.dumps(reference_data, ensure_ascii=False, indent=2)
             # SAFETY: Truncate if massive (prevent 10K+ token bloat)
             MAX_REF_CHARS = settings.REFINER_MAX_REF_CHARS
             if len(ref_json) > MAX_REF_CHARS:
@@ -67,7 +67,7 @@ INSTRUCTIONS FOR REFERENCE DATA:
         # 3. Field Instructions
 
         prompt += "\nREQUIRED EXTRACTION FIELDS:\n"
-        for field in model_info.fields:
+        for field in fields:
             prompt += f"- {field.key} ({field.label}):\n"
             desc = field.description
             if desc and desc.strip():
@@ -80,9 +80,9 @@ INSTRUCTIONS FOR REFERENCE DATA:
             prompt += f"  Type: {field.type}\n"
 
         # 4. Output Formatting — branched by data_structure for token efficiency
-        data_structure = getattr(model_info, 'data_structure', 'data')
+        data_structure = get_attr(model_info, 'data_structure', 'data')
         is_table = data_structure == 'table' or any(
-            getattr(f, 'type', '') == 'table' for f in model_info.fields
+            getattr(f, 'type', '') == 'table' for f in fields
         )
 
         if is_table:
