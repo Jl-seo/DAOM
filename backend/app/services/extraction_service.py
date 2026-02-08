@@ -157,35 +157,26 @@ class ExtractionService:
         # --- LEGACY PATH (Restored & Fortified) ---
         logger.info("[LLM] Using Legacy Extraction Path (Standard JSON Prompt).")
 
-        # PRE-EMPTIVE CHUNKING: Check size AND Token Count
-        # Global Rules/Reference Data might bloat prompt even if JSON is small.
-        
+        # PRE-EMPTIVE CHUNKING: Only for genuinely large documents
         json_payload = json.dumps(ocr_data_to_send, ensure_ascii=False)
         payload_len = len(json_payload)
         page_count = len(ocr_data_to_send.get("pages", []))
         
-        # Estimate Token Count (System + User)
-        # RefinerEngine prompt includes Global Rules + Reference Data
+        logger.info(f"[LLM] Payload size: {payload_len} chars, Pages: {page_count}")
+
+        # Construct system prompt (needed for both single-shot and chunking)
         from app.services.refiner import RefinerEngine
         try:
-            # Construct strict system prompt
             system_prompt = RefinerEngine.construct_prompt(model, language="ko")
         except Exception as e:
             logger.warning(f"[LLM-Refiner] Failed to construct prompt: {e}")
             system_prompt = "You are a document extraction AI. Extract JSON."
 
-        estimated_sys_tokens = len(system_prompt) // 4
-        estimated_user_tokens = payload_len // 4
-        total_estimated = estimated_sys_tokens + estimated_user_tokens
-        
-        TOKEN_SAFEGUARD = 30000  # Conservative limit for Single Shot (GPT-4o)
-        
-        # DEBUG: Print to ensure logging works
-        logger.debug(f"[DEBUG-LLM] Payload size: {payload_len}, Pages: {page_count}, Est. Tokens: {total_estimated}")
-
-        # Threshold: Use config CHUNK_THRESHOLD_CHARS OR > TOKEN_SAFEGUARD tokens OR > 15 pages
-        if payload_len > settings.CHUNK_THRESHOLD_CHARS or total_estimated > TOKEN_SAFEGUARD or page_count > 15:
-            logger.debug(f"[DEBUG-LLM] CHUNKING TRIGGERED! Size: {payload_len}, Tokens: {total_estimated}")
+        # Threshold: payload chars > config limit OR > 15 pages
+        # GPT-4o has 128K context — let single-shot handle most documents.
+        # If it fails with context_length_exceeded, fallback to chunking below.
+        if payload_len > settings.CHUNK_THRESHOLD_CHARS or page_count > 15:
+            logger.info(f"[LLM] CHUNKING TRIGGERED — Size: {payload_len} chars, Pages: {page_count}")
             logger.info(f"[LLM] Payload too large/complex, starting Pre-emptive Chunking...")
             try:
                 from app.services.chunked_extraction import extract_with_chunking
