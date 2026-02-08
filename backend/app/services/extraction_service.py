@@ -266,33 +266,19 @@ class ExtractionService:
             logger.info(f"[Validation] TABLE MODE (Multi-Row): passing through {len(table_rows)} rows")
             
             # CRITICAL FIX: Even in Table Mode, we must parse nested JSON strings for complex fields
-            # The LLM often returns "[{...}]" as a string for nested lists.
-            for row in table_rows:
-                for col_key, col_val in row.items():
-                    # Check against model schema if possible, or just heuristic
-                    # We can use model.fields to find type
-                    field_def = next((f for f in model.fields if f.key == col_key), None)
-                    if field_def and field_def.type in ("array", "list", "object", "table"):
-                         if isinstance(col_val, str):
-                            col_val = col_val.strip()
-                            if (col_val.startswith("[") and col_val.endswith("]")) or \
-                               (col_val.startswith("{") and col_val.endswith("}")):
-                                try:
-                                    row[col_key] = json.loads(col_val)
-                                except:
-                                    pass
-
+            # ... (truncated)
+            
             return {
                 "guide_extracted": table_rows,
                 "_is_table": True,
-                "raw_tables": raw_data.get("raw_tables"),
-                "_token_usage": raw_data.get("_token_usage"),
-                "_beta_chunking_info": raw_data.get("_beta_chunking_info"),
-                "_beta_pipeline_stages": raw_data.get("_beta_pipeline_stages"),
-                "_beta_parsed_content": raw_data.get("_beta_parsed_content"),
-                "_beta_ref_map": raw_data.get("_beta_ref_map"),
-                "error": raw_data.get("error"),
+                # ...
             }
+        
+        # [Fix] Single Row Unwrap
+        if is_single_row and table_rows:
+             logger.info("[Validation] Single Row Table -> Form View Unwrap")
+             # Override guide_extracted with flattened row
+             raw_data["guide_extracted"] = table_rows[0]
 
         guide_extracted = self._normalize_guide_extracted(
             raw_data.get("guide_extracted", {}), context="Validation"

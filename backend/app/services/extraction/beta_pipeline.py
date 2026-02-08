@@ -161,6 +161,23 @@ class BetaPipeline(ExtractionPipeline):
         
         merged_result.table_rows = merged_rows
         merged_result.is_table = True
+        
+        # Merge Metadata (Parsed Content for Debug View & RefMap)
+        all_parsed_text = []
+        all_ref_map = {}
+        for res in results:
+            if isinstance(res, Exception): continue
+            if res.beta_metadata:
+                text = res.beta_metadata.get("parsed_content", "")
+                if text: all_parsed_text.append(text)
+                ref_map = res.beta_metadata.get("ref_map", {})
+                if ref_map: all_ref_map.update(ref_map)
+        
+        merged_result.beta_metadata = {
+            "parsed_content": "\n... [Chunk Split] ...\n".join(all_parsed_text),
+            "ref_map": all_ref_map
+        }
+
         return merged_result
 
     async def _process_chunk_safe(self, model: ExtractionModel, ocr_data: Dict[str, Any], chunk_pages: List[int]) -> ExtractionResult:
@@ -200,7 +217,14 @@ class BetaPipeline(ExtractionPipeline):
                     merged.guide_extracted = left_res.guide_extracted or right_res.guide_extracted
                     
                     # Metadata merge (complex but we just need parsed content for debug)
-                    merged.beta_metadata = left_res.beta_metadata # Best effort
+                    merged.beta_metadata = {
+                        "parsed_content": (left_res.beta_metadata.get("parsed_content", "") if left_res.beta_metadata else "") + 
+                                          "\n" + 
+                                          (right_res.beta_metadata.get("parsed_content", "") if right_res.beta_metadata else ""),
+                        # Naive merge of ref_map: simplest way is update
+                        "ref_map": {**(left_res.beta_metadata.get("ref_map", {}) if left_res.beta_metadata else {}),
+                                    **(right_res.beta_metadata.get("ref_map", {}) if right_res.beta_metadata else {})}
+                    }
                     
                     return merged
                 else:
