@@ -74,3 +74,4 @@ python-calamine
 
 
 simpleeval
+rapidfuzz
