@@ -418,7 +418,7 @@ async def cancel_extraction_job(
 
 
 @router.post("/confirm-job/{job_id}")
-def confirm_job(
+async def confirm_job(
     job_id: str,
     request: Dict[str, Any],
     current_user: CurrentUser = Depends(get_current_user)
