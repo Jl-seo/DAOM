@@ -152,7 +152,8 @@ async def process_chunk_with_retry(
     chunk: Chunk,
     model_fields: List[Dict[str, Any]],
     deployment: str,
-    max_retries: int = MAX_RETRIES
+    max_retries: int = MAX_RETRIES,
+    model_info: Any = None # Added model_info
 ) -> ChunkResult:
     """
     Process a single chunk with retry logic and exponential backoff.
@@ -161,41 +162,59 @@ async def process_chunk_with_retry(
 
     for attempt in range(max_retries):
         try:
-            # Build prompt for this chunk - USES HIGH FIDELITY ENGLISH PROMPT
-            # Converted fields to list of descriptions
-            field_descriptions = []
-            for field in model_fields:
-                # Handle both Pydantic FieldDefinition objects and dicts
-                if hasattr(field, 'key'):  # Pydantic model
-                    key = field.key
-                    label = field.label
-                    description = getattr(field, 'description', None)
-                else:  # Dict
-                    key = field.get('key')
-                    label = field.get('label')
-                    description = field.get('description')
-
-                desc = f"- {key}: {label}"
-                if description:
-                    desc += f" ({description})"
-                field_descriptions.append(desc)
-
-            fields_block = "\n".join(field_descriptions)
-
-            # Prepare Lean Data for Prompt
-            # Use text content + tables (with cell bboxes) - NOT full pages_data (too heavy)
+            # 1. Prepare Document Context from Chunk
             doc_context = chunk.content
+            
+            # Empty Content Guard
+            if not doc_context or not doc_context.strip():
+                logger.warning(f"[Chunk {chunk.index}] Content empty. Using placeholder.")
+                doc_context = "(NO TEXT CONTENT DETECTED IN THIS CHUNK)"
 
-            # DEBUG: Log table data being sent
+            # Append Tables if available
             tables_to_use = chunk.tables if chunk.tables else []
-            logger.info(f"[Chunk {chunk.index}] Tables count: {len(tables_to_use)}, Content length: {len(chunk.content)}")
-
             if tables_to_use:
                 doc_context += f"\n\n--- TABLES DATA ---\n{json.dumps(tables_to_use, ensure_ascii=False)}"
             else:
-                logger.warning(f"[Chunk {chunk.index}] No tables in chunk! This may cause null extractions.")
+                logger.warning(f"[Chunk {chunk.index}] No tables in chunk.")
 
-            prompt = f"""You are a document data extractor capable of processing Korean and English documents.
+            # 2. Construct Prompts
+            if model_info:
+                # [MODERN PATH] Use RefinerEngine (Respects User System Prompt)
+                from app.services.refiner import RefinerEngine
+                system_prompt = RefinerEngine.construct_prompt(model_info, language="ko")
+                
+                # RefinerEngine User Prompt Pattern
+                prompt = f"""
+DOCUMENT DATA (Pages {chunk.page_numbers}):
+{doc_context}
+
+TASK: Extract the required fields based on the system instructions.
+Return only valid JSON.
+"""
+                system_message = system_prompt
+            
+            else:
+                # [LEGACY PATH] Manual Prompt Construction
+                logger.warning(f"[Chunk {chunk.index}] No model_info provided. Using legacy hardcoded prompt.")
+                
+                field_descriptions = []
+                for field in model_fields:
+                    if hasattr(field, 'key'):
+                        key, label, description = field.key, field.label, getattr(field, 'description', None)
+                    else:
+                        key, label, description = field.get('key'), field.get('label'), field.get('description')
+
+                    desc = f"- {key}: {label}"
+                    if description:
+                        desc += f" ({description})"
+                    field_descriptions.append(desc)
+                fields_block = "\n".join(field_descriptions)
+
+                # Legacy System Message
+                system_message = "You are a precise document data extractor. The user needs to verify your work, so you must return bounding boxes and page numbers if available. Return only valid JSON."
+
+                # Legacy User Prompt
+                prompt = f"""You are a document data extractor capable of processing Korean and English documents.
 
 Given this document data extracted from pages {chunk.page_numbers}:
 {doc_context}
@@ -229,7 +248,7 @@ IMPORTANT:
             response = await client.chat.completions.create(
                 model=deployment,
                 messages=[
-                    {"role": "system", "content": "You are a precise document data extractor. The user needs to verify your work, so you must return bounding boxes and page numbers if available. Return only valid JSON."},
+                    {"role": "system", "content": system_message},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=settings.LLM_DEFAULT_TEMPERATURE,
@@ -309,6 +328,7 @@ IMPORTANT:
 async def process_chunks_parallel(
     chunks: List[Chunk],
     model_fields: List[Dict[str, Any]],
+    model_info: Any = None, # Added model_info
     max_concurrent: int = 3
 ) -> List[ChunkResult]:
     """
@@ -327,7 +347,7 @@ async def process_chunks_parallel(
 
     async def process_with_semaphore(chunk: Chunk) -> ChunkResult:
         async with semaphore:
-            return await process_chunk_with_retry(client, chunk, model_fields, deployment)
+            return await process_chunk_with_retry(client, chunk, model_fields, deployment, model_info=model_info)
 
     logger.info(f"[Parallel] Processing {len(chunks)} chunks with max {max_concurrent} concurrent")
 
@@ -451,8 +471,9 @@ def merge_chunk_results(
 async def extract_with_chunking(
     doc_intel_output: Dict[str, Any],
     model_fields: List[Dict[str, Any]],
-    max_tokens_per_chunk: int = 8000, # Increased default
-    max_concurrent: int = 8 # Increased default
+    model_info: Any = None, # Added model_info
+    max_tokens_per_chunk: int = 8000,
+    max_concurrent: int = 8
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Main entry point: Extract data from large document using chunking.
@@ -460,6 +481,7 @@ async def extract_with_chunking(
     Args:
         doc_intel_output: Raw Document Intelligence output
         model_fields: List of fields to extract
+        model_info: ExtractionModel object (optional, for custom prompts)
         max_tokens_per_chunk: Target size for each chunk
         max_concurrent: Maximum parallel API calls
     
@@ -475,7 +497,7 @@ async def extract_with_chunking(
         logger.info(f"[Extract] Large document, processing in {len(chunks)} chunks")
 
     # Step 2: Process chunks in parallel
-    results = await process_chunks_parallel(chunks, model_fields, max_concurrent)
+    results = await process_chunks_parallel(chunks, model_fields, model_info, max_concurrent)
 
     # Step 3: Merge results
     merged, errors = merge_chunk_results(results, model_fields)

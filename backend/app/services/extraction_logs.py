@@ -199,9 +199,14 @@ def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] =
         return []
 
     try:
+    try:
         # Only return extraction_logs (Jobs are temp processing records)
+        # OPTIMIZATION: Select only metadata fields, exclude heavy JSON objects (preview_data, extracted_data, debug_data)
+        # This significantly speeds up list views. Full data is fetched via GET /logs/{id}
+        select_fields = "c.id, c.model_id, c.user_id, c.user_name, c.user_email, c.filename, c.file_url, c.file_urls, c.filenames, c.candidate_file_url, c.candidate_file_urls, c.status, c.error, c.created_at, c.updated_at, c.tenant_id, c.llm_model, c.token_usage, c.job_id, c.metadata"
+        
         query = f"""
-            SELECT TOP {limit} * FROM c 
+            SELECT TOP {limit} {select_fields} FROM c 
             WHERE c.model_id = @model_id 
             AND (NOT IS_DEFINED(c.type) OR c.type = '{ExtractionType.LOG.value}')
         """
@@ -234,9 +239,11 @@ def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> List[Extr
         return []
 
     try:
-        # Only return extraction_logs (Jobs are temp processing records)
+        # OPTIMIZATION: metadata only
+        select_fields = "c.id, c.model_id, c.user_id, c.user_name, c.user_email, c.filename, c.file_url, c.file_urls, c.filenames, c.candidate_file_url, c.candidate_file_urls, c.status, c.error, c.created_at, c.updated_at, c.tenant_id, c.llm_model, c.token_usage, c.job_id, c.metadata"
+        
         query = f"""
-            SELECT TOP {limit} * FROM c 
+            SELECT TOP {limit} {select_fields} FROM c 
             WHERE (NOT IS_DEFINED(c.type) OR c.type = '{ExtractionType.LOG.value}')
         """
         parameters = []
@@ -267,9 +274,11 @@ def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[str] = 
         return []
 
     try:
-        # Only return extraction_logs (Jobs are temp processing records)
+        # OPTIMIZATION: metadata only
+        select_fields = "c.id, c.model_id, c.user_id, c.user_name, c.user_email, c.filename, c.file_url, c.file_urls, c.filenames, c.candidate_file_url, c.candidate_file_urls, c.status, c.error, c.created_at, c.updated_at, c.tenant_id, c.llm_model, c.token_usage, c.job_id, c.metadata"
+        
         query = f"""
-            SELECT TOP {limit} * FROM c 
+            SELECT TOP {limit} {select_fields} FROM c 
             WHERE c.user_id = @user_id 
             AND (NOT IS_DEFINED(c.type) OR c.type = '{ExtractionType.LOG.value}')
         """
