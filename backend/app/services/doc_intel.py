@@ -70,6 +70,12 @@ async def extract_with_strategy(file_source: Any, model_type: str = settings.OCR
                         if guessed_type:
                             content_type = guessed_type
                 
+                # Force specific handling for Excel if needed, though Azure DI supports it natively
+                # Just ensuring it's passed as binary
+                if content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" or content_type == "application/vnd.ms-excel":
+                     pass # Azure DI supports this
+                
+                
                 logger.info(f"[DocIntel] Sending bytes with content_type={content_type} (filename={filename})")
                 
                 poller = await client.begin_analyze_document(

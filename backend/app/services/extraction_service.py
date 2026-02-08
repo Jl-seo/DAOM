@@ -124,10 +124,10 @@ class ExtractionService:
         elif isinstance(model, dict) and "beta_features" in model:
              use_beta = model.get("beta_features", {}).get("use_optimized_prompt", False)
 
-        # 2. Force Beta for Excel bypass (to handle chunking)
-        if ocr_data.get("_layout_parser_bypass"):
-             logger.info("[LLM] Excel bypass detected, forcing Beta for chunking.")
-             use_beta = True
+        # 2. Force Beta for Excel bypass (REMOVED: User wants standard Azure DI path for Excel unless Beta is explicitly on)
+        # if ocr_data.get("_layout_parser_bypass"):
+        #      logger.info("[LLM] Excel bypass detected, forcing Beta for chunking.")
+        #      use_beta = True
 
         if use_beta:
             from app.services.beta_chunking import extract_beta_with_chunking
