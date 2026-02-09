@@ -166,14 +166,34 @@ class ExtractionService:
         json_payload = json.dumps(ocr_data, ensure_ascii=False)
         payload_len = len(json_payload)
 
-        # 1. Check Size -> Legacy Chunking if large.
-        # This is a basic safety mechanism for huge payloads overloading LLM
-        if payload_len > 40000:
-             logger.warning(f"[General] Payload massive ({payload_len} chars). Triggering fallback chunking (2 page limit).")
-             # Fallback to simple page-by-page or small chunks
-             # Implementation omitted for brevity, assuming _call_llm handles truncation or we implement basic chunking here.
-             # For now, let's just warn.
-             pass
+        # 1. Check Size -> Auto-Switch to Beta Pipeline (Chunking) if large.
+        # This prevents "Single Shot" truncation for large documents even in Legacy Mode.
+        page_count = len(ocr_data.get("pages", []))
+        
+        if payload_len > 40000 or page_count > 2:
+             logger.warning(f"[General] Payload massive ({payload_len} chars, {page_count} pages). Auto-switching to BetaPipeline for Chunking.")
+             
+             from app.services.extraction.beta_pipeline import BetaPipeline
+             pipeline = BetaPipeline(self.azure_openai)
+             
+             # Execute Pipeline (Standardized Result)
+             extraction_result = await pipeline.execute(model, ocr_data, focus_pages)
+             
+             # Map Standard Schema -> Legacy Dict Schema
+             result_dict = {
+                "guide_extracted": extraction_result.guide_extracted,
+                "_token_usage": extraction_result.token_usage.dict(),
+                "error": extraction_result.error,
+                "raw_content": ocr_data.get("content", ""),
+                "pages": ocr_data.get("pages", [])
+             }
+             
+             # Metadata
+             if extraction_result.beta_metadata:
+                result_dict["_beta_parsed_content"] = extraction_result.beta_metadata.get("parsed_content")
+                result_dict["_beta_ref_map"] = extraction_result.beta_metadata.get("ref_map")
+                
+             return result_dict
 
         # 2. Extract
         # Construct messages for LLM
