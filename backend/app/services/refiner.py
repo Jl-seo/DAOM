@@ -129,15 +129,24 @@ You must extract ALL rows from the document. Do NOT truncate or sample.
 - Do NOT return separate rows for "Header Info" and "Detail Info". Merge them into single flat objects.
 - Every row object must be complete.
 
-Return a JSON object where the output key is "rows" (list of objects).
-Each object in the list must represent a row.
-**CRITICAL**: Use the exact keys defined in the 'REQUIRED EXTRACTION FIELDS' section above.
-Do NOT wrap each cell in {{"value": ..., "confidence": ...}} — output flat values directly.
-1. You MUST use the EXACT field keys listed above: {[f.key for f in fields]}.
-2. For TABLE type fields, return a LIST of flat row objects. Do NOT use numeric indices like "0", "1", "2" as keys.
-3. For TEXT type fields, return {{"value": "...", "confidence": 0.0-1.0}}.
-4. Extract ALL rows. Do not truncate or summarize.
-5. Do NOT invent field keys not listed in REQUIRED EXTRACTION FIELDS.
+**CRITICAL: STRICT SCHEMA & FORMAT**
+1. Output format MUST be:
+   {{
+     "guide_extracted": {{
+       "{table_fields[0].key if table_fields else 'items'}": [
+         {{ "column_key": "value", ... }},
+         {{ "column_key": "value", ... }}
+       ]
+     }}
+   }}
+2. Root key MUST be "guide_extracted". Inside it, use the table field key (e.g., "{table_fields[0].key if table_fields else 'items'}").
+3. The value MUST be a JSON Array (List). **Do NOT use numeric keys** like "0", "1".
+4. **MAP HEADERS**: You must map document headers to the EXACT field keys defined above.
+   - Example: If doc has "Charge_Type", map it to "charge_type" (or whatever the schema key is).
+   - Do NOT invent new keys. Do NOT preserve mixed-case headers if they don't match the schema.
+   - If a column doesn't match a schema key, ignore it or map to the closest semantic match.
+
+5. For TEXT type fields (outside the table), return {{"value": "...", "confidence": 0.9}}.
 
 LANGUAGE INSTRUCTION:
 Extract the value exactly as it appears in the document (Original Language).
