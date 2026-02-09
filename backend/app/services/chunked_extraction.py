@@ -436,13 +436,23 @@ def merge_chunk_results(
             # Normalize Key
             norm_key = schema_map.get(key.lower().strip(), key)
             
+            new_val = item.get("value")
+            
             if norm_key not in merged_guide:
                  merged_guide[norm_key] = item
                  field_sources[norm_key] = item.get("page_number") or page_num
             else:
-                current_val = merged_guide[norm_key].get("value")
-                new_val = item.get("value")
-                if current_val is None and new_val is not None:
+                current_item = merged_guide[norm_key]
+                current_val = current_item.get("value")
+                
+                # [Fix] List Merging Logic for Mixed Mode Tables
+                if isinstance(current_val, list) and isinstance(new_val, list):
+                    # Extend the list with new rows
+                    current_item["value"] = current_val + new_val
+                    logger.info(f"[Merge] Extended field '{norm_key}' with {len(new_val)} items from Chunk {result.chunk_index}")
+                
+                # Scalar Merging Logic (Keep first non-null)
+                elif current_val is None and new_val is not None:
                     merged_guide[norm_key] = item
                     field_sources[norm_key] = item.get("page_number") or page_num
 
