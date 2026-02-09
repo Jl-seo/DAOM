@@ -50,7 +50,7 @@ class BetaPipeline(ExtractionPipeline):
         page_count = len(ocr_data.get("pages", []))
         
         # Thresholds
-        SINGLE_SHOT_CHAR_LIMIT = 6000
+        SINGLE_SHOT_CHAR_LIMIT = 3000
         TEXT_CHUNK_SIZE = 4000
         
         logger.info(f"[BetaPipeline] Analysis: pages={page_count}, content_len={content_len} chars")
