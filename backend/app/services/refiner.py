@@ -6,6 +6,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Canonical set of field types that represent table/list data
+TABLE_FIELD_TYPES = {'list', 'table', 'array'}
+
 class RefinerEngine:
     """
     Constructs dynamic prompts based on natural language rules defined in the Studio.
@@ -25,10 +28,10 @@ class RefinerEngine:
 
         # Filter fields based on mode
         if mode == "common":
-            active_fields = [f for f in model.fields if f.type != 'list']
+            active_fields = [f for f in model.fields if f.type not in TABLE_FIELD_TYPES]
             mode_instruction = "Extract ONLY the common/metadata fields. Ignore any table/list data."
         elif mode == "table":
-            active_fields = [f for f in model.fields if f.type == 'list']
+            active_fields = [f for f in model.fields if f.type in TABLE_FIELD_TYPES]
             mode_instruction = "Extract ONLY the table/list fields. Ignore any common/metadata fields."
         else:
             active_fields = model.fields
@@ -95,31 +98,26 @@ INSTRUCTIONS FOR REFERENCE DATA:
         # 4. Output Formatting — branched by data_structure for token efficiency
         data_structure = get_attr(model, 'data_structure', 'data')
         is_table = data_structure == 'table' or any(
-            getattr(f, 'type', '') == 'table' for f in fields
+            getattr(f, 'type', '') in TABLE_FIELD_TYPES for f in fields
         )
 
         if is_table:
-            # [Fix] Determine if it's a PURE table or Mixed (Header + Table)
-            # If all fields are tables -> Pure Table -> Output {"rows": [...]}
-            # If mix of text & table -> Mixed -> Output {"header": "val", "table": [...]}
-            
-            non_table_fields = [f for f in fields if getattr(f, 'type', 'text') != 'list']
-            table_fields = [f for f in fields if getattr(f, 'type', 'text') == 'list']
-            
-            is_pure_table = len(non_table_fields) == 0
+            # Unified TABLE MODE: Always use guide_extracted root key with actual field keys.
+            # This prevents data loss from _legacy_rows key mismatch.
+            non_table_fields = [f for f in fields if getattr(f, 'type', 'text') not in TABLE_FIELD_TYPES]
+            table_fields = [f for f in fields if getattr(f, 'type', 'text') in TABLE_FIELD_TYPES]
 
-            if is_pure_table:
-                # ORIGINAL LOGIC: Force {"rows": [...]}
-                
-                # Build example for pure table
-                example_parts = []
-                for f in table_fields:
-                     example_parts.append(f'        "{f.key}": "value"')
-                
-                example_json = "{\n  \"rows\": [\n    {\n" + ",\n".join(example_parts) + "\n    }\n  ]\n}"
+            example_parts = []
+            for f in non_table_fields:
+                example_parts.append(f'    "{f.key}": "value"')
+            
+            for f in table_fields:
+                example_parts.append(f'    "{f.key}": [\n      {{ "col1": "val1", "col2": "val2" }}\n    ]')
 
-                prompt += f"""
-OUTPUT INSTRUCTIONS (PURE TABLE MODE):
+            example_json = "{\n  \"guide_extracted\": {\n" + ",\n".join(example_parts) + "\n  }\n}"
+
+            prompt += f"""
+OUTPUT INSTRUCTIONS (TABLE MODE):
 You must extract ALL rows from the document. Do NOT truncate or sample.
 
 **CRITICAL: DENORMALIZE HIERARCHICAL DATA**
@@ -129,36 +127,13 @@ You must extract ALL rows from the document. Do NOT truncate or sample.
 **CRITICAL: STRICT SCHEMA & FORMAT**
 1. Output format MUST be:
 {example_json}
-2. Root key MUST be "rows". The value MUST be a JSON Array (List).
-3. **MAP HEADERS**: You must map document headers to the EXACT field keys defined above.
-   - Example: If doc has "Charge_Type", map it to "charge_type".
-   - Do NOT invent new keys.
-"""
-            else:
-                # MIXED MODE: Allow natural hierarchy
-                # Header fields at root, Table fields as lists
-                
-                example_parts = []
-                for f in non_table_fields:
-                    example_parts.append(f'    "{f.key}": "value"')
-                
-                for f in table_fields:
-                    example_parts.append(f'    "{f.key}": [\n      {{ "col1": "val1", "col2": "val2" }}\n    ]')
-
-                example_json = "{\n  \"guide_extracted\": {\n" + ",\n".join(example_parts) + "\n  }\n}"
-
-                prompt += f"""
-OUTPUT INSTRUCTIONS (MIXED MODE - HEADER + TABLE):
-You must extract both the Header Information (Single Fields) and Table Details (List Fields).
-
-**CRITICAL: HIERARCHICAL STRUCTURE**
-1. Output format MUST be:
-{example_json}
 2. Root key MUST be "guide_extracted".
 3. **Single fields** (e.g. Invoice No, Date) go at the root of "guide_extracted".
 4. **Table fields** (List type) go as JSON Arrays within "guide_extracted".
-   - Inside the table array, each item is a row object.
-   - Denormalize merged cells within the table rows if necessary.
+   - Inside the table array, each item is a row object with column keys.
+5. **MAP HEADERS**: You must map document headers to the EXACT field keys defined above.
+   - Example: If doc has "Charge_Type", map it to "charge_type".
+   - Do NOT invent new keys.
 
 **CRITICAL: DO NOT FLATTEN**
 - Do NOT force header fields into every table row. Keep them separate at the root level.

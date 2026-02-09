@@ -231,10 +231,44 @@ class BetaPipeline(ExtractionPipeline):
                                 seen_rows[key].add(row_hash)
                                 merged_guide[key].append(row)
         
-        merged_result.guide_extracted = merged_guide
+        merged_result.guide_extracted = self._normalize_column_keys(merged_guide)
         logger.info(f"[BetaPipeline] Table Merge: Extracted fields {list(merged_guide.keys())}")
         
         return merged_result
+
+    def _normalize_column_keys(self, merged_guide: dict) -> dict:
+        """
+        Normalize column keys across chunks to prevent duplicates from
+        case/format differences (e.g. 'Charge_Type' vs 'charge_type').
+        Uses the first chunk's keys as canonical reference.
+        """
+        for field_key, rows in merged_guide.items():
+            if not isinstance(rows, list) or not rows:
+                continue
+            
+            # Use first row's keys as canonical
+            canonical_keys = list(rows[0].keys())
+            
+            def _strip(s: str) -> str:
+                return s.lower().replace("_", "").replace("-", "").replace(" ", "")
+            
+            canonical_map = {_strip(k): k for k in canonical_keys}
+            
+            normalized_rows = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    normalized_rows.append(row)
+                    continue
+                new_row = {}
+                for k, v in row.items():
+                    norm_k = _strip(k)
+                    new_row[canonical_map.get(norm_k, k)] = v
+                normalized_rows.append(new_row)
+            
+            merged_guide[field_key] = normalized_rows
+        
+        return merged_guide
+
 
 
     async def _execute_chunked(self, model: ExtractionModel, ocr_data: Dict[str, Any], total_pages: int) -> ExtractionResult:
@@ -473,6 +507,8 @@ class BetaPipeline(ExtractionPipeline):
         extracted = raw_llm.get("guide_extracted", {})
         
         # Legacy/Fallback: "rows" key -> wrap in _table_data or first list field if possible
+        # [DEPRECATED] This path is no longer triggered with unified TABLE MODE prompt.
+        # Kept for backward compatibility with any external callers.
         if "rows" in raw_llm:
             rows = raw_llm["rows"]
             if isinstance(rows, dict):
