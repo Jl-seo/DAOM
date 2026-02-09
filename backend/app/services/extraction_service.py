@@ -265,175 +265,149 @@ class ExtractionService:
         if raw_data.get("_is_table") and not is_single_row:
             logger.info(f"[Validation] TABLE MODE (Multi-Row): passing through {len(table_rows)} rows")
             
-            # CRITICAL FIX: Even in Table Mode, we must parse nested JSON strings for complex fields
-            # ... (truncated)
-            
-            return {
+            result = {
                 "guide_extracted": table_rows,
                 "_is_table": True,
-                # ...
             }
-        
-        # [Fix] Single Row Unwrap
-        if is_single_row and table_rows:
-             logger.info("[Validation] Single Row Table -> Form View Unwrap")
-             # Override guide_extracted with flattened row
-             raw_data["guide_extracted"] = table_rows[0]
+        else:
+            # [Fix] Single Row Unwrap
+            if is_single_row and table_rows:
+                logger.info("[Validation] Single Row Table -> Form View Unwrap")
+                # Override guide_extracted with flattened row
+                raw_data["guide_extracted"] = table_rows[0]
 
-        guide_extracted = self._normalize_guide_extracted(
-            raw_data.get("guide_extracted", {}), context="Validation"
-        )
+            guide_extracted = self._normalize_guide_extracted(
+                raw_data.get("guide_extracted", {}), context="Validation"
+            )
 
-        validated_extracted = {}
+            validated_extracted = {}
 
-        CONFIDENCE_THRESHOLD = settings.LLM_CONFIDENCE_THRESHOLD
+            CONFIDENCE_THRESHOLD = settings.LLM_CONFIDENCE_THRESHOLD
 
-        # Create a lookup for page dimensions (handle both snake_case and camelCase)
-        page_dims = {
-            (p.get("page_number") or p.get("pageNumber", i+1)): (p.get("width", 0), p.get("height", 0))
-            for i, p in enumerate(pages_info)
-        }
+            # Create a lookup for page dimensions (handle both snake_case and camelCase)
+            page_dims = {
+                (p.get("page_number") or p.get("pageNumber", i+1)): (p.get("width", 0), p.get("height", 0))
+                for i, p in enumerate(pages_info)
+            }
 
-        for field in model.fields:
-            key = field.key
-            item = guide_extracted.get(key, {})
-            if not item:
-                logger.debug(f"[Validation] Field '{key}' NOT found in guide_extracted. Available keys: {list(guide_extracted.keys())[:10]}")
-            # Defensive: item must also be a dict
-            if not isinstance(item, dict):
-                item = {"value": item} if item is not None else {}
-            original_value = item.get("value")
-            value = original_value
-            confidence = item.get("confidence", 0)
-            bbox = item.get("bbox")
-            try:
-                # Support both "page_number" (legacy path) and "page" (RefinerEngine beta path)
-                raw_page = item.get("page_number") or item.get("page")
-                page_number = int(raw_page) if raw_page else None
-            except (ValueError, TypeError):
-                page_number = None
+            for field in model.fields:
+                key = field.key
+                item = guide_extracted.get(key, {})
+                if not item:
+                    logger.debug(f"[Validation] Field '{key}' NOT found in guide_extracted. Available keys: {list(guide_extracted.keys())[:10]}")
+                # Defensive: item must also be a dict
+                if not isinstance(item, dict):
+                    item = {"value": item} if item is not None else {}
+                original_value = item.get("value")
+                value = original_value
+                confidence = item.get("confidence", 0)
+                bbox = item.get("bbox")
+                try:
+                    # Support both "page_number" (legacy path) and "page" (RefinerEngine beta path)
+                    raw_page = item.get("page_number") or item.get("page")
+                    page_number = int(raw_page) if raw_page else None
+                except (ValueError, TypeError):
+                    page_number = None
 
-            
-            # --- SMART PAGE DISCOVERY ---------------------------------
-            # If page_number is missing or ambiguous, try to find the text on the default page or surrounding pages.
-            # -----------------------------------------------------------
-            detected_page = page_number
-            if not detected_page:
-                 detected_page = default_page
-                 # logger.debug(f"[SmartDiscovery] {key}: Page Missing, defaulting to {default_page}")
-
-            snapped_bbox = None
-            final_page_number = detected_page
-
-            # Try to snap bbox using Exact Match first
-            # We iterate pages_info to find 'words' array for the target page
-            
-            def search_page(p_num):
-                # pages_info has snake_case keys from DocIntel
-                p_data = next((p for p in pages_info if (p.get("page_number") or p.get("pageNumber", 0)) == p_num), None)
-                if p_data and "words" in p_data:
-                    return self._snap_bbox_to_words(str(value), bbox, p_data["words"])
-                return None
-
-            if value:
-                # Attempt 1: Check intended page
-                snapped_bbox = search_page(final_page_number)
-
-                # Attempt 2: If not found, check ALL other pages (fallback)
-                if not snapped_bbox and pages_info:
-                      for p_info in pages_info:
-                         p_num = p_info.get("page_number") or p_info.get("pageNumber")
-                         if p_num == final_page_number: continue
-                         
-                         found_bbox = search_page(p_num)
-                         if found_bbox:
-                             snapped_bbox = found_bbox
-                             final_page_number = p_num
-                             logger.info(f"[SmartDiscovery] Value '{value}' for '{key}' found on Page {p_num} (originally thought {page_number})")
-                             break
-            
-            page_number = final_page_number
-            # -----------------------------------------------------------
-
-
-            # Normalize BBox (convert generic coords to % of page)
-            normalized_bbox = None
-            if snapped_bbox:
-                # Use page dims
-                p_w, p_h = 100, 100
-                if page_number and page_number in page_dims:
-                    p_w, p_h = page_dims[page_number]
                 
-                normalized_bbox = self._normalize_bbox(snapped_bbox, p_w, p_h)
-            elif bbox and isinstance(bbox, list) and len(bbox) == 4:
-                # Trust LLM bbox if we couldn't snap it?
-                # Maybe, but LLM bbox is usually raw pixels or normalized 0-1 depending on model.
-                # Assuming simple pass-through if strict snapping failed.
-                normalized_bbox = bbox
-            
+                # --- SMART PAGE DISCOVERY ---------------------------------
+                detected_page = page_number
+                if not detected_page:
+                     detected_page = default_page
 
-            # Type Validation & JSON Parsing for Complex Fields
-            validation_status = "valid"
-            
-            # 1. Complex Types (Array/List/Object/Table) - Auto-Parse JSON strings
-            if field.type in ("array", "list", "object", "table"):
-                if isinstance(value, str):
-                    value = value.strip()
-                    # Only attempt if it looks like JSON
-                    if (value.startswith("[") and value.endswith("]")) or \
-                       (value.startswith("{") and value.endswith("}")):
-                        try:
-                            value = json.loads(value)
-                            # logger.debug(f"[Validation] Auto-parsed JSON string for field '{key}'")
-                        except json.JSONDecodeError:
-                            validation_status = "error_json_format"
-                            logger.warning(f"[Validation] Failed to parse JSON for field '{key}': {value[:50]}...")
+                snapped_bbox = None
+                final_page_number = detected_page
 
-            # 2. Simple Types
-            elif field.type == "number":
-                parsed = parse_number(value)
-                if parsed is not None:
-                    value = parsed
-                else:
-                    if value:
-                        validation_status = "error_type_mismatch"
-            elif field.type == "date":
-                # Basic check, maybe enhance
-                pass 
-                if value and len(str(value)) < 6: # Heuristic
-                    if value:
-                        validation_status = "error_date_format"
+                def search_page(p_num):
+                    p_data = next((p for p in pages_info if (p.get("page_number") or p.get("pageNumber", 0)) == p_num), None)
+                    if p_data and "words" in p_data:
+                        return self._snap_bbox_to_words(str(value), bbox, p_data["words"])
+                    return None
 
-            validated_extracted[key] = {
-                "value": value,
-                "original_value": item.get("value"), # Debug consistency
-                "confidence": confidence,
-                "bbox": normalized_bbox, # standard [x,y,w,h] or [x1,y1,x2,y2]? Frontend expects [x,y,w,h] usually for highlights? 
-                                         # actually _normalize_bbox returns [x, y, w, h] % ?
-                                         # Let's check _normalize_bbox implementation.
-                                         # It returns [left, top, width, height] as percentages (0-100). Valid.
-                "page_number": page_number,
-                "validation_status": validation_status
+                if value:
+                    # Attempt 1: Check intended page
+                    snapped_bbox = search_page(final_page_number)
+
+                    # Attempt 2: If not found, check ALL other pages (fallback)
+                    if not snapped_bbox and pages_info:
+                          for p_info in pages_info:
+                             p_num = p_info.get("page_number") or p_info.get("pageNumber")
+                             if p_num == final_page_number: continue
+                             
+                             found_bbox = search_page(p_num)
+                             if found_bbox:
+                                 snapped_bbox = found_bbox
+                                 final_page_number = p_num
+                                 logger.info(f"[SmartDiscovery] Value '{value}' for '{key}' found on Page {p_num} (originally thought {page_number})")
+                                 break
+                
+                page_number = final_page_number
+                # -----------------------------------------------------------
+
+
+                # Normalize BBox (convert generic coords to % of page)
+                normalized_bbox = None
+                if snapped_bbox:
+                    p_w, p_h = 100, 100
+                    if page_number and page_number in page_dims:
+                        p_w, p_h = page_dims[page_number]
+                    
+                    normalized_bbox = self._normalize_bbox(snapped_bbox, p_w, p_h)
+                elif bbox and isinstance(bbox, list) and len(bbox) == 4:
+                    normalized_bbox = bbox
+                
+
+                # Type Validation & JSON Parsing for Complex Fields
+                validation_status = "valid"
+                
+                # 1. Complex Types (Array/List/Object/Table) - Auto-Parse JSON strings
+                if field.type in ("array", "list", "object", "table"):
+                    if isinstance(value, str):
+                        value = value.strip()
+                        if (value.startswith("[") and value.endswith("]")) or \
+                           (value.startswith("{") and value.endswith("}")):
+                            try:
+                                value = json.loads(value)
+                            except json.JSONDecodeError:
+                                validation_status = "error_json_format"
+                                logger.warning(f"[Validation] Failed to parse JSON for field '{key}': {value[:50]}...")
+
+                # 2. Simple Types
+                elif field.type == "number":
+                    parsed = parse_number(value)
+                    if parsed is not None:
+                        value = parsed
+                    else:
+                        if value:
+                            validation_status = "error_type_mismatch"
+                elif field.type == "date":
+                    pass 
+                    if value and len(str(value)) < 6:
+                        if value:
+                            validation_status = "error_date_format"
+
+                validated_extracted[key] = {
+                    "value": value,
+                    "original_value": item.get("value"),
+                    "confidence": confidence,
+                    "bbox": normalized_bbox,
+                    "page_number": page_number,
+                    "validation_status": validation_status
+                }
+
+            # Initialize result container (STANDARD MODE)
+            result = {
+                "guide_extracted": validated_extracted,
             }
 
-        # Initialize result container
-        result = {
-            "guide_extracted": validated_extracted,
-            "other_data": raw_data.get("other_data", []),
-            "raw_content": raw_data.get("raw_content", "")
-        }
+        # --- Common metadata (always included regardless of mode) ---
+        result["other_data"] = raw_data.get("other_data", [])
+        result["raw_content"] = raw_data.get("raw_content", "")
 
         # Preserve technical fields from Beta path
-        if "_beta_parsed_content" in raw_data:
-            result["_beta_parsed_content"] = raw_data["_beta_parsed_content"]
-        if "_beta_ref_map" in raw_data:
-            result["_beta_ref_map"] = raw_data["_beta_ref_map"]
-        
-        # Preserve chunking debug info
-        if "_beta_chunking_info" in raw_data:
-            result["_beta_chunking_info"] = raw_data["_beta_chunking_info"]
-        if "_beta_pipeline_stages" in raw_data:
-            result["_beta_pipeline_stages"] = raw_data["_beta_pipeline_stages"]
+        for key in ["_beta_parsed_content", "_beta_ref_map", "_beta_chunking_info", "_beta_pipeline_stages"]:
+            if key in raw_data:
+                result[key] = raw_data[key]
         
         # Pass token usage
         if "_token_usage" in raw_data:

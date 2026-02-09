@@ -39,7 +39,7 @@ class SaveExtractionRequest(BaseModel):
     model_id: str
     filename: str
     file_url: str
-    guide_extracted: Dict[str, Any]  # Model field values
+    guide_extracted: Any  # Model field values (Dict for form, List for table)
     other_data: Optional[List[Dict[str, Any]]] = []  # Additional selected data (values can be any type)
     log_id: Optional[str] = None  # Optional: Update existing log
     debug_data: Optional[Dict[str, Any]] = None  # Raw debug data to persist
@@ -664,7 +664,8 @@ async def save_extraction(
     """
     try:
         # Combine guide_extracted and any selected other_data
-        extracted_data = dict(request.guide_extracted)
+        raw_guide = request.guide_extracted
+        extracted_data = list(raw_guide) if isinstance(raw_guide, list) else dict(raw_guide)
 
         # Add selected other_data as additional fields
         if request.other_data:

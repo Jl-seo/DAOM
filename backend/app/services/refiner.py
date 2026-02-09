@@ -12,7 +12,7 @@ class RefinerEngine:
     """
 
     @staticmethod
-    def construct_prompt(model_info: Any, language: str = "en") -> str:
+    def construct_prompt(model_info: Any, language: str = "en", table_only: bool = False) -> str:
         """
         Builds a comprehensive system prompt incorporating:
         1. Model Context (Description)
@@ -20,6 +20,11 @@ class RefinerEngine:
         3. Global Output Rules
         4. Reference Data (Phase 1)
         5. Output Format Instructions
+        
+        Args:
+            table_only: If True, only include table-type fields in the prompt.
+                       Used for chunked extraction where common fields are
+                       extracted separately from the header context.
         Robust to both Pydantic model and Dict input.
         """
         # Helper to access attributes safely
@@ -33,6 +38,10 @@ class RefinerEngine:
         global_rules = get_attr(model_info, "global_rules", None)
         reference_data = get_attr(model_info, "reference_data", None)
         fields = get_attr(model_info, "fields", [])
+        
+        # Filter fields if table_only mode
+        if table_only:
+            fields = [f for f in fields if getattr(f, 'type', 'text') == 'table']
 
         # 1. Base Context
         prompt = f"""You are an advanced document intelligence AI.
