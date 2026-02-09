@@ -99,51 +99,70 @@ INSTRUCTIONS FOR REFERENCE DATA:
         )
 
         if is_table:
-            # [Fix] Generate CONCRETE example using actual field keys.
-            # Previously used generic "FIELD_KEY" placeholder, causing LLM to invent its own structure.
-            # Now: show the exact expected JSON shape with real keys.
+            # [Fix] Determine if it's a PURE table or Mixed (Header + Table)
+            # If all fields are tables -> Pure Table -> Output {"rows": [...]}
+            # If mix of text & table -> Mixed -> Output {"header": "val", "table": [...]}
             
-            # Separate text fields and table fields
-            text_fields = [f for f in fields if getattr(f, 'type', 'text') != 'table']
-            table_fields = [f for f in fields if getattr(f, 'type', '') == 'table']
+            non_table_fields = [f for f in fields if getattr(f, 'type', 'text') != 'list']
+            table_fields = [f for f in fields if getattr(f, 'type', 'text') == 'list']
             
-            # Build concrete example
-            example_parts = []
-            for f in text_fields:
-                example_parts.append(f'    "{f.key}": {{ "value": "...", "confidence": 0.9 }}')
-            for f in table_fields:
-                example_parts.append(f'    "{f.key}": [\n      {{ "column1": "value1", "column2": "value2" }},\n      {{ "column1": "value3", "column2": "value4" }}\n    ]')
-            
-            example_json = "{\n  \"guide_extracted\": {\n" + ",\n".join(example_parts) + "\n  }\n}"
-            
-            prompt += f"""
-OUTPUT INSTRUCTIONS (TABLE MODE):
+            is_pure_table = len(non_table_fields) == 0
+
+            if is_pure_table:
+                # ORIGINAL LOGIC: Force {"rows": [...]}
+                
+                # Build example for pure table
+                example_parts = []
+                for f in table_fields:
+                     example_parts.append(f'        "{f.key}": "value"')
+                
+                example_json = "{\n  \"rows\": [\n    {\n" + ",\n".join(example_parts) + "\n    }\n  ]\n}"
+
+                prompt += f"""
+OUTPUT INSTRUCTIONS (PURE TABLE MODE):
 You must extract ALL rows from the document. Do NOT truncate or sample.
 
 **CRITICAL: DENORMALIZE HIERARCHICAL DATA**
 - If the table has merged cells or hierarchical headers (e.g., one 'Route' applies to multiple 'POL/POD' rows), **YOU MUST REPEAT** the parent value for EVERY child row.
-- Do NOT return separate rows for "Header Info" and "Detail Info". Merge them into single flat objects.
 - Every row object must be complete.
 
 **CRITICAL: STRICT SCHEMA & FORMAT**
 1. Output format MUST be:
-   {{
-     "rows": [
-       {{ "column_key": "value", ... }},
-       {{ "column_key": "value", ... }}
-     ]
-   }}
+{example_json}
 2. Root key MUST be "rows". The value MUST be a JSON Array (List).
 3. **MAP HEADERS**: You must map document headers to the EXACT field keys defined above.
-   - Example: If doc has "Charge_Type", map it to "charge_type" (or whatever the schema key is).
-   - Do NOT invent new keys. Do NOT preserve mixed-case headers if they don't match the schema.
-   - If a column doesn't match a schema key, ignore it or map to the closest semantic match.
+   - Example: If doc has "Charge_Type", map it to "charge_type".
+   - Do NOT invent new keys.
+"""
+            else:
+                # MIXED MODE: Allow natural hierarchy
+                # Header fields at root, Table fields as lists
+                
+                example_parts = []
+                for f in non_table_fields:
+                    example_parts.append(f'    "{f.key}": "value"')
+                
+                for f in table_fields:
+                    example_parts.append(f'    "{f.key}": [\n      {{ "col1": "val1", "col2": "val2" }}\n    ]')
 
-4. For TEXT type fields (outside the table), include them in every row or return them as separate keys in the root.
+                example_json = "{\n  \"guide_extracted\": {\n" + ",\n".join(example_parts) + "\n  }\n}"
 
-LANGUAGE INSTRUCTION:
-Extract the value exactly as it appears in the document (Original Language).
-Do NOT translate unless the field rule explicitly mentions translation.
+                prompt += f"""
+OUTPUT INSTRUCTIONS (MIXED MODE - HEADER + TABLE):
+You must extract both the Header Information (Single Fields) and Table Details (List Fields).
+
+**CRITICAL: HIERARCHICAL STRUCTURE**
+1. Output format MUST be:
+{example_json}
+2. Root key MUST be "guide_extracted".
+3. **Single fields** (e.g. Invoice No, Date) go at the root of "guide_extracted".
+4. **Table fields** (List type) go as JSON Arrays within "guide_extracted".
+   - Inside the table array, each item is a row object.
+   - Denormalize merged cells within the table rows if necessary.
+
+**CRITICAL: DO NOT FLATTEN**
+- Do NOT force header fields into every table row. Keep them separate at the root level.
+- Do NOT output a single "rows" list unless the field type is explicitly a list.
 """
         else:
             prompt += f"""
