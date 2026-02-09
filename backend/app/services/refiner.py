@@ -34,10 +34,6 @@ class RefinerEngine:
             active_fields = model.fields
             mode_instruction = "Extract all fields defined in the schema."
 
-        field_definitions = "\n".join([
-            f"- {f.name} ({f.type}): {f.description}" 
-            for f in active_fields
-        ])
         
         # Helper to access attributes safely
         def get_attr(obj, key, default=None):
