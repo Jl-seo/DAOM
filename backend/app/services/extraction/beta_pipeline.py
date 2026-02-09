@@ -29,28 +29,57 @@ class BetaPipeline(ExtractionPipeline):
 
     async def execute(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: Optional[List[int]] = None) -> ExtractionResult:
         """
-        Main Execution Entry Point
+        Main Execution Entry Point.
+        
+        3-Tier Strategy:
+        1. PDF/Scanned (pages with words)  → Page-Based Chunking (existing)
+        2. Digital Small (Excel ≤ threshold) → Single-Shot
+        3. Digital Large (Excel > threshold) → Text-Based Line Chunking
         """
         start_time = datetime.utcnow()
         
-        # 1. Decide Strategy (Single Shot vs Chunked)
-        page_count = len(ocr_data.get("pages", []))
-        json_payload_len = len(json.dumps(ocr_data))
+        # --- 1. Detect Document Type ---
+        pages = ocr_data.get("pages", [])
+        page_count = len(pages)
+        content = ocr_data.get("content", "") or ""
+        content_len = len(content)
         
+        # "Real pages" = pages that have actual OCR words (scanned/PDF).
+        # Excel/digital pages may exist but have empty words.
+        has_real_pages = any(
+            len(p.get("words", [])) > 0 for p in pages
+        )
+        
+        # Thresholds
         CHUNK_PAGE_LIMIT = 3
-        CHUNK_CHAR_LIMIT = 10000 
+        # ~30,000 chars ≈ ~10,000 tokens. Safe single-shot limit for GPT-4o.
+        SINGLE_SHOT_CHAR_LIMIT = 30000
+        # For text-based chunking, each chunk should be ~15k chars.
+        TEXT_CHUNK_SIZE = 15000
         
-        # [Fix] Excel/Digital files have page_count=0. Chunking with 0 pages
-        # causes an empty loop → empty result. Always use single-shot for 0-page files.
-        if page_count == 0:
-            logger.info(f"[BetaPipeline] No pages detected (Excel/Digital file). Forcing Single-Shot. ({json_payload_len} chars)")
-            result = await self._execute_single_shot(model, ocr_data, focus_pages)
-        elif page_count > CHUNK_PAGE_LIMIT or json_payload_len > CHUNK_CHAR_LIMIT:
-            logger.info(f"[BetaPipeline] Triggering Chunked Execution: {page_count} pages, {json_payload_len} chars")
-            result = await self._execute_chunked(model, ocr_data, page_count)
+        logger.info(
+            f"[BetaPipeline] Document Analysis: "
+            f"pages={page_count}, has_real_pages={has_real_pages}, "
+            f"content_len={content_len}"
+        )
+        
+        # --- 2. Route to Strategy ---
+        if has_real_pages:
+            # TIER 1: PDF / Scanned Document → Page-Based Chunking
+            if page_count > CHUNK_PAGE_LIMIT:
+                logger.info(f"[BetaPipeline] TIER 1: Page-Based Chunking ({page_count} pages)")
+                result = await self._execute_chunked(model, ocr_data, page_count)
+            else:
+                logger.info(f"[BetaPipeline] TIER 1: Single-Shot PDF ({page_count} pages)")
+                result = await self._execute_single_shot(model, ocr_data, focus_pages)
         else:
-            logger.info(f"[BetaPipeline] Triggering Single-Shot Execution")
-            result = await self._execute_single_shot(model, ocr_data, focus_pages)
+            # TIER 2/3: Digital Document (Excel, DOCX, etc.) → No real OCR pages
+            if content_len <= SINGLE_SHOT_CHAR_LIMIT:
+                logger.info(f"[BetaPipeline] TIER 2: Single-Shot Digital ({content_len} chars)")
+                result = await self._execute_single_shot(model, ocr_data, focus_pages)
+            else:
+                logger.info(f"[BetaPipeline] TIER 3: Text-Based Chunking ({content_len} chars)")
+                result = await self._execute_text_chunked(model, ocr_data, TEXT_CHUNK_SIZE)
             
         result.duration_seconds = (datetime.utcnow() - start_time).total_seconds()
         result.model_name = model.name
@@ -75,6 +104,133 @@ class BetaPipeline(ExtractionPipeline):
         
         # 4. Normalize Result
         return self._normalize_output(raw_result, ocr_data, ref_map, tagged_text)
+
+    async def _execute_text_chunked(self, model: ExtractionModel, ocr_data: Dict[str, Any], chunk_size: int) -> ExtractionResult:
+        """
+        TIER 3: Text-Based Line Chunking for Large Digital Documents.
+        
+        Unlike page-based chunking, this splits raw text content by line boundaries.
+        Used for Excel/DOCX files that exceed the single-shot token limit.
+        Each chunk is processed independently, then results are merged with deduplication.
+        """
+        content = ocr_data.get("content", "") or ""
+        lines = content.split("\n")
+        
+        # --- Build Chunks by Line Groups ---
+        chunks = []
+        current_chunk_lines = []
+        current_chunk_len = 0
+        
+        for line in lines:
+            line_len = len(line) + 1  # +1 for newline
+            
+            # If adding this line exceeds chunk_size and we already have content, flush
+            if current_chunk_len + line_len > chunk_size and current_chunk_lines:
+                chunks.append("\n".join(current_chunk_lines))
+                current_chunk_lines = []
+                current_chunk_len = 0
+            
+            current_chunk_lines.append(line)
+            current_chunk_len += line_len
+        
+        # Flush remaining
+        if current_chunk_lines:
+            chunks.append("\n".join(current_chunk_lines))
+        
+        logger.info(f"[BetaPipeline] TIER 3: Created {len(chunks)} text chunks "
+                     f"(sizes: {[len(c) for c in chunks]})")
+        
+        if not chunks:
+            logger.warning("[BetaPipeline] TIER 3: No content to chunk. Returning empty.")
+            return ExtractionResult()
+        
+        # --- Process Each Chunk via Single-Shot ---
+        async def process_text_chunk(chunk_text: str, chunk_idx: int) -> ExtractionResult:
+            """Process a single text chunk by creating synthetic OCR data."""
+            async with self.semaphore:
+                # Create minimal synthetic OCR data with just content
+                synthetic_ocr = {
+                    "content": chunk_text,
+                    "pages": [],
+                    "paragraphs": [],
+                    "tables": [],  # Tables are hard to split, include in first chunk only
+                    "styles": ocr_data.get("styles", [])
+                }
+                
+                # Include original tables in the first chunk only
+                # (They usually contain the same data as content for Excel)
+                if chunk_idx == 0:
+                    synthetic_ocr["tables"] = ocr_data.get("tables", [])
+                
+                try:
+                    return await self._execute_single_shot(model, synthetic_ocr, focus_pages=None)
+                except Exception as e:
+                    logger.error(f"[BetaPipeline] TIER 3: Chunk {chunk_idx} failed: {e}")
+                    err_result = ExtractionResult()
+                    err_result.error = str(e)
+                    return err_result
+        
+        # Parallel execution
+        tasks = [process_text_chunk(chunk, idx) for idx, chunk in enumerate(chunks)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # --- Merge Results (same logic as page-based chunking) ---
+        merged_result = ExtractionResult()
+        merged_rows = []
+        seen_keys = set()
+        
+        for res in results:
+            if isinstance(res, Exception):
+                logger.error(f"[BetaPipeline] TIER 3: Chunk exception: {res}")
+                continue
+            
+            # Accumulate Tokens
+            merged_result.token_usage.prompt_tokens += res.token_usage.prompt_tokens
+            merged_result.token_usage.completion_tokens += res.token_usage.completion_tokens
+            merged_result.token_usage.total_tokens += res.token_usage.total_tokens
+            
+            # Merge Rows
+            current_rows = res.table_rows or []
+            if not current_rows and res.guide_extracted:
+                current_rows = [res.guide_extracted]
+            
+            for row in current_rows:
+                row_hash = json.dumps(row, sort_keys=True, ensure_ascii=False)
+                if row_hash not in seen_keys:
+                    seen_keys.add(row_hash)
+                    merged_rows.append(row)
+        
+        merged_result.table_rows = merged_rows
+        merged_result.is_table = bool(merged_rows)
+        
+        # If no table rows but we have guide_extracted from first result, use it
+        if not merged_rows:
+            for res in results:
+                if isinstance(res, Exception): continue
+                if res.guide_extracted:
+                    merged_result.guide_extracted = res.guide_extracted
+                    merged_result.is_table = False
+                    break
+        
+        # Merge Metadata
+        all_parsed_text = []
+        all_ref_map = {}
+        for res in results:
+            if isinstance(res, Exception): continue
+            if res.beta_metadata:
+                text = res.beta_metadata.get("parsed_content", "")
+                if text: all_parsed_text.append(text)
+                ref_map = res.beta_metadata.get("ref_map", {})
+                if ref_map: all_ref_map.update(ref_map)
+        
+        merged_result.beta_metadata = {
+            "parsed_content": "\n... [Text Chunk Split] ...\n".join(all_parsed_text),
+            "ref_map": all_ref_map
+        }
+        
+        logger.info(f"[BetaPipeline] TIER 3: Merged {len(merged_rows)} unique rows from {len(chunks)} chunks")
+        return merged_result
+
 
     async def _execute_chunked(self, model: ExtractionModel, ocr_data: Dict[str, Any], total_pages: int) -> ExtractionResult:
         # Chunking Config
