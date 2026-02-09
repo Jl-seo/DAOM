@@ -609,13 +609,30 @@ export function ExtractionPreview({
     selectedField: controlledSelectedField,
     readOnly = false
 }: ExtractionPreviewProps) {
-    // -- Local State (Uncontrolled, initialized from props) --
-    // We intentionally DO NOT sync this with useEffect to avoid infinite loops from parent updates.
-    // The parent must force a re-mount (using key prop) to reset this component when switching documents.
-    // TABLE MODE: state holds array; STANDARD MODE: state holds dict
-    const isTableMode = Array.isArray(guideExtracted)
+    // -- Local State --
+    // Legacy Array Check (Should be false for new backend, but kept for safety)
+    const isLegacyArray = Array.isArray(guideExtracted)
+
+    // Auto-detect Table Field in Dict Mode
+    // Finds the first field that looks like a table (Array of Objects)
+    const defaultTableKey = useMemo(() => {
+        if (isLegacyArray) return null
+        for (const [key, val] of Object.entries(guideExtracted)) {
+            const rawVal = extractValue(val)
+            if (Array.isArray(rawVal) && rawVal.length > 0 && typeof rawVal[0] === 'object') {
+                return key
+            }
+        }
+        return null
+    }, [guideExtracted, isLegacyArray])
+
+    // State for Active Table View (null = Form View, string = Field Key for Table View)
+    const [activeTableKey, setActiveTableKey] = useState<string | null>(defaultTableKey)
+
+    // Main Data State
+    // If Legacy Array: state is Array. If Dict: state is Dict.
     const [editedGuideData, setEditedGuideData] = useState<Record<string, any> | any[]>(() =>
-        isTableMode ? [...(guideExtracted as any[])] : { ...guideExtracted }
+        isLegacyArray ? [...(guideExtracted as any[])] : { ...guideExtracted }
     )
     const [editedOtherData, setEditedOtherData] = useState<Array<{ column: any; value: any }>>(() => [...otherData])
 
@@ -645,7 +662,6 @@ export function ExtractionPreview({
 
     // Auto-propagate changes to parent (but skip initial mount)
     useEffect(() => {
-        // Skip the very first effect run to prevent loop during initial render
         if (!isInitializedRef.current) {
             isInitializedRef.current = true
             return
@@ -698,8 +714,22 @@ export function ExtractionPreview({
         setSelectedOtherColumns(newSelection)
     }
 
+    // Identify Table Mode vs Form Mode
+    // Show Table View if: Legacy Array OR Active Table Key is selected
+    const showTableView = isLegacyArray || !!activeTableKey
+
+    // Get Data for Table View
+    const getTableData = () => {
+        if (isLegacyArray) return editedGuideData as any[]
+        if (activeTableKey) {
+            const val = (editedGuideData as Record<string, any>)[activeTableKey]
+            return extractValue(val) // Unwrap if needed
+        }
+        return []
+    }
+
     const guideFieldCount = modelFields.length
-    const filledFieldCount = isTableMode
+    const filledFieldCount = isLegacyArray
         ? (editedGuideData as any[]).length
         : Object.values(editedGuideData).filter(v => v !== null && v !== '' && v !== undefined).length
 
@@ -714,28 +744,48 @@ export function ExtractionPreview({
                     <p className="text-xs text-muted-foreground flex items-center gap-1">
                         <Edit2 className="w-3 h-3" />
                         {filledFieldCount}/{guideFieldCount}개 필드
+                        {activeTableKey && (
+                            <span className="ml-2 px-1.5 py-0.5 bg-primary/20 text-primary rounded text-[10px] font-semibold">
+                                TABLE MODE ({activeTableKey})
+                            </span>
+                        )}
                     </p>
                 </div>
-                {!readOnly && onSave && (
-                    <Button
-                        size="sm"
-                        onClick={() => {
-                            import.meta.env.DEV && console.log('[SaveButton] Clicked')
-                            toast.info('저장 중...')
-                            const selectedEditedOtherData = editedOtherData.filter(item => {
-                                const columnName = typeof item.column === 'object'
-                                    ? JSON.stringify(item.column)
-                                    : String(item.column ?? '')
-                                return selectedOtherColumns.has(columnName)
-                            })
-                            onSave(editedGuideData, selectedEditedOtherData)
-                        }}
-                        className="gap-1"
-                    >
-                        <Save className="w-4 h-4" />
-                        저장
-                    </Button>
-                )}
+                <div className="flex gap-2">
+                    {/* Toggle View Mode Button (Only for Mixed Models) */}
+                    {!isLegacyArray && defaultTableKey && (
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setActiveTableKey(prev => prev ? null : defaultTableKey)}
+                            className="gap-1 h-8"
+                        >
+                            {activeTableKey ? <Database className="w-3.5 h-3.5" /> : <Database className="w-3.5 h-3.5" />}
+                            {activeTableKey ? '폼 뷰로 보기' : '테이블 뷰로 보기'}
+                        </Button>
+                    )}
+
+                    {!readOnly && onSave && (
+                        <Button
+                            size="sm"
+                            onClick={() => {
+                                import.meta.env.DEV && console.log('[SaveButton] Clicked')
+                                toast.info('저장 중...')
+                                const selectedEditedOtherData = editedOtherData.filter(item => {
+                                    const columnName = typeof item.column === 'object'
+                                        ? JSON.stringify(item.column)
+                                        : String(item.column ?? '')
+                                    return selectedOtherColumns.has(columnName)
+                                })
+                                onSave(editedGuideData, selectedEditedOtherData)
+                            }}
+                            className="gap-1"
+                        >
+                            <Save className="w-4 h-4" />
+                            저장
+                        </Button>
+                    )}
+                </div>
             </div>
 
             {/* Content */}
@@ -745,20 +795,25 @@ export function ExtractionPreview({
                     <div className="px-6 py-3 bg-primary/10 flex items-center gap-2">
                         <Sparkles className="w-4 h-4 text-primary" />
                         <span className="text-sm font-semibold text-foreground">
-                            {Array.isArray(guideExtracted)
-                                ? `테이블 추출 완료 (${(guideExtracted as any[]).length}행)`
+                            {showTableView
+                                ? `테이블 추출 완료 (${getTableData().length}행)`
                                 : `참고정보 기반 추출 (${filledFieldCount}개 값)`
                             }
                         </span>
                     </div>
 
                     {/* TABLE MODE: render full editable table */}
-                    {Array.isArray(guideExtracted) ? (
+                    {showTableView ? (
                         <div className="p-4">
                             <ResizableNestedTable
-                                data={editedGuideData as any}
+                                data={getTableData()}
                                 onUpdate={!readOnly ? (newData) => {
-                                    setEditedGuideData(newData as any)
+                                    if (isLegacyArray) {
+                                        setEditedGuideData(newData as any)
+                                    } else if (activeTableKey) {
+                                        // Update the specific field in the Dict
+                                        updateGuideField(activeTableKey, newData)
+                                    }
                                 } : undefined}
                                 isExpanded={true}
                             />
@@ -782,6 +837,9 @@ export function ExtractionPreview({
                                         const hasValue = value !== null && value !== '' && value !== undefined
                                         const isLowConfidence = confidence !== null && confidence < 0.9
 
+                                        // Highlight table fields that can be expanded
+                                        const isTableField = Array.isArray(value) && value.length > 0 && typeof value[0] === 'object'
+
                                         return (
                                             <tr
                                                 key={field.key}
@@ -800,7 +858,20 @@ export function ExtractionPreview({
                                                 }}
                                             >
                                                 <td className="px-6 py-4 align-top">
-                                                    <div className="font-medium text-foreground">{field.label}</div>
+                                                    <div className="font-medium text-foreground flex items-center gap-2">
+                                                        {field.label}
+                                                        {isTableField && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation()
+                                                                    setActiveTableKey(field.key)
+                                                                }}
+                                                                className="text-[10px] px-1.5 py-0.5 bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground rounded transition-colors"
+                                                            >
+                                                                테이블 보기
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                     <div className="text-xs text-muted-foreground">{field.key}</div>
                                                     {selectedField === field.key && (
                                                         <div className="text-xs text-primary mt-1">📍 PDF에서 보기</div>

@@ -17,9 +17,8 @@ class ExtractionResult(BaseModel):
     # Main Data (Key-Value)
     guide_extracted: Dict[str, Any] = Field(default_factory=dict, description="Structured key-value pairs")
     
-    # Table Data (if applicable)
-    table_rows: List[Dict[str, Any]] = Field(default_factory=list, description="Flattened list of rows for table-heavy docs")
-    is_table: bool = False
+    # Table Data is NOW part of guide_extracted as List[Dict] values.
+    # No separate table_rows / is_table fields anymore.
     
     # Raw Data (for debugging/fallback)
     raw_content: str = ""

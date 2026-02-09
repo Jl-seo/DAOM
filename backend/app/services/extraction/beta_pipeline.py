@@ -31,85 +31,111 @@ class BetaPipeline(ExtractionPipeline):
         """
         Main Execution Entry Point.
         
-        Simplified 2-Tier Strategy (Format-Agnostic):
-        1. Small content (≤ threshold) → Single-Shot (PDF, Excel, DOCX 모두 동일)
-        2. Large content (> threshold)  → Text-Based Chunking + Merge
-        
-        Note: has_real_pages is NOT used for routing.
-        Azure DI returns pages with words for BOTH PDF and Excel,
-        so it cannot distinguish file types. content_len is the only
-        reliable signal for deciding single-shot vs chunked.
+        Refactored 2-Stage Strategy:
+        1. Layout Analysis (Run Once)
+        2. Scenario Routing:
+           - CASE A: General Model (No table fields) -> Single-Shot (mode="all")
+           - CASE B: Table Model (Has table fields) -> 2-Stage Pipeline
+             - Stage 1: Extract Common Fields (mode="common") from Header Context
+             - Stage 2: Extract Table Fields (mode="table") from Full Content (Single vs Chunked)
+             - Merge: Combine Common + Table results into one Dict
         """
         start_time = datetime.utcnow()
         
-        # --- 1. Document Info ---
-        pages = ocr_data.get("pages", [])
-        page_count = len(pages)
-        content = ocr_data.get("content", "") or ""
-        content_len = len(content)
-        
-        # Thresholds
-        # ~6,000 chars ≈ ~2,000 tokens input ≈ ~40 rows (safe for LLM output limit)
-        SINGLE_SHOT_CHAR_LIMIT = 6000
-        # For text-based chunking: 4,000 chars ≈ 1,300 tokens ≈ ~25 rows per chunk
-        TEXT_CHUNK_SIZE = 4000
-        
-        logger.info(
-            f"[BetaPipeline] Document Analysis: "
-            f"pages={page_count}, content_len={content_len}"
-        )
-        
-        # --- 2. Route by content size only (format-agnostic) ---
-        if content_len <= SINGLE_SHOT_CHAR_LIMIT:
-            logger.info(f"[BetaPipeline] Single-Shot ({content_len} chars, {page_count} pages)")
-            result = await self._execute_single_shot(model, ocr_data, focus_pages)
-        else:
-            logger.info(f"[BetaPipeline] Text-Chunked ({content_len} chars, {page_count} pages)")
-            result = await self._execute_text_chunked(model, ocr_data, TEXT_CHUNK_SIZE)
-            
-        result.duration_seconds = (datetime.utcnow() - start_time).total_seconds()
-        result.model_name = model.name
-        return result
-
-    async def _execute_single_shot(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: Optional[List[int]] = None) -> ExtractionResult:
-        # 1. Layout Parsing
+        # --- 1. Layout Parsing (Once for all stages) ---
         parser = LayoutParser(ocr_data)
         tagged_text, ref_map = parser.parse(focus_pages=focus_pages)
         
-        # 2. Refiner Prompt
-        system_prompt = RefinerEngine.construct_prompt(model, language="ko")
-        user_prompt = f"DOCUMENT DATA (Tagged Layout Format):\n{tagged_text}\n\nTASK: Extract fields based on system instructions.\nReturn valid JSON."
+        content_len = len(tagged_text)
+        page_count = len(ocr_data.get("pages", []))
+        
+        # Thresholds
+        SINGLE_SHOT_CHAR_LIMIT = 6000
+        TEXT_CHUNK_SIZE = 4000
+        
+        logger.info(f"[BetaPipeline] Analysis: pages={page_count}, content_len={content_len} chars")
+
+        # --- 2. Determine Strategy ---
+        # Check if model has any table/list fields
+        table_fields = [f for f in model.fields if f.type == 'list']
+        has_table = len(table_fields) > 0
+        
+        final_result = None
+        
+        if not has_table:
+            # CASE A: General Model -> Single Shot (All fields)
+            logger.info("[BetaPipeline] Route: General Mode (Single-Shot)")
+            final_result = await self._extract_segment(model, tagged_text, ocr_data, ref_map, mode="all")
+        else:
+            # CASE B: Table Model -> 2-Stage Pipeline
+            logger.info("[BetaPipeline] Route: Table Mode (2-Stage)")
+            
+            # Stage 1: Common Fields (Header Context up to 3000 chars)
+            header_context = tagged_text[:3000]
+            logger.info("[BetaPipeline] Stage 1: Extracting Common Fields...")
+            common_result = await self._extract_segment(model, header_context, ocr_data, ref_map, mode="common")
+            
+            # Stage 2: Table Fields
+            logger.info("[BetaPipeline] Stage 2: Extracting Table Fields...")
+            if content_len <= SINGLE_SHOT_CHAR_LIMIT:
+                # Small Table -> Single Shot
+                table_result = await self._extract_segment(model, tagged_text, ocr_data, ref_map, mode="table")
+            else:
+                # Large Table -> Chunked
+                table_result = await self._extract_table_chunked(model, tagged_text, ocr_data, ref_map, TEXT_CHUNK_SIZE)
+                
+            # Merge Results
+            final_result = self._merge_results(common_result, table_result)
+
+        final_result.duration_seconds = (datetime.utcnow() - start_time).total_seconds()
+        final_result.model_name = model.name
+        
+        # Add metadata
+        final_result.beta_metadata = {
+            "parsed_content": tagged_text,
+            "ref_map": ref_map,
+            "pipeline_mode": "2-stage" if has_table else "general"
+        }
+        
+        return final_result
+
+    async def _extract_segment(self, model: ExtractionModel, text_segment: str, ocr_data: Dict, ref_map: Dict, mode: str) -> ExtractionResult:
+        """Helper to run a single LLM call for a text segment with specific mode."""
+        system_prompt = RefinerEngine.construct_prompt(model, language="ko", mode=mode)
+        user_prompt = f"DOCUMENT DATA (Tagged Layout Format):\n{text_segment}\n\nTASK: Extract fields based on system instructions.\nReturn valid JSON."
         
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
         
-        # 3. LLM Call
         raw_result = await self.call_llm(messages)
-        
-        # 4. Normalize Result
-        return self._normalize_output(raw_result, ocr_data, ref_map, tagged_text)
+        return self._normalize_output(raw_result, ocr_data, ref_map, text_segment)
 
-    async def _execute_text_chunked(self, model: ExtractionModel, ocr_data: Dict[str, Any], chunk_size: int) -> ExtractionResult:
+    def _merge_results(self, common: ExtractionResult, table: ExtractionResult) -> ExtractionResult:
+        """Merge Common and Table results into a single Dict."""
+        merged = ExtractionResult()
+        
+        # 1. Start with Common fields
+        merged.guide_extracted.update(common.guide_extracted)
+        
+        # 2. Update with Table fields
+        # Note: If key collision exists (unlikely with mode separation), Table wins? 
+        # No, they should be disjoint sets of keys.
+        merged.guide_extracted.update(table.guide_extracted)
+        
+        # 3. Sum tokens
+        merged.token_usage.prompt_tokens = common.token_usage.prompt_tokens + table.token_usage.prompt_tokens
+        merged.token_usage.completion_tokens = common.token_usage.completion_tokens + table.token_usage.completion_tokens
+        merged.token_usage.total_tokens = common.token_usage.total_tokens + table.token_usage.total_tokens
+        
+        return merged
+
+    async def _extract_table_chunked(self, model: ExtractionModel, tagged_text: str, ocr_data: Dict[str, Any], ref_map: Dict, chunk_size: int) -> ExtractionResult:
         """
-        Text-Based Line Chunking for Large Documents (format-agnostic).
-        
-        2-Stage Architecture:
-        Stage 1: Extract common fields (Validity, Carrier, etc.) from header context — LLM 1 call
-        Stage 2: Extract table fields (Rate_Explosion_List, etc.) from each chunk — LLM N calls
-        
-        This prevents duplicate/conflicting common fields across chunks,
-        and keeps table extraction focused on row data only.
+        Stage 2 (Large Content): Extract TABLE data from chunks (lines).
         """
-        # --- Step 1: Run LayoutParser on FULL OCR data (Python is cheap) ---
-        parser = LayoutParser(ocr_data)
-        tagged_text, ref_map = parser.parse()
-        
-        logger.info(f"[BetaPipeline] Chunked: LayoutParser produced {len(tagged_text)} chars "
-                     f"with {len(ref_map)} refs from full OCR")
-        
-        # --- Step 2: Split TAGGED text into chunks by line boundaries ---
+        # --- Step 1: Split TAGGED text into chunks by line boundaries ---
         lines = tagged_text.split("\n")
         
         chunks = []
@@ -130,46 +156,21 @@ class BetaPipeline(ExtractionPipeline):
         if current_chunk_lines:
             chunks.append("\n".join(current_chunk_lines))
         
-        logger.info(f"[BetaPipeline] Chunked: Created {len(chunks)} text chunks "
-                     f"(sizes: {[len(c) for c in chunks]})")
+        logger.info(f"[BetaPipeline] Table Chunking: Created {len(chunks)} text chunks")
         
         if not chunks:
-            logger.warning("[BetaPipeline] Chunked: No content to chunk. Returning empty.")
             return ExtractionResult()
         
-        # Header context: first 1200 chars of tagged text (includes table headers with tags)
-        header_context = tagged_text[:1200]
+        # Header context for every chunk (so LLM knows table structure)
+        header_context = tagged_text[:1500]
         
-        # --- Stage 1: Extract COMMON fields from header context (1 LLM call) ---
-        full_prompt = RefinerEngine.construct_prompt(model, language="ko")
-        common_result = None
-        
-        try:
-            common_user_prompt = (
-                f"DOCUMENT DATA (Header Section):\n{header_context}\n\n"
-                f"TASK: Extract ONLY the common/metadata fields (NOT the table rows).\n"
-                f"For table-type fields, return an empty list [].\n"
-                f"Return valid JSON."
-            )
-            common_messages = [
-                {"role": "system", "content": full_prompt},
-                {"role": "user", "content": common_user_prompt}
-            ]
-            async with self.semaphore:
-                raw_common = await self.call_llm(common_messages)
-                common_result = self._normalize_output(raw_common, ocr_data, ref_map, header_context)
-            logger.info(f"[BetaPipeline] Stage 1: Common fields extracted: "
-                        f"{list(common_result.guide_extracted.keys()) if common_result.guide_extracted else '(empty)'}")
-        except Exception as e:
-            logger.error(f"[BetaPipeline] Stage 1: Common field extraction failed: {e}")
-        
-        # --- Stage 2: Extract TABLE fields from each chunk (N LLM calls) ---
-        table_prompt = RefinerEngine.construct_prompt(model, language="ko", table_only=True)
+        # --- Run Parallel Extraction (Table Mode) ---
+        table_prompt = RefinerEngine.construct_prompt(model, language="ko", mode="table")
         
         async def process_text_chunk(chunk_text: str, chunk_idx: int) -> ExtractionResult:
             """Send a tagged text chunk to LLM for TABLE field extraction only."""
             
-            # Prepend header context to non-first chunks so LLM knows table structure
+            # Prepend header context to non-first chunks
             final_chunk = chunk_text
             if chunk_idx > 0:
                 final_chunk = header_context + "\n... [Header Context End] ...\n" + chunk_text
@@ -190,82 +191,49 @@ class BetaPipeline(ExtractionPipeline):
                     raw_result = await self.call_llm(messages)
                     return self._normalize_output(raw_result, ocr_data, ref_map, chunk_text)
                 except Exception as e:
-                    logger.error(f"[BetaPipeline] Stage 2: Chunk {chunk_idx} failed: {e}")
-                    err_result = ExtractionResult()
-                    err_result.error = str(e)
-                    return err_result
+                    logger.error(f"[BetaPipeline] Table Chunk {chunk_idx} failed: {e}")
+                    # Return empty result with error
+                    res = ExtractionResult()
+                    res.error = str(e)
+                    return res
         
         # Parallel execution
         tasks = [process_text_chunk(chunk, idx) for idx, chunk in enumerate(chunks)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # --- Step 3: Merge Results ---
+        # --- Merge Results (Field-aware Deduplication) ---
         merged_result = ExtractionResult()
-        merged_rows = []
-        seen_keys = set()
+        merged_guide = {} # Key -> List[Row]
+        seen_rows = {}    # Key -> Set(row_hash)
         
         for res in results:
             if isinstance(res, Exception):
-                logger.error(f"[BetaPipeline] Chunked: Chunk exception: {res}")
                 continue
             
+            # Token Usage
             merged_result.token_usage.prompt_tokens += res.token_usage.prompt_tokens
             merged_result.token_usage.completion_tokens += res.token_usage.completion_tokens
             merged_result.token_usage.total_tokens += res.token_usage.total_tokens
             
-            current_rows = res.table_rows or []
-            
-            # Fix 3: Fallback defense — unwrap list-of-dicts from guide_extracted before treating as single row
-            if not current_rows and res.guide_extracted:
-                for k, v in res.guide_extracted.items():
-                    # Try bare list
-                    if isinstance(v, list) and v and isinstance(v[0], dict):
-                        current_rows = v
-                        break
-                    # Try {"value": list} wrapper
-                    if isinstance(v, dict) and isinstance(v.get("value"), list):
-                        inner = v["value"]
-                        if inner and isinstance(inner[0], dict):
-                            current_rows = inner
-                            break
-                # If still no rows, skip this chunk (don't wrap entire dict as 1 row)
-                if not current_rows:
-                    logger.warning(f"[BetaPipeline] Chunked: Chunk returned no table data, skipping")
-                    continue
-            
-            for row in current_rows:
-                row_hash = json.dumps(row, sort_keys=True, ensure_ascii=False)
-                if row_hash not in seen_keys:
-                    seen_keys.add(row_hash)
-                    merged_rows.append(row)
+            # Merge Lists
+            if res.guide_extracted:
+                for key, val in res.guide_extracted.items():
+                    if isinstance(val, list):
+                        if key not in merged_guide:
+                            merged_guide[key] = []
+                            seen_rows[key] = set()
+                        
+                        for row in val:
+                            if not isinstance(row, dict): continue
+                            
+                            row_hash = json.dumps(row, sort_keys=True, ensure_ascii=False)
+                            if row_hash not in seen_rows[key]:
+                                seen_rows[key].add(row_hash)
+                                merged_guide[key].append(row)
         
-        # Add Stage 1 token usage
-        if common_result:
-            merged_result.token_usage.prompt_tokens += common_result.token_usage.prompt_tokens
-            merged_result.token_usage.completion_tokens += common_result.token_usage.completion_tokens
-            merged_result.token_usage.total_tokens += common_result.token_usage.total_tokens
+        merged_result.guide_extracted = merged_guide
+        logger.info(f"[BetaPipeline] Table Merge: Extracted fields {list(merged_guide.keys())}")
         
-        merged_result.table_rows = merged_rows
-        merged_result.is_table = bool(merged_rows)
-        
-        # Set guide_extracted from Stage 1 common fields
-        if common_result and common_result.guide_extracted:
-            merged_result.guide_extracted = common_result.guide_extracted
-        
-        if not merged_rows and not merged_result.guide_extracted:
-            for res in results:
-                if isinstance(res, Exception): continue
-                if res.guide_extracted:
-                    merged_result.guide_extracted = res.guide_extracted
-                    merged_result.is_table = False
-                    break
-        
-        merged_result.beta_metadata = {
-            "parsed_content": tagged_text,  # Full tagged text for debug view
-            "ref_map": ref_map
-        }
-        
-        logger.info(f"[BetaPipeline] Chunked: Merged {len(merged_rows)} unique rows from {len(chunks)} chunks")
         return merged_result
 
 
@@ -499,54 +467,53 @@ class BetaPipeline(ExtractionPipeline):
                      v["page_number"] = map_page(v["page_number"])
 
     def _normalize_output(self, raw_llm: Dict[str, Any], ocr_data: Dict, ref_map: Dict, tagged_text: str) -> ExtractionResult:
-        """Convert LLM JSON to Standard ExtractionResult"""
+        """Convert LLM JSON to Standard ExtractionResult (Unified Dict Format)"""
         res = ExtractionResult()
         
-        # Mapping logic
-        # Mapping logic
-        # [Refactor Phase 7] Nested Table structure
-        # LLM now returns {"guide_extracted": {"some_table_field": [{...}, {...}]}}
-        # We must find the list field and populate table_rows for backward compat.
-        
         extracted = raw_llm.get("guide_extracted", {})
-        res.guide_extracted = extracted
         
-        # Check if any field in guide_extracted is a list of dicts (Candidate for Table)
-        # Or if "rows" still exists (fallback)
+        # Legacy/Fallback: "rows" key -> wrap in _table_data or first list field if possible
         if "rows" in raw_llm:
-             rows = raw_llm["rows"]
-             # [Fix] Sanitize Dict->List
-             if isinstance(rows, dict):
+            rows = raw_llm["rows"]
+            if isinstance(rows, dict):
+                # Convert dict-of-rows to list-of-rows
                 try:
                     sorted_keys = sorted(rows.keys(), key=lambda x: int(x) if str(x).isdigit() else x)
                     rows = [rows[k] for k in sorted_keys]
                 except:
                     rows = list(rows.values())
-             res.table_rows = rows
-             res.is_table = True
-        else:
-            # Look for table field in guide_extracted
-            found_table = False
-            for k, v in extracted.items():
-                # Case 1: Bare list of dicts — e.g. "Rate_List": [{...}, {...}]
-                if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict):
-                    res.table_rows = v
-                    res.is_table = True
-                    found_table = True
-                    break
-                # Case 2: Wrapped in {"value": list, "confidence": ...}
-                # LLM sometimes wraps table fields in text-field format
-                if isinstance(v, dict) and "value" in v:
-                    inner = v.get("value")
-                    if isinstance(inner, list) and len(inner) > 0 and isinstance(inner[0], dict):
-                        res.table_rows = inner
-                        res.is_table = True
-                        found_table = True
-                        break
             
-            if not found_table and extracted:
-                # Fallback: maybe it's just a form
-                pass
+            # If guide_extracted is empty, put rows in a generic field
+            # Ideally we should know the field name, but for now specific field key is better
+            extracted["_legacy_rows"] = rows
+
+        # Clean up {value: list} wrapper (LLM sometimes wraps table fields in text-field format)
+        # Also clean up {value: val} for text fields if needed, but usually we keep confidence.
+        # Strict schema requires:
+        # - Text Field: {value: "...", confidence: 0.9}
+        # - Table Field: [{...}, {...}] (List of Rows)
+        
+        cleaned_extracted = {}
+        for k, v in extracted.items():
+            # Case 1: Already a list -> Keep it (Table Field)
+            if isinstance(v, list):
+                cleaned_extracted[k] = v
+                continue
+                
+            # Case 2: Dict wrapper
+            if isinstance(v, dict):
+                # Check if it wraps a list: {"value": [...]}
+                if "value" in v and isinstance(v["value"], list):
+                     cleaned_extracted[k] = v["value"]
+                else:
+                     # Text field -> Keep as is
+                     cleaned_extracted[k] = v
+            else:
+                # Direct value -> Wrap for consistency? or Keep?
+                # Service layer expects structure, but let's keep as is for legacy compat
+                cleaned_extracted[k] = v
+                
+        res.guide_extracted = cleaned_extracted
         
         # Token Usage
         usage = raw_llm.get("_token_usage", {})
@@ -571,7 +538,16 @@ class BetaPipeline(ExtractionPipeline):
             response_format={"type": "json_object"}
         )
         content = response.choices[0].message.content
-        result = json.loads(content)
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(f"[BetaPipeline] JSON Decode Error: {e}. Content-Length: {len(content)}")
+            # Return error structure that mimics successful response but with error flag
+            result = {
+                "guide_extracted": {}, 
+                "error": f"LLM Output Malformed: {str(e)}", 
+                "_raw_llm_content": content
+            }
         
         usage = response.usage
         if usage:

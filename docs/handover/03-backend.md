@@ -154,7 +154,7 @@ class Settings(BaseSettings):
     # ─── Azure AI Foundry (LLM) ───
     AI_FOUNDRY_ENDPOINT: str = ""
     AI_FOUNDRY_KEY: str = ""
-    AI_FOUNDRY_DEPLOYMENT: str = "gpt-4o"
+    AI_FOUNDRY_DEPLOYMENT: str = "gpt-4.1"
     AI_FOUNDRY_API_VERSION: str = "2024-12-01-preview"
 
     # ─── Blob Storage ───

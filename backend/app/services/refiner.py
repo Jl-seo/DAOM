@@ -128,21 +128,18 @@ You must extract ALL rows from the document. Do NOT truncate or sample.
 **CRITICAL: STRICT SCHEMA & FORMAT**
 1. Output format MUST be:
    {{
-     "guide_extracted": {{
-       "{table_fields[0].key if table_fields else 'items'}": [
-         {{ "column_key": "value", ... }},
-         {{ "column_key": "value", ... }}
-       ]
-     }}
+     "rows": [
+       {{ "column_key": "value", ... }},
+       {{ "column_key": "value", ... }}
+     ]
    }}
-2. Root key MUST be "guide_extracted". Inside it, use the table field key (e.g., "{table_fields[0].key if table_fields else 'items'}").
-3. The value MUST be a JSON Array (List). **Do NOT use numeric keys** like "0", "1".
-4. **MAP HEADERS**: You must map document headers to the EXACT field keys defined above.
+2. Root key MUST be "rows". The value MUST be a JSON Array (List).
+3. **MAP HEADERS**: You must map document headers to the EXACT field keys defined above.
    - Example: If doc has "Charge_Type", map it to "charge_type" (or whatever the schema key is).
    - Do NOT invent new keys. Do NOT preserve mixed-case headers if they don't match the schema.
    - If a column doesn't match a schema key, ignore it or map to the closest semantic match.
 
-5. For TEXT type fields (outside the table), return {{"value": "...", "confidence": 0.9}}.
+4. For TEXT type fields (outside the table), include them in every row or return them as separate keys in the root.
 
 LANGUAGE INSTRUCTION:
 Extract the value exactly as it appears in the document (Original Language).
