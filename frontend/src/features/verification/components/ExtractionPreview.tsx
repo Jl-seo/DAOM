@@ -233,7 +233,6 @@ function ResizableNestedTable({
 
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
     const [resizingColumn, setResizingColumn] = useState<string | null>(null)
-    const [isEditMode, setIsEditMode] = useState(false) // 편집 모드 토글
     const tableContainerRef = useRef<HTMLDivElement>(null)
 
     // Local state to buffer edits and prevent lag from parent re-renders
@@ -411,21 +410,7 @@ function ResizableNestedTable({
                         </button>
                     )}
                 </div>
-                {/* 편집 모드 토글 버튼 (중첩 데이터가 있을 때만 표시) */}
-                {hasNestedData && onUpdate && (
-                    <button
-                        onClick={() => setIsEditMode(!isEditMode)}
-                        className={clsx(
-                            "flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors",
-                            isEditMode
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-muted hover:bg-accent text-muted-foreground hover:text-foreground"
-                        )}
-                    >
-                        <Edit2 className="w-3 h-3" />
-                        <span>{isEditMode ? '보기 모드' : '편집 모드'}</span>
-                    </button>
-                )}
+
             </div>
 
             {/* Scrollable table container with Virtualization */}
@@ -442,9 +427,9 @@ function ResizableNestedTable({
                                     key={key}
                                     className="text-left font-medium text-muted-foreground border-b border-border relative group select-none shrink-0 block"
                                     style={{
-                                        width: columnWidths[key] || 100,
+                                        width: idx === allKeys.length - 1 ? undefined : (columnWidths[key] || 100),
                                         minWidth: 60,
-                                        maxWidth: columnWidths[key] || 100
+                                        ...(idx === allKeys.length - 1 ? { flex: 1 } : {})
                                     }}
                                 >
                                     <div className="px-3 py-2 truncate">
@@ -485,14 +470,14 @@ function ResizableNestedTable({
                                                 key === keyColumn && "bg-muted/50 font-medium"
                                             )}
                                             style={{
-                                                width: columnWidths[key] || 100,
+                                                width: idx === allKeys.length - 1 ? undefined : (columnWidths[key] || 100),
                                                 minWidth: 60,
-                                                maxWidth: columnWidths[key] || 100,
-                                                display: 'block', // Required for flex layout in absolute row
-                                                height: '100%'
+                                                display: 'block',
+                                                height: '100%',
+                                                ...(idx === allKeys.length - 1 ? { flex: 1 } : {})
                                             }}
                                         >
-                                            {isEditMode && onUpdate ? (
+                                            {onUpdate ? (
                                                 <input
                                                     id={`table-cell-${virtualRow.index}-${key}`}
                                                     name={`table-cell-${virtualRow.index}-${key}`}
@@ -500,7 +485,6 @@ function ResizableNestedTable({
                                                     className="w-full h-full bg-transparent border-none hover:bg-accent/30 focus:bg-accent focus:ring-1 focus:ring-primary outline-none px-3 text-sm"
                                                     value={renderValue(row != null ? row[key] : '')}
                                                     onChange={(e) => {
-                                                        // Update local state immediately
                                                         handleLocalUpdate(virtualRow.index, key, e.target.value)
                                                     }}
                                                 />

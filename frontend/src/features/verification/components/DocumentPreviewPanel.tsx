@@ -53,7 +53,7 @@ export const DocumentPreviewPanel = forwardRef<ViewerHandle, DocumentPreviewPane
     )
 
     const renderTablesTab = () => {
-        if (!isBetaMode || !rawTables || rawTables.length === 0) return null
+        if (!rawTables || rawTables.length === 0) return null
         return (
             <TabsTrigger
                 value="tables"
@@ -71,7 +71,7 @@ export const DocumentPreviewPanel = forwardRef<ViewerHandle, DocumentPreviewPane
     )
 
     const renderTablesContent = () => {
-        if (!isBetaMode) return null
+        if (!rawTables || rawTables.length === 0) return null
         return (
             <TabsContent value="tables" className="flex-1 mt-0 overflow-auto bg-background">
                 <RawTableRenderer rawTables={rawTables || []} />

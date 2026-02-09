@@ -110,14 +110,23 @@ class BetaPipeline(ExtractionPipeline):
         """
         TIER 3: Text-Based Line Chunking for Large Digital Documents.
         
-        Unlike page-based chunking, this splits raw text content by line boundaries.
-        Used for Excel/DOCX files that exceed the single-shot token limit.
-        Each chunk is processed independently, then results are merged with deduplication.
-        """
-        content = ocr_data.get("content", "") or ""
-        lines = content.split("\n")
+        Architecture:
+        1. LayoutParser runs ONCE on full OCR data (Python = cheap, handle all data)
+        2. Tagged text is split into chunks by line boundaries
+        3. Each chunk is sent to LLM with Refiner prompt (LLM = expensive, split here only)
         
-        # --- Build Chunks by Line Groups ---
+        Previous broken approach: split text FIRST, then gave LayoutParser empty OCR per chunk.
+        """
+        # --- Step 1: Run LayoutParser on FULL OCR data (Python is cheap) ---
+        parser = LayoutParser(ocr_data)
+        tagged_text, ref_map = parser.parse()
+        
+        logger.info(f"[BetaPipeline] TIER 3: LayoutParser produced {len(tagged_text)} chars "
+                     f"with {len(ref_map)} refs from full OCR")
+        
+        # --- Step 2: Split TAGGED text into chunks by line boundaries ---
+        lines = tagged_text.split("\n")
+        
         chunks = []
         current_chunk_lines = []
         current_chunk_len = 0
@@ -125,7 +134,6 @@ class BetaPipeline(ExtractionPipeline):
         for line in lines:
             line_len = len(line) + 1  # +1 for newline
             
-            # If adding this line exceeds chunk_size and we already have content, flush
             if current_chunk_len + line_len > chunk_size and current_chunk_lines:
                 chunks.append("\n".join(current_chunk_lines))
                 current_chunk_lines = []
@@ -134,7 +142,6 @@ class BetaPipeline(ExtractionPipeline):
             current_chunk_lines.append(line)
             current_chunk_len += line_len
         
-        # Flush remaining
         if current_chunk_lines:
             chunks.append("\n".join(current_chunk_lines))
         
@@ -145,37 +152,36 @@ class BetaPipeline(ExtractionPipeline):
             logger.warning("[BetaPipeline] TIER 3: No content to chunk. Returning empty.")
             return ExtractionResult()
         
-        # [Context Injection] Extract header context (first ~800 chars)
-        # This ensures subsequent chunks have table headers/metadata.
-        full_content = ocr_data.get("content", "") or ""
-        header_context = full_content[:800]
+        # Header context: first 1200 chars of tagged text (includes table headers with tags)
+        header_context = tagged_text[:1200]
         
-        # --- Process Each Chunk via Single-Shot ---
+        # --- Step 3: Build Refiner prompt ONCE (same for all chunks) ---
+        system_prompt = RefinerEngine.construct_prompt(model, language="ko")
+        
+        # --- Step 4: Send each chunk to LLM directly (LLM = expensive, split here) ---
         async def process_text_chunk(chunk_text: str, chunk_idx: int) -> ExtractionResult:
-            """Process a single text chunk by creating synthetic OCR data."""
+            """Send a tagged text chunk directly to LLM."""
             
-            # [Context Injection] Prepend header to non-first chunks
-            final_chunk_text = chunk_text
+            # Prepend header context to non-first chunks so LLM knows table structure
+            final_chunk = chunk_text
             if chunk_idx > 0:
-                final_chunk_text = header_context + "\n... [Header Context End] ...\n" + chunk_text
+                final_chunk = header_context + "\n... [Header Context End] ...\n" + chunk_text
+            
+            user_prompt = (
+                f"DOCUMENT DATA (Tagged Layout Format):\n{final_chunk}\n\n"
+                f"TASK: Extract fields based on system instructions.\n"
+                f"Return valid JSON."
+            )
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
             
             async with self.semaphore:
-                # Create minimal synthetic OCR data with just content
-                synthetic_ocr = {
-                    "content": final_chunk_text,
-                    "pages": [],
-                    "paragraphs": [],
-                    "tables": [],  # Tables are hard to split, include in first chunk only
-                    "styles": ocr_data.get("styles", [])
-                }
-                
-                # Include original tables in the first chunk only
-                # (They usually contain the same data as content for Excel)
-                if chunk_idx == 0:
-                    synthetic_ocr["tables"] = ocr_data.get("tables", [])
-                
                 try:
-                    return await self._execute_single_shot(model, synthetic_ocr, focus_pages=None)
+                    raw_result = await self.call_llm(messages)
+                    return self._normalize_output(raw_result, ocr_data, ref_map, chunk_text)
                 except Exception as e:
                     logger.error(f"[BetaPipeline] TIER 3: Chunk {chunk_idx} failed: {e}")
                     err_result = ExtractionResult()
@@ -186,7 +192,7 @@ class BetaPipeline(ExtractionPipeline):
         tasks = [process_text_chunk(chunk, idx) for idx, chunk in enumerate(chunks)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # --- Merge Results (same logic as page-based chunking) ---
+        # --- Step 5: Merge Results ---
         merged_result = ExtractionResult()
         merged_rows = []
         seen_keys = set()
@@ -196,12 +202,10 @@ class BetaPipeline(ExtractionPipeline):
                 logger.error(f"[BetaPipeline] TIER 3: Chunk exception: {res}")
                 continue
             
-            # Accumulate Tokens
             merged_result.token_usage.prompt_tokens += res.token_usage.prompt_tokens
             merged_result.token_usage.completion_tokens += res.token_usage.completion_tokens
             merged_result.token_usage.total_tokens += res.token_usage.total_tokens
             
-            # Merge Rows
             current_rows = res.table_rows or []
             if not current_rows and res.guide_extracted:
                 current_rows = [res.guide_extracted]
@@ -215,7 +219,6 @@ class BetaPipeline(ExtractionPipeline):
         merged_result.table_rows = merged_rows
         merged_result.is_table = bool(merged_rows)
         
-        # If no table rows but we have guide_extracted from first result, use it
         if not merged_rows:
             for res in results:
                 if isinstance(res, Exception): continue
@@ -224,20 +227,9 @@ class BetaPipeline(ExtractionPipeline):
                     merged_result.is_table = False
                     break
         
-        # Merge Metadata
-        all_parsed_text = []
-        all_ref_map = {}
-        for res in results:
-            if isinstance(res, Exception): continue
-            if res.beta_metadata:
-                text = res.beta_metadata.get("parsed_content", "")
-                if text: all_parsed_text.append(text)
-                ref_map = res.beta_metadata.get("ref_map", {})
-                if ref_map: all_ref_map.update(ref_map)
-        
         merged_result.beta_metadata = {
-            "parsed_content": "\n... [Text Chunk Split] ...\n".join(all_parsed_text),
-            "ref_map": all_ref_map
+            "parsed_content": tagged_text,  # Full tagged text for debug view
+            "ref_map": ref_map
         }
         
         logger.info(f"[BetaPipeline] TIER 3: Merged {len(merged_rows)} unique rows from {len(chunks)} chunks")
