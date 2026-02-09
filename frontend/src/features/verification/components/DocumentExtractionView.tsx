@@ -30,6 +30,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
         activeStep, setActiveStep,
         status,
         file, fileUrl,
+        filename,
         candidateFileUrl,
         candidateFileUrls,
         previewData,
@@ -153,6 +154,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                             // File Info
                             file={file}
                             fileUrl={fileUrl || null}
+                            filename={filename}
 
                             // Actions
                             onSubDocSelect={setSelectedSubDocIndex}

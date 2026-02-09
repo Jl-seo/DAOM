@@ -16,6 +16,7 @@ import type { Highlight } from '../types'
 interface DocumentPreviewPanelProps {
     file: File | null
     fileUrl: string | null
+    filename?: string | null
     highlights: Highlight[]
     selectedFieldKey: string | null
     onHighlightClick: (key: string) => void
@@ -31,6 +32,7 @@ type ViewerHandle = PDFViewerHandle | ExcelGridViewerHandle
 export const DocumentPreviewPanel = forwardRef<ViewerHandle, DocumentPreviewPanelProps>(({
     file,
     fileUrl,
+    filename,
     highlights,
     selectedFieldKey,
     onHighlightClick,
@@ -229,7 +231,7 @@ export const DocumentPreviewPanel = forwardRef<ViewerHandle, DocumentPreviewPane
         <Card className="h-full flex flex-col bg-muted/10 overflow-hidden border-0 rounded-none md:border-r">
             <div className="px-4 py-2 border-b bg-card flex justify-between items-center text-sm font-medium text-muted-foreground shrink-0">
                 <span>원본 문서 미리보기</span>
-                {file && <Badge variant="outline">{file.name}</Badge>}
+                {(file?.name || filename) && <Badge variant="outline">{file?.name || filename}</Badge>}
             </div>
             <div className="flex-1 relative overflow-hidden flex items-center justify-center bg-muted/20 min-h-0">
                 {renderViewer()}

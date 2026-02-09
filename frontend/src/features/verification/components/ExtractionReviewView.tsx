@@ -29,6 +29,7 @@ interface ExtractionReviewViewProps {
     // File info
     file: File | null
     fileUrl: string | null
+    filename?: string | null
 
     // Actions
     onSubDocSelect: (index: number) => void
@@ -47,6 +48,7 @@ export function ExtractionReviewView({
     selectedFieldKey,
     file,
     fileUrl,
+    filename,
     onSubDocSelect,
     onFieldSelect,
     onRetry,
@@ -214,6 +216,7 @@ export function ExtractionReviewView({
                                 ref={pdfViewerRef}
                                 file={file}
                                 fileUrl={fileUrl}
+                                filename={filename}
                                 highlights={highlights}
                                 selectedFieldKey={selectedFieldKey}
                                 onHighlightClick={onFieldSelect}
