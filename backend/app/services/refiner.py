@@ -86,35 +86,41 @@ INSTRUCTIONS FOR REFERENCE DATA:
         )
 
         if is_table:
-            # [Refactored Phase 7] NESTED TABLE MODE (User Request)
-            # Instead of flat "rows", we extract as a field containing a list of objects.
-            # This matches General Mode structure but authorized for Beta pipeline.
+            # [Fix] Generate CONCRETE example using actual field keys.
+            # Previously used generic "FIELD_KEY" placeholder, causing LLM to invent its own structure.
+            # Now: show the exact expected JSON shape with real keys.
+            
+            # Separate text fields and table fields
+            text_fields = [f for f in fields if getattr(f, 'type', 'text') != 'table']
+            table_fields = [f for f in fields if getattr(f, 'type', '') == 'table']
+            
+            # Build concrete example
+            example_parts = []
+            for f in text_fields:
+                example_parts.append(f'    "{f.key}": {{ "value": "...", "confidence": 0.9 }}')
+            for f in table_fields:
+                example_parts.append(f'    "{f.key}": [\n      {{ "column1": "value1", "column2": "value2" }},\n      {{ "column1": "value3", "column2": "value4" }}\n    ]')
+            
+            example_json = "{\n  \"guide_extracted\": {\n" + ",\n".join(example_parts) + "\n  }\n}"
+            
             prompt += f"""
 OUTPUT INSTRUCTIONS (TABLE MODE):
-You must extract the table data into a valid JSON object.
+You must extract the data into a valid JSON object.
 Root key: "guide_extracted"
 
-Format:
-{{
-  "guide_extracted": {{
-    "FIELD_KEY": [  <-- Table Field
-      {{
-        "column_key_1": "value1",
-        "column_key_2": "value2"
-      }},
-      ...
-    ],
-    "OTHER_FIELD": {{ "value": "..." }} <-- Non-table fields if any
-  }}
-}}
+EXACT FORMAT REQUIRED:
+{example_json}
 
 CRITICAL RULES:
-1. Extract ALL rows. Do not truncate.
-2. Use the exact keys defined in 'REQUIRED EXTRACTION FIELDS'.
-3. For table fields, return a LIST of Objects (Simulating Nested Table).
-4. Do NOT wrap cell values in "value"/"confidence" objects inside the table list. Keep it flat row objects for token efficiency.
+1. You MUST use the EXACT field keys listed above: {[f.key for f in fields]}.
+2. For TABLE type fields, return a LIST of flat row objects. Do NOT use numeric indices like "0", "1", "2" as keys.
+3. For TEXT type fields, return {{"value": "...", "confidence": 0.0-1.0}}.
+4. Extract ALL rows. Do not truncate or summarize.
+5. Do NOT invent field keys not listed in REQUIRED EXTRACTION FIELDS.
 
-LANGUAGE: Translate values to {language} unless the field rule says otherwise.
+LANGUAGE INSTRUCTION:
+Extract the value exactly as it appears in the document (Original Language).
+Do NOT translate unless the field rule explicitly mentions translation.
 """
         else:
             prompt += f"""
