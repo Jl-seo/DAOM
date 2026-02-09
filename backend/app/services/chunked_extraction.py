@@ -265,14 +265,25 @@ IMPORTANT:
             # Parse JSON response
             extracted = json.loads(result_text)
 
+            # --- NEW: TABLE MODE HANDLER (RefinerEngine "rows" output) ---
+            if "rows" in extracted and isinstance(extracted["rows"], list):
+                # We are in table mode.
+                # Transform to pseudo-guide format for individual field processing?
+                # NO. We should keep it as rows to preserve structure.
+                # But the rest of the system expects "guide_extracted" with keys.
+                # Wait, if we return "rows", merge_chunk_results needs to know.
+                pass 
+            # -------------------------------------------------------------
+
             # Normalize structure if LLM responds weirdly (sometimes returns list)
-            if "guide_extracted" not in extracted:
+            if "guide_extracted" not in extracted and "rows" not in extracted:
                  # Try to see if it's the old flat format or something else
                  # If it looks like flat key-values, wrap it
                  if not any(k in ["guide_extracted", "other_data"] for k in extracted.keys()):
                      extracted = {"guide_extracted": extracted}
 
             guide = extracted.get("guide_extracted", {})
+            rows = extracted.get("rows", [])
 
             # Ensure every field in guide is an object
             for k, v in guide.items():
@@ -285,12 +296,13 @@ IMPORTANT:
                     }
 
             extracted["guide_extracted"] = guide
+            extracted["rows"] = rows # Pass rows through
 
             # Add page metadata
             extracted["_chunk_index"] = chunk.index
             extracted["_pages"] = chunk.page_numbers
 
-            logger.info(f"[Chunk {chunk.index}] Successfully processed pages {chunk.page_numbers}")
+            logger.info(f"[Chunk {chunk.index}] Successfully processed pages {chunk.page_numbers}. Rows: {len(rows)}, Guide Fields: {len(guide)}")
 
             return ChunkResult(
                 chunk_index=chunk.index,
@@ -376,26 +388,28 @@ def merge_chunk_results(
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Merge results from multiple chunks into a single coherent result.
-    For duplicate fields, take the best value (highest confidence or first non-null).
-    Returns (merged_flat_data, errors_list) - Note: returning flat data with structure!
-    
-    Wait, the caller (extraction_service) expects:
-    { "field_key": "value" ... } ? 
-    NO, extraction_service._unwrap_llm_extraction fallback returns:
-    {
-        "guide_extracted": {k: {"value": v ...}},
-        "other_data": ...
-    }
-    
-    So we should return a dictionary suitable for that structure.
+    Support for both Key-Value (guide_extracted) and Table Rows (rows).
     """
     merged_guide: Dict[str, Any] = {}
+    merged_rows: List[Dict[str, Any]] = []
     merged_other: List[Any] = []
-    field_sources: Dict[str, int] = {}  # Track which page gave us each field
+    field_sources: Dict[str, int] = {}
     errors: List[str] = []
 
-    # Sort results by chunk index
+    # Sort results by chunk index to maintain row order
     sorted_results = sorted(results, key=lambda r: r.chunk_index)
+
+    # Prepare Schema Normalization Map (Text Normalization)
+    # Map lowercase/stripped keys to actual model field keys
+    schema_map = {}
+    table_field_key = None
+    for f in model_fields:
+        k = f.get("key") if isinstance(f, dict) else f.key
+        t = f.get("type") if isinstance(f, dict) else f.type
+        schema_map[k.lower().strip()] = k
+        schema_map[k.lower().replace("_", "")] = k # handle charge_type vs chargetype
+        if t == "list" or t == "table":
+            table_field_key = k
 
     for result in sorted_results:
         if not result.success:
@@ -407,45 +421,70 @@ def merge_chunk_results(
 
         chunk_data = result.extracted_data
         guide = chunk_data.get("guide_extracted", {})
+        rows = chunk_data.get("rows", [])
         other = chunk_data.get("other_data", [])
+        pages = chunk_data.get("_pages", [])
+        page_num = pages[0] if pages else 1
 
         if isinstance(other, list):
             merged_other.extend(other)
 
-        pages = chunk_data.get("_pages", [])
-
+        # 1. Merge Guide Fields (Key-Value)
         for key, item in guide.items():
-            # item is expected to be {value, confidence, bbox, page}
             if not isinstance(item, dict): continue
-
-            val = item.get("value")
-
-            # Strategy: If field not present, take it.
-            # If present, only replace if current is null.
-            # Actually, we should take non-null over null.
-            if key not in merged_guide:
-                 merged_guide[key] = item
-                 field_sources[key] = item.get("page_number") or (pages[0] if pages else 0)
+            
+            # Normalize Key
+            norm_key = schema_map.get(key.lower().strip(), key)
+            
+            if norm_key not in merged_guide:
+                 merged_guide[norm_key] = item
+                 field_sources[norm_key] = item.get("page_number") or page_num
             else:
-                current_val = merged_guide[key].get("value")
-                if current_val is None and val is not None:
-                    merged_guide[key] = item
-                    field_sources[key] = item.get("page_number") or (pages[0] if pages else 0)
+                current_val = merged_guide[norm_key].get("value")
+                new_val = item.get("value")
+                if current_val is None and new_val is not None:
+                    merged_guide[norm_key] = item
+                    field_sources[norm_key] = item.get("page_number") or page_num
 
-    # Add metadata about merge
-    # We return the dictionary that will be put INTO 'guide_extracted' by the caller ??
-    # Actually extraction_service._unwrap... fallback puts the result of this function:
-    # "guide_extracted": {k: {"value": v ...} for k, v in merged_result.items()}
-    # Wait, the caller loop in extraction_service needs update too if we change return type.
-    # checking extraction_service line 623:
-    # "guide_extracted": {k: {"value": v, "confidence": 0.8} for k, v in merged_result.items() if not k.startswith("_")},
+        # 2. Merge Rows (Table Mode)
+        # Normalize keys in each row to match schema
+        for row in rows:
+            normalized_row = {}
+            for k, v in row.items():
+                # Try strict match first, then loose match
+                nk = schema_map.get(k.lower().strip())
+                if not nk:
+                     # Try removing underscores
+                     nk = schema_map.get(k.lower().replace("_", ""))
+                
+                normalized_row[nk or k] = v # Fallback to original if not found
+            
+            # Inject page number if missing
+            if "_page" not in normalized_row:
+                normalized_row["_page"] = page_num
+                
+            merged_rows.append(normalized_row)
 
-    # WE MUST CHANGE extraction_service TO ACCEPT THIS RICHER RETURN or CHANGE THIS TO MATCH.
-    # The plan says "Update merge_chunk_results Logic to merge the richer object structure".
-    # I should change this to return the dictionary of Objects.
-    # And I need to update extraction_service to use it directly instead of wrapping it again.
+    # 3. Final Assembly
+    # If we have merged_rows, we need to put them into the "guide_extracted" under the table field key.
+    # If no table field key is defined in schema, fallback to use "items" or similar.
+    
+    if merged_rows:
+        target_key = table_field_key or "items"
+        logger.info(f"[Merge] Merged {len(merged_rows)} rows into field '{target_key}'")
+        
+        # We wrap the list of rows into a Value Object expected by extraction_service?
+        # extraction_service._validate_and_format expects:
+        # { "field_key": { "value": [...rows...], "confidence": ... } }
+        
+        merged_guide[target_key] = {
+            "value": merged_rows,
+            "confidence": 0.9, # Aggregate confidence?
+            "bbox": None,
+            "page_number": 1 # Representative
+        }
 
-    # Collect debug info from chunks
+    # Collect debug info
     chunk_debug = []
     for r in sorted_results:
         if r.debug_info:
@@ -460,11 +499,11 @@ def merge_chunk_results(
         "total_chunks": len(results),
         "successful_chunks": sum(1 for r in results if r.success),
         "field_sources": field_sources,
-        "chunk_debug": chunk_debug  # LLM prompt/response info for each chunk
+        "chunk_debug": chunk_debug
     }
 
     success_rate = sum(1 for r in results if r.success) / len(results) if results else 0
-    logger.info(f"[Merge] Merged {len(merged_guide)} fields from {len(results)} chunks (success rate: {success_rate:.0%})")
+    logger.info(f"[Merge] Final Result: {len(merged_guide)} fields (incl. table), {len(merged_rows)} extracted rows.")
 
     return merged_guide, errors
 
