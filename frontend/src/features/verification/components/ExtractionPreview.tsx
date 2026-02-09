@@ -268,11 +268,10 @@ function ResizableNestedTable({
         return item
     }), [localData])
 
-    // 중첩 데이터를 풀어내기 (편집 모드가 아닐 때만)
+    // 중첩 데이터를 풀어내기
     // Memoize to prevent recalculation on every render
     const { flattenedData, keyColumn } = useMemo(() => flattenNestedRows(normalizedData), [normalizedData])
-    const displayData = isEditMode ? normalizedData : flattenedData
-    const hasNestedData = keyColumn !== null // 플래터닝이 적용되었는지
+    const displayData = flattenedData
 
     // 키 컬럼을 맨 앞에 배치하기 위해 컬럼 순서 조정
     const allKeysRaw = useMemo(() => Array.from(new Set(displayData.flatMap((item: any) =>
@@ -462,7 +461,7 @@ function ResizableNestedTable({
                                         transform: `translateY(${virtualRow.start}px)`
                                     }}
                                 >
-                                    {allKeys.map((key: string) => (
+                                    {allKeys.map((key: string, idx: number) => (
                                         <td
                                             key={key}
                                             className={clsx(
