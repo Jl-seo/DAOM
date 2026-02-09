@@ -195,6 +195,9 @@ class LayoutParser:
 
     def _pass_tables(self):
         """Priority 1: Tag Table Cells"""
+        # Per-file cursor to track consumption for cells without spans (Excel/Office)
+        file_cursors = {fid: 0 for fid in self.file_ids}
+
         for table in self.all_tables:
             fid = table["file_id"]
             offset_shift = table["file_content_offset"]
@@ -217,17 +220,26 @@ class LayoutParser:
                      local_page = regions[0].get("pageNumber") or regions[0].get("page_number")
                      global_page = self._find_global_page(fid, local_page)
                 
-                # Without spans, try to find content in full_content
+                # Without spans, try to find content in full_content (Incremental Search)
                 if not spans:
-                    found_pos = self.full_content.find(content, offset_shift)
+                    # Search from last known cursor position to avoid duplicates mapping to same spot
+                    current_cursor = file_cursors.get(fid, 0)
+                    search_start = offset_shift + current_cursor
+                    
+                    found_pos = self.full_content.find(content, search_start)
+                    
                     if found_pos == -1:
                         # Fallback: Can't locate even by string search? Skip.
                         # Actually for Excel, content might be exact match of cell content.
                         # But offset_shift points to start of file content.
                         # If full_content was built properly, it implies content exists.
                         continue
+                        
                     local_offset = found_pos - offset_shift
                     local_length = len(content)
+                    
+                    # Update cursor to end of this content + 1 (to consume it)
+                    file_cursors[fid] = local_offset + local_length
                 else:
                     primary_span = spans[0]
                     local_offset = primary_span["offset"]

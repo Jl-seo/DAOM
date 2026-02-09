@@ -50,14 +50,14 @@ class BetaPipeline(ExtractionPipeline):
         page_count = len(ocr_data.get("pages", []))
         
         # Thresholds
-        SINGLE_SHOT_CHAR_LIMIT = 3000
+        SINGLE_SHOT_CHAR_LIMIT = 6000
         TEXT_CHUNK_SIZE = 4000
         
         logger.info(f"[BetaPipeline] Analysis: pages={page_count}, content_len={content_len} chars")
 
         # --- 2. Determine Strategy ---
         # Check if model has any table/list fields
-        table_fields = [f for f in model.fields if f.type == 'list']
+        table_fields = [f for f in model.fields if f.type in ('list', 'table', 'array')]
         has_table = len(table_fields) > 0
         
         final_result = None
