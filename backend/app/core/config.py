@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     CHUNK_THRESHOLD_CHARS: int = 100_000
 
     # Chunking & Preview
-    LLM_CHUNK_MAX_TOKENS: int = 8000
+    LLM_CHUNK_MAX_TOKENS: int = 4000
     PREVIEW_TEXT_CHARS: int = 5000
 
     # Validation / Fuzzy Matching

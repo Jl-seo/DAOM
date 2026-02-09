@@ -57,7 +57,7 @@ def estimate_tokens(text: str) -> int:
 def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_TOKENS_PER_CHUNK) -> List[Chunk]:
     """
     Split Document Intelligence output into chunks based on pages.
-    Each chunk stays under max_tokens.
+    Each chunk stays under max_tokens (considering Text + Tables + Paragraphs).
     """
     pages = doc_intel_output.get("pages", [])
     paragraphs = doc_intel_output.get("paragraphs", [])
@@ -73,7 +73,7 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
             paragraphs=paragraphs,
             tables=tables,
             pages_data=pages, # Pass all pages
-            token_estimate=estimate_tokens(content)
+            token_estimate=estimate_tokens(content) + estimate_tokens(json.dumps(tables))
         )]
 
     chunks: List[Chunk] = []
@@ -82,6 +82,7 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
     current_chunk_paragraphs: List[Dict] = []
     current_chunk_tables: List[Dict] = []
     current_chunk_pages_data: List[Dict] = []
+    current_chunk_tokens = 0
 
     for page in pages:
         # IMPORTANT: doc_intel.py uses snake_case "page_number", not camelCase "pageNumber"
@@ -99,12 +100,16 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
         page_tables = [t for t in tables if is_on_page(t, page_num)]
 
         page_content = "\n".join([p.get("content", "") for p in page_paragraphs])
-        page_tokens = estimate_tokens(page_content)
+        
+        # [Fix] Estimate REAL token usage including JSON overhead
+        text_tokens = estimate_tokens(page_content)
+        table_tokens = estimate_tokens(json.dumps(page_tables, ensure_ascii=False)) if page_tables else 0
+        
+        # Total tokens for this page
+        page_total_tokens = text_tokens + table_tokens
 
         # Check if adding this page exceeds limit
-        current_tokens = estimate_tokens(current_chunk_content)
-
-        if current_tokens + page_tokens > max_tokens and current_chunk_pages:
+        if current_chunk_tokens + page_total_tokens > max_tokens and current_chunk_pages:
             # Save current chunk and start new one
             chunks.append(Chunk(
                 index=len(chunks),
@@ -113,13 +118,14 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
                 paragraphs=current_chunk_paragraphs.copy(),
                 tables=current_chunk_tables.copy(),
                 pages_data=current_chunk_pages_data.copy(),
-                token_estimate=current_tokens
+                token_estimate=current_chunk_tokens
             ))
             current_chunk_pages = []
             current_chunk_pages_data = [] # Reset pages data
             current_chunk_content = ""
             current_chunk_paragraphs = []
             current_chunk_tables = []
+            current_chunk_tokens = 0
 
         # Add page to current chunk
         current_chunk_pages.append(page_num)
@@ -127,6 +133,7 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
         current_chunk_content += f"\n--- Page {page_num} ---\n{page_content}"
         current_chunk_paragraphs.extend(page_paragraphs)
         current_chunk_tables.extend(page_tables)
+        current_chunk_tokens += page_total_tokens
 
     # Don't forget the last chunk
     if current_chunk_pages:
@@ -137,12 +144,12 @@ def chunk_document_data(doc_intel_output: Dict[str, Any], max_tokens: int = MAX_
             paragraphs=current_chunk_paragraphs,
             tables=current_chunk_tables,
             pages_data=current_chunk_pages_data,
-            token_estimate=estimate_tokens(current_chunk_content)
+            token_estimate=current_chunk_tokens
         ))
 
     logger.info(f"[Chunking] Split document into {len(chunks)} chunks")
     for i, chunk in enumerate(chunks):
-        logger.info(f"  Chunk {i}: pages {chunk.page_numbers}, ~{chunk.token_estimate} tokens")
+        logger.info(f"  Chunk {i}: pages {chunk.page_numbers}, ~{chunk.token_estimate} tokens (Limit: {max_tokens})")
 
     return chunks
 
@@ -252,7 +259,7 @@ IMPORTANT:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=settings.LLM_DEFAULT_TEMPERATURE,
-                max_tokens=settings.LLM_DEFAULT_MAX_TOKENS,
+                max_tokens=settings.LLM_TABLE_MAX_TOKENS,
                 response_format={"type": "json_object"}
             )
 
