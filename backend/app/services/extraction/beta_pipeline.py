@@ -31,56 +31,41 @@ class BetaPipeline(ExtractionPipeline):
         """
         Main Execution Entry Point.
         
-        3-Tier Strategy:
-        1. PDF/Scanned (pages with words)  → Page-Based Chunking (existing)
-        2. Digital Small (Excel ≤ threshold) → Single-Shot
-        3. Digital Large (Excel > threshold) → Text-Based Line Chunking
+        Simplified 2-Tier Strategy (Format-Agnostic):
+        1. Small content (≤ threshold) → Single-Shot (PDF, Excel, DOCX 모두 동일)
+        2. Large content (> threshold)  → Text-Based Chunking + Merge
+        
+        Note: has_real_pages is NOT used for routing.
+        Azure DI returns pages with words for BOTH PDF and Excel,
+        so it cannot distinguish file types. content_len is the only
+        reliable signal for deciding single-shot vs chunked.
         """
         start_time = datetime.utcnow()
         
-        # --- 1. Detect Document Type ---
+        # --- 1. Document Info ---
         pages = ocr_data.get("pages", [])
         page_count = len(pages)
         content = ocr_data.get("content", "") or ""
         content_len = len(content)
         
-        # "Real pages" = pages that have actual OCR words (scanned/PDF).
-        # Excel/digital pages may exist but have empty words.
-        has_real_pages = any(
-            len(p.get("words", [])) > 0 for p in pages
-        )
-        
         # Thresholds
-        CHUNK_PAGE_LIMIT = 3
-        # ~6,000 chars ≈ ~2,000 tokens input ≈ ~40 rows (safe for 16k output limit)
+        # ~6,000 chars ≈ ~2,000 tokens input ≈ ~40 rows (safe for LLM output limit)
         SINGLE_SHOT_CHAR_LIMIT = 6000
-        # For text-based chunking, set strictly to avoid output overflow.
-        # 4,000 chars ≈ 1,300 tokens input ≈ ~25 rows per chunk.
+        # For text-based chunking: 4,000 chars ≈ 1,300 tokens ≈ ~25 rows per chunk
         TEXT_CHUNK_SIZE = 4000
         
         logger.info(
             f"[BetaPipeline] Document Analysis: "
-            f"pages={page_count}, has_real_pages={has_real_pages}, "
-            f"content_len={content_len}"
+            f"pages={page_count}, content_len={content_len}"
         )
         
-        # --- 2. Route to Strategy ---
-        if has_real_pages:
-            # TIER 1: PDF / Scanned Document → Page-Based Chunking
-            if page_count > CHUNK_PAGE_LIMIT:
-                logger.info(f"[BetaPipeline] TIER 1: Page-Based Chunking ({page_count} pages)")
-                result = await self._execute_chunked(model, ocr_data, page_count)
-            else:
-                logger.info(f"[BetaPipeline] TIER 1: Single-Shot PDF ({page_count} pages)")
-                result = await self._execute_single_shot(model, ocr_data, focus_pages)
+        # --- 2. Route by content size only (format-agnostic) ---
+        if content_len <= SINGLE_SHOT_CHAR_LIMIT:
+            logger.info(f"[BetaPipeline] Single-Shot ({content_len} chars, {page_count} pages)")
+            result = await self._execute_single_shot(model, ocr_data, focus_pages)
         else:
-            # TIER 2/3: Digital Document (Excel, DOCX, etc.) → No real OCR pages
-            if content_len <= SINGLE_SHOT_CHAR_LIMIT:
-                logger.info(f"[BetaPipeline] TIER 2: Single-Shot Digital ({content_len} chars)")
-                result = await self._execute_single_shot(model, ocr_data, focus_pages)
-            else:
-                logger.info(f"[BetaPipeline] TIER 3: Text-Based Chunking ({content_len} chars)")
-                result = await self._execute_text_chunked(model, ocr_data, TEXT_CHUNK_SIZE)
+            logger.info(f"[BetaPipeline] Text-Chunked ({content_len} chars, {page_count} pages)")
+            result = await self._execute_text_chunked(model, ocr_data, TEXT_CHUNK_SIZE)
             
         result.duration_seconds = (datetime.utcnow() - start_time).total_seconds()
         result.model_name = model.name
