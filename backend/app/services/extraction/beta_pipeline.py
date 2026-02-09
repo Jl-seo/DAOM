@@ -145,13 +145,24 @@ class BetaPipeline(ExtractionPipeline):
             logger.warning("[BetaPipeline] TIER 3: No content to chunk. Returning empty.")
             return ExtractionResult()
         
+        # [Context Injection] Extract header context (first ~800 chars)
+        # This ensures subsequent chunks have table headers/metadata.
+        full_content = ocr_data.get("content", "") or ""
+        header_context = full_content[:800]
+        
         # --- Process Each Chunk via Single-Shot ---
         async def process_text_chunk(chunk_text: str, chunk_idx: int) -> ExtractionResult:
             """Process a single text chunk by creating synthetic OCR data."""
+            
+            # [Context Injection] Prepend header to non-first chunks
+            final_chunk_text = chunk_text
+            if chunk_idx > 0:
+                final_chunk_text = header_context + "\n... [Header Context End] ...\n" + chunk_text
+            
             async with self.semaphore:
                 # Create minimal synthetic OCR data with just content
                 synthetic_ocr = {
-                    "content": chunk_text,
+                    "content": final_chunk_text,
                     "pages": [],
                     "paragraphs": [],
                     "tables": [],  # Tables are hard to split, include in first chunk only
