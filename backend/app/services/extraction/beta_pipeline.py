@@ -52,10 +52,11 @@ class BetaPipeline(ExtractionPipeline):
         
         # Thresholds
         CHUNK_PAGE_LIMIT = 3
-        # ~30,000 chars ≈ ~10,000 tokens. Safe single-shot limit for GPT-4o.
-        SINGLE_SHOT_CHAR_LIMIT = 30000
-        # For text-based chunking, each chunk should be ~15k chars.
-        TEXT_CHUNK_SIZE = 15000
+        # ~6,000 chars ≈ ~2,000 tokens input ≈ ~40 rows (safe for 16k output limit)
+        SINGLE_SHOT_CHAR_LIMIT = 6000
+        # For text-based chunking, set strictly to avoid output overflow.
+        # 4,000 chars ≈ 1,300 tokens input ≈ ~25 rows per chunk.
+        TEXT_CHUNK_SIZE = 4000
         
         logger.info(
             f"[BetaPipeline] Document Analysis: "
