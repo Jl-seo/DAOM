@@ -243,3 +243,218 @@ Do NOT translate unless the field rule explicitly mentions translation.
             }
 
         return processed_data
+
+    # ========================================================================
+    # Designer-Engineer Pipeline (Two-Phase LLM Architecture)
+    # ========================================================================
+
+    @staticmethod
+    def construct_designer_prompt(model: ExtractionModel) -> str:
+        """
+        Phase ①: Generates the Designer LLM system prompt.
+        Input: Model schema + calibration rules → Output: Work Order JSON.
+        """
+        def get_attr(obj, key, default=None):
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
+
+        name = get_attr(model, "name", "Unknown Model")
+        description = get_attr(model, "description", None)
+        global_rules = get_attr(model, "global_rules", None)
+        reference_data = get_attr(model, "reference_data", None)
+        data_structure = get_attr(model, "data_structure", "data")
+        fields = model.fields
+
+        # Build fields JSON for the prompt
+        fields_json = json.dumps([
+            {
+                "key": f.key,
+                "label": f.label,
+                "description": f.description,
+                "rules": f.rules,
+                "type": f.type
+            }
+            for f in fields
+        ], ensure_ascii=False, indent=2)
+
+        ref_data_section = ""
+        if reference_data:
+            ref_json = json.dumps(reference_data, ensure_ascii=False, indent=2)
+            MAX_REF_CHARS = settings.REFINER_MAX_REF_CHARS
+            if len(ref_json) > MAX_REF_CHARS:
+                ref_json = ref_json[:MAX_REF_CHARS] + "\n... [TRUNCATED]"
+            ref_data_section = f"\nREFERENCE DATA:\n{ref_json}\n"
+
+        calibration_section = ""
+        if global_rules:
+            calibration_section = f"\nCALIBRATION RULES (from admin):\n{global_rules}\n"
+
+        prompt = f"""You are a Document Extraction Architect.
+
+Given an extraction model schema and calibration rules, generate a WORK ORDER
+that an extraction engineer will follow to extract data from a document.
+
+MODEL: {name}
+DOMAIN: {description or 'General Document'}
+DATA STRUCTURE: {data_structure}
+
+MODEL SCHEMA:
+{fields_json}
+{calibration_section}{ref_data_section}
+OUTPUT: A JSON object with this structure:
+{{
+  "work_order": {{
+    "document_type": "brief description",
+    "extraction_mode": "data" or "table",
+    "common_fields": [
+      {{"key": "field_key", "instruction": "1-2 sentence extraction command", "expected_format": "type"}}
+    ],
+    "table_fields": [
+      {{
+        "key": "field_key",
+        "instruction": "1-2 sentence extraction command",
+        "columns": {{
+          "col_key": {{"instruction": "command", "source_hint": "likely header variations"}}
+        }},
+        "rules": ["rule1"]
+      }}
+    ],
+    "integrity_rules": [
+      "Copy values exactly as written. No conversion/calculation/translation.",
+      "Missing values must be null."
+    ]
+  }}
+}}
+
+CRITICAL:
+- Column keys MUST use the EXACT field keys from the schema. Do NOT rename.
+- The work order is for an AI engineer, not a human. Be precise and unambiguous.
+
+STYLE CONSTRAINTS (MANDATORY):
+- Be CONCISE. Each instruction MUST be 1-2 sentences max.
+- Do NOT write prose or rationale. Write commands.
+- Do NOT add examples beyond what the schema provides.
+- Do NOT repeat integrity rules per field — use the shared integrity_rules array.
+- Target: entire work_order JSON under 2000 tokens.
+"""
+        return prompt
+
+    @staticmethod
+    def construct_engineer_prompt(work_order: dict) -> str:
+        """
+        Phase ②: Generates the Engineer LLM system prompt.
+        Input: Work Order + tagged text → Output: JSON with ref tags.
+        """
+        work_order_json = json.dumps(work_order, ensure_ascii=False, indent=2)
+
+        # Extract integrity rules from work order
+        integrity_rules = work_order.get("work_order", work_order).get("integrity_rules", [])
+        integrity_rules_str = "\n".join(f"- {r}" for r in integrity_rules) if integrity_rules else "- Extract values exactly as written."
+
+        prompt = f"""You are a Document Extraction Engineer.
+Follow the WORK ORDER below EXACTLY. Do not deviate.
+
+WORK ORDER:
+{work_order_json}
+
+INSTRUCTIONS:
+1. Extract values following each field's instruction in the work order.
+2. For EVERY extracted value, include the tag ID (e.g., ^C5 → "ref": "C5")
+   that corresponds to the source location in the document.
+3. For table fields, extract ALL rows. Do not truncate.
+4. If a value spans multiple tags, use the PRIMARY tag containing the most relevant text.
+
+NULL HANDLING (CRITICAL):
+- If a field's value DOES NOT EXIST in the document, return {{"value": null, "ref": null}}.
+- Do NOT guess, infer, or extrapolate from other rows or fields.
+- A missing value is ALWAYS better than a wrong value.
+- For table rows: if a cell is empty, return null. Do NOT copy from adjacent rows.
+
+SELF-VERIFICATION RULES (CRITICAL):
+When extracting a value, if ANY of these conditions apply,
+add "is_uncertain": true and "warning_msg": "reason" to that field:
+
+1. AMBIGUITY: 2+ candidate values. State both candidates in warning_msg.
+2. DATA CORRUPTION: Text truncated, garbled, or OCR errors (0 vs O, 1 vs l).
+   Copy raw text as-is but flag it.
+3. FORMAT MISMATCH: Work order expects format X but document has format Y.
+4. LOW CONFIDENCE: Not fully certain for any reason. When in doubt, flag it.
+
+If certain, do NOT include is_uncertain or warning_msg.
+
+OUTPUT FORMAT:
+{{
+  "guide_extracted": {{
+    "field_key": {{"value": "v", "ref": "TAG_ID"}},
+    "uncertain_field": {{"value": "v", "ref": "TAG", "is_uncertain": true, "warning_msg": "reason"}},
+    "table_key": [
+      {{"col1": {{"value": "v", "ref": "TAG"}}, "col2": {{"value": "v", "ref": "TAG"}}}}
+    ]
+  }}
+}}
+
+INTEGRITY RULES:
+{integrity_rules_str}
+"""
+        return prompt
+
+    @staticmethod
+    def post_process_with_ref(engineer_output: dict, ref_map: dict) -> dict:
+        """
+        Phase ③: Exact bbox lookup via ref_map + uncertainty preservation.
+        Replaces fuzzy matching with deterministic tag-based coordinate resolution.
+        """
+        def _resolve_ref(cell, ref_map):
+            if not isinstance(cell, dict) or "value" not in cell:
+                return cell
+
+            ref_id = cell.get("ref")
+            value = cell.get("value")
+            resolved = {"value": value}
+
+            if ref_id and ref_id in ref_map:
+                ref_info = ref_map[ref_id]
+                resolved["bbox"] = ref_info.get("bbox")
+                resolved["page_number"] = ref_info.get("page_number")
+                resolved["confidence"] = 0.5 if cell.get("is_uncertain") else 1.0
+                resolved["source_text"] = ref_info.get("text", "")
+            elif ref_id:
+                # ref exists but not in ref_map (LLM hallucination)
+                resolved["bbox"] = None
+                resolved["page_number"] = None
+                resolved["confidence"] = 0.3
+            else:
+                resolved["bbox"] = None
+                resolved["page_number"] = None
+                resolved["confidence"] = 0.0
+
+            # Preserve uncertainty flags for UI
+            if cell.get("is_uncertain"):
+                resolved["is_uncertain"] = True
+                resolved["warning_msg"] = cell.get("warning_msg", "")
+
+            return resolved
+
+        result = {}
+        guide = engineer_output.get("guide_extracted", {})
+
+        for key, item in guide.items():
+            if isinstance(item, list):
+                # Table field
+                rows = []
+                for row in item:
+                    if isinstance(row, dict):
+                        processed_row = {}
+                        for col_key, cell in row.items():
+                            processed_row[col_key] = _resolve_ref(cell, ref_map)
+                        rows.append(processed_row)
+                    else:
+                        rows.append(row)
+                result[key] = rows
+            elif isinstance(item, dict) and "value" in item:
+                result[key] = _resolve_ref(item, ref_map)
+            else:
+                result[key] = item
+
+        return {"guide_extracted": result}

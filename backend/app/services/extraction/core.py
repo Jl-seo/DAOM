@@ -32,6 +32,9 @@ class ExtractionResult(BaseModel):
     # Beta Features Metadata
     beta_metadata: Dict[str, Any] = Field(default_factory=dict, description="parsed_content, ref_map, chunking_info etc.")
     
+    # Designer-Engineer Pipeline
+    work_order: Optional[Dict[str, Any]] = Field(default=None, description="Designer LLM output (work order for Engineer)")
+    
     # Error Handling
     error: Optional[str] = None
 

@@ -142,6 +142,7 @@ class ExtractionService:
                 "_token_usage": extraction_result.token_usage.dict(),
                 "error": extraction_result.error,
                 "raw_content": ocr_data_to_send.get("content", ""),
+                "raw_tables": ocr_data_to_send.get("tables", []),
                 "pages": ocr_data_to_send.get("pages", [])
             }
             
@@ -185,6 +186,7 @@ class ExtractionService:
                 "_token_usage": extraction_result.token_usage.dict(),
                 "error": extraction_result.error,
                 "raw_content": ocr_data.get("content", ""),
+                "raw_tables": ocr_data.get("tables", []),
                 "pages": ocr_data.get("pages", [])
              }
              
@@ -398,6 +400,7 @@ class ExtractionService:
         result["other_data"] = raw_data.get("other_data", [])
         result["pages"] = raw_data.get("pages", [])
         result["raw_content"] = raw_data.get("raw_content", "")
+        result["raw_tables"] = raw_data.get("raw_tables", [])
 
         # Preserve technical fields from Beta path
         for key in ["_beta_parsed_content", "_beta_ref_map", "_beta_chunking_info", "_beta_pipeline_stages"]:

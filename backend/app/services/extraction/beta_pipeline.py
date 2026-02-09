@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 from typing import Dict, Any, List, Optional
@@ -14,93 +15,290 @@ from openai import AsyncAzureOpenAI
 
 logger = logging.getLogger(__name__)
 
+# Module-level cache for Designer work orders (per model hash)
+_work_order_cache: Dict[str, dict] = {}
+
 class BetaPipeline(ExtractionPipeline):
     """
-    Implements the Beta Extraction Strategy:
-    1. LayoutParser (Structure-Aware Tagging)
-    2. RefinerEngine (Dynamic Prompting)
-    3. Smart Chunking (Overlap + Rate Limiting)
+    Two-Phase LLM Extraction Strategy (Designer → Engineer):
+    1. LayoutParser: Structure-aware tagging (markdown tables + ^C/^W/^P)
+    2. Designer LLM: Schema → Work Order (cacheable per model)
+    3. Engineer LLM: Work Order + Tagged Text → JSON with ref tags
+    4. Post-Processor: ref_map → exact bbox lookup + uncertainty preservation
     """
     
     def __init__(self, azure_client: AsyncAzureOpenAI):
         self.azure_client = azure_client
-        # Semaphore for Rate Limiting (Increased parallelism to 5 for speed)
         self.semaphore = asyncio.Semaphore(5)
+
+    # ==================================================================
+    # Main Entry Point
+    # ==================================================================
 
     async def execute(self, model: ExtractionModel, ocr_data: Dict[str, Any], focus_pages: Optional[List[int]] = None) -> ExtractionResult:
         """
-        Main Execution Entry Point.
-        
-        Refactored 2-Stage Strategy:
-        1. Layout Analysis (Run Once)
-        2. Scenario Routing:
-           - CASE A: General Model (No table fields) -> Single-Shot (mode="all")
-           - CASE B: Table Model (Has table fields) -> 2-Stage Pipeline
-             - Stage 1: Extract Common Fields (mode="common") from Header Context
-             - Stage 2: Extract Table Fields (mode="table") from Full Content (Single vs Chunked)
-             - Merge: Combine Common + Table results into one Dict
+        Designer → Engineer Pipeline:
+        1. LayoutParser (tagged text + ref_map)
+        2. Designer LLM (work order from schema — cached)
+        3. Engineer LLM (extraction with ref tags)
+        4. Post-Processor (ref → bbox + uncertainty)
         """
         start_time = datetime.utcnow()
         
-        # --- 1. Layout Parsing (Once for all stages) ---
+        # --- 1. Layout Parsing ---
         parser = LayoutParser(ocr_data)
         tagged_text, ref_map = parser.parse(focus_pages=focus_pages)
         
         content_len = len(tagged_text)
         page_count = len(ocr_data.get("pages", []))
+        logger.info(f"[BetaPipeline] Analysis: pages={page_count}, content_len={content_len} chars")
+
+        # --- 2. Designer LLM (Work Order — Cached) ---
+        work_order = await self._run_designer(model)
         
-        # Thresholds
+        # --- 3. Engineer LLM (Extraction) ---
         SINGLE_SHOT_CHAR_LIMIT = 6000
         TEXT_CHUNK_SIZE = 4000
         
-        logger.info(f"[BetaPipeline] Analysis: pages={page_count}, content_len={content_len} chars")
-
-        # --- 2. Determine Strategy ---
-        # Check if model has any table/list fields
-        table_fields = [f for f in model.fields if f.type in ('list', 'table', 'array')]
-        has_table = len(table_fields) > 0
-        
-        final_result = None
-        
-        if not has_table:
-            # CASE A: General Model -> Single Shot (All fields)
-            logger.info("[BetaPipeline] Route: General Mode (Single-Shot)")
-            final_result = await self._extract_segment(model, tagged_text, ocr_data, ref_map, mode="all")
+        if content_len <= SINGLE_SHOT_CHAR_LIMIT:
+            logger.info("[BetaPipeline] Route: Single-Shot Engineer")
+            engineer_output = await self._run_engineer(work_order, tagged_text)
         else:
-            # CASE B: Table Model -> 2-Stage Pipeline
-            logger.info("[BetaPipeline] Route: Table Mode (2-Stage)")
-            
-            # Stage 1: Common Fields (Header Context up to 3000 chars)
-            header_context = tagged_text[:3000]
-            logger.info("[BetaPipeline] Stage 1: Extracting Common Fields...")
-            common_result = await self._extract_segment(model, header_context, ocr_data, ref_map, mode="common")
-            
-            # Stage 2: Table Fields
-            logger.info("[BetaPipeline] Stage 2: Extracting Table Fields...")
-            if content_len <= SINGLE_SHOT_CHAR_LIMIT:
-                # Small Table -> Single Shot
-                table_result = await self._extract_segment(model, tagged_text, ocr_data, ref_map, mode="table")
-            else:
-                # Large Table -> Chunked
-                table_result = await self._extract_table_chunked(model, tagged_text, ocr_data, ref_map, TEXT_CHUNK_SIZE)
-                
-            # Merge Results
-            final_result = self._merge_results(common_result, table_result)
-
-        final_result.duration_seconds = (datetime.utcnow() - start_time).total_seconds()
-        final_result.model_name = model.name
+            logger.info("[BetaPipeline] Route: Chunked Engineer with Header Preservation")
+            engineer_output = await self._run_engineer_chunked(work_order, tagged_text, TEXT_CHUNK_SIZE)
         
-        # Add metadata
-        final_result.beta_metadata = {
-            "parsed_content": tagged_text,
-            "ref_map": ref_map,
-            "pipeline_mode": "2-stage" if has_table else "general"
-        }
+        # --- 4. Post-Process (ref → bbox) ---
+        final_guide = RefinerEngine.post_process_with_ref(
+            engineer_output, ref_map
+        )
+        
+        # --- 5. Build Result ---
+        total_usage = engineer_output.get("_token_usage", {})
+        
+        final_result = ExtractionResult(
+            guide_extracted=final_guide.get("guide_extracted", {}),
+            raw_content=ocr_data.get("content", ""),
+            raw_tables=ocr_data.get("tables", []),
+            token_usage=TokenUsage(**total_usage) if total_usage else TokenUsage(),
+            work_order=work_order,
+            beta_metadata={
+                "parsed_content": tagged_text,
+                "ref_map": ref_map,
+                "pipeline_mode": "designer-engineer"
+            },
+            model_name=model.name,
+            duration_seconds=(datetime.utcnow() - start_time).total_seconds()
+        )
         
         return final_result
 
+    # ==================================================================
+    # Phase ①: Designer LLM (Work Order Generation — Cached)
+    # ==================================================================
+
+    async def _run_designer(self, model: ExtractionModel) -> dict:
+        """
+        Generate a work order from the model schema.
+        Uses module-level cache keyed by hash(model.id + fields + rules + ref_data).
+        """
+        global _work_order_cache
+        
+        cache_key = self._compute_cache_key(model)
+        
+        if cache_key in _work_order_cache:
+            logger.info(f"[BetaPipeline] Designer: Cache HIT for model '{model.name}'")
+            return _work_order_cache[cache_key]
+        
+        logger.info(f"[BetaPipeline] Designer: Cache MISS — generating work order for '{model.name}'")
+        
+        system_prompt = RefinerEngine.construct_designer_prompt(model)
+        user_prompt = "Generate the work order JSON. Output ONLY valid JSON, nothing else."
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        raw_result = await self.call_llm(messages)
+        work_order = raw_result.get("work_order", raw_result)
+        
+        # Wrap if top-level doesn't have work_order key
+        if "work_order" not in raw_result and isinstance(raw_result, dict):
+            work_order = {"work_order": raw_result}
+        else:
+            work_order = raw_result
+        
+        _work_order_cache[cache_key] = work_order
+        logger.info(f"[BetaPipeline] Designer: Work order cached (key={cache_key[:16]}...)")
+        
+        return work_order
+
+    @staticmethod
+    def _compute_cache_key(model: ExtractionModel) -> str:
+        """Compute deterministic cache key from model schema."""
+        fields_json = json.dumps(
+            [{"key": f.key, "label": f.label, "description": f.description, 
+              "rules": f.rules, "type": f.type} for f in model.fields],
+            sort_keys=True, ensure_ascii=False
+        )
+        global_rules = model.global_rules or ""
+        ref_data = json.dumps(model.reference_data or {}, sort_keys=True, ensure_ascii=False)
+        
+        raw = f"{model.id}|{fields_json}|{global_rules}|{ref_data}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    # ==================================================================
+    # Phase ②: Engineer LLM (Value Extraction)
+    # ==================================================================
+
+    async def _run_engineer(self, work_order: dict, tagged_text: str) -> dict:
+        """
+        Single-shot Engineer extraction.
+        Returns raw LLM output dict with guide_extracted + _token_usage.
+        """
+        system_prompt = RefinerEngine.construct_engineer_prompt(work_order)
+        user_prompt = f"DOCUMENT DATA (Tagged Layout Format):\n{tagged_text}\n\nExtract all fields. Return valid JSON."
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        raw_result = await self.call_llm(messages)
+        return raw_result
+
+    async def _run_engineer_chunked(self, work_order: dict, tagged_text: str, chunk_size: int) -> dict:
+        """
+        Chunked Engineer extraction with header preservation.
+        Splits tagged text, injects table headers per chunk, merges results.
+        """
+        chunks = self._chunk_with_headers(tagged_text, chunk_size)
+        logger.info(f"[BetaPipeline] Engineer Chunked: Created {len(chunks)} chunks")
+        
+        if not chunks:
+            return {"guide_extracted": {}}
+        
+        system_prompt = RefinerEngine.construct_engineer_prompt(work_order)
+        
+        async def process_chunk(chunk_text: str, chunk_idx: int) -> dict:
+            user_prompt = (
+                f"DOCUMENT DATA (Tagged Layout Format — Chunk {chunk_idx + 1}/{len(chunks)}):\n"
+                f"{chunk_text}\n\n"
+                f"Extract all fields from this section. Return valid JSON."
+            )
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+            async with self.semaphore:
+                try:
+                    return await self.call_llm(messages)
+                except Exception as e:
+                    logger.error(f"[BetaPipeline] Engineer Chunk {chunk_idx} failed: {e}")
+                    return {"guide_extracted": {}, "error": str(e)}
+        
+        # Parallel execution
+        tasks = [process_chunk(chunk, idx) for idx, chunk in enumerate(chunks)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Merge results
+        merged_guide = {}
+        seen_rows = {}  # field_key -> Set[row_hash]
+        total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        
+        for res in results:
+            if isinstance(res, Exception):
+                logger.error(f"[BetaPipeline] Chunk gather exception: {res}")
+                continue
+            
+            # Accumulate token usage
+            usage = res.get("_token_usage", {})
+            for k in total_usage:
+                total_usage[k] += usage.get(k, 0)
+            
+            # Merge guide_extracted
+            for key, val in res.get("guide_extracted", {}).items():
+                if isinstance(val, list):
+                    # Table field — append rows with dedup
+                    if key not in merged_guide:
+                        merged_guide[key] = []
+                        seen_rows[key] = set()
+                    
+                    for row in val:
+                        if not isinstance(row, dict):
+                            continue
+                        row_hash = json.dumps(row, sort_keys=True, ensure_ascii=False)
+                        if row_hash not in seen_rows[key]:
+                            seen_rows[key].add(row_hash)
+                            merged_guide[key].append(row)
+                else:
+                    # Common field — first wins (should be same across chunks)
+                    if key not in merged_guide:
+                        merged_guide[key] = val
+        
+        return {
+            "guide_extracted": merged_guide,
+            "_token_usage": total_usage
+        }
+
+    @staticmethod
+    def _chunk_with_headers(tagged_text: str, chunk_size: int) -> List[str]:
+        """
+        Split tagged text into chunks with markdown table header preservation.
+        When a chunk boundary falls inside a table, the header row + separator
+        are injected at the start of each new chunk.
+        """
+        lines = tagged_text.split("\n")
+        
+        # Detect markdown table headers: | ... | followed by |---|
+        table_headers: Dict[int, tuple] = {}  # line_idx -> (header_row, separator_row)
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("|") and i + 1 < len(lines):
+                next_stripped = lines[i + 1].strip()
+                if next_stripped.startswith("|") and "---" in next_stripped:
+                    table_headers[i] = (line, lines[i + 1])
+        
+        chunks = []
+        current_chunk: List[str] = []
+        current_len = 0
+        active_header: Optional[tuple] = None
+        
+        for i, line in enumerate(lines):
+            # Track table context
+            if i in table_headers:
+                active_header = table_headers[i]
+            elif not line.strip().startswith("|"):
+                active_header = None
+            
+            line_len = len(line) + 1  # +1 for newline
+            
+            if current_len + line_len > chunk_size and current_chunk:
+                # Flush current chunk
+                chunks.append("\n".join(current_chunk))
+                current_chunk = []
+                current_len = 0
+                
+                # If inside a table, inject header
+                if active_header:
+                    current_chunk.append(active_header[0])  # header row
+                    current_chunk.append(active_header[1])  # separator
+                    current_len += len(active_header[0]) + len(active_header[1]) + 2
+            
+            current_chunk.append(line)
+            current_len += line_len
+        
+        if current_chunk:
+            chunks.append("\n".join(current_chunk))
+        
+        return chunks
+
+    # ==================================================================
+    # Legacy Methods (Backward Compatibility)
+    # ==================================================================
+
     async def _extract_segment(self, model: ExtractionModel, text_segment: str, ocr_data: Dict, ref_map: Dict, mode: str) -> ExtractionResult:
-        """Helper to run a single LLM call for a text segment with specific mode."""
+        """[LEGACY] Helper to run a single LLM call for a text segment with specific mode."""
         system_prompt = RefinerEngine.construct_prompt(model, language="ko", mode=mode)
         user_prompt = f"DOCUMENT DATA (Tagged Layout Format):\n{text_segment}\n\nTASK: Extract fields based on system instructions.\nReturn valid JSON."
         
@@ -113,22 +311,13 @@ class BetaPipeline(ExtractionPipeline):
         return self._normalize_output(raw_result, ocr_data, ref_map, text_segment)
 
     def _merge_results(self, common: ExtractionResult, table: ExtractionResult) -> ExtractionResult:
-        """Merge Common and Table results into a single Dict."""
+        """[LEGACY] Merge Common and Table results into a single Dict."""
         merged = ExtractionResult()
-        
-        # 1. Start with Common fields
         merged.guide_extracted.update(common.guide_extracted)
-        
-        # 2. Update with Table fields
-        # Note: If key collision exists (unlikely with mode separation), Table wins? 
-        # No, they should be disjoint sets of keys.
         merged.guide_extracted.update(table.guide_extracted)
-        
-        # 3. Sum tokens
         merged.token_usage.prompt_tokens = common.token_usage.prompt_tokens + table.token_usage.prompt_tokens
         merged.token_usage.completion_tokens = common.token_usage.completion_tokens + table.token_usage.completion_tokens
         merged.token_usage.total_tokens = common.token_usage.total_tokens + table.token_usage.total_tokens
-        
         return merged
 
     async def _extract_table_chunked(self, model: ExtractionModel, tagged_text: str, ocr_data: Dict[str, Any], ref_map: Dict, chunk_size: int) -> ExtractionResult:

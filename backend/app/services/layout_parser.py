@@ -194,71 +194,150 @@ class LayoutParser:
         self._mark_claimed(offset, length)
 
     def _pass_tables(self):
-        """Priority 1: Tag Table Cells"""
+        """Priority 1: Tag Table Cells as Markdown Tables with ^C tags.
+        
+        Reconstructs Azure DI table structure using row_index/column_index,
+        then renders each table as a markdown table with ^C{id} tags in each cell.
+        This preserves both: (1) row/column structure for LLM comprehension,
+        and (2) tag-based bbox lookup via ref_map.
+        """
         # Per-file cursor to track consumption for cells without spans (Excel/Office)
         file_cursors = {fid: 0 for fid in self.file_ids}
+
+        # Initialize table replacement list: [(span_start, span_end, markdown_str)]
+        if not hasattr(self, '_table_replacements'):
+            self._table_replacements = []
 
         for table in self.all_tables:
             fid = table["file_id"]
             offset_shift = table["file_content_offset"]
 
+            # --- Step 1: Collect all cells with their grid positions & tag IDs ---
+            grid = {}  # (row_index, col_index) -> {"content": str, "tag_id": str}
+            max_row = -1
+            max_col = -1
+            table_span_start = None
+            table_span_end = None
+
             for cell in table.get("cells", []):
                 content = cell.get("content", "").strip()
-                if not content: continue
+                row_idx = cell.get("rowIndex", cell.get("row_index", 0))
+                col_idx = cell.get("columnIndex", cell.get("column_index", 0))
+                row_span = cell.get("rowSpan", cell.get("row_span", 1))
+                col_span = cell.get("columnSpan", cell.get("column_span", 1))
 
-                # Safety: Check Bounding Regions & Spans
-                # Support both camelCase (raw Azure DI) and snake_case (doc_intel.py)
+                max_row = max(max_row, row_idx + row_span - 1)
+                max_col = max(max_col, col_idx + col_span - 1)
+
+                # BBox & Page resolution
                 regions = cell.get("boundingRegions") or cell.get("bounding_regions", [])
                 spans = cell.get("spans", [])
 
-                # BBox & Page Safety
                 bbox = None
-                global_page = self._find_global_page(fid, 1) # Default to Page 1 if no layout info
-                
+                global_page = self._find_global_page(fid, 1)
+
                 if regions:
-                     bbox = regions[0].get("polygon")
-                     local_page = regions[0].get("pageNumber") or regions[0].get("page_number")
-                     global_page = self._find_global_page(fid, local_page)
-                
-                # Without spans, try to find content in full_content (Incremental Search)
+                    bbox = regions[0].get("polygon")
+                    local_page = regions[0].get("pageNumber") or regions[0].get("page_number")
+                    global_page = self._find_global_page(fid, local_page)
+
+                # Resolve offset in full_content for claiming
                 if not spans:
-                    # Search from last known cursor position to avoid duplicates mapping to same spot
                     current_cursor = file_cursors.get(fid, 0)
                     search_start = offset_shift + current_cursor
-                    
-                    found_pos = self.full_content.find(content, search_start)
-                    
-                    if found_pos == -1:
-                        # Fallback: Can't locate even by string search? Skip.
-                        # Actually for Excel, content might be exact match of cell content.
-                        # But offset_shift points to start of file content.
-                        # If full_content was built properly, it implies content exists.
+                    found_pos = self.full_content.find(content, search_start) if content else -1
+
+                    if found_pos == -1 and not content:
+                        # Empty cell — no span to claim, just record in grid
+                        for r in range(row_idx, row_idx + row_span):
+                            for c in range(col_idx, col_idx + col_span):
+                                if (r, c) not in grid:
+                                    grid[(r, c)] = {"content": "", "tag_id": None}
                         continue
-                        
+                    elif found_pos == -1:
+                        # Can't locate — still register in grid without tag
+                        for r in range(row_idx, row_idx + row_span):
+                            for c in range(col_idx, col_idx + col_span):
+                                if (r, c) not in grid:
+                                    grid[(r, c)] = {"content": content, "tag_id": None}
+                        continue
+
                     local_offset = found_pos - offset_shift
                     local_length = len(content)
-                    
-                    # Update cursor to end of this content + 1 (to consume it)
                     file_cursors[fid] = local_offset + local_length
                 else:
                     primary_span = spans[0]
                     local_offset = primary_span["offset"]
                     local_length = primary_span["length"]
 
-                # Convert to Global Offset
                 global_offset = offset_shift + local_offset
 
-                # Register
-                self._register_tag(
-                    text=content,
-                    bbox=bbox,
-                    global_page=global_page,
-                    file_id=fid,
-                    type_code="C",
-                    offset=global_offset,
-                    length=local_length,
-                    priority=0
-                )
+                # Track table span boundaries for replacement
+                if table_span_start is None or global_offset < table_span_start:
+                    table_span_start = global_offset
+                cell_end = global_offset + local_length
+                if table_span_end is None or cell_end > table_span_end:
+                    table_span_end = cell_end
+
+                # Register tag in ref_map (same as before — bbox tracking preserved)
+                tag_id = self._get_hex_id("C")
+                tag_disp = f"^{tag_id}"
+
+                self.ref_map[tag_id] = {
+                    "text": content,
+                    "bbox": bbox,
+                    "page_number": global_page,
+                    "file_id": fid,
+                    "type": "C"
+                }
+
+                # Mark as claimed
+                self._mark_claimed(global_offset, local_length)
+
+                # Store in grid (fill spanned cells, primary cell gets tag)
+                for r in range(row_idx, row_idx + row_span):
+                    for c in range(col_idx, col_idx + col_span):
+                        if (r, c) not in grid:
+                            if r == row_idx and c == col_idx:
+                                grid[(r, c)] = {"content": content, "tag_id": tag_disp}
+                            else:
+                                # Spanned cell — show content only in top-left
+                                grid[(r, c)] = {"content": "", "tag_id": None}
+
+            # --- Step 2: Build Markdown Table from grid ---
+            if max_row < 0 or max_col < 0:
+                continue
+
+            md_rows = []
+            for r in range(max_row + 1):
+                cells_str = []
+                for c in range(max_col + 1):
+                    cell_info = grid.get((r, c), {"content": "", "tag_id": None})
+                    cell_text = cell_info["content"].replace("|", "\\|").replace("\n", " ")
+                    tag = cell_info["tag_id"]
+                    if tag and cell_text:
+                        cells_str.append(f" {cell_text} {tag} ")
+                    elif tag:
+                        cells_str.append(f" {tag} ")
+                    else:
+                        cells_str.append(f" {cell_text} ")
+                md_rows.append("|" + "|".join(cells_str) + "|")
+
+                # Add separator after header row (row 0)
+                if r == 0:
+                    sep = "|" + "|".join(["---"] * (max_col + 1)) + "|"
+                    md_rows.append(sep)
+
+            markdown_table = "\n" + "\n".join(md_rows) + "\n"
+
+            # --- Step 3: Register table replacement ---
+            if table_span_start is not None and table_span_end is not None:
+                self._table_replacements.append((table_span_start, table_span_end, markdown_table))
+            else:
+                # Table with no locatable spans — append as insertion at best guess
+                # Use first paragraph after table or end of content
+                insert_at = offset_shift
+                self._table_replacements.append((insert_at, insert_at, markdown_table))
 
     def _pass_entities(self):
         """Priority 2: Tag NLP Entities in Unclaimed areas"""
@@ -387,23 +466,58 @@ class LayoutParser:
         return 1 # Fallback
 
     def _reconstruct_text(self) -> str:
-        """Flatten original text with inserted tags."""
-        # Sort insertions:
-        # Primary Key: Position (ascending)
-        # Secondary Key: Priority (ascending) -> 0 (Table) before 1 (Entity)?
-        # Actually if they serve different spans, position handles it.
-        # Priority ensures deterministic order if collisions (unlikely due to mask).
-        self.insertions.sort(key=lambda x: (x[0], x[1]))
+        """Flatten original text with inserted tags and markdown table replacements."""
+        # Sort table replacements by start position (non-overlapping assumed)
+        table_repls = sorted(getattr(self, '_table_replacements', []), key=lambda x: x[0])
 
+        # Filter out insertions that fall within table replacement zones
+        # (table cells already have tags embedded in the markdown)
+        table_zones = [(s, e) for s, e, _ in table_repls]
+
+        def in_table_zone(pos):
+            for s, e in table_zones:
+                if s <= pos <= e:
+                    return True
+            return False
+
+        # Sort non-table insertions (^W, ^P tags)
+        filtered_insertions = [
+            (pos, pri, tag) for pos, pri, tag in self.insertions
+            if not in_table_zone(pos)
+        ]
+        filtered_insertions.sort(key=lambda x: (x[0], x[1]))
+
+        # Merge both streams: table replacements + tag insertions
+        # Build output by walking through the content in order
         chunks = []
         last_pos = 0
+        
+        # Create unified event list
+        events = []
+        for s, e, md in table_repls:
+            events.append((s, 'table', (s, e, md)))
+        for pos, pri, tag in filtered_insertions:
+            events.append((pos, 'tag', (pos, pri, tag)))
+        events.sort(key=lambda x: (x[0], 0 if x[1] == 'table' else 1))
 
-        for pos, priority, tag_str in self.insertions:
-            # Append text before tag
-            chunks.append(self.full_content[last_pos:pos])
-            # Append tag (with space for safety)
-            chunks.append(f" {tag_str}")
-            last_pos = pos
+        for _, etype, data in events:
+            if etype == 'table':
+                s, e, md = data
+                if s < last_pos:
+                    continue  # Skip overlapping (shouldn't happen)
+                # Append text before table
+                chunks.append(self.full_content[last_pos:s])
+                # Append markdown table (replaces original text from s to e)
+                chunks.append(md)
+                last_pos = e
+            else:
+                pos, pri, tag_str = data
+                if pos < last_pos:
+                    continue  # Inside a replaced table zone
+                # Append text before tag
+                chunks.append(self.full_content[last_pos:pos])
+                chunks.append(f" {tag_str}")
+                last_pos = pos
 
         # Append remaining
         chunks.append(self.full_content[last_pos:])
