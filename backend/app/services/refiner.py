@@ -12,37 +12,45 @@ class RefinerEngine:
     """
 
     @staticmethod
-    def construct_prompt(model_info: Any, language: str = "en", table_only: bool = False) -> str:
+    def construct_prompt(model: ExtractionModel, language: str = "ko", table_only: bool = False, mode: str = "all") -> str:
         """
-        Builds a comprehensive system prompt incorporating:
-        1. Model Context (Description)
-        2. Field-level Definitions & Rules
-        3. Global Output Rules
-        4. Reference Data (Phase 1)
-        5. Output Format Instructions
+        Constructs a system prompt for the Refiner model.
+        mode options:
+        - "all": Include all fields (default)
+        - "common": Include only non-list fields
+        - "table": Include only list fields (equivalent to table_only=True)
+        """
+        if table_only:
+             mode = "table"
+
+        # Filter fields based on mode
+        if mode == "common":
+            active_fields = [f for f in model.fields if f.type != 'list']
+            mode_instruction = "Extract ONLY the common/metadata fields. Ignore any table/list data."
+        elif mode == "table":
+            active_fields = [f for f in model.fields if f.type == 'list']
+            mode_instruction = "Extract ONLY the table/list fields. Ignore any common/metadata fields."
+        else:
+            active_fields = model.fields
+            mode_instruction = "Extract all fields defined in the schema."
+
+        field_definitions = "\n".join([
+            f"- {f.name} ({f.type}): {f.description}" 
+            for f in active_fields
+        ])
         
-        Args:
-            table_only: If True, only include table-type fields in the prompt.
-                       Used for chunked extraction where common fields are
-                       extracted separately from the header context.
-        Robust to both Pydantic model and Dict input.
-        """
         # Helper to access attributes safely
         def get_attr(obj, key, default=None):
             if isinstance(obj, dict):
                 return obj.get(key, default)
             return getattr(obj, key, default)
 
-        name = get_attr(model_info, "name", "Unknown Model")
-        description = get_attr(model_info, "description", None)
-        global_rules = get_attr(model_info, "global_rules", None)
-        reference_data = get_attr(model_info, "reference_data", None)
-        fields = get_attr(model_info, "fields", [])
+        name = get_attr(model, "name", "Unknown Model")
+        description = get_attr(model, "description", None)
+        global_rules = get_attr(model, "global_rules", None)
+        reference_data = get_attr(model, "reference_data", None)
+        fields = active_fields # Use active_fields for the rest of the prompt construction
         
-        # Filter fields if table_only mode
-        if table_only:
-            fields = [f for f in fields if getattr(f, 'type', 'text') == 'table']
-
         # 1. Base Context
         prompt = f"""You are an advanced document intelligence AI.
 Target Domain: {name}
@@ -89,7 +97,7 @@ INSTRUCTIONS FOR REFERENCE DATA:
             prompt += f"  Type: {field.type}\n"
 
         # 4. Output Formatting — branched by data_structure for token efficiency
-        data_structure = get_attr(model_info, 'data_structure', 'data')
+        data_structure = get_attr(model, 'data_structure', 'data')
         is_table = data_structure == 'table' or any(
             getattr(f, 'type', '') == 'table' for f in fields
         )
@@ -114,13 +122,17 @@ INSTRUCTIONS FOR REFERENCE DATA:
             
             prompt += f"""
 OUTPUT INSTRUCTIONS (TABLE MODE):
-You must extract the data into a valid JSON object.
-Root key: "guide_extracted"
+You must extract ALL rows from the document. Do NOT truncate or sample.
 
-EXACT FORMAT REQUIRED:
-{example_json}
+**CRITICAL: DENORMALIZE HIERARCHICAL DATA**
+- If the table has merged cells or hierarchical headers (e.g., one 'Route' applies to multiple 'POL/POD' rows), **YOU MUST REPEAT** the parent value for EVERY child row.
+- Do NOT return separate rows for "Header Info" and "Detail Info". Merge them into single flat objects.
+- Every row object must be complete.
 
-CRITICAL RULES:
+Return a JSON object where the output key is "rows" (list of objects).
+Each object in the list must represent a row.
+**CRITICAL**: Use the exact keys defined in the 'REQUIRED EXTRACTION FIELDS' section above.
+Do NOT wrap each cell in {{"value": ..., "confidence": ...}} — output flat values directly.
 1. You MUST use the EXACT field keys listed above: {[f.key for f in fields]}.
 2. For TABLE type fields, return a LIST of flat row objects. Do NOT use numeric indices like "0", "1", "2" as keys.
 3. For TEXT type fields, return {{"value": "...", "confidence": 0.0-1.0}}.
