@@ -262,7 +262,12 @@
                         "processing",
                         "success",
                         "error",
-                        "cancelled"
+                        "cancelled",
+                        "S000",
+                        "S050",
+                        "S100",
+                        "S200",
+                        "E100"
                     ],
                     "x-ms-summary": "Status"
                 },
@@ -282,9 +287,13 @@
                     "x-ms-summary": "File Name"
                 },
                 "extracted_data": {
-                    "type": "object",
-                    "description": "Extracted field values (available when status=success)",
+                    "description": "Extracted field values. Object for form mode, Array for table mode (available when status=success)",
                     "x-ms-summary": "Extracted Data"
+                },
+                "is_table": {
+                    "type": "boolean",
+                    "description": "True if result is multi-row table format (extracted_data is array)",
+                    "x-ms-summary": "Is Table Mode"
                 },
                 "confidence": {
                     "type": "number",

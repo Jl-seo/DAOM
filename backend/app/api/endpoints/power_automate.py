@@ -109,11 +109,13 @@ async def run_extraction_with_metadata(
         if result.get("error"):
              await update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
         else:
-             # Success -> Update Job
+             # Success -> Update Job + Store extracted_data for connector result API
+             extracted = result.get("guide_extracted", {})
              await update_job(
                 job_id, 
-                status=ExtractionStatus.PREVIEW_READY.value, 
-                preview_data=result
+                status=ExtractionStatus.SUCCESS.value, 
+                preview_data=result,
+                extracted_data=extracted
             )
 
         # 6. Update log with metadata if provided
@@ -287,20 +289,25 @@ async def get_extraction_result(
     except Exception:
         pass
 
+    # Support both legacy "success" and new enum status codes
+    is_done = log.status in ["success", ExtractionStatus.SUCCESS.value, ExtractionStatus.PREVIEW_READY.value]
+    is_err = log.status in ["error", ExtractionStatus.ERROR.value, ExtractionStatus.FAILED.value]
+
     response_data = {
         "job_id": job_id,
         "status": log.status,
         "model_id": log.model_id,
         "model_name": model_name,
         "filename": log.filename,
-        "extracted_data": log.extracted_data if log.status == "success" else None,
-        "error": log.error if log.status == "error" else None,
+        "extracted_data": log.extracted_data if is_done else None,
+        "is_table": isinstance(log.extracted_data, list) if log.extracted_data else False,
+        "error": log.error if is_err else None,
         "metadata": log.metadata,
         "created_at": log.created_at
     }
 
     # Calculate confidence if available
-    if log.extracted_data:
+    if log.extracted_data and isinstance(log.extracted_data, dict):
         confidences = []
         for field_data in log.extracted_data.values():
             if isinstance(field_data, dict) and "confidence" in field_data:
