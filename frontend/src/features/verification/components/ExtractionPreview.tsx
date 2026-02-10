@@ -293,8 +293,8 @@ function ResizableNestedTable({
         typeof item === 'object' && item !== null ? Object.keys(item) : []
     ))), [displayData])
 
-    // bbox, confidence, page_number 제외 및 키 컬럼 맨 앞에 배치
-    const hiddenColumns = ['bbox', 'confidence', 'page_number']
+    // Hide bbox/ref metadata columns (confidence is intentionally kept visible)
+    const hiddenColumns = ['bbox', 'page_number', 'ref_id', 'source_text', 'validation_status', 'ref']
     const allKeys = useMemo(() => allKeysRaw
         .filter((k: string) => !hiddenColumns.includes(k))
         .sort((a: string, b: string) => {
