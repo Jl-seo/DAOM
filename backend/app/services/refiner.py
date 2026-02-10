@@ -266,6 +266,8 @@ Do NOT translate unless the field rule explicitly mentions translation.
         data_structure = get_attr(model, "data_structure", "data")
         fields = model.fields
 
+        TABLE_FIELD_TYPES = ('list', 'table', 'array')
+
         # Build fields JSON for the prompt
         fields_json = json.dumps([
             {
@@ -290,6 +292,15 @@ Do NOT translate unless the field rule explicitly mentions translation.
         if global_rules:
             calibration_section = f"\nCALIBRATION RULES (from admin):\n{global_rules}\n"
 
+        # Field type classification guidance
+        common_keys = [f.key for f in fields if f.type not in TABLE_FIELD_TYPES]
+        table_keys = [f.key for f in fields if f.type in TABLE_FIELD_TYPES]
+        type_guidance = ""
+        if common_keys:
+            type_guidance += f"\nCOMMON FIELDS (single values): {', '.join(common_keys)}"
+        if table_keys:
+            type_guidance += f"\nTABLE FIELDS (list of rows): {', '.join(table_keys)}"
+
         prompt = f"""You are a Document Extraction Architect.
 
 Given an extraction model schema and calibration rules, generate a WORK ORDER
@@ -298,6 +309,7 @@ that an extraction engineer will follow to extract data from a document.
 MODEL: {name}
 DOMAIN: {description or 'General Document'}
 DATA STRUCTURE: {data_structure}
+{type_guidance}
 
 MODEL SCHEMA:
 {fields_json}
@@ -322,14 +334,34 @@ OUTPUT: A JSON object with this structure:
     ],
     "integrity_rules": [
       "Copy values exactly as written. No conversion/calculation/translation.",
-      "Missing values must be null."
+      "Missing values must be null.",
+      "Extract in original language. Do NOT translate unless field rule says so."
     ]
   }}
 }}
 
+FIELD CLASSIFICATION RULES:
+- Fields with type "list", "table", or "array" → table_fields (with columns)
+- All other fields → common_fields (single values)
+- table_fields MUST include a "columns" object with ALL sub-field keys.
+
 CRITICAL:
 - Column keys MUST use the EXACT field keys from the schema. Do NOT rename.
 - The work order is for an AI engineer, not a human. Be precise and unambiguous.
+- For table fields: add a rule "DENORMALIZE: If merged/hierarchical cells exist, repeat parent value for every child row."
+
+ZERO TOLERANCE — FIELD COVERAGE:
+- You MUST generate exactly one instruction entry for EVERY field in the schema.
+- Input schema has {len(fields)} fields → output MUST have exactly {len(fields)} entries
+  across common_fields + table_fields combined.
+- Skipping, merging, or omitting even ONE field is a critical failure.
+
+ALWAYS APPEND THIS ENTRY to common_fields (in addition to the {len(fields)} schema fields):
+{{
+  "key": "unmapped_critical_info",
+  "instruction": "Scan the entire document for text marked as 'Important', 'Note', '주의', '특약', '비고', 'Remark', or similar annotations that do NOT belong to any field above. Copy verbatim. If none found, return null.",
+  "expected_format": "text"
+}}
 
 STYLE CONSTRAINTS (MANDATORY):
 - Be CONCISE. Each instruction MUST be 1-2 sentences max.
@@ -349,8 +381,36 @@ STYLE CONSTRAINTS (MANDATORY):
         work_order_json = json.dumps(work_order, ensure_ascii=False, indent=2)
 
         # Extract integrity rules from work order
-        integrity_rules = work_order.get("work_order", work_order).get("integrity_rules", [])
+        wo_inner = work_order.get("work_order", work_order)
+        integrity_rules = wo_inner.get("integrity_rules", [])
         integrity_rules_str = "\n".join(f"- {r}" for r in integrity_rules) if integrity_rules else "- Extract values exactly as written."
+
+        # Build dynamic output example from field keys in work_order
+        example_parts = []
+        for cf in wo_inner.get("common_fields", []):
+            key = cf.get("key", "field")
+            example_parts.append(f'    "{key}": {{"value": "...", "ref": "W1"}}')
+        for tf in wo_inner.get("table_fields", []):
+            key = tf.get("key", "table")
+            cols = tf.get("columns", {})
+            if cols:
+                col_examples = ', '.join(f'"{ck}": {{"value": "...", "ref": "C1"}}' for ck in list(cols.keys())[:3])
+                example_parts.append(f'    "{key}": [\n      {{{col_examples}}}\n    ]')
+            else:
+                example_parts.append(f'    "{key}": [\n      {{"col1": {{"value": "...", "ref": "C1"}}}}\n    ]')
+
+        if example_parts:
+            example_json = "{{\n  \"guide_extracted\": {{\n" + ",\n".join(example_parts) + "\n  }}\n}}"
+        else:
+            example_json = '{"guide_extracted": {"field": {"value": "...", "ref": "TAG"}}}'
+
+        # Build field key list for schema anchoring
+        all_keys = []
+        for cf in wo_inner.get("common_fields", []):
+            all_keys.append(cf.get("key", ""))
+        for tf in wo_inner.get("table_fields", []):
+            all_keys.append(tf.get("key", ""))
+        field_key_list = ", ".join(f'"{k}"' for k in all_keys if k)
 
         prompt = f"""You are a Document Extraction Engineer.
 Follow the WORK ORDER below EXACTLY. Do not deviate.
@@ -358,18 +418,40 @@ Follow the WORK ORDER below EXACTLY. Do not deviate.
 WORK ORDER:
 {work_order_json}
 
+TAG FORMAT GUIDE (Critical — read before processing document):
+The document text contains inline tags that mark source locations:
+- ^W{{id}} = Word tag. Example: "^W3 Invoice" means the word "Invoice" is tagged as W3.
+- ^P{{id}} = Paragraph tag. Marks the start of a paragraph block.
+- ^C{{id}} = Cell tag. Used inside markdown tables. Each cell value is preceded by its tag.
+
+When you extract a value, find the tag nearest to that value and use its ID as "ref".
+Example: If you see "^W7 2024-01-15" and extract the date, your output should be:
+  {{"value": "2024-01-15", "ref": "W7"}}
+
+For table cells: "| ^C5 KRPUS |" → {{"value": "KRPUS", "ref": "C5"}}
+
 INSTRUCTIONS:
 1. Extract values following each field's instruction in the work order.
-2. For EVERY extracted value, include the tag ID (e.g., ^C5 → "ref": "C5")
-   that corresponds to the source location in the document.
-3. For table fields, extract ALL rows. Do not truncate.
-4. If a value spans multiple tags, use the PRIMARY tag containing the most relevant text.
+2. For EVERY extracted value, include the ref tag ID as shown above.
+3. For table fields, extract ALL rows. Do not truncate or sample.
+4. If a value spans multiple tags, use the PRIMARY tag containing the core text.
+5. Scan the document from START to END. Check every paragraph and every table row.
+   Do NOT stop early. Footnotes, annotations, and small-print text are valid source data.
+
+DENORMALIZATION (Table fields only):
+- If the document has merged cells or hierarchical headers (one parent value
+  spanning multiple child rows), REPEAT the parent value in EVERY child row.
+- Every row object MUST be complete — no empty inherited fields.
 
 NULL HANDLING (CRITICAL):
 - If a field's value DOES NOT EXIST in the document, return {{"value": null, "ref": null}}.
 - Do NOT guess, infer, or extrapolate from other rows or fields.
 - A missing value is ALWAYS better than a wrong value.
 - For table rows: if a cell is empty, return null. Do NOT copy from adjacent rows.
+
+LANGUAGE:
+- Extract values in the ORIGINAL language as they appear in the document.
+- Do NOT translate unless the work order instruction explicitly says to translate.
 
 SELF-VERIFICATION RULES (CRITICAL):
 When extracting a value, if ANY of these conditions apply,
@@ -383,16 +465,11 @@ add "is_uncertain": true and "warning_msg": "reason" to that field:
 
 If certain, do NOT include is_uncertain or warning_msg.
 
-OUTPUT FORMAT:
-{{
-  "guide_extracted": {{
-    "field_key": {{"value": "v", "ref": "TAG_ID"}},
-    "uncertain_field": {{"value": "v", "ref": "TAG", "is_uncertain": true, "warning_msg": "reason"}},
-    "table_key": [
-      {{"col1": {{"value": "v", "ref": "TAG"}}, "col2": {{"value": "v", "ref": "TAG"}}}}
-    ]
-  }}
-}}
+ALLOWED FIELD KEYS (output ONLY these keys, do not invent new ones):
+{field_key_list}
+
+OUTPUT FORMAT (use EXACT field keys from above):
+{example_json}
 
 INTEGRITY RULES:
 {integrity_rules_str}

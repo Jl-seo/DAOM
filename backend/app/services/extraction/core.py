@@ -34,6 +34,7 @@ class ExtractionResult(BaseModel):
     
     # Designer-Engineer Pipeline
     work_order: Optional[Dict[str, Any]] = Field(default=None, description="Designer LLM output (work order for Engineer)")
+    other_data: List[Dict[str, Any]] = Field(default_factory=list, description="Unmapped / extra data captured by LLM")
     
     # Error Handling
     error: Optional[str] = None

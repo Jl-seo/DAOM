@@ -72,15 +72,40 @@ class BetaPipeline(ExtractionPipeline):
             engineer_output, ref_map
         )
         
+        # --- 4b. Extract unmapped_critical_info → other_data ---
+        other_data = []
+        processed_guide = final_guide.get("guide_extracted", {})
+        unmapped = processed_guide.pop("unmapped_critical_info", None)
+        if unmapped:
+            # Handle both single value and list of values
+            unmapped_items = unmapped if isinstance(unmapped, list) else [unmapped]
+            for item in unmapped_items:
+                if isinstance(item, dict):
+                    val = item.get("value")
+                    if val and val is not None:
+                        other_data.append({
+                            "column": "unmapped_critical_info",
+                            "value": val,
+                            "confidence": item.get("confidence", 0.5),
+                            "bbox": item.get("bbox")
+                        })
+                elif isinstance(item, str) and item:
+                    other_data.append({
+                        "column": "unmapped_critical_info",
+                        "value": item,
+                        "confidence": 0.5
+                    })
+        
         # --- 5. Build Result ---
         total_usage = engineer_output.get("_token_usage", {})
         
         final_result = ExtractionResult(
-            guide_extracted=final_guide.get("guide_extracted", {}),
+            guide_extracted=processed_guide,
             raw_content=ocr_data.get("content", ""),
             raw_tables=ocr_data.get("tables", []),
             token_usage=TokenUsage(**total_usage) if total_usage else TokenUsage(),
             work_order=work_order,
+            other_data=other_data,
             beta_metadata={
                 "parsed_content": tagged_text,
                 "ref_map": ref_map,
@@ -100,6 +125,7 @@ class BetaPipeline(ExtractionPipeline):
         """
         Generate a work order from the model schema.
         Uses module-level cache keyed by hash(model.id + fields + rules + ref_data).
+        Includes validation: if Designer output is malformed, builds fallback from schema.
         """
         global _work_order_cache
         
@@ -120,18 +146,67 @@ class BetaPipeline(ExtractionPipeline):
         ]
         
         raw_result = await self.call_llm(messages)
-        work_order = raw_result.get("work_order", raw_result)
         
-        # Wrap if top-level doesn't have work_order key
-        if "work_order" not in raw_result and isinstance(raw_result, dict):
+        # Normalize: ensure { work_order: { ... } } structure
+        if "work_order" in raw_result and isinstance(raw_result["work_order"], dict):
+            work_order = raw_result
+        elif isinstance(raw_result, dict) and "error" not in raw_result:
             work_order = {"work_order": raw_result}
         else:
-            work_order = raw_result
+            logger.warning(f"[BetaPipeline] Designer LLM returned error/empty, using fallback")
+            work_order = self._build_fallback_work_order(model)
+        
+        # Validate: work_order must have common_fields or table_fields
+        wo_inner = work_order.get("work_order", {})
+        has_fields = wo_inner.get("common_fields") or wo_inner.get("table_fields")
+        if not has_fields:
+            logger.warning(f"[BetaPipeline] Designer output missing field definitions, using fallback")
+            work_order = self._build_fallback_work_order(model)
         
         _work_order_cache[cache_key] = work_order
         logger.info(f"[BetaPipeline] Designer: Work order cached (key={cache_key[:16]}...)")
         
         return work_order
+
+    @staticmethod
+    def _build_fallback_work_order(model: ExtractionModel) -> dict:
+        """Build a minimal work order directly from model schema when Designer fails."""
+        TABLE_FIELD_TYPES = ('list', 'table', 'array')
+        
+        common_fields = []
+        table_fields = []
+        
+        for f in model.fields:
+            entry = {
+                "key": f.key,
+                "instruction": f"Extract '{f.label}' from the document.",
+                "expected_format": f.type
+            }
+            if f.description:
+                entry["instruction"] += f" {f.description}"
+            if f.rules:
+                entry["instruction"] += f" Rule: {f.rules}"
+            
+            if f.type in TABLE_FIELD_TYPES:
+                entry["columns"] = {}
+                entry["rules"] = ["Extract ALL rows."]
+                table_fields.append(entry)
+            else:
+                common_fields.append(entry)
+        
+        return {
+            "work_order": {
+                "document_type": getattr(model, 'description', None) or model.name,
+                "extraction_mode": "table" if table_fields else "data",
+                "common_fields": common_fields,
+                "table_fields": table_fields,
+                "integrity_rules": [
+                    "Copy values exactly as written. No conversion/calculation/translation.",
+                    "Missing values must be null.",
+                    "Extract in original language. Do NOT translate unless field rule says so."
+                ]
+            }
+        }
 
     @staticmethod
     def _compute_cache_key(model: ExtractionModel) -> str:

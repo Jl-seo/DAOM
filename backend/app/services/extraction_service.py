@@ -143,7 +143,8 @@ class ExtractionService:
                 "error": extraction_result.error,
                 "raw_content": ocr_data_to_send.get("content", ""),
                 "raw_tables": ocr_data_to_send.get("tables", []),
-                "pages": ocr_data_to_send.get("pages", [])
+                "pages": ocr_data_to_send.get("pages", []),
+                "other_data": extraction_result.other_data or []
             }
             
             # Legacy "is_table" logic removed.
@@ -187,7 +188,8 @@ class ExtractionService:
                 "error": extraction_result.error,
                 "raw_content": ocr_data.get("content", ""),
                 "raw_tables": ocr_data.get("tables", []),
-                "pages": ocr_data.get("pages", [])
+                "pages": ocr_data.get("pages", []),
+                "other_data": extraction_result.other_data or []
              }
              
              # Metadata
