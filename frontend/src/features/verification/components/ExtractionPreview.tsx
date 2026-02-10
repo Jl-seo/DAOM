@@ -55,6 +55,23 @@ function extractConfidence(data: any): number | null {
     return null
 }
 
+function calculateTableAverage(data: any[]): number | null {
+    if (!Array.isArray(data) || data.length === 0) return null
+    let totalConf = 0
+    let count = 0
+    data.forEach(row => {
+        if (!row || typeof row !== 'object') return
+        Object.values(row).forEach(val => {
+            const conf = extractConfidence(val)
+            if (conf !== null) {
+                totalConf += conf
+                count++
+            }
+        })
+    })
+    return count > 0 ? totalConf / count : null
+}
+
 function ConfidenceBadge({ confidence }: { confidence: number | null }) {
     if (confidence === null) return null
 
@@ -286,23 +303,6 @@ function ResizableNestedTable({
             return 0
         }), [allKeysRaw, keyColumn])
 
-    // Calculate Average Table Confidence
-    const tableConfidence = useMemo(() => {
-        let totalConf = 0
-        let count = 0
-        displayData.forEach(row => {
-            allKeys.forEach(key => {
-                if (!row) return
-                const cell = row[key]
-                const conf = extractConfidence(cell)
-                if (conf !== null) {
-                    totalConf += conf
-                    count++
-                }
-            })
-        })
-        return count > 0 ? totalConf / count : null
-    }, [displayData, allKeys])
 
     // Initialize column widths - only runs once when data changes and widths are empty
     useEffect(() => {
@@ -435,8 +435,7 @@ function ResizableNestedTable({
                             <span>테이블 접기 ({displayData.length}행)</span>
                         </button>
                     )}
-                    {/* Table Confidence Display */}
-                    <ConfidenceBadge confidence={tableConfidence} />
+
                 </div>
 
             </div>
@@ -863,12 +862,19 @@ export function ExtractionPreview({
                                     {modelFields.map(field => {
                                         const rawData = guideDataDict[field.key]
                                         const value = extractValue(rawData)
-                                        const confidence = extractConfidence(rawData)
+                                        let confidence = extractConfidence(rawData)
                                         const hasValue = value !== null && value !== '' && value !== undefined
-                                        const isLowConfidence = confidence !== null && confidence < 0.9
 
                                         // Highlight table fields that can be expanded
                                         const isTableField = Array.isArray(value) && value.length > 0 && typeof value[0] === 'object'
+
+                                        // For table fields, show average confidence in the row badge
+                                        if (isTableField) {
+                                            const avg = calculateTableAverage(value)
+                                            if (avg !== null) confidence = avg
+                                        }
+
+                                        const isLowConfidence = confidence !== null && confidence < 0.9
 
                                         return (
                                             <tr
@@ -937,109 +943,111 @@ export function ExtractionPreview({
                             </table>
                         );
                     })()}
-                </div>
+                </div >
 
                 {/* Other Data Section */}
-                {otherData.length > 0 && (
-                    <div>
-                        <button
-                            onClick={() => setShowOtherData(!showOtherData)}
-                            className="w-full px-4 py-2 bg-muted flex items-center justify-between sticky top-0 z-10 hover:bg-accent transition-colors"
-                        >
-                            <div className="flex items-center gap-2">
-                                <Database className="w-4 h-4 text-muted-foreground" />
-                                <span className="text-sm font-semibold text-foreground">
-                                    그 외 추출 데이터 ({otherData.length}개)
-                                </span>
-                                {selectedOtherColumns.size > 0 && (
-                                    <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full">
-                                        +{selectedOtherColumns.size} 선택됨
+                {
+                    otherData.length > 0 && (
+                        <div>
+                            <button
+                                onClick={() => setShowOtherData(!showOtherData)}
+                                className="w-full px-4 py-2 bg-muted flex items-center justify-between sticky top-0 z-10 hover:bg-accent transition-colors"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <Database className="w-4 h-4 text-muted-foreground" />
+                                    <span className="text-sm font-semibold text-foreground">
+                                        그 외 추출 데이터 ({otherData.length}개)
                                     </span>
+                                    {selectedOtherColumns.size > 0 && (
+                                        <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full">
+                                            +{selectedOtherColumns.size} 선택됨
+                                        </span>
+                                    )}
+                                </div>
+                                {showOtherData ? (
+                                    <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                                ) : (
+                                    <ChevronDown className="w-4 h-4 text-muted-foreground" />
                                 )}
-                            </div>
-                            {showOtherData ? (
-                                <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                            ) : (
-                                <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                            )}
-                        </button>
-                        {showOtherData && (
-                            <div className="divide-y divide-border">
-                                {editedOtherData.map((item, idx) => {
-                                    if (!item) return null
-                                    const columnName = typeof item.column === 'object'
-                                        ? JSON.stringify(item.column)
-                                        : String(item.column ?? '')
-                                    const isSelected = selectedOtherColumns.has(columnName)
-                                    const isArrayValue = Array.isArray(item.value)
+                            </button>
+                            {showOtherData && (
+                                <div className="divide-y divide-border">
+                                    {editedOtherData.map((item, idx) => {
+                                        if (!item) return null
+                                        const columnName = typeof item.column === 'object'
+                                            ? JSON.stringify(item.column)
+                                            : String(item.column ?? '')
+                                        const isSelected = selectedOtherColumns.has(columnName)
+                                        const isArrayValue = Array.isArray(item.value)
 
-                                    const key = typeof item.column === 'object' ? JSON.stringify(item.column) : String(item.column)
-                                    return (
-                                        <div
-                                            key={idx}
-                                            id={`field-row-${key}`}
-                                            className={clsx(
-                                                "px-4 py-3 transition-colors cursor-pointer",
-                                                selectedField === key ? "ring-2 ring-primary bg-primary/5" : "hover:bg-accent",
-                                                isSelected && !selectedField && "bg-primary/5" // Keep selection bg if not focused
-                                            )}
-                                            onClick={() => handleFieldClick(key)}
-                                        >
-                                            <div className="flex items-start gap-3">
-                                                <div
-                                                    className="pt-0.5 cursor-pointer"
-                                                    onClick={() => toggleOtherColumn(columnName)}
-                                                >
-                                                    {isSelected ? (
-                                                        <Check className="w-4 h-4 text-primary" />
-                                                    ) : (
-                                                        <Plus className="w-4 h-4 text-muted-foreground" />
-                                                    )}
-                                                </div>
-                                                <div className="flex-1 min-w-0 space-y-1">
-                                                    <input
-                                                        type="text"
-                                                        className={clsx(
-                                                            "w-full font-medium text-foreground text-sm bg-transparent border-b border-transparent outline-none",
-                                                            !readOnly && "hover:border-border focus:border-primary"
+                                        const key = typeof item.column === 'object' ? JSON.stringify(item.column) : String(item.column)
+                                        return (
+                                            <div
+                                                key={idx}
+                                                id={`field-row-${key}`}
+                                                className={clsx(
+                                                    "px-4 py-3 transition-colors cursor-pointer",
+                                                    selectedField === key ? "ring-2 ring-primary bg-primary/5" : "hover:bg-accent",
+                                                    isSelected && !selectedField && "bg-primary/5" // Keep selection bg if not focused
+                                                )}
+                                                onClick={() => handleFieldClick(key)}
+                                            >
+                                                <div className="flex items-start gap-3">
+                                                    <div
+                                                        className="pt-0.5 cursor-pointer"
+                                                        onClick={() => toggleOtherColumn(columnName)}
+                                                    >
+                                                        {isSelected ? (
+                                                            <Check className="w-4 h-4 text-primary" />
+                                                        ) : (
+                                                            <Plus className="w-4 h-4 text-muted-foreground" />
                                                         )}
-                                                        value={columnName}
-                                                        onChange={(e) => !readOnly && updateOtherDataItem(idx, 'column', e.target.value)}
-                                                        readOnly={readOnly}
-                                                        placeholder="컬럼명 입력..."
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
-                                                    {isArrayValue ? (
-                                                        <NestedArrayTable
-                                                            data={item.value}
-                                                            onUpdate={(newData) => !readOnly && updateOtherDataItem(idx, 'value', newData)}
-                                                        />
-                                                    ) : (
+                                                    </div>
+                                                    <div className="flex-1 min-w-0 space-y-1">
                                                         <input
                                                             type="text"
                                                             className={clsx(
-                                                                "w-full text-muted-foreground text-sm bg-transparent border-b border-transparent outline-none",
+                                                                "w-full font-medium text-foreground text-sm bg-transparent border-b border-transparent outline-none",
                                                                 !readOnly && "hover:border-border focus:border-primary"
                                                             )}
-                                                            value={typeof item.value === 'object'
-                                                                ? JSON.stringify(item.value)
-                                                                : String(item.value ?? '')}
-                                                            onChange={(e) => !readOnly && updateOtherDataItem(idx, 'value', e.target.value)}
+                                                            value={columnName}
+                                                            onChange={(e) => !readOnly && updateOtherDataItem(idx, 'column', e.target.value)}
                                                             readOnly={readOnly}
-                                                            placeholder="값 입력..."
+                                                            placeholder="컬럼명 입력..."
                                                             onClick={(e) => e.stopPropagation()}
                                                         />
-                                                    )}
+                                                        {isArrayValue ? (
+                                                            <NestedArrayTable
+                                                                data={item.value}
+                                                                onUpdate={(newData) => !readOnly && updateOtherDataItem(idx, 'value', newData)}
+                                                            />
+                                                        ) : (
+                                                            <input
+                                                                type="text"
+                                                                className={clsx(
+                                                                    "w-full text-muted-foreground text-sm bg-transparent border-b border-transparent outline-none",
+                                                                    !readOnly && "hover:border-border focus:border-primary"
+                                                                )}
+                                                                value={typeof item.value === 'object'
+                                                                    ? JSON.stringify(item.value)
+                                                                    : String(item.value ?? '')}
+                                                                onChange={(e) => !readOnly && updateOtherDataItem(idx, 'value', e.target.value)}
+                                                                readOnly={readOnly}
+                                                                placeholder="값 입력..."
+                                                                onClick={(e) => e.stopPropagation()}
+                                                            />
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    )
-                                })}
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )
+                }
+            </div >
         </Card >
     )
 }
