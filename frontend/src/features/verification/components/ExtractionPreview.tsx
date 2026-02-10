@@ -647,7 +647,8 @@ export function ExtractionPreview({
     }, [guideExtracted, isLegacyArray])
 
     // State for Active Table View (null = Form View, string = Field Key for Table View)
-    const [activeTableKey, setActiveTableKey] = useState<string | null>(defaultTableKey)
+    // Default to Form View (null) as per user feedback (Table View hides other fields)
+    const [activeTableKey, setActiveTableKey] = useState<string | null>(null)
 
     // Main Data State
     // If Legacy Array: state is Array. If Dict: state is Dict.
