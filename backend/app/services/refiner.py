@@ -355,8 +355,10 @@ ZERO TOLERANCE — FIELD COVERAGE:
 - Input schema has {len(fields)} fields → output MUST have exactly {len(fields)} entries
   across common_fields + table_fields combined.
 - Skipping, merging, or omitting even ONE field is a critical failure.
+- After all {len(fields)} schema fields, ALSO append the unmapped entry below.
+  Total output = {len(fields)} schema entries + 1 unmapped entry.
 
-ALWAYS APPEND THIS ENTRY to common_fields (in addition to the {len(fields)} schema fields):
+ALWAYS APPEND THIS ENTRY to common_fields (after all schema fields):
 {{
   "key": "unmapped_critical_info",
   "instruction": "Scan the entire document for text marked as 'Important', 'Note', '주의', '특약', '비고', 'Remark', or similar annotations that do NOT belong to any field above. Copy verbatim. If none found, return null.",
@@ -373,10 +375,11 @@ STYLE CONSTRAINTS (MANDATORY):
         return prompt
 
     @staticmethod
-    def construct_engineer_prompt(work_order: dict) -> str:
+    def construct_engineer_prompt(work_order: dict, reference_data: dict = None) -> str:
         """
         Phase ②: Generates the Engineer LLM system prompt.
         Input: Work Order + tagged text → Output: JSON with ref tags.
+        Optionally includes reference_data for value mapping/validation.
         """
         work_order_json = json.dumps(work_order, ensure_ascii=False, indent=2)
 
@@ -473,6 +476,24 @@ OUTPUT FORMAT (use EXACT field keys from above):
 
 INTEGRITY RULES:
 {integrity_rules_str}
+"""
+
+        # Inject reference data if provided
+        if reference_data:
+            ref_json = json.dumps(reference_data, ensure_ascii=False, indent=2)
+            MAX_REF_CHARS = getattr(settings, 'REFINER_MAX_REF_CHARS', 5000)
+            if len(ref_json) > MAX_REF_CHARS:
+                ref_json = ref_json[:MAX_REF_CHARS] + "\n... [TRUNCATED]"
+            prompt += f"""
+REFERENCE DATA (Use for value mapping, validation, and lookup):
+{ref_json}
+
+INSTRUCTIONS FOR REFERENCE DATA:
+- Use codes/mappings from reference_data for value transformation (e.g., port code → route name)
+- If an extracted value matches a key in reference_data, use the mapped value
+- If a field requires lookup (not directly in document), check reference_data
+- Reference data takes precedence over guessing
+- If a field cannot be resolved even with reference_data, return null
 """
         return prompt
 

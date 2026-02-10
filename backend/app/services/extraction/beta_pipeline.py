@@ -62,10 +62,10 @@ class BetaPipeline(ExtractionPipeline):
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
             logger.info("[BetaPipeline] Route: Single-Shot Engineer")
-            engineer_output = await self._run_engineer(work_order, tagged_text)
+            engineer_output = await self._run_engineer(work_order, tagged_text, model)
         else:
             logger.info("[BetaPipeline] Route: Chunked Engineer with Header Preservation")
-            engineer_output = await self._run_engineer_chunked(work_order, tagged_text, TEXT_CHUNK_SIZE)
+            engineer_output = await self._run_engineer_chunked(work_order, tagged_text, TEXT_CHUNK_SIZE, model)
         
         # --- 4. Post-Process (ref → bbox) ---
         final_guide = RefinerEngine.post_process_with_ref(
@@ -163,6 +163,9 @@ class BetaPipeline(ExtractionPipeline):
             logger.warning(f"[BetaPipeline] Designer output missing field definitions, using fallback")
             work_order = self._build_fallback_work_order(model)
         
+        # Strip internal metadata before caching (prevents _token_usage leaking into Engineer prompt)
+        work_order.pop("_token_usage", None)
+        
         _work_order_cache[cache_key] = work_order
         logger.info(f"[BetaPipeline] Designer: Work order cached (key={cache_key[:16]}...)")
         
@@ -226,12 +229,13 @@ class BetaPipeline(ExtractionPipeline):
     # Phase ②: Engineer LLM (Value Extraction)
     # ==================================================================
 
-    async def _run_engineer(self, work_order: dict, tagged_text: str) -> dict:
+    async def _run_engineer(self, work_order: dict, tagged_text: str, model: ExtractionModel = None) -> dict:
         """
         Single-shot Engineer extraction.
         Returns raw LLM output dict with guide_extracted + _token_usage.
         """
-        system_prompt = RefinerEngine.construct_engineer_prompt(work_order)
+        ref_data = (model.reference_data if model else None) or None
+        system_prompt = RefinerEngine.construct_engineer_prompt(work_order, reference_data=ref_data)
         user_prompt = f"DOCUMENT DATA (Tagged Layout Format):\n{tagged_text}\n\nExtract all fields. Return valid JSON."
         
         messages = [
@@ -242,7 +246,7 @@ class BetaPipeline(ExtractionPipeline):
         raw_result = await self.call_llm(messages)
         return raw_result
 
-    async def _run_engineer_chunked(self, work_order: dict, tagged_text: str, chunk_size: int) -> dict:
+    async def _run_engineer_chunked(self, work_order: dict, tagged_text: str, chunk_size: int, model: ExtractionModel = None) -> dict:
         """
         Chunked Engineer extraction with header preservation.
         Splits tagged text, injects table headers per chunk, merges results.
@@ -253,7 +257,8 @@ class BetaPipeline(ExtractionPipeline):
         if not chunks:
             return {"guide_extracted": {}}
         
-        system_prompt = RefinerEngine.construct_engineer_prompt(work_order)
+        ref_data = (model.reference_data if model else None) or None
+        system_prompt = RefinerEngine.construct_engineer_prompt(work_order, reference_data=ref_data)
         
         async def process_chunk(chunk_text: str, chunk_idx: int) -> dict:
             user_prompt = (
