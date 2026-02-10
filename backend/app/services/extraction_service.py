@@ -351,8 +351,16 @@ class ExtractionService:
                     p_w, p_h = page_dims[page_number]
                 
                 normalized_bbox = self._normalize_bbox(snapped_bbox, p_w, p_h)
-            elif bbox and isinstance(bbox, list) and len(bbox) == 4:
-                normalized_bbox = bbox
+            elif bbox and isinstance(bbox, list):
+                if len(bbox) >= 8:
+                    # 8-element polygon from LayoutParser/Beta pipeline: [x1,y1,...x4,y4]
+                    p_w, p_h = 100, 100
+                    if page_number and page_number in page_dims:
+                        p_w, p_h = page_dims[page_number]
+                    normalized_bbox = self._normalize_bbox(bbox, p_w, p_h)
+                elif len(bbox) == 4:
+                    # Already normalized [x%, y%, w%, h%] (legacy path)
+                    normalized_bbox = bbox
             
 
             # Type Validation & JSON Parsing for Complex Fields

@@ -267,40 +267,10 @@ async def get_log_by_id(
     if not log:
         raise HTTPException(status_code=404, detail="Extraction log not found")
 
-    # Hydrate preview_data from Blob if offloaded
-    preview_data = log.preview_data
-    if preview_data and isinstance(preview_data, dict) and preview_data.get("_preview_blob_path"):
-        try:
-            from app.services.storage import load_json_from_blob
-            full_preview = await load_json_from_blob(preview_data["_preview_blob_path"])
-            if full_preview:
-                preview_data = full_preview
-        except Exception as e:
-            logger.error(f"[API] Failed to hydrate log preview from blob: {e}")
-
-    # Hydrate individual offloaded fields within preview_data
-    if preview_data and isinstance(preview_data, dict):
-        from app.services.storage import load_json_from_blob
-        for field_key in ["raw_content", "_beta_parsed_content", "_beta_ref_map", "raw_tables"]:
-            field_val = preview_data.get(field_key)
-            if isinstance(field_val, dict) and field_val.get("source") == "blob_storage" and field_val.get("blob_path"):
-                try:
-                    hydrated = await load_json_from_blob(field_val["blob_path"])
-                    if hydrated is not None:
-                        preview_data[field_key] = hydrated
-                except Exception as e:
-                    logger.error(f"[API] Failed to hydrate log {field_key} from blob: {e}")
-
-    # Hydrate debug_data from Blob if offloaded
-    debug_data = log.debug_data
-    if debug_data and isinstance(debug_data, dict) and debug_data.get("_debug_blob_path"):
-        try:
-            from app.services.storage import load_json_from_blob
-            full_debug = await load_json_from_blob(debug_data["_debug_blob_path"])
-            if full_debug:
-                debug_data = full_debug
-        except Exception as e:
-            logger.error(f"[API] Failed to hydrate log debug from blob: {e}")
+    # Centralized hydration — never miss a field again
+    from app.services.hydration import hydrate_preview_data, hydrate_debug_data
+    preview_data = await hydrate_preview_data(log.preview_data)
+    debug_data = await hydrate_debug_data(log.debug_data)
 
     return {
         "id": log.id,
@@ -348,41 +318,10 @@ async def get_job_status(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    # Hydrate preview_data from Blob if offloaded
-    preview_data = job.preview_data
-    if preview_data and isinstance(preview_data, dict) and preview_data.get("_preview_blob_path"):
-        try:
-            from app.services.storage import load_json_from_blob
-            full_preview = await load_json_from_blob(preview_data["_preview_blob_path"])
-            if full_preview:
-                preview_data = full_preview
-        except Exception as e:
-            logger.error(f"[API] Failed to hydrate preview from blob ({preview_data['_preview_blob_path']}): {e}")
-
-    # Hydrate individual offloaded fields within preview_data (raw_content, raw_tables, etc.)
-    if preview_data and isinstance(preview_data, dict):
-        from app.services.storage import load_json_from_blob
-        for field_key in ["raw_content", "_beta_parsed_content", "_beta_ref_map", "raw_tables"]:
-            field_val = preview_data.get(field_key)
-            if isinstance(field_val, dict) and field_val.get("source") == "blob_storage" and field_val.get("blob_path"):
-                try:
-                    hydrated = await load_json_from_blob(field_val["blob_path"])
-                    if hydrated is not None:
-                        preview_data[field_key] = hydrated
-                        logger.info(f"[API] Hydrated {field_key} from blob ({field_val['blob_path']})")
-                except Exception as e:
-                    logger.error(f"[API] Failed to hydrate {field_key} from blob: {e}")
-
-    # Hydrate debug_data from Blob if offloaded
-    debug_data = job.debug_data
-    if debug_data and isinstance(debug_data, dict) and debug_data.get("_debug_blob_path"):
-        try:
-            from app.services.storage import load_json_from_blob
-            full_debug = await load_json_from_blob(debug_data["_debug_blob_path"])
-            if full_debug:
-                debug_data = full_debug
-        except Exception as e:
-            logger.error(f"[API] Failed to hydrate debug from blob: {e}")
+    # Centralized hydration — never miss a field again
+    from app.services.hydration import hydrate_preview_data, hydrate_debug_data
+    preview_data = await hydrate_preview_data(job.preview_data)
+    debug_data = await hydrate_debug_data(job.debug_data)
 
     return {
         "job_id": job.id,
