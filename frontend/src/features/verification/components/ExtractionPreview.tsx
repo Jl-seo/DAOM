@@ -248,9 +248,7 @@ function ResizableNestedTable({
         isLocalUpdate.current = false
     }, [data])
 
-    if (!Array.isArray(data) || data.length === 0) {
-        return <span className="text-muted-foreground italic text-xs">빈 배열</span>
-    }
+
 
     // Normalize: parse stringified JSON objects within array
     const normalizedData = useMemo(() => localData.map((item: any) => {
@@ -288,6 +286,24 @@ function ResizableNestedTable({
             return 0
         }), [allKeysRaw, keyColumn])
 
+    // Calculate Average Table Confidence
+    const tableConfidence = useMemo(() => {
+        let totalConf = 0
+        let count = 0
+        displayData.forEach(row => {
+            allKeys.forEach(key => {
+                if (!row) return
+                const cell = row[key]
+                const conf = extractConfidence(cell)
+                if (conf !== null) {
+                    totalConf += conf
+                    count++
+                }
+            })
+        })
+        return count > 0 ? totalConf / count : null
+    }, [displayData, allKeys])
+
     // Initialize column widths - only runs once when data changes and widths are empty
     useEffect(() => {
         if (allKeys.length > 0 && Object.keys(columnWidths).length === 0) {
@@ -301,7 +317,7 @@ function ResizableNestedTable({
 
     }, [data.length, columnWidths]) // Use data.length instead of allKeys array
 
-    // Virtualizer setup
+    // Virtualizer setup (MUST BE CALLED UNCONDITIONALLY)
     const virtualizer = useVirtualizer({
         count: displayData.length,
         getScrollElement: () => tableContainerRef.current,
@@ -368,17 +384,26 @@ function ResizableNestedTable({
         }
     }, [localData, onUpdate])
 
-    if (allKeys.length === 0) {
-        return (
-            <div className="space-y-1">
-                {data.map((item, idx) => (
-                    <div key={idx} className="px-2 py-1 bg-muted rounded text-xs">
-                        {renderValue(item)}
-                    </div>
-                ))}
-            </div>
-        )
+    // --- RENDER CHECKS (AFTER ALL HOOKS) ---
+
+    // Empty Data Check
+    if (!Array.isArray(data) || data.length === 0 || allKeys.length === 0) {
+        if (allKeys.length === 0 && Array.isArray(data) && data.length > 0) {
+            // Case: Array of primitives?
+            return (
+                <div className="space-y-1">
+                    {data.map((item, idx) => (
+                        <div key={idx} className="px-2 py-1 bg-muted rounded text-xs">
+                            {renderValue(item)}
+                        </div>
+                    ))}
+                </div>
+            )
+        }
+        return <span className="text-muted-foreground italic text-xs">빈 배열</span>
     }
+
+
 
     // Collapsed view: show summary
     if (!isExpanded) {
@@ -394,23 +419,7 @@ function ResizableNestedTable({
         )
     }
 
-    // Calculate Average Table Confidence
-    const tableConfidence = useMemo(() => {
-        let totalConf = 0
-        let count = 0
-        displayData.forEach(row => {
-            allKeys.forEach(key => {
-                if (!row) return
-                const cell = row[key]
-                const conf = extractConfidence(cell)
-                if (conf !== null) {
-                    totalConf += conf
-                    count++
-                }
-            })
-        })
-        return count > 0 ? totalConf / count : null
-    }, [displayData, allKeys])
+
 
     return (
         <div className="border border-border rounded-lg overflow-hidden flex flex-col h-full max-h-[600px]">
