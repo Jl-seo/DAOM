@@ -115,13 +115,22 @@ async def get_extraction_log(
             from app.services.storage import load_json_from_blob
             full_preview = await load_json_from_blob(preview_data["_preview_blob_path"])
             if full_preview:
-                # Merge: Local cosmos data + Blob data
-                # But actually blob is the source of truth for heavy data
-                # We should use full_preview but keep local metadata if needed
-                # Ideally full_preview IS the preview_data
                 preview_data = full_preview
         except Exception as e:
             logger.error(f"[API] Failed to hydrate log preview from blob: {e}")
+
+    # Hydrate individual offloaded fields within preview_data
+    if preview_data and isinstance(preview_data, dict):
+        from app.services.storage import load_json_from_blob
+        for field_key in ["raw_content", "_beta_parsed_content", "_beta_ref_map", "raw_tables"]:
+            field_val = preview_data.get(field_key)
+            if isinstance(field_val, dict) and field_val.get("source") == "blob_storage" and field_val.get("blob_path"):
+                try:
+                    hydrated = await load_json_from_blob(field_val["blob_path"])
+                    if hydrated is not None:
+                        preview_data[field_key] = hydrated
+                except Exception as e:
+                    logger.error(f"[API] Failed to hydrate log {field_key} from blob: {e}")
 
     # Hydrate debug_data from Blob if offloaded
     debug_data = log.debug_data
