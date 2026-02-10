@@ -504,35 +504,58 @@ INSTRUCTIONS FOR REFERENCE DATA:
         Replaces fuzzy matching with deterministic tag-based coordinate resolution.
         """
         def _resolve_ref(cell, ref_map):
-            if not isinstance(cell, dict) or "value" not in cell:
-                return cell
+            # 1. Handle Rich Object: { "value": "...", "ref": "^C123" }
+            if isinstance(cell, dict) and "value" in cell:
+                ref_id = cell.get("ref")
+                value = cell.get("value")
+                resolved = {"value": value}
 
-            ref_id = cell.get("ref")
-            value = cell.get("value")
-            resolved = {"value": value}
+                if ref_id and ref_id in ref_map:
+                    ref_info = ref_map[ref_id]
+                    resolved["bbox"] = ref_info.get("bbox")
+                    resolved["page_number"] = ref_info.get("page_number")
+                    resolved["confidence"] = 0.5 if cell.get("is_uncertain") else 1.0
+                    resolved["source_text"] = ref_info.get("text", "")
+                    # If value is missing or empty, trust the ref source text?
+                    # valid strategy: if LLM value is blank but ref exists, use ref text
+                    if not value and ref_info.get("text"):
+                         resolved["value"] = ref_info.get("text")
+                elif ref_id:
+                    # ref exists but not in ref_map (LLM hallucination)
+                    resolved["bbox"] = None
+                    resolved["page_number"] = None
+                    resolved["confidence"] = 0.3
+                else:
+                    resolved["bbox"] = None
+                    resolved["page_number"] = None
+                    resolved["confidence"] = 0.0
 
-            if ref_id and ref_id in ref_map:
-                ref_info = ref_map[ref_id]
-                resolved["bbox"] = ref_info.get("bbox")
-                resolved["page_number"] = ref_info.get("page_number")
-                resolved["confidence"] = 0.5 if cell.get("is_uncertain") else 1.0
-                resolved["source_text"] = ref_info.get("text", "")
-            elif ref_id:
-                # ref exists but not in ref_map (LLM hallucination)
-                resolved["bbox"] = None
-                resolved["page_number"] = None
-                resolved["confidence"] = 0.3
-            else:
-                resolved["bbox"] = None
-                resolved["page_number"] = None
-                resolved["confidence"] = 0.0
+                # Preserve uncertainty flags for UI
+                if cell.get("is_uncertain"):
+                    resolved["is_uncertain"] = True
+                    resolved["warning_msg"] = cell.get("warning_msg", "")
 
-            # Preserve uncertainty flags for UI
-            if cell.get("is_uncertain"):
-                resolved["is_uncertain"] = True
-                resolved["warning_msg"] = cell.get("warning_msg", "")
+                return resolved
 
-            return resolved
+            # 2. Handle Raw Ref String: "^C123" (LLM shortcut)
+            elif isinstance(cell, str) and cell.strip().startswith("^C"):
+                ref_id = cell.strip()
+                if ref_id in ref_map:
+                    ref_info = ref_map[ref_id]
+                    return {
+                        "value": ref_info.get("text", ""), # Use text from map
+                        "bbox": ref_info.get("bbox"),
+                        "page_number": ref_info.get("page_number"),
+                        "confidence": 1.0,
+                        "source_text": ref_info.get("text", ""),
+                        "ref_id": ref_id # Keep trace
+                    }
+                else:
+                     # Invalid ref string
+                     return {"value": cell, "confidence": 0.2, "validation_status": "invalid_ref"}
+            
+            # 3. Handle Normal String / Other
+            return cell
 
         result = {}
         guide = engineer_output.get("guide_extracted", {})

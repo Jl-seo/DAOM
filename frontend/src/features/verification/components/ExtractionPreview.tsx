@@ -394,6 +394,24 @@ function ResizableNestedTable({
         )
     }
 
+    // Calculate Average Table Confidence
+    const tableConfidence = useMemo(() => {
+        let totalConf = 0
+        let count = 0
+        displayData.forEach(row => {
+            allKeys.forEach(key => {
+                if (!row) return
+                const cell = row[key]
+                const conf = extractConfidence(cell)
+                if (conf !== null) {
+                    totalConf += conf
+                    count++
+                }
+            })
+        })
+        return count > 0 ? totalConf / count : null
+    }, [displayData, allKeys])
+
     return (
         <div className="border border-border rounded-lg overflow-hidden flex flex-col h-full max-h-[600px]">
             {/* Header with controls */}
@@ -408,6 +426,8 @@ function ResizableNestedTable({
                             <span>테이블 접기 ({displayData.length}행)</span>
                         </button>
                     )}
+                    {/* Table Confidence Display */}
+                    <ConfidenceBadge confidence={tableConfidence} />
                 </div>
 
             </div>
