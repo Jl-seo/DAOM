@@ -341,28 +341,44 @@ class LayoutParser:
 
     def _pass_entities(self):
         """Priority 2: Tag NLP Entities in Unclaimed areas"""
+        # Per-page cursor for span-less fallback (Excel/Office files)
+        page_cursors: Dict[int, int] = {}
+
         for page in self.global_pages:
             global_page_num = page["global_page_number"]
             fid = page["file_id"]
             offset_shift = page["file_content_offset"]
 
             words = page.get("words", [])
+            cursor_key = global_page_num
+            if cursor_key not in page_cursors:
+                page_cursors[cursor_key] = 0
 
             for word in words:
                 content = word.get("content", "")
-                if not self._is_entity(content):
+                if not content or not self._is_entity(content):
                     continue
 
                 span = word.get("span", {})
                 local_offset = span.get("offset", -1)
                 length = span.get("length", 0)
 
-                if local_offset == -1: continue
+                # Fallback for Excel/Office: span is missing
+                if local_offset == -1:
+                    search_start = offset_shift + page_cursors[cursor_key]
+                    found_pos = self.full_content.find(content, search_start)
+                    if found_pos == -1:
+                        continue
+                    local_offset = found_pos - offset_shift
+                    length = len(content)
+                    page_cursors[cursor_key] = local_offset + length
 
                 global_offset = offset_shift + local_offset
 
                 # Check collision with Table
                 if self._is_region_claimed(global_offset, length):
+                    # Advance cursor past this word even if claimed
+                    page_cursors[cursor_key] = max(page_cursors[cursor_key], local_offset + length)
                     continue
 
                 # Register Entity
@@ -421,6 +437,80 @@ class LayoutParser:
             # Final gap
             if current_gap_start != -1:
                 self._register_gap(current_gap_start, para_end, para, fid, offset_shift)
+
+        # --- Excel/Office Fallback ---
+        # When paragraphs are empty (common with Excel), scan full_content
+        # for unclaimed text regions and register them as ^P tags.
+        if not self.all_paragraphs:
+            self._pass_content_gaps()
+
+    def _pass_content_gaps(self):
+        """Fallback: Scan full_content for unclaimed text when paragraphs are empty."""
+        content_len = len(self.full_content)
+        if content_len == 0:
+            return
+
+        # Walk through content, find unclaimed regions by newline boundaries
+        lines = self.full_content.split("\n")
+        current_offset = 0
+
+        for line in lines:
+            line_len = len(line)
+            if line_len < 2 or not line.strip():
+                current_offset += line_len + 1  # +1 for \n
+                continue
+
+            # Check if this line region has unclaimed characters
+            line_start = current_offset
+            line_end = current_offset + line_len
+
+            # Find unclaimed gaps within this line
+            gap_start = -1
+            for i in range(line_start, min(line_end, content_len)):
+                if not self.claimed_mask[i]:
+                    if gap_start == -1:
+                        gap_start = i
+                else:
+                    if gap_start != -1:
+                        self._register_content_gap(gap_start, i)
+                        gap_start = -1
+
+            if gap_start != -1:
+                self._register_content_gap(gap_start, line_end)
+
+            current_offset += line_len + 1  # +1 for \n
+
+    def _register_content_gap(self, start: int, end: int):
+        """Register an unclaimed text region as a ^P tag (content-based fallback)."""
+        length = end - start
+        if length < 3:
+            return
+
+        text_segment = self.full_content[start:end].strip()
+        if not text_segment or len(text_segment) < 2:
+            return
+
+        # Determine file_id and page from content_offsets
+        file_id = self.file_ids[0] if self.file_ids else "file_0"
+        global_page = 1
+
+        for (f_start, f_end, fid) in self.content_offsets:
+            if f_start <= start < f_end:
+                file_id = fid
+                # Find the closest page
+                global_page = self._find_global_page(fid, 1)
+                break
+
+        self._register_tag(
+            text=text_segment,
+            bbox=None,  # No bbox available for content-based gaps
+            global_page=global_page,
+            file_id=file_id,
+            type_code="P",
+            offset=start,
+            length=length,
+            priority=2
+        )
 
     def _register_gap(self, start: int, end: int, parent_para: Dict, file_id: str, offset_shift: int):
         """Register a 'Gap' paragraph (unclaimed text within a paragraph)."""
