@@ -350,6 +350,13 @@ CRITICAL:
 - The work order is for an AI engineer, not a human. Be precise and unambiguous.
 - For table fields: add a rule "DENORMALIZE: If merged/hierarchical cells exist, repeat parent value for every child row."
 
+RULES REFLECTION (MANDATORY):
+- If a field has a non-empty 'rules' string in the schema, you MUST incorporate
+  that rule VERBATIM into the field's instruction. Do NOT paraphrase or omit.
+- A generic instruction like "Extract the expiry date" is FORBIDDEN when the field
+  has specific rules. Instead: "Extract the expiry date. [verbatim rule content here]."
+- Fields WITHOUT rules may use a generic instruction based on label/description.
+
 ZERO TOLERANCE — FIELD COVERAGE:
 - You MUST generate exactly one instruction entry for EVERY field in the schema.
 - Input schema has {len(fields)} fields → output MUST have exactly {len(fields)} entries
@@ -366,11 +373,12 @@ ALWAYS APPEND THIS ENTRY to common_fields (after all schema fields):
 }}
 
 STYLE CONSTRAINTS (MANDATORY):
-- Be CONCISE. Each instruction MUST be 1-2 sentences max.
+- For fields WITHOUT rules: 1-2 sentences max.
+- For fields WITH rules: 2-3 sentences allowed to fully convey the rule.
 - Do NOT write prose or rationale. Write commands.
 - Do NOT add examples beyond what the schema provides.
 - Do NOT repeat integrity rules per field — use the shared integrity_rules array.
-- Target: entire work_order JSON under 2000 tokens.
+- Target: entire work_order JSON under 2500 tokens.
 """
         return prompt
 

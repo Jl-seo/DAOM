@@ -839,6 +839,7 @@ class BetaPipeline(ExtractionPipeline):
             model=current_model_name,
             messages=messages,
             temperature=settings.LLM_DEFAULT_TEMPERATURE,
+            seed=42,
             max_tokens=settings.LLM_DEFAULT_MAX_TOKENS,
             response_format={"type": "json_object"}
         )
