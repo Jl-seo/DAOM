@@ -57,8 +57,8 @@ class BetaPipeline(ExtractionPipeline):
         work_order = await self._run_designer(model)
         
         # --- 3. Engineer LLM (Extraction) ---
-        SINGLE_SHOT_CHAR_LIMIT = 80_000
-        TEXT_CHUNK_SIZE = 40_000
+        SINGLE_SHOT_CHAR_LIMIT = 50_000
+        TEXT_CHUNK_SIZE = 25_000
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
             logger.info("[BetaPipeline] Route: Single-Shot Engineer")
@@ -243,7 +243,7 @@ class BetaPipeline(ExtractionPipeline):
             {"role": "user", "content": user_prompt}
         ]
         
-        raw_result = await self.call_llm(messages)
+        raw_result = await self.call_llm(messages, is_table_model=True)
         return raw_result
 
     async def _run_engineer_chunked(self, work_order: dict, tagged_text: str, chunk_size: int, model: ExtractionModel = None) -> dict:
@@ -272,7 +272,7 @@ class BetaPipeline(ExtractionPipeline):
             ]
             async with self.semaphore:
                 try:
-                    return await self.call_llm(messages)
+                    return await self.call_llm(messages, is_table_model=True)
                 except Exception as e:
                     logger.error(f"[BetaPipeline] Engineer Chunk {chunk_idx} failed: {e}")
                     return {"guide_extracted": {}, "error": str(e)}
@@ -836,23 +836,35 @@ class BetaPipeline(ExtractionPipeline):
         
         return res
 
-    async def call_llm(self, messages):
-        """Direct LLM Call"""
+    async def call_llm(self, messages, is_table_model: bool = False):
+        """Direct LLM Call with table-aware max_tokens"""
         current_model_name = get_current_model()
-        response = await self.azure_client.chat.completions.create(
-            model=current_model_name,
-            messages=messages,
-            temperature=settings.LLM_DEFAULT_TEMPERATURE,
-            seed=42,
-            max_tokens=settings.LLM_DEFAULT_MAX_TOKENS,
-            response_format={"type": "json_object"}
-        )
+        # Table models need more output tokens for many rows
+        raw_max = settings.LLM_TABLE_MAX_TOKENS if is_table_model else settings.LLM_DEFAULT_MAX_TOKENS
+        max_tokens = min(raw_max, 32768)  # Clamp to model's actual limit
+        
+        try:
+            response = await self.azure_client.chat.completions.create(
+                model=current_model_name,
+                messages=messages,
+                temperature=settings.LLM_DEFAULT_TEMPERATURE,
+                seed=42,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"}
+            )
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"[BetaPipeline] Azure API Error: {error_msg}")
+            return {
+                "guide_extracted": {},
+                "error": f"LLM API Error: {error_msg}"
+            }
+        
         content = response.choices[0].message.content
         try:
             result = json.loads(content)
         except json.JSONDecodeError as e:
             logger.error(f"[BetaPipeline] JSON Decode Error: {e}. Content-Length: {len(content)}")
-            # Return error structure that mimics successful response but with error flag
             result = {
                 "guide_extracted": {}, 
                 "error": f"LLM Output Malformed: {str(e)}", 
