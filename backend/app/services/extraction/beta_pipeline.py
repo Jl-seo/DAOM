@@ -57,8 +57,8 @@ class BetaPipeline(ExtractionPipeline):
         work_order = await self._run_designer(model)
         
         # --- 3. Engineer LLM (Extraction) ---
-        SINGLE_SHOT_CHAR_LIMIT = 6000
-        TEXT_CHUNK_SIZE = 4000
+        SINGLE_SHOT_CHAR_LIMIT = 80_000
+        TEXT_CHUNK_SIZE = 40_000
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
             logger.info("[BetaPipeline] Route: Single-Shot Engineer")
@@ -312,9 +312,13 @@ class BetaPipeline(ExtractionPipeline):
                             seen_rows[key].add(row_hash)
                             merged_guide[key].append(row)
                 else:
-                    # Common field — first wins (should be same across chunks)
+                    # Common field — first-non-null: keep first real value
                     if key not in merged_guide:
                         merged_guide[key] = val
+                    elif isinstance(val, dict) and val.get("value") is not None:
+                        existing = merged_guide[key]
+                        if isinstance(existing, dict) and existing.get("value") is None:
+                            merged_guide[key] = val
         
         return {
             "guide_extracted": merged_guide,
