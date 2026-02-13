@@ -58,6 +58,7 @@ export interface Model {
 export interface BetaFeatures {
     use_optimized_prompt?: boolean
     use_virtual_excel_ocr?: boolean
+    use_vision_extraction?: boolean
 }
 
 /**
@@ -67,7 +68,8 @@ export interface BetaFeatures {
 export function getBetaFeatures(model: Model | undefined): BetaFeatures {
     return {
         use_optimized_prompt: model?.beta_features?.use_optimized_prompt ?? false,
-        use_virtual_excel_ocr: model?.beta_features?.use_virtual_excel_ocr ?? false
+        use_virtual_excel_ocr: model?.beta_features?.use_virtual_excel_ocr ?? false,
+        use_vision_extraction: model?.beta_features?.use_vision_extraction ?? false
     }
 }
 
