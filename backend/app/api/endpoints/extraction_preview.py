@@ -54,17 +54,81 @@ class StartExtractionRequest(BaseModel):
 
 # Background task to process extraction
 async def process_extraction_job(job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None, candidate_filenames: Optional[List[str]] = None):
-    """Background task to run full extraction pipeline"""
+    """Background task to run full extraction or comparison pipeline"""
     logger.info(f"[Background] Starting extraction job {job_id}")
     import mimetypes
     from app.services.storage import download_blob_to_bytes
 
     try:
-        # 1. Update Status to Analyzing
         # 1. Update Status
         await extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
 
-        # 2. Download File
+        # 2. Load Model to determine pipeline type
+        model = get_model_by_id(model_id)
+        if not model:
+            await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=f"Model {model_id} not found")
+            return
+
+        # ──────────────────────────────────────────────
+        # COMPARISON BRANCH: model_type == "comparison"
+        # ──────────────────────────────────────────────
+        all_candidates = candidate_file_urls or ([candidate_file_url] if candidate_file_url else [])
+
+        if getattr(model, "model_type", "extraction") == "comparison" and all_candidates:
+            logger.info(f"[Background] Comparison mode: {len(all_candidates)} candidate(s)")
+            from app.services.llm import compare_images
+
+            # Build comparison settings dict from model
+            comp_settings = None
+            if hasattr(model, "comparison_settings") and model.comparison_settings:
+                comp_settings = model.comparison_settings if isinstance(model.comparison_settings, dict) else model.comparison_settings.dict()
+
+            custom_instructions = getattr(model, "global_rules", None)
+
+            comparisons: List[Dict[str, Any]] = []
+            for i, cand_url in enumerate(all_candidates):
+                try:
+                    logger.info(f"[Background] Comparing candidate {i+1}/{len(all_candidates)}")
+                    result = await compare_images(
+                        image_url_1=file_url,
+                        image_url_2=cand_url,
+                        custom_instructions=custom_instructions,
+                        comparison_settings=comp_settings,
+                    )
+                    comparisons.append({
+                        "candidate_index": i,
+                        "result": result,
+                        "file_url": cand_url,
+                        "filename": candidate_filenames[i] if candidate_filenames and i < len(candidate_filenames) else None,
+                    })
+                except Exception as comp_err:
+                    logger.error(f"[Background] Comparison failed for candidate {i}: {comp_err}")
+                    comparisons.append({
+                        "candidate_index": i,
+                        "result": {"differences": [], "metadata": {"error": str(comp_err)}},
+                        "file_url": cand_url,
+                        "filename": candidate_filenames[i] if candidate_filenames and i < len(candidate_filenames) else None,
+                        "error": str(comp_err),
+                    })
+
+            preview_data: Dict[str, Any] = {
+                "comparisons": comparisons,
+                "comparison_result": comparisons[0]["result"] if comparisons else None,
+            }
+
+            await extraction_jobs.update_job(
+                job_id,
+                status=ExtractionStatus.PREVIEW_READY.value,
+                preview_data=preview_data,
+            )
+            logger.info(f"[Background] Completed comparison job {job_id} — {len(comparisons)} candidate(s) processed")
+            return
+
+        # ──────────────────────────────────────────────
+        # EXTRACTION BRANCH (default)
+        # ──────────────────────────────────────────────
+
+        # 2b. Download File
         try:
             file_content = await download_blob_to_bytes(file_url)
             if not file_content:
