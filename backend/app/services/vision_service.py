@@ -10,16 +10,8 @@ logger = logging.getLogger(__name__)
 class VisionService:
     @staticmethod
     def get_client() -> Optional[ImageAnalysisClient]:
-        endpoint = settings.AZURE_AIPROJECT_ENDPOINT or settings.AZURE_Form_ENDPOINT # Use shared endpoint if possible or specific one
-        # Note: Vision Image Analysis creates a separate endpoint usually.
-        # But if the user said "Foundry", it might be the unified endpoint.
-        # Let's try to use the AZURE_AIPROJECT_ENDPOINT first.
-
-        key = settings.AZURE_OPENAI_API_KEY or settings.AZURE_FORM_KEY # Try to reuse keys
-
-        # Typically Vision needs its own Endpoint/Key if it's the "Computer Vision" resource.
-        # But let's assume standard Config or Fallback.
-        # For now, I'll rely on settings.AZURE_AIPROJECT_ENDPOINT and AZURE_OPENAI_API_KEY as 'Foundry' config.
+        endpoint = settings.AZURE_OPENAI_ENDPOINT or settings.AZURE_AIPROJECT_ENDPOINT
+        key = settings.AZURE_OPENAI_API_KEY
 
         if not endpoint or not key:
             logger.warning("[VisionService] Missing configuration")
