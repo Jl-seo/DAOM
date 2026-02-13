@@ -272,6 +272,7 @@ class ExtractionService:
                 ocr_data="{see user message}",
                 field_descriptions=field_descriptions,
                 global_rules=global_rules_text,
+                reference_data=ref_data_text,
                 focus_instruction=focus_instruction
             )
         else:

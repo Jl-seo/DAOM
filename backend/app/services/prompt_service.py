@@ -21,6 +21,7 @@ Given this document data extracted by Document Intelligence:
 Extract values for these specific fields:
 {field_descriptions}
 {global_rules}
+{reference_data}
 
 INSTRUCTIONS:
 1. Analyze the document structure. If it looks like a table/grid, respect the columns.
@@ -48,7 +49,7 @@ IMPORTANT:
 - Return ONLY valid JSON.
 {focus_instruction}""",
         "description": "Main extraction prompt for LLM data extraction",
-        "variables": ["ocr_data", "field_descriptions", "global_rules", "focus_instruction"]
+        "variables": ["ocr_data", "field_descriptions", "global_rules", "reference_data", "focus_instruction"]
     },
     "extraction_system_role": {
         "content": "You are a precise document data extractor. Return only valid JSON.",
