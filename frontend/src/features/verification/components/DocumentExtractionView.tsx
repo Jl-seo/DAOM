@@ -95,6 +95,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                 <ExtractionWizardHeader
                     activeStep={activeStep}
                     modelName={model.name}
+                    modelId={modelId}
                     onStepChange={setActiveStep}
                     onCancel={handleCancelPreview}
                 />

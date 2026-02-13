@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Settings2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { WIZARD_STEPS } from '../constants'
@@ -8,6 +9,7 @@ import type { ViewStep } from '../types'
 interface ExtractionWizardHeaderProps {
     activeStep: ViewStep
     modelName: string
+    modelId?: string
     onStepChange: (step: ViewStep) => void
     onCancel: () => void
 }
@@ -15,9 +17,11 @@ interface ExtractionWizardHeaderProps {
 export function ExtractionWizardHeader({
     activeStep,
     modelName,
+    modelId,
     onStepChange,
     onCancel
 }: ExtractionWizardHeaderProps) {
+    const navigate = useNavigate()
     const steps = WIZARD_STEPS
 
     const currentStepIndex = steps.findIndex(s => s.id === activeStep)
@@ -33,6 +37,18 @@ export function ExtractionWizardHeader({
                     <ArrowLeft className="w-4 h-4" />
                     {modelName} 목록으로 나가기
                 </Button>
+                {modelId && (
+                    <Button
+                        id="btn-model-settings"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => navigate(`/admin/model-studio?modelId=${modelId}`)}
+                        className="text-muted-foreground hover:text-foreground h-9 w-9 hover:bg-muted/50 transition-colors"
+                        title="모델 설정"
+                    >
+                        <Settings2 className="w-4 h-4" />
+                    </Button>
+                )}
             </div>
 
             <div className="flex items-center justify-between relative max-w-3xl mx-auto px-4">
