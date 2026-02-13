@@ -300,7 +300,7 @@ export function ComparisonWorkspace({
             {hasMultipleCandidates && (
                 <div className={clsx(
                     "flex flex-col gap-2 border-r shrink-0 overflow-hidden transition-all duration-200",
-                    isListCollapsed ? "w-10" : "w-[220px] pr-2"
+                    isListCollapsed ? "w-10" : "w-[280px] pr-2"
                 )}>
                     {/* 접기 버튼 */}
                     <div className="flex items-center justify-between px-1">
@@ -488,8 +488,6 @@ export function ComparisonWorkspace({
                                             src={currentCandidateUrl}
                                             alt="Candidate"
                                             className="max-w-full max-h-full cursor-zoom-in block"
-                                            loading="lazy"
-                                            decoding="async"
                                             onClick={() => setExpandedImage(currentCandidateUrl)}
                                         />
                                         {/* Overlay for diffs - positioned absolutely over the image */}

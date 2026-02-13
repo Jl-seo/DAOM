@@ -611,7 +611,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     ignore_compression_noise = True
     output_language = "Korean"
     use_ssim = True
-    use_vision = True
+    use_vision = False
     align_images = True
     custom_ignore_rules = None  # 추가 무시 규칙 (자연어)
 
@@ -624,7 +624,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         ignore_compression_noise = comparison_settings.get("ignore_compression_noise", True)
         output_language = comparison_settings.get("output_language", "Korean")
         use_ssim = comparison_settings.get("use_ssim_analysis", True)
-        use_vision = comparison_settings.get("use_vision_analysis", True)
+        use_vision = comparison_settings.get("use_vision_analysis", False)
         align_images = comparison_settings.get("align_images", True)
         custom_ignore_rules = comparison_settings.get("custom_ignore_rules")
 
