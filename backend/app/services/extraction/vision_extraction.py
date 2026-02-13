@@ -62,7 +62,7 @@ class VisionExtractionPipeline:
         )
 
         # --- 2. Build Prompt ---
-        system_prompt = self._build_system_prompt(model)
+        system_prompt = await self._build_system_prompt(model)
 
         # --- 3. Call GPT-4.1 Vision ---
         messages = [
@@ -123,8 +123,9 @@ class VisionExtractionPipeline:
         )
         return result
 
-    def _build_system_prompt(self, model: ExtractionModel) -> str:
-        """Build a Vision extraction prompt from model schema."""
+    async def _build_system_prompt(self, model: ExtractionModel) -> str:
+        """Build a Vision extraction prompt from prompt_service (editable in admin settings)."""
+        # Build template variables from model
         fields_desc = []
         for f in model.fields:
             parts = [f"- **{f.key}** ({f.label})"]
@@ -135,23 +136,33 @@ class VisionExtractionPipeline:
             parts.append(f"  타입: {f.type}")
             fields_desc.append("\n".join(parts))
 
-        fields_text = "\n".join(fields_desc)
+        field_descriptions = "\n".join(fields_desc)
 
-        global_rules = model.global_rules or ""
-        global_rules_section = (
-            f"\n\n## 전체 규칙\n{global_rules}" if global_rules else ""
-        )
+        global_rules_text = ""
+        if model.global_rules:
+            global_rules_text = f"\n\n## 전체 규칙\n{model.global_rules}"
 
-        ref_data_section = ""
+        ref_data_text = ""
         if model.reference_data:
             ref_json = json.dumps(model.reference_data, ensure_ascii=False, indent=2)
-            ref_data_section = f"""\n\n## 참고 데이터 (Reference Data)
-{ref_json}
-- Use codes/mappings from reference data for value transformation (e.g., code → name)
-- If an extracted value matches a key in reference data, use the mapped value
-- If a field cannot be resolved even with reference data, return null"""
+            ref_data_text = f"\n\n## 참고 데이터 (Reference Data)\n{ref_json}"
 
-        prompt = f"""You are a Vision AI Field Extractor.
+        # Use centralized prompt from prompt_service (editable in admin settings)
+        from app.services.prompt_service import get_prompt_content
+        prompt_template = await get_prompt_content("vision_extraction")
+
+        if prompt_template:
+            try:
+                return prompt_template.format(
+                    field_descriptions=field_descriptions,
+                    global_rules=global_rules_text,
+                    reference_data=ref_data_text,
+                )
+            except KeyError as e:
+                logger.warning(f"[VisionPipeline] Prompt template variable missing: {e}, using fallback")
+
+        # Fallback if prompt_service unavailable
+        return f"""You are a Vision AI Field Extractor.
 You receive an image (photo of a physical object, label, document, etc.) and must extract data into structured JSON.
 
 ## TASK
@@ -172,9 +183,9 @@ For EACH field, return:
 }}
 
 ## FIELDS TO EXTRACT
-{fields_text}
-{global_rules_section}
-{ref_data_section}
+{field_descriptions}
+{global_rules_text}
+{ref_data_text}
 
 ## RULES
 - If a field's value is not visible in the image, set value to null and confidence to 0.0.
@@ -184,7 +195,6 @@ For EACH field, return:
 - Read numbers, dates, and codes carefully — do NOT skip digits.
 - Return ONLY valid JSON. No markdown, no explanation.
 """
-        return prompt
 
     async def _call_vision_llm(self, messages: list) -> dict:
         """Call GPT-4.1 Vision API with error handling."""

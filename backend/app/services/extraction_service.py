@@ -238,7 +238,7 @@ class ExtractionService:
                 
              return result_dict
 
-        # Build comprehensive prompt with all model settings
+        # Build prompt variables
         fields_info = []
         for f in model.fields:
             field_entry = {"key": f.key, "label": f.label, "type": f.type}
@@ -248,25 +248,39 @@ class ExtractionService:
                 field_entry["rules"] = f.rules
             fields_info.append(field_entry)
         
-        fields_json = json.dumps(fields_info, ensure_ascii=False, indent=2)
+        field_descriptions = json.dumps(fields_info, ensure_ascii=False, indent=2)
         
-        global_rules_section = ""
+        global_rules_text = ""
         if model.global_rules:
-            global_rules_section = f"\n\nGlobal Rules (apply to ALL fields):\n{model.global_rules}"
+            global_rules_text = f"\n\nGlobal Rules (apply to ALL fields):\n{model.global_rules}"
         
-        ref_data_section = ""
+        ref_data_text = ""
         if model.reference_data:
             ref_json = json.dumps(model.reference_data, ensure_ascii=False, indent=2)
-            ref_data_section = f"""\n\nReference Data (use for value mapping/validation):
-{ref_json}
-- Use codes/mappings from reference_data for value transformation
-- If an extracted value matches a key in reference_data, use the mapped value"""
+            ref_data_text = f"\n\nReference Data:\n{ref_json}"
+
+        focus_instruction = ""
+        if focus_pages:
+            focus_instruction = f"\nFOCUS: Only extract from pages {focus_pages}."
+
+        # Use centralized prompt from prompt_service (editable in admin settings)
+        from app.services.prompt_service import get_prompt_content
+        prompt_template = await get_prompt_content("extraction_system")
         
-        system_prompt = f"""You are a document extraction AI.
+        if prompt_template:
+            system_prompt = prompt_template.format(
+                ocr_data="{see user message}",
+                field_descriptions=field_descriptions,
+                global_rules=global_rules_text,
+                focus_instruction=focus_instruction
+            )
+        else:
+            # Fallback if prompt_service unavailable
+            system_prompt = f"""You are a document data extractor.
 Extract data according to this schema:
-{fields_json}
-{global_rules_section}
-{ref_data_section}
+{field_descriptions}
+{global_rules_text}
+{ref_data_text}
 
 Return a JSON object with a key 'guide_extracted' containing the extracted fields.
 For each field, follow its 'rules' if specified.
