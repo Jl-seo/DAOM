@@ -260,7 +260,8 @@ async def analyze_document_content(
                     {"role": "system", "content": system_prompt + "\n\nIMPORTANT: Respond with valid JSON only."},
                     {"role": "user", "content": user_prompt}
                 ],
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                temperature=0,
             )
 
             result_content = response.choices[0].message.content
@@ -463,6 +464,7 @@ async def call_llm_single(
             ],
             response_format=response_format,
             max_tokens=max_tokens,
+            temperature=0,
         )
 
         result_content = response.choices[0].message.content
@@ -526,7 +528,8 @@ async def generate_schema_from_content(content_text: str, tables: List[dict] = N
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            temperature=0.2,
         )
 
         result = json.loads(response.choices[0].message.content)
@@ -583,7 +586,8 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            temperature=0.2,
         )
 
         result = json.loads(response.choices[0].message.content)
@@ -838,7 +842,8 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
                 {"role": "user", "content": user_message}
             ],
             response_format={"type": "json_object"},
-            max_tokens=settings.LLM_COMPARISON_MAX_TOKENS
+            max_tokens=settings.LLM_COMPARISON_MAX_TOKENS,
+            temperature=0,
         )
 
         result_content = response.choices[0].message.content
