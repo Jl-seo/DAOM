@@ -25,13 +25,18 @@ interface ComparisonSettingsPanelProps {
 }
 
 export function ComparisonSettingsPanel({ settings, onChange, disabled }: ComparisonSettingsPanelProps) {
-    // Default values
+    // Defaults must match backend ComparisonSettings schema (model.py)
     const currentSettings: ComparisonSettings = settings || {
         confidence_threshold: 0.85,
         ignore_position_changes: true,
         ignore_color_changes: false,
         ignore_font_changes: true,
         ignore_compression_noise: true,
+        custom_ignore_rules: undefined,
+        output_language: 'Korean',
+        use_ssim_analysis: true,
+        use_vision_analysis: false,  // Requires separate Azure AI Vision setup
+        align_images: true,
         excluded_categories: [],
         custom_categories: []
     }
