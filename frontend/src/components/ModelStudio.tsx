@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
     Plus, Trash2, Save, ArrowLeft, Wand2,
     LayoutTemplate, RefreshCw, Edit, Sliders, Database
@@ -66,6 +67,22 @@ export function ModelStudio() {
     const [originalModel, setOriginalModel] = useState<Partial<Model> | null>(null)
     const [isEditing, setIsEditing] = useState(false)
     const [activeStudioTab, setActiveStudioTab] = useState<'extraction' | 'transformation'>('extraction')
+    const [searchParams, setSearchParams] = useSearchParams()
+    const navigate = useNavigate()
+
+    // Auto-select model from URL query param (e.g. ?modelId=xxx)
+    useEffect(() => {
+        const targetModelId = searchParams.get('modelId')
+        if (targetModelId && models.length > 0 && !editingModel) {
+            const found = models.find(m => m.id === targetModelId)
+            if (found) {
+                handleEditModel(found)
+                // Clean up the query param so refresh doesn't re-trigger
+                searchParams.delete('modelId')
+                setSearchParams(searchParams, { replace: true })
+            }
+        }
+    }, [models, searchParams])
 
     const handleNewModel = () => {
         setEditingModel(DEFAULTS.NEW_MODEL)
@@ -118,8 +135,15 @@ export function ModelStudio() {
                     <header className="flex items-center justify-between shrink-0">
                         <div className="flex items-center gap-4">
                             <button
-                                onClick={() => setEditingModel(null)}
+                                onClick={() => {
+                                    if (searchParams.get('from') === 'extraction') {
+                                        navigate(-1)
+                                    } else {
+                                        setEditingModel(null)
+                                    }
+                                }}
                                 className="p-1.5 bg-card hover:bg-accent text-muted-foreground hover:text-foreground rounded-lg shadow-sm border border-border transition-all active:scale-95"
+                                title={searchParams.get('from') === 'extraction' ? '추출 화면으로 돌아가기' : '목록으로 돌아가기'}
                             >
                                 <ArrowLeft className="w-3.5 h-3.5" />
                             </button>

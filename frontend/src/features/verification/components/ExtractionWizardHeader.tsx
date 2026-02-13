@@ -40,13 +40,13 @@ export function ExtractionWizardHeader({
                 {modelId && (
                     <Button
                         id="btn-model-settings"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => navigate(`/admin/model-studio?modelId=${modelId}`)}
-                        className="text-muted-foreground hover:text-foreground h-9 w-9 hover:bg-muted/50 transition-colors"
-                        title="모델 설정"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate(`/admin/model-studio?modelId=${modelId}&from=extraction`)}
+                        className="gap-2 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
                     >
                         <Settings2 className="w-4 h-4" />
+                        모델 설정
                     </Button>
                 )}
             </div>
