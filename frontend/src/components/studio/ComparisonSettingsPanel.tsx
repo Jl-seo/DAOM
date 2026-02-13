@@ -224,7 +224,36 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
                     </h3>
 
                     <div className="bg-muted/30 p-4 rounded-lg space-y-4">
-                        <div className="flex items-center justify-between">
+                        {/* Confidence Threshold Slider */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <label htmlFor="confidence-threshold-slider" className="text-sm font-medium">AI 신뢰도 기준</label>
+                                <span className="text-sm font-mono tabular-nums text-primary font-bold">
+                                    {Math.round((currentSettings.confidence_threshold ?? 0.85) * 100)}%
+                                </span>
+                            </div>
+                            <input
+                                id="confidence-threshold-slider"
+                                name="confidence-threshold-slider"
+                                type="range"
+                                min={0.5}
+                                max={1.0}
+                                step={0.05}
+                                value={currentSettings.confidence_threshold ?? 0.85}
+                                onChange={(e) => handleChange('confidence_threshold', parseFloat(e.target.value))}
+                                disabled={disabled}
+                                className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                            />
+                            <div className="flex justify-between text-[10px] text-muted-foreground">
+                                <span>50% (관대)</span>
+                                <span>100% (엄격)</span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                                * 이 기준 이하의 차이점은 자동으로 필터링됩니다.
+                            </p>
+                        </div>
+
+                        <div className="border-t pt-3 flex items-center justify-between">
                             <label className="text-sm">미세 픽셀 노이즈 무시</label>
                             <Switch
                                 checked={currentSettings.ignore_compression_noise}
@@ -243,8 +272,10 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
                         </div>
 
                         <div className="space-y-2 pt-2 border-t">
-                            <label className="text-sm font-medium">추가 무시 규칙 (자연어)</label>
+                            <label htmlFor="custom-ignore-rules" className="text-sm font-medium">추가 무시 규칙 (자연어)</label>
                             <textarea
+                                id="custom-ignore-rules"
+                                name="custom-ignore-rules"
                                 value={currentSettings.custom_ignore_rules || ''}
                                 onChange={(e) => handleChange('custom_ignore_rules', e.target.value)}
                                 placeholder="예: 'QR 코드는 변경되어도 상관없음', '전화번호 변경은 무시해'"

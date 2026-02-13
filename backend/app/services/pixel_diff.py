@@ -182,7 +182,7 @@ async def detect_pixel_differences(
 async def calculate_ssim(
     image_url_1: str,
     image_url_2: str,
-    min_area: int = 50,
+    min_area: int = 200,
     align: bool = True
 ) -> list[dict]:
     """
@@ -219,7 +219,7 @@ async def calculate_ssim(
 
             score, diff_map = ssim(gray1, gray2, full=True)
             diff_u8 = ((1 - diff_map) * 255).astype("uint8")
-            _, thresh = cv2.threshold(diff_u8, 50, 255, cv2.THRESH_BINARY)
+            _, thresh = cv2.threshold(diff_u8, 80, 255, cv2.THRESH_BINARY)
 
             kernel = np.ones((5,5), np.uint8)
             processed_diff = cv2.dilate(thresh, kernel, iterations=2)
