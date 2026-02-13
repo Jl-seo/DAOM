@@ -588,9 +588,12 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
         setFilename(initialLog.filename)
         setCurrentLogId(initialLog.id)
 
+        // 2. Immediately switch to review/complete view for instant feedback
+        setActiveStep('complete')
+
         navigate(`/models/${modelId}/extractions/${initialLog.id}`, { replace: true })
 
-        // 2. Fetch FULL hydrated log from API to get blob content
+        // 3. Fetch FULL hydrated log from API to get blob content (enriches the view)
         try {
             const res = await apiClient.get<ExtractionLog>(`/extraction/logs/${initialLog.id}?model_id=${modelId}`)
             const fullLog = res.data
@@ -642,8 +645,6 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
             setPreviewData(restorePreviewDataFallback(initialLog.preview_data))
             toast.error("로그 상세 정보를 불러오는데 실패했습니다. 일부 데이터가 누락될 수 있습니다.")
         }
-
-        setActiveStep('complete')
     }, [model?.fields, navigate, modelId])
 
     // Generate highlights from previewData

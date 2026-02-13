@@ -172,8 +172,8 @@ export function AllExtractionHistory() {
 
 
     const handleView = (log: ExtractionLog) => {
-        // Navigate to the model page with the job ID for deep linking
-        navigate(`/extractions/${log.id}`)
+        // Navigate to the model page with the log ID for deep linking
+        navigate(`/models/${log.model_id}/extractions/${log.id}`)
     }
 
     return (
