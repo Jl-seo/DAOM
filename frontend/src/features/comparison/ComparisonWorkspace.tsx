@@ -2,7 +2,7 @@
 import { Split, FileDiff, CheckCircle2, ChevronRight, AlertCircle, Download, RefreshCw, ChevronLeft, ArrowUpDown, Eye, EyeOff } from 'lucide-react'
 import { CircleNotch } from '@phosphor-icons/react'
 import { clsx } from 'clsx'
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
@@ -111,6 +111,42 @@ export function ComparisonWorkspace({
     const [isResultsCollapsed, setIsResultsCollapsed] = useState(false)
     const [sortByDiffs, setSortByDiffs] = useState(false) // true = 차이점 많은 순
     const [hideNoDiffs, setHideNoDiffs] = useState(false) // true = 차이점 없는 것 숨김
+
+    // Resizable candidate list panel
+    const [listWidth, setListWidth] = useState(280)
+    const isResizing = useRef(false)
+    const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+        e.preventDefault()
+        isResizing.current = true
+        const startX = e.clientX
+        const startWidth = listWidth
+        const onMouseMove = (ev: MouseEvent) => {
+            if (!isResizing.current) return
+            setListWidth(Math.max(160, Math.min(500, startWidth + (ev.clientX - startX))))
+        }
+        const onMouseUp = () => {
+            isResizing.current = false
+            document.removeEventListener('mousemove', onMouseMove)
+            document.removeEventListener('mouseup', onMouseUp)
+            document.body.style.cursor = ''
+            document.body.style.userSelect = ''
+        }
+        document.addEventListener('mousemove', onMouseMove)
+        document.addEventListener('mouseup', onMouseUp)
+        document.body.style.cursor = 'col-resize'
+        document.body.style.userSelect = 'none'
+    }, [listWidth])
+
+    // Preload all candidate images into browser cache
+    useEffect(() => {
+        const urls = comparisons?.map(c => c.file_url).filter(Boolean) || []
+        urls.forEach(url => {
+            if (url) {
+                const img = new Image()
+                img.src = url
+            }
+        })
+    }, [comparisons])
 
     // 모바일 탭 상태: 'images' | 'results'
 
@@ -298,10 +334,13 @@ export function ComparisonWorkspace({
 
             {/* Candidate List Panel - Show if we have multiple candidates OR multiple candidateFileUrls */}
             {hasMultipleCandidates && (
-                <div className={clsx(
-                    "flex flex-col gap-2 border-r shrink-0 overflow-hidden transition-all duration-200",
-                    isListCollapsed ? "w-10" : "w-[280px] pr-2"
-                )}>
+                <div
+                    className={clsx(
+                        "flex flex-col gap-2 shrink-0 overflow-hidden transition-all duration-200 relative",
+                        isListCollapsed ? "w-10" : "pr-2"
+                    )}
+                    style={isListCollapsed ? undefined : { width: listWidth }}
+                >
                     {/* 접기 버튼 */}
                     <div className="flex items-center justify-between px-1">
                         {!isListCollapsed && (
@@ -382,8 +421,16 @@ export function ComparisonWorkspace({
                             )}
                         </div>
                     )}
+                    {/* Resize handle */}
+                    {!isListCollapsed && (
+                        <div
+                            onMouseDown={handleResizeMouseDown}
+                            className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-10"
+                        />
+                    )}
                 </div>
-            )}
+            )
+            }
 
             <div className="flex-1 flex flex-col md:flex-row gap-4 overflow-hidden">
                 {/* Left: Image Comparison View - Desktop always, Mobile only when tab is 'images' */}
@@ -432,8 +479,6 @@ export function ComparisonWorkspace({
                                         src={fileUrl}
                                         alt="Baseline"
                                         className="max-w-full max-h-full cursor-zoom-in block"
-                                        loading="lazy"
-                                        decoding="async"
                                         onClick={() => setExpandedImage(fileUrl)}
                                     />
                                     {/* Overlay for diffs - positioned absolutely over the image */}
@@ -666,28 +711,30 @@ export function ComparisonWorkspace({
             </div>
 
             {/* Expanded Image Modal */}
-            {expandedImage && (
-                <div
-                    className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-                    onClick={() => setExpandedImage(null)}
-                >
-                    <div className="relative max-w-[90vw] max-h-[90vh] w-full h-full flex items-center justify-center">
-                        <img
-                            src={expandedImage}
-                            alt="Expanded View"
-                            className="max-w-full max-h-full object-contain"
-                        />
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="absolute top-4 right-4 text-white hover:bg-white/20"
-                            onClick={() => setExpandedImage(null)}
-                        >
-                            Close
-                        </Button>
+            {
+                expandedImage && (
+                    <div
+                        className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+                        onClick={() => setExpandedImage(null)}
+                    >
+                        <div className="relative max-w-[90vw] max-h-[90vh] w-full h-full flex items-center justify-center">
+                            <img
+                                src={expandedImage}
+                                alt="Expanded View"
+                                className="max-w-full max-h-full object-contain"
+                            />
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="absolute top-4 right-4 text-white hover:bg-white/20"
+                                onClick={() => setExpandedImage(null)}
+                            >
+                                Close
+                            </Button>
+                        </div>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     )
 }
