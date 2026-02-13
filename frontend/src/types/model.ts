@@ -19,8 +19,13 @@ export interface ComparisonSettings {
     ignore_font_changes: boolean
     ignore_compression_noise: boolean
     custom_ignore_rules?: string
+    output_language?: string
+    use_ssim_analysis?: boolean
+    use_vision_analysis?: boolean
+    align_images?: boolean
     allowed_categories?: string[]
     excluded_categories?: string[]
+    custom_categories?: { key: string; label: string; description: string }[]
 }
 
 export interface ExcelExportColumn {

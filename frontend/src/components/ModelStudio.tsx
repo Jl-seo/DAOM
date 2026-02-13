@@ -26,9 +26,11 @@ export interface ComparisonSettings {
     ignore_font_changes: boolean; // true
     ignore_compression_noise: boolean; // true - JPEG artifacts
     custom_ignore_rules?: string; // custom instructions
+    output_language?: string; // Korean
     // Method Toggles (Component-Based Architecture)
     use_ssim_analysis?: boolean; // true - Physical layer
-    use_vision_analysis?: boolean; // true - Visual layer
+    use_vision_analysis?: boolean; // false - Visual layer (requires Azure AI Vision)
+    align_images?: boolean; // true - Image registration
     allowed_categories?: string[]; // Whitelist
     excluded_categories?: string[]; // Blacklist
     custom_categories?: { key: string; label: string; description: string }[]; // User defined
