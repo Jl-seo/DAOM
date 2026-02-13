@@ -790,6 +790,16 @@ async def get_preview_with_guide(
                 desc += f" ({field.description})"
             field_descriptions.append(desc)
 
+        # Build global rules and reference data sections
+        global_rules_section = ""
+        if hasattr(model, 'global_rules') and model.global_rules:
+            global_rules_section = f"\n\nGlobal Rules (apply to ALL fields):\n{model.global_rules}"
+
+        ref_data_section = ""
+        if hasattr(model, 'reference_data') and model.reference_data:
+            ref_json = json.dumps(model.reference_data, ensure_ascii=False, indent=2)
+            ref_data_section = f"\n\nReference Data:\n{ref_json}"
+
         # AI prompt to extract values for each model field with confidence and positions
         extraction_prompt = f"""You are a document data extractor.
 
@@ -798,6 +808,8 @@ Given this document data extracted by Document Intelligence:
 
 Extract values for these specific fields:
 {chr(10).join(field_descriptions)}
+{global_rules_section}
+{ref_data_section}
 
 Return a JSON object with TWO parts:
 1. "guide_extracted": Object with each field key containing:
