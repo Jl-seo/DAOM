@@ -399,7 +399,7 @@ export function ComparisonWorkspace({
                                             : "bg-card border-border text-foreground"
                                     )}
                                 >
-                                    <span className="truncate flex-1" title={comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex, t('comparison.workspace.candidate'))}>
+                                    <span className="flex-1 break-all line-clamp-2 text-xs" title={comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex, t('comparison.workspace.candidate'))}>
                                         {comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex, t('comparison.workspace.candidate'))}
                                     </span>
                                     {comp.error ? (
