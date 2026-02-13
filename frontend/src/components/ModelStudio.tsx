@@ -562,17 +562,24 @@ export function ModelStudio() {
                                             </div>
                                             <button
                                                 type="button"
-                                                disabled={!isEditing}
-                                                onClick={() => setEditingModel({
-                                                    ...editingModel,
-                                                    is_active: editingModel.is_active === false ? true : false
-                                                })}
+                                                onClick={async () => {
+                                                    const newActive = editingModel.is_active === false ? true : false
+                                                    const updated = { ...editingModel, is_active: newActive }
+                                                    setEditingModel(updated)
+                                                    // Immediately save to backend
+                                                    if (editingModel.id) {
+                                                        const result = await saveModel({ ...updated })
+                                                        if (result.success) {
+                                                            toast.success(newActive ? '메뉴에 표시됩니다' : '메뉴에서 숨겨집니다', { duration: 1500 })
+                                                            if (result.data) setOriginalModel(result.data)
+                                                        }
+                                                    }
+                                                }}
                                                 className={clsx(
                                                     "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
                                                     editingModel.is_active !== false
                                                         ? "bg-primary"
-                                                        : "bg-muted-foreground/30",
-                                                    !isEditing && "opacity-50 cursor-not-allowed"
+                                                        : "bg-muted-foreground/30"
                                                 )}
                                             >
                                                 <span

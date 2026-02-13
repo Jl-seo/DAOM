@@ -315,7 +315,7 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
                                 <div className="text-xs text-muted-foreground">시각적 의미 분석 (색상, 로고, 객체)</div>
                             </div>
                             <Switch
-                                checked={currentSettings.use_vision_analysis !== false} // Default to true if undefined
+                                checked={currentSettings.use_vision_analysis === true}
                                 onCheckedChange={(c) => handleChange('use_vision_analysis', c)}
                                 disabled={disabled}
                             />

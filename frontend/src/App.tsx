@@ -26,6 +26,18 @@ const UserManagement = lazy(() => import('./components/UserManagement').then(m =
 const AllExtractionHistory = lazy(() => import('./features/extraction/components/AllExtractionHistory').then(m => ({ default: m.AllExtractionHistory })))
 const QuickExtractionView = lazy(() => import('./features/quick/QuickExtractionView').then(m => ({ default: m.QuickExtractionView })))
 
+// Prefetch all lazy routes after initial render for instant navigation
+const prefetchRoutes = () => {
+  import('./components/ModelStudio')
+  import('./components/AdminSettings')
+  import('./components/ModelView')
+  import('./components/AuditLogViewer')
+  import('./components/admin/DashboardStats')
+  import('./components/UserManagement')
+  import('./features/extraction/components/AllExtractionHistory')
+  import('./features/quick/QuickExtractionView')
+}
+
 // Detail routes that should auto-collapse the sidebar
 const DETAIL_ROUTE_PATTERNS = [
   /^\/models\/[^/]+\/extractions\/[^/]+/,  // /models/:modelId/extractions/:logId
@@ -86,6 +98,14 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 
 function App() {
   const { isAuthenticated, isLoading } = useAuth()
+
+  // Prefetch all lazy-loaded route chunks after initial render
+  useEffect(() => {
+    if (isAuthenticated) {
+      const timer = setTimeout(prefetchRoutes, 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [isAuthenticated])
 
   if (isLoading) {
     return (
