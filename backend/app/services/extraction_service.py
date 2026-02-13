@@ -238,16 +238,40 @@ class ExtractionService:
                 
              return result_dict
 
-        # 2. Extract
-        # Construct messages for LLM
-        system_prompt = f"""
-        You are a document extraction AI.
-        Extract data according to this schema:
-        {json.dumps([f.dict() for f in model.fields], ensure_ascii=False)}
+        # Build comprehensive prompt with all model settings
+        fields_info = []
+        for f in model.fields:
+            field_entry = {"key": f.key, "label": f.label, "type": f.type}
+            if f.description:
+                field_entry["description"] = f.description
+            if f.rules:
+                field_entry["rules"] = f.rules
+            fields_info.append(field_entry)
+        
+        fields_json = json.dumps(fields_info, ensure_ascii=False, indent=2)
+        
+        global_rules_section = ""
+        if model.global_rules:
+            global_rules_section = f"\n\nGlobal Rules (apply to ALL fields):\n{model.global_rules}"
+        
+        ref_data_section = ""
+        if model.reference_data:
+            ref_json = json.dumps(model.reference_data, ensure_ascii=False, indent=2)
+            ref_data_section = f"""\n\nReference Data (use for value mapping/validation):
+{ref_json}
+- Use codes/mappings from reference_data for value transformation
+- If an extracted value matches a key in reference_data, use the mapped value"""
+        
+        system_prompt = f"""You are a document extraction AI.
+Extract data according to this schema:
+{fields_json}
+{global_rules_section}
+{ref_data_section}
 
-        Return a JSON object with a key 'guide_extracted' containing the extracted fields.
-        If a field is not found, return null.
-        """
+Return a JSON object with a key 'guide_extracted' containing the extracted fields.
+For each field, follow its 'rules' if specified.
+If a field is not found, return null.
+"""
         
         user_prompt = f"Document Content:\n{ocr_data.get('content', '')}"
 

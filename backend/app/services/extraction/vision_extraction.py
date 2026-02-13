@@ -142,6 +142,15 @@ class VisionExtractionPipeline:
             f"\n\n## 전체 규칙\n{global_rules}" if global_rules else ""
         )
 
+        ref_data_section = ""
+        if model.reference_data:
+            ref_json = json.dumps(model.reference_data, ensure_ascii=False, indent=2)
+            ref_data_section = f"""\n\n## 참고 데이터 (Reference Data)
+{ref_json}
+- Use codes/mappings from reference data for value transformation (e.g., code → name)
+- If an extracted value matches a key in reference data, use the mapped value
+- If a field cannot be resolved even with reference data, return null"""
+
         prompt = f"""You are a Vision AI Field Extractor.
 You receive an image (photo of a physical object, label, document, etc.) and must extract data into structured JSON.
 
@@ -165,6 +174,7 @@ For EACH field, return:
 ## FIELDS TO EXTRACT
 {fields_text}
 {global_rules_section}
+{ref_data_section}
 
 ## RULES
 - If a field's value is not visible in the image, set value to null and confidence to 0.0.
