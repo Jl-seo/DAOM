@@ -484,6 +484,45 @@ export function ModelStudio() {
                                                 />
                                             </button>
                                         </div>
+
+                                        {/* Vision Extraction Toggle */}
+                                        <div className="flex items-center justify-between mt-3">
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs font-medium text-foreground">👁️ [Beta] Vision 추출 모드</span>
+                                                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-600 font-bold border border-amber-500/20">VISION</span>
+                                                </div>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[300px]">
+                                                    3D 물체, 곡면 라벨 등 OCR이 어려운 이미지에 GPT-4.1 Vision을 사용하여 직접 추출합니다.
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                id="toggle-vision-extraction"
+                                                disabled={!isEditing}
+                                                onClick={() => setEditingModel({
+                                                    ...editingModel,
+                                                    beta_features: {
+                                                        ...editingModel.beta_features,
+                                                        use_vision_extraction: !editingModel.beta_features?.use_vision_extraction
+                                                    }
+                                                })}
+                                                className={clsx(
+                                                    "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                                                    editingModel.beta_features?.use_vision_extraction
+                                                        ? "bg-amber-500"
+                                                        : "bg-muted-foreground/30",
+                                                    !isEditing && "opacity-50 cursor-not-allowed"
+                                                )}
+                                            >
+                                                <span
+                                                    className={clsx(
+                                                        "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
+                                                        editingModel.beta_features?.use_vision_extraction ? "translate-x-6" : "translate-x-1"
+                                                    )}
+                                                />
+                                            </button>
+                                        </div>
                                     </div>
 
                                     {/* 모델 활성화/비활성화 토글 */}

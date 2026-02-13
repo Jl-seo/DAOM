@@ -31,9 +31,10 @@ class ExtractionService:
     async def run_extraction_pipeline(self, file_content: bytes, model_id: str, filename: str = "", mime_type: str = "") -> Dict[str, Any]:
         """
         Main entry point for extraction.
-        1. OCR (Layout Analysis)
-        2. Field Extraction (LLM)
-        3. Post-processing/Validation
+        1. Check Vision mode (skip OCR if enabled)
+        2. OCR (Layout Analysis)
+        3. Field Extraction (LLM)
+        4. Post-processing/Validation
         """
         start_time = datetime.utcnow()
         logger.info(f"[Extraction] Starting pipeline for model {model_id}, file: {filename}")
@@ -44,6 +45,44 @@ class ExtractionService:
         except Exception as e:
             logger.error(f"[Extraction] Model not found: {e}")
             return {"error": f"Model {model_id} not found"}
+
+        # 1b. Vision Extraction Mode — skip OCR entirely
+        use_vision = model.beta_features.get("use_vision_extraction", False) if model.beta_features else False
+        if use_vision:
+            logger.info("[Extraction] Route: VISION MODE (OCR skipped)")
+            try:
+                from app.services.extraction.vision_extraction import VisionExtractionPipeline
+                vision_pipeline = VisionExtractionPipeline(self.azure_openai)
+                extraction_result = await vision_pipeline.execute(model, file_content, filename, mime_type)
+                
+                # Convert to dict for _validate_and_format compatibility
+                result_dict = {
+                    "guide_extracted": extraction_result.guide_extracted,
+                    "_token_usage": extraction_result.token_usage.dict(),
+                    "error": extraction_result.error,
+                    "raw_content": extraction_result.raw_content,
+                    "raw_tables": [],
+                    "pages": [],
+                    "other_data": [],
+                }
+                if extraction_result.beta_metadata:
+                    result_dict["_vision_metadata"] = extraction_result.beta_metadata
+                
+                final_result = self._validate_and_format(result_dict, model, [])
+                duration = (datetime.utcnow() - start_time).total_seconds()
+                final_result["_meta"] = {
+                    "duration_seconds": duration,
+                    "filename": filename,
+                    "model_name": model.name,
+                    "timestamp": start_time.isoformat(),
+                    "pipeline_mode": "vision-extraction",
+                }
+                return final_result
+            except Exception as e:
+                import traceback
+                tb = traceback.format_exc()
+                logger.error(f"[Extraction] Vision extraction failed: {e}", exc_info=True)
+                return {"error": f"Vision extraction failed: {str(e)}\n\nTraceback:\n{tb}"}
 
         # 2. Document Intelligence (OCR)
         try:
