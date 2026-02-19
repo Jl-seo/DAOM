@@ -618,6 +618,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     use_vision = False
     align_images = True
     custom_ignore_rules = None  # 추가 무시 규칙 (자연어)
+    ssim_identity_threshold = 0.95  # Global SSIM score gate (이 이상이면 LLM 호출 생략)
 
     # comparison_settings에서 설정값 읽기 (UI에서 전달된 값 우선)
     if comparison_settings:
@@ -631,6 +632,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         use_vision = comparison_settings.get("use_vision_analysis", False)
         align_images = comparison_settings.get("align_images", True)
         custom_ignore_rules = comparison_settings.get("custom_ignore_rules")
+        ssim_identity_threshold = comparison_settings.get("ssim_identity_threshold", 0.95)
 
     # custom_instructions (global_rules)와 custom_ignore_rules 합치기
     combined_instructions = []
@@ -673,25 +675,47 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     # Execute Parallel
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    ssim_diffs = results[0] if isinstance(results[0], list) else []
+    ssim_result = results[0] if isinstance(results[0], dict) else {"score": 0.0, "diffs": []}
+    ssim_diffs = ssim_result.get("diffs", [])
+    ssim_global_score = ssim_result.get("score", 0.0)
     vision_1 = results[1] if isinstance(results[1], str) else "Error"
     vision_2 = results[2] if isinstance(results[2], str) else "Error"
 
-    # Fast path: SSIM이 동일하면 LLM 호출 없이 즉시 빈 결과 반환 (hallucination 방지)
-    # 설정에서 skip_llm_if_identical 옵션으로 제어 가능 (기본: True)
+    logger.info(f"[LLM] SSIM global score: {ssim_global_score:.4f}, detected {len(ssim_diffs)} diff regions")
+
+    # Gate 1: SSIM Global Score Gate (핵심 할루시네이션 방지)
+    # Global SSIM score가 threshold 이상이면 노이즈 contour 수와 관계없이 LLM 호출 건너뜀
+    if use_ssim and ssim_global_score >= ssim_identity_threshold:
+        logger.info(f"[LLM] SSIM score {ssim_global_score:.4f} >= threshold {ssim_identity_threshold}. Images are IDENTICAL. Skipping LLM.")
+        return {
+            "differences": [],
+            "metadata": {
+                "model": model,
+                "method": "ssim_score_gate",
+                "ssim_score": ssim_global_score,
+                "ssim_threshold": ssim_identity_threshold,
+                "ssim_noise_contours": len(ssim_diffs),
+                "vision_enabled": use_vision,
+                "skipped_llm": True,
+                "reason": f"Images are identical (SSIM {ssim_global_score:.4f} >= {ssim_identity_threshold})"
+            }
+        }
+
+    # Gate 2: Fast path - SSIM이 diff 0건이면 LLM 호출 없이 즉시 빈 결과 반환
     skip_llm_if_identical = comparison_settings.get("skip_llm_if_identical", True) if comparison_settings else True
 
     if not ssim_diffs and use_ssim and skip_llm_if_identical:
-        logger.info("[LLM] SSIM confirms images are IDENTICAL. Skipping LLM call to prevent hallucination.")
+        logger.info("[LLM] SSIM confirms images are IDENTICAL (zero diffs). Skipping LLM call to prevent hallucination.")
         return {
             "differences": [],
             "metadata": {
                 "model": model,
                 "method": "ssim_fast_path",
+                "ssim_score": ssim_global_score,
                 "ssim_count": 0,
                 "vision_enabled": use_vision,
                 "skipped_llm": True,
-                "reason": "Images are identical (SSIM)"
+                "reason": "Images are identical (SSIM zero diffs)"
             }
         }
 
@@ -886,6 +910,7 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
         data["metadata"] = {
             "model": model,
             "method": "3_layer_component_arch",
+            "ssim_score": ssim_global_score,
             "ssim_count": len(ssim_diffs),
             "vision_enabled": use_vision,
             "category_filter_applied": bool(allowed_categories or excluded_categories),

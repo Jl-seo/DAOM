@@ -38,7 +38,8 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
         use_vision_analysis: false,  // Requires separate Azure AI Vision setup
         align_images: true,
         excluded_categories: [],
-        custom_categories: []
+        custom_categories: [],
+        ssim_identity_threshold: 0.95,
     }
 
     // Local state for new category input
@@ -229,8 +230,37 @@ export function ComparisonSettingsPanel({ settings, onChange, disabled }: Compar
                     </h3>
 
                     <div className="bg-muted/30 p-4 rounded-lg space-y-4">
-                        {/* Confidence Threshold Slider */}
+                        {/* SSIM Identity Threshold Slider */}
                         <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <label htmlFor="ssim-identity-threshold-slider" className="text-sm font-medium">🛡️ 동일 이미지 판정 기준 (SSIM)</label>
+                                <span className="text-sm font-mono tabular-nums text-primary font-bold">
+                                    {Math.round((currentSettings.ssim_identity_threshold ?? 0.95) * 100)}%
+                                </span>
+                            </div>
+                            <input
+                                id="ssim-identity-threshold-slider"
+                                name="ssim-identity-threshold-slider"
+                                type="range"
+                                min={0.90}
+                                max={1.0}
+                                step={0.01}
+                                value={currentSettings.ssim_identity_threshold ?? 0.95}
+                                onChange={(e) => handleChange('ssim_identity_threshold', parseFloat(e.target.value))}
+                                disabled={disabled}
+                                className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+                            />
+                            <div className="flex justify-between text-[10px] text-muted-foreground">
+                                <span>90% (민감 — 작은 차이도 분석)</span>
+                                <span>100% (관대 — 완벽히 同一만 스킵)</span>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                                * SSIM 유사도가 이 기준 이상이면 AI 호출 없이 즉시 "동일"로 판정합니다. JPEG 노이즈로 인한 오탐을 방지합니다.
+                            </p>
+                        </div>
+
+                        {/* Confidence Threshold Slider */}
+                        <div className="space-y-2 pt-2 border-t">
                             <div className="flex items-center justify-between">
                                 <label htmlFor="confidence-threshold-slider" className="text-sm font-medium">AI 신뢰도 기준</label>
                                 <span className="text-sm font-mono tabular-nums text-primary font-bold">

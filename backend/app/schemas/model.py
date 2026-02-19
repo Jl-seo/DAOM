@@ -37,7 +37,10 @@ class ComparisonSettings(BaseModel):
     # 카테고리 커스터마이징
     allowed_categories: Optional[List[str]] = None  # 허용할 카테고리 목록 (설정 시 이것만 사용)
     excluded_categories: Optional[List[str]] = None  # 제외할 카테고리 목록
-    custom_categories: Optional[List[dict]] = None  # 사용자 정의 카테고리 [{\"key\": \"logo\", \"label\": \"로고\", \"description\": \"...\"}]
+    custom_categories: Optional[List[dict]] = None  # 사용자 정의 카테고리 [{"key": "logo", "label": "로고", "description": "..."}]
+
+    # SSIM Identity Gate
+    ssim_identity_threshold: float = 0.95  # Global SSIM score gate (이 이상이면 LLM 호출 생략, 0.90~1.0)
 
 class ExcelExportColumn(BaseModel):
     """엑셀 내보내기 열 정의"""

@@ -26,6 +26,7 @@ export interface ComparisonSettings {
     allowed_categories?: string[]
     excluded_categories?: string[]
     custom_categories?: { key: string; label: string; description: string }[]
+    ssim_identity_threshold?: number  // Global SSIM score gate (0.90~1.0, default 0.95)
 }
 
 export interface ExcelExportColumn {

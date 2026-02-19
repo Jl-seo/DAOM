@@ -182,11 +182,12 @@ async def detect_pixel_differences(
 async def calculate_ssim(
     image_url_1: str,
     image_url_2: str,
-    min_area: int = 200,
+    min_area: int = 500,
     align: bool = True
-) -> list[dict]:
+) -> dict:
     """
     Detect structural differences using SSIM.
+    Returns dict with 'score' (global SSIM) and 'diffs' (list of diff regions).
     Run in thread pool.
     """
     # 1. Async IO Phase
@@ -199,7 +200,7 @@ async def calculate_ssim(
             raise ValueError("Failed to download or decode images")
     except Exception as e:
         logger.error(f"[PixelDiff] SSIM Download failed: {e}")
-        return []
+        return {"score": 0.0, "diffs": []}
 
     # 2. CPU Bound Phase
     def _process_ssim_sync():
@@ -219,7 +220,7 @@ async def calculate_ssim(
 
             score, diff_map = ssim(gray1, gray2, full=True)
             diff_u8 = ((1 - diff_map) * 255).astype("uint8")
-            _, thresh = cv2.threshold(diff_u8, 80, 255, cv2.THRESH_BINARY)
+            _, thresh = cv2.threshold(diff_u8, 100, 255, cv2.THRESH_BINARY)
 
             kernel = np.ones((5,5), np.uint8)
             processed_diff = cv2.dilate(thresh, kernel, iterations=2)
@@ -260,9 +261,9 @@ async def calculate_ssim(
                 })
 
             diffs.sort(key=lambda x: x["diff_score"], reverse=True)
-            return diffs[:15]
+            return {"score": float(score), "diffs": diffs[:15]}
         except Exception as e:
             logger.error(f"[PixelDiff] SSIM Processing Error: {e}")
-            return []
+            return {"score": 0.0, "diffs": []}
 
     return await asyncio.to_thread(_process_ssim_sync)
