@@ -2,7 +2,7 @@ import json
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 import base64
 from typing import Optional
-from app.services import llm
+from app.services import comparison_service
 
 router = APIRouter()
 
@@ -38,7 +38,7 @@ async def analyze_comparison(
         candidate_url = f"data:{candidate.content_type};base64,{candidate_b64}"
 
         # Call LLM
-        result = await llm.compare_images(
+        result = await comparison_service.compare_images(
             image_url_1=baseline_url,
             image_url_2=candidate_url,
             comparison_settings=comparison_settings

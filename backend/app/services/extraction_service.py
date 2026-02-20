@@ -14,6 +14,7 @@ from app.services.models import get_model_by_id
 from app.schemas.model import ExtractionModel
 from app.core.config import settings
 from app.services.llm import call_llm_single, get_current_model
+from app.services.extraction_utils import normalize_bbox, parse_number
 
 # Async Azure OpenAI client for direct calls
 from openai import AsyncAzureOpenAI
@@ -456,14 +457,14 @@ If a field is not found, return null.
                 if page_number and page_number in page_dims:
                     p_w, p_h = page_dims[page_number]
                 
-                normalized_bbox = self._normalize_bbox(snapped_bbox, p_w, p_h)
+                normalized_bbox = normalize_bbox(snapped_bbox, p_w, p_h)
             elif bbox and isinstance(bbox, list):
                 if len(bbox) >= 8:
                     # 8-element polygon from LayoutParser/Beta pipeline: [x1,y1,...x4,y4]
                     p_w, p_h = 100, 100
                     if page_number and page_number in page_dims:
                         p_w, p_h = page_dims[page_number]
-                    normalized_bbox = self._normalize_bbox(bbox, p_w, p_h)
+                    normalized_bbox = normalize_bbox(bbox, p_w, p_h)
                 elif len(bbox) == 4:
                     # Already normalized [x%, y%, w%, h%] (legacy path)
                     normalized_bbox = bbox
@@ -564,34 +565,7 @@ If a field is not found, return null.
         
         return None
 
-    def _normalize_bbox(self, polygon: List[float], page_width: int, page_height: int) -> List[float]:
-        """
-        Convert polygon [x1,y1, x2,y2, x3,y3, x4,y4] to normalized [x, y, w, h] percentage
-        """
-        if not polygon or len(polygon) < 8:
-            return None
-            
-        xs = polygon[0::2]
-        ys = polygon[1::2]
-        
-        min_x = min(xs)
-        min_y = min(ys)
-        max_x = max(xs)
-        max_y = max(ys)
-        
-        w = max_x - min_x
-        h = max_y - min_y
-        
-        # Avoid div by zero
-        if page_width == 0: page_width = 1
-        if page_height == 0: page_height = 1
-        
-        return [
-            (min_x / page_width) * 100,
-            (min_y / page_height) * 100,
-            (w / page_width) * 100,
-            (h / page_height) * 100
-        ]
+
         
     def _normalize_guide_extracted(self, extracted: Any, context: str = "") -> Dict[str, Any]:
         """Helper to safely ensure extracted data is a dictionary of objects"""
@@ -600,17 +574,6 @@ If a field is not found, return null.
             return {}
         return extracted
 
-
-# Helper functions
-def parse_number(s: Any) -> Optional[float]:
-    if s is None: return None
-    if isinstance(s, (int, float)): return s
-    try:
-        # Remove commas, currency symbols
-        clean = str(s).replace(',', '').replace('$', '').replace('₩', '').strip()
-        return float(clean)
-    except:
-        return None
 
 # Singleton Instance
 extraction_service = ExtractionService()

@@ -98,7 +98,7 @@ interface ExtractionContextValue {
     handleReset: () => void
     handleCancelPreview: () => void
     loadFromHistory: (log: ExtractionLog) => void
-    resumeJob: (jobId: string, fileUrl?: string, status?: ExtractionStatus) => void // New: Resume in-progress job
+    resumeJob: (jobId: string, fileUrl?: string, status?: ExtractionStatus, logId?: string) => void // New: Resume in-progress job
 }
 
 const ExtractionContext = createContext<ExtractionContextValue | null>(null)
@@ -560,10 +560,11 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
         setActiveStep('history')
     }, [handleReset])
 
-    const resumeJob = useCallback((jobId: string, url?: string, jobStatus?: ExtractionStatus) => {
+    const resumeJob = useCallback((jobId: string, url?: string, jobStatus?: ExtractionStatus, logId?: string) => {
         devLog('[resumeJob] Resuming job:', jobId)
         setCurrentJobId(jobId)
         if (url) setFileUrl(url)
+        if (logId) setCurrentLogId(logId)
 
         // Determine state based on status
         if (jobStatus === EXTRACTION_STATUS.PREVIEW_READY) {

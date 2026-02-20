@@ -202,7 +202,7 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
             try {
                 const res = await apiClient.get(`/extraction/log/${log.id}/job`)
                 const { job_id, file_url } = res.data
-                resumeJob(job_id, file_url, log.status as any)
+                resumeJob(job_id, file_url, log.status as any, log.id)
             } catch {
                 toast.error('진행 중인 작업을 찾을 수 없습니다. 재시도 버튼을 사용해 주세요.')
             }

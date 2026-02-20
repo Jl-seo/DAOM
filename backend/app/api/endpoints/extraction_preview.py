@@ -76,7 +76,7 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
 
         if getattr(model, "model_type", "extraction") == "comparison" and all_candidates:
             logger.info(f"[Background] Comparison mode: {len(all_candidates)} candidate(s)")
-            from app.services.llm import compare_images
+            from app.services.comparison_service import compare_images
 
             # Build comparison settings dict from model
             comp_settings = None
