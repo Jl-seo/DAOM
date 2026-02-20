@@ -93,13 +93,19 @@ export const isSuccessStatus = (status: string): boolean => {
 }
 
 export const isCancelledStatus = (status: string): boolean => {
-    return status === EXTRACTION_STATUS.CANCELLED
+    return [
+        EXTRACTION_STATUS.CANCELLED,
+        'cancelled'
+    ].includes(status as any)
 }
 
 export const isErrorStatus = (status: string): boolean => {
     return [
         EXTRACTION_STATUS.ERROR,
-        EXTRACTION_STATUS.FAILED
+        EXTRACTION_STATUS.FAILED,
+        'error',
+        'failed',
+        'E100', 'E200', 'E300'
     ].includes(status as any)
 }
 
