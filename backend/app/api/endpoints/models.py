@@ -53,9 +53,20 @@ def update_model(model_id: str, model_in: ExtractionModelCreate):
     models = load_models()
     for i, m in enumerate(models):
         if m.id == model_id:
+            # Preserve existing fields if not explicitly overridden by model_in
+            updated_dict = m.model_dump()
+            model_in_dict = model_in.model_dump(exclude_unset=True)
+            
+            # Explicitly preserve reference_data if it's currently None in model_in but exists in m
+            if "reference_data" not in model_in_dict or model_in_dict["reference_data"] is None:
+                if m.reference_data is not None:
+                    model_in_dict["reference_data"] = m.reference_data
+                    
+            updated_dict.update(model_in_dict)
+            
             updated_model = ExtractionModel(
                 id=model_id,
-                **model_in.model_dump()
+                **updated_dict
             )
             models[i] = updated_model
             save_models(models)
