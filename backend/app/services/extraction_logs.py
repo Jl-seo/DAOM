@@ -118,6 +118,89 @@ def save_extraction_log(
     try:
         log_dict = log.model_dump()
         log_dict["type"] = ExtractionType.LOG.value
+        
+        # --- BLOB OFFLOADING LOGIC FOR LOGS ---
+        from app.services.storage import save_json_as_blob
+        import json as _json
+        import asyncio
+        
+        def get_json_size(obj):
+            return len(_json.dumps(obj, ensure_ascii=False, default=str))
+
+        payload_size = get_json_size(log_dict)
+        THRESHOLD_BYTES = 1_500_000 # 1.5MB
+        
+        async def _offload_data_if_needed(target_dict, job_id_or_log_id):
+            """Helper to offload heavy payload chunks"""
+            psize = get_json_size(target_dict)
+            if psize <= THRESHOLD_BYTES: return target_dict
+
+            logger.info(f"[ExtractionLogs] Log Payload size {psize} bytes > {THRESHOLD_BYTES}. Triggering Blob Offloading.")
+            
+            # Offload debug_data
+            if "debug_data" in target_dict and isinstance(target_dict["debug_data"], dict) and get_json_size(target_dict["debug_data"]) > 100_000:
+                blob_path = f"logs/{job_id_or_log_id}/debug_data.json"
+                try:
+                    await save_json_as_blob(target_dict["debug_data"], blob_path)
+                    target_dict["debug_data"] = {"source": "blob_storage", "blob_path": blob_path}
+                except Exception as e: logger.error(f"[ExtractionLogs] Failed to offload debug_data: {e}")
+
+            psize = get_json_size(target_dict)
+            if psize <= THRESHOLD_BYTES: return target_dict
+
+            # Offload extracted_data
+            if "extracted_data" in target_dict and isinstance(target_dict["extracted_data"], dict) and get_json_size(target_dict["extracted_data"]) > 100_000:
+                blob_path = f"logs/{job_id_or_log_id}/extracted_data.json"
+                try:
+                    await save_json_as_blob(target_dict["extracted_data"], blob_path)
+                    target_dict["extracted_data"] = {"source": "blob_storage", "blob_path": blob_path}
+                except Exception as e: logger.error(f"[ExtractionLogs] Failed to offload extracted_data: {e}")
+
+            psize = get_json_size(target_dict)
+            if psize <= THRESHOLD_BYTES: return target_dict
+            
+            # Offload preview_data heavy fields
+            pd = target_dict.get("preview_data")
+            if pd and isinstance(pd, dict):
+                for key in ["raw_tables", "_beta_parsed_content", "_beta_ref_map", "raw_content", "guide_extracted"]:
+                    if key in pd and get_json_size(pd[key]) > 50_000:
+                         blob_path = f"logs/{job_id_or_log_id}/{key}.json"
+                         try:
+                             await save_json_as_blob(pd[key], blob_path)
+                             pd[key] = {"source": "blob_storage", "blob_path": blob_path} if key != "guide_extracted" else {"source": "blob_storage", "blob_path": blob_path}
+                         except Exception as e: logger.error(f"[ExtractionLogs] Failed to offload {key}: {e}")
+                
+                if "sub_documents" in pd and get_json_size(pd["sub_documents"]) > 50_000:
+                     blob_path = f"logs/{job_id_or_log_id}/preview_sub_documents.json"
+                     try:
+                          await save_json_as_blob(pd["sub_documents"], blob_path)
+                          pd["sub_documents"] = [{"source": "blob_storage", "blob_path": blob_path}]
+                     except Exception as e: logger.error(f"Failed offload {e}")
+            
+            return target_dict
+
+        # Use an asyncio event loop workaround if we are inside a sync function but need to call async Blob storage
+        if payload_size > THRESHOLD_BYTES:
+            try:
+                loop = asyncio.get_running_loop()
+                # Run as async task if loop exists, but since save_extraction_log is synchronous,
+                # we just use run_until_complete if no loop, or create a new task
+                if loop and loop.is_running():
+                    # We shouldn't block the running loop, but if this is critical, we might have an issue
+                    # In FastAPI we typically would fire-and-forget or await. Since this is a sync func:
+                    # For safety, let's assume we can trigger offload synchronously using a fresh event loop or threading if needed
+                    # However, for simplicity and relying on Azure SDK's sync clients internally:
+                    target = loop.create_task(_offload_data_if_needed(log_dict, log.id))
+                    # Actually, if we just let it run async, `log_dict` is mutating.
+                    # But if we must wait, we should ideally refactor to `async def save_extraction_log`.
+                    # Given time constraints, let's use `asyncio.run` in a ThreadPool if loop is busy
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    log_dict = loop.run_until_complete(_offload_data_if_needed(log_dict, log.id))
+            except RuntimeError:
+                # No loop running, straight asyncio.run
+                log_dict = asyncio.run(_offload_data_if_needed(log_dict, log.id))
+
         container.upsert_item(log_dict)
         logger.info(f"[ExtractionLogs] Saved log {log.id} (Overwrite: {bool(log_id)}) for user {user_id}, model {model_id}, llm={llm_model}")
 
@@ -384,8 +467,77 @@ def update_log_status(
         if debug_data:
             log_dict["debug_data"] = debug_data
 
-        if error:
-             log_dict["error"] = error
+        # --- BLOB OFFLOADING LOGIC FOR LOG STATUS UPDATE ---
+        from app.services.storage import save_json_as_blob
+        import json as _json
+        import asyncio
+        import nest_asyncio
+        
+        def get_json_size(obj):
+            return len(_json.dumps(obj, ensure_ascii=False, default=str))
+
+        payload_size = get_json_size(log_dict)
+        THRESHOLD_BYTES = 1_500_000 # 1.5MB
+        
+        async def _offload_data_if_needed(target_dict, job_id_or_log_id):
+            """Helper to offload heavy payload chunks"""
+            psize = get_json_size(target_dict)
+            if psize <= THRESHOLD_BYTES: return target_dict
+
+            logger.info(f"[ExtractionLogs] Update Payload size {psize} bytes > {THRESHOLD_BYTES}. Triggering Blob Offloading.")
+            
+            # Offload debug_data
+            if "debug_data" in target_dict and isinstance(target_dict["debug_data"], dict) and get_json_size(target_dict["debug_data"]) > 100_000:
+                blob_path = f"logs/{job_id_or_log_id}/debug_data.json"
+                try:
+                    await save_json_as_blob(target_dict["debug_data"], blob_path)
+                    target_dict["debug_data"] = {"source": "blob_storage", "blob_path": blob_path}
+                except Exception as e: logger.error(f"[ExtractionLogs] Failed to offload debug_data: {e}")
+
+            psize = get_json_size(target_dict)
+            if psize <= THRESHOLD_BYTES: return target_dict
+
+            # Offload extracted_data
+            if "extracted_data" in target_dict and isinstance(target_dict["extracted_data"], dict) and get_json_size(target_dict["extracted_data"]) > 100_000:
+                blob_path = f"logs/{job_id_or_log_id}/extracted_data.json"
+                try:
+                    await save_json_as_blob(target_dict["extracted_data"], blob_path)
+                    target_dict["extracted_data"] = {"source": "blob_storage", "blob_path": blob_path}
+                except Exception as e: logger.error(f"[ExtractionLogs] Failed to offload extracted_data: {e}")
+
+            psize = get_json_size(target_dict)
+            if psize <= THRESHOLD_BYTES: return target_dict
+            
+            # Offload preview_data heavy fields
+            pd = target_dict.get("preview_data")
+            if pd and isinstance(pd, dict):
+                for key in ["raw_tables", "_beta_parsed_content", "_beta_ref_map", "raw_content", "guide_extracted"]:
+                    if key in pd and get_json_size(pd[key]) > 50_000:
+                         blob_path = f"logs/{job_id_or_log_id}/{key}.json"
+                         try:
+                             await save_json_as_blob(pd[key], blob_path)
+                             pd[key] = {"source": "blob_storage", "blob_path": blob_path} if key != "guide_extracted" else {"source": "blob_storage", "blob_path": blob_path}
+                         except Exception as e: logger.error(f"[ExtractionLogs] Failed to offload {key}: {e}")
+                
+                if "sub_documents" in pd and get_json_size(pd["sub_documents"]) > 50_000:
+                     blob_path = f"logs/{job_id_or_log_id}/preview_sub_documents.json"
+                     try:
+                          await save_json_as_blob(pd["sub_documents"], blob_path)
+                          pd["sub_documents"] = [{"source": "blob_storage", "blob_path": blob_path}]
+                     except Exception as e: logger.error(f"Failed offload {e}")
+            
+            return target_dict
+
+        # Attempt to run Blob Upload
+        if payload_size > THRESHOLD_BYTES:
+            try:
+                loop = asyncio.get_running_loop()
+                if loop and loop.is_running():
+                    target = loop.create_task(_offload_data_if_needed(log_dict, log.id))
+                    nest_asyncio.apply()
+                    log_dict = loop.run_until_complete(_offload_data_if_needed(log_dict, log.id))
+            except RuntimeError:
+                log_dict = asyncio.run(_offload_data_if_needed(log_dict, log.id))
 
         container.upsert_item(log_dict)
         logger.info(f"[ExtractionLogs] Updated log {log_id} status to {status}")

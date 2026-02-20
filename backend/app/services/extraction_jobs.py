@@ -236,11 +236,53 @@ async def update_job(
                              logger.info(f"[ExtractionJobs] Offloaded {key} to {blob_path}")
                          except Exception as e:
                              logger.error(f"[ExtractionJobs] Failed to offload {key}: {e}")
+                             
+             # Re-check size for massive extraction data (Excel with thousands of rows)
+            payload_size = get_json_size(job_data)
+            
+            if payload_size > THRESHOLD_BYTES and "extracted_data" in job_data and isinstance(job_data["extracted_data"], dict):
+                ed = job_data["extracted_data"]
+                if get_json_size(ed) > 100_000:
+                    blob_path = f"jobs/{job_id}/extracted_data.json"
+                    try:
+                        await save_json_as_blob(ed, blob_path)
+                        job_data["extracted_data"] = {
+                            "source": "blob_storage", 
+                            "blob_path": blob_path,
+                            "preview": "Extraction results offloaded due to massive payload size (> 1.5MB)"
+                        }
+                        logger.info(f"[ExtractionJobs] Offloaded final extracted_data to {blob_path}")
+                    except Exception as e:
+                        logger.error(f"[ExtractionJobs] Failed to offload extracted_data: {e}")
+            
+            payload_size = get_json_size(job_data)
+            # Final check in `preview_data.guide_extracted` or `preview_data.sub_documents` where the identical data lives
+            if payload_size > THRESHOLD_BYTES and "preview_data" in job_data and isinstance(job_data["preview_data"], dict):
+                pd = job_data["preview_data"]
+                if "guide_extracted" in pd and get_json_size(pd["guide_extracted"]) > 100_000:
+                    blob_path = f"jobs/{job_id}/preview_guide_extracted.json"
+                    try:
+                         await save_json_as_blob(pd["guide_extracted"], blob_path)
+                         pd["guide_extracted"] = {"source": "blob_storage", "blob_path": blob_path}
+                         logger.info(f"[ExtractionJobs] Offloaded preview_data.guide_extracted to {blob_path}")
+                    except Exception as e:
+                         logger.error(f"[ExtractionJobs] Failed to offload preview_data.guide_extracted: {e}")
+                
+                # Check sub_documents legacy array as well
+                if "sub_documents" in pd and get_json_size(pd["sub_documents"]) > 100_000:
+                     blob_path = f"jobs/{job_id}/preview_sub_documents.json"
+                     try:
+                          await save_json_as_blob(pd["sub_documents"], blob_path)
+                          pd["sub_documents"] = [{"source": "blob_storage", "blob_path": blob_path}] # Expects array
+                          logger.info(f"[ExtractionJobs] Offloaded preview_data.sub_documents to {blob_path}")
+                     except Exception as e:
+                          logger.error(f"[ExtractionJobs] Failed to offload preview_data.sub_documents: {e}")
 
         # Final Size Check & Warning
         final_size = get_json_size(job_data)
         if final_size > 1_900_000: # 1.9MB (Danger Zone)
-             logger.warning(f"[ExtractionJobs] Payload still huge ({final_size} bytes) after offloading! Cosmos insert might fail.")
+             logger.warning(f"[ExtractionJobs] Payload still huge ({final_size} bytes) after all offloading! Cosmos insert might fail.")
+
 
         # Upsert
         try:
