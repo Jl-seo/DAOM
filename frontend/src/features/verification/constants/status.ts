@@ -84,7 +84,11 @@ export const isSuccessStatus = (status: string): boolean => {
         EXTRACTION_STATUS.SUCCESS,
         EXTRACTION_STATUS.CONFIRMED,
         EXTRACTION_STATUS.COMPLETE,
-        EXTRACTION_STATUS.PREVIEW_READY // Treat legacy P500 as success
+        EXTRACTION_STATUS.PREVIEW_READY, // Treat legacy P500 as success
+        'success',
+        'completed',
+        'preview_ready',
+        'S100', 'S200', 'S300', 'P500'
     ].includes(status as any)
 }
 
@@ -104,7 +108,12 @@ export const isProcessingStatus = (status: string): boolean => {
         EXTRACTION_STATUS.PENDING,
         EXTRACTION_STATUS.UPLOADING,
         EXTRACTION_STATUS.ANALYZING,
-        EXTRACTION_STATUS.REFINING
+        EXTRACTION_STATUS.REFINING,
+        'pending',
+        'processing',
+        'analyzing',
+        'syncing',
+        'P100', 'P200', 'P300', 'P400'
     ].includes(status as any)
 }
 
