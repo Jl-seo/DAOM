@@ -228,10 +228,14 @@ async def calculate_ssim(
 
             contours, _ = cv2.findContours(processed_diff, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
+            # For high-res document scans, min_area of 500 is often too small, catching minor antialiasing around identical logos.
+            # We scale it slightly or just increase the hardcoded threshold to ignore small compression artifacts.
+            dynamic_min_area = max(min_area, (w1 * h1) // 50000) # Ensure it scales reasonably with image size
+
             diffs = []
             for contour in contours:
                 area = cv2.contourArea(contour)
-                if area < min_area:
+                if area < dynamic_min_area:
                     continue
 
                 x, y, w, h = cv2.boundingRect(contour)

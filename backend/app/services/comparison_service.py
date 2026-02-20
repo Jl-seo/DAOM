@@ -216,6 +216,10 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         ignore_rules_list.append("- IGNORE font style changes (폰트 크기, 굵기 차이 무시)")
     if ignore_compression_noise:
         ignore_rules_list.append("- IGNORE compression artifacts and minor pixel noise")
+    
+    # 🌟 CRITICAL Logo Anti-Hallucination Rules
+    ignore_rules_list.append("- IGNORE minor pixel variations, alias artifacts, or slight lighting shifts in logos, watermarks, and branding elements if the overall shape and meaning are identical.")
+    ignore_rules_list.append("- ONLY report a logo difference if it is clearly a DIFFERENT logo entirely (e.g. completely different shape, totally different text).")
     ignore_rules_list.append("- IGNORE anything you are not certain about")
 
     ignore_rules_text = "\n    ".join(ignore_rules_list)
