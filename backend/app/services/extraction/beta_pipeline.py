@@ -45,9 +45,14 @@ class BetaPipeline(ExtractionPipeline):
         """
         start_time = datetime.utcnow()
         
-        # --- 1. Layout Parsing ---
-        parser = LayoutParser(ocr_data)
-        tagged_text, ref_map = parser.parse(focus_pages=focus_pages)
+        # --- 1. Layout Parsing (or Direct Markdown Bypass) ---
+        if ocr_data.get("_is_direct_markdown"):
+             logger.info("[BetaPipeline] Bypassing LayoutParser (Direct Markdown provided)")
+             tagged_text = ocr_data.get("content", "")
+             ref_map = {} # References not used for direct Excel parsing since no BBox exists
+        else:
+             parser = LayoutParser(ocr_data)
+             tagged_text, ref_map = parser.parse(focus_pages=focus_pages)
         
         content_len = len(tagged_text)
         page_count = len(ocr_data.get("pages", []))
@@ -63,9 +68,19 @@ class BetaPipeline(ExtractionPipeline):
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
             logger.info("[BetaPipeline] Route: Single-Shot Engineer")
             engineer_output = await self._run_engineer(work_order, tagged_text, model)
+            
+            # Fallback 1: Input too large
+            if engineer_output.get("_truncated"):
+                logger.warning("[BetaPipeline] Single-Shot truncated! Falling back to Chunked Engineer.")
+                engineer_output = await self._run_engineer_chunked(work_order, tagged_text, TEXT_CHUNK_SIZE, model)
         else:
             logger.info("[BetaPipeline] Route: Chunked Engineer with Header Preservation")
             engineer_output = await self._run_engineer_chunked(work_order, tagged_text, TEXT_CHUNK_SIZE, model)
+            
+        # Fallback 2: Output schema too large (Massive Tables)
+        if engineer_output.get("_truncated"):
+            logger.warning("[BetaPipeline] Chunked Engineer ALSO truncated! Falling back to Schema Split (Per Table).")
+            engineer_output = await self._run_engineer_per_table(work_order, tagged_text, TEXT_CHUNK_SIZE, model)
         
         # --- 4. Post-Process (ref → bbox) ---
         final_guide = RefinerEngine.post_process_with_ref(
@@ -285,12 +300,16 @@ class BetaPipeline(ExtractionPipeline):
         merged_guide = {}
         seen_rows = {}  # field_key -> Set[row_hash]
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        any_truncated = False
         
         for res in results:
             if isinstance(res, Exception):
                 logger.error(f"[BetaPipeline] Chunk gather exception: {res}")
                 continue
             
+            if res.get("_truncated"):
+                any_truncated = True
+                
             # Accumulate token usage
             usage = res.get("_token_usage", {})
             for k in total_usage:
@@ -322,7 +341,81 @@ class BetaPipeline(ExtractionPipeline):
         
         return {
             "guide_extracted": merged_guide,
-            "_token_usage": total_usage
+            "_token_usage": total_usage,
+            "_truncated": any_truncated
+        }
+
+    async def _run_engineer_per_table(self, work_order: dict, tagged_text: str, chunk_size: int, model: ExtractionModel = None) -> dict:
+        """
+        [Schema Split Fallback]
+        If chunked extraction still hits completion token limits due to massive tables,
+        we split the schema (work_order) and extract each table INDEPENDENTLY.
+        """
+        table_fields = work_order.get("table_fields", [])
+        common_fields = work_order.get("common_fields", [])
+        
+        logger.warning(f"[BetaPipeline] Falling back to Schema Split (Per-Table). Found {len(table_fields)} tables.")
+        
+        if not table_fields:
+            # If there are no tables but it still truncated, just return what we have (rare).
+            return await self._run_engineer_chunked(work_order, tagged_text, chunk_size, model)
+            
+        merged_guide = {}
+        total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        any_truncated = False
+        
+        # We need to extract common fields once, and tables separately.
+        # Create sub-work orders
+        sub_orders = []
+        
+        # 1. Common Fields Only (if any exist)
+        if common_fields:
+            sub_orders.append({
+                **work_order,
+                "table_fields": [],  # Exclude tables
+                "extraction_mode": "data"
+            })
+            
+        # 2. Each Table Separately
+        for t_field in table_fields:
+            sub_orders.append({
+                **work_order,
+                "common_fields": [], # Exclude common
+                "table_fields": [t_field], # ONLY this table
+                "extraction_mode": "table"
+            })
+            
+        # Process each sub-order sequentially or via gather (gather is faster)
+        # We will use Chunked extraction under the hood for EACH sub-order to handle input limits too!
+        async def process_sub_order(sub_wo):
+            logger.info(f"[BetaPipeline] Schema Split: Extracting {sub_wo['extraction_mode']} payload")
+            return await self._run_engineer_chunked(sub_wo, tagged_text, chunk_size, model)
+            
+        tasks = [process_sub_order(wo) for wo in sub_orders]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for res in results:
+            if isinstance(res, Exception):
+                logger.error(f"[BetaPipeline] Schema Split gather exception: {res}")
+                continue
+            
+            if res.get("_truncated"):
+                # If even a single table extraction truncates, we flag it (though we can't split further)
+                any_truncated = True
+                
+            # Accumulate token usage
+            usage = res.get("_token_usage", {})
+            for k in total_usage:
+                total_usage[k] += usage.get(k, 0)
+                
+            # Merge extracted data
+            for key, val in res.get("guide_extracted", {}).items():
+                 merged_guide[key] = val
+                 
+        return {
+            "guide_extracted": merged_guide,
+            "_token_usage": total_usage,
+            "_truncated": any_truncated
         }
 
     @staticmethod

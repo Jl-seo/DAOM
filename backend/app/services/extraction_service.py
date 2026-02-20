@@ -84,12 +84,40 @@ class ExtractionService:
                 logger.error(f"[Extraction] Vision extraction failed: {e}", exc_info=True)
                 return {"error": f"Vision extraction failed: {str(e)}\n\nTraceback:\n{tb}"}
 
-        # 2. Document Intelligence (OCR)
-        try:
-            ocr_result = await analyze_document_layout(file_content, mime_type=mime_type)
-        except Exception as e:
-            logger.error(f"[Extraction] OCR failed: {e}")
-            return {"error": f"OCR Analysis failed: {str(e)}"}
+        # 2. Document Intelligence (OCR) or Excel Direct Markdown
+        ocr_result = None
+        is_excel_mode = False
+        
+        if mime_type in ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "text/csv"] or filename.lower().endswith(('.xlsx', '.xls', '.csv')):
+            logger.info("[Extraction] Route: EXCEL DIRECT MARKDOWN (OCR skipped)")
+            try:
+                from app.services.extraction.excel_parser import ExcelParser
+                ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else 'xlsx'
+                if mime_type == "text/csv": ext = "csv"
+                
+                md_content = ExcelParser.from_bytes(file_content, ext)
+                
+                # Mock OCR structure for compatibility with downstream
+                ocr_result = {
+                    "content": md_content,
+                    "pages": [{"page_number": 1, "width": 1000, "height": 1000}], # dummy page
+                    "tables": [],
+                    "paragraphs": [],
+                    "styles": [],
+                    "_is_direct_markdown": True
+                }
+                is_excel_mode = True
+            except Exception as e:
+                logger.error(f"[Extraction] Excel Direct Parser failed: {e}. Falling back to OCR.")
+                # Fallback to OCR if parser fails for some reason
+        
+        if not ocr_result:
+            try:
+                from app.services.doc_intel import analyze_document_layout
+                ocr_result = await analyze_document_layout(file_content, mime_type=mime_type)
+            except Exception as e:
+                logger.error(f"[Extraction] OCR failed: {e}")
+                return {"error": f"OCR Analysis failed: {str(e)}"}
             
         # 3. LLM Extraction
         try:
