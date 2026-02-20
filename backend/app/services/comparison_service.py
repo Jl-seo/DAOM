@@ -217,10 +217,11 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     if ignore_compression_noise:
         ignore_rules_list.append("- IGNORE compression artifacts and minor pixel noise")
     
-    # 🌟 CRITICAL Logo Anti-Hallucination Rules
+    # 🌟 CRITICAL Logo & Layout Anti-Hallucination Rules
     ignore_rules_list.append("- IGNORE minor pixel variations, alias artifacts, or slight lighting shifts in logos, watermarks, and branding elements if the overall shape and meaning are identical.")
-    ignore_rules_list.append("- ONLY report a logo difference if it is clearly a DIFFERENT logo entirely (e.g. completely different shape, totally different text).")
-    ignore_rules_list.append("- IGNORE anything you are not certain about")
+    ignore_rules_list.append("- ONLY report a logo difference if it is clearly a DIFFERENT logo entirely OR if the logo/banner is COMPLETELY MISSING.")
+    ignore_rules_list.append("- CRITICAL: If an entire section, top banner, or large block of text/graphics is missing from the Candidate image, you MUST report it under the 'missing_element' category.")
+    ignore_rules_list.append("- IGNORE anything you are not certain about, but do not ignore massive structural or layout omissions.")
 
     ignore_rules_text = "\n    ".join(ignore_rules_list)
 

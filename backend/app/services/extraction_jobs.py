@@ -320,6 +320,7 @@ async def update_job(
                     log_id_to_update,
                     status=status,
                     preview_data=preview_data,
+                    extracted_data=extracted_data, # FIX: ensure extracted_data is synced
                     debug_data=debug_data, 
                     error=error 
                 )

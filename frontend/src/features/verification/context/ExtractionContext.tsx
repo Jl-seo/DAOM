@@ -274,6 +274,9 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
                     setStatus(EXTRACTION_STATUS.ERROR)
                     setError(jobError || 'Extraction failed')
                     toast.error('추출 실패: ' + (jobError || 'Unknown error'))
+                } else if (jobStatus) {
+                    // Update intermediate statuses (e.g. Analyzing, Refining)
+                    setStatus(jobStatus as any)
                 }
             } catch (e: any) {
                 devLog('[Polling] Error:', e)
