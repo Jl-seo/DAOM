@@ -121,6 +121,15 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
                 status=ExtractionStatus.PREVIEW_READY.value,
                 preview_data=preview_data,
             )
+            
+            job = extraction_jobs.get_job(job_id)
+            if job and getattr(job, "original_log_id", None):
+                extraction_logs.update_log_status(
+                    log_id=str(job.original_log_id),
+                    status=ExtractionStatus.PREVIEW_READY.value,
+                    preview_data=preview_data
+                )
+                
             logger.info(f"[Background] Completed comparison job {job_id} — {len(comparisons)} candidate(s) processed")
             return
 
@@ -137,7 +146,16 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         except Exception as e:
             error_msg = f"Failed to download file: {str(e)}"
             logger.error(f"[Background] {error_msg}")
+            
+            job = extraction_jobs.get_job(job_id)
             await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=error_msg)
+            if job and getattr(job, "original_log_id", None):
+                extraction_logs.update_log_status(
+                    log_id=str(job.original_log_id),
+                    status=ExtractionStatus.ERROR.value,
+                    error=error_msg
+                )
+            
             return
 
         # 3. Detect MIME type
@@ -154,14 +172,27 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         )
         
         # 5. Handle Result
+        job = extraction_jobs.get_job(job_id)
         if result.get("error"):
              await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
+             if job and getattr(job, "original_log_id", None):
+                 extraction_logs.update_log_status(
+                     log_id=str(job.original_log_id),
+                     status=ExtractionStatus.ERROR.value,
+                     error=result["error"]
+                 )
         else:
              await extraction_jobs.update_job(
                 job_id, 
                 status=ExtractionStatus.PREVIEW_READY.value, 
                 preview_data=result
             )
+             if job and getattr(job, "original_log_id", None):
+                 extraction_logs.update_log_status(
+                     log_id=str(job.original_log_id),
+                     status=ExtractionStatus.PREVIEW_READY.value,
+                     preview_data=result
+                 )
 
         logger.info(f"[Background] Completed extraction job {job_id}")
 
@@ -171,7 +202,14 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         traceback.print_exc()
         # Update job with error status
         try:
+            job = extraction_jobs.get_job(job_id)
             await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
+            if job and getattr(job, "original_log_id", None):
+                extraction_logs.update_log_status(
+                    log_id=str(job.original_log_id),
+                    status=ExtractionStatus.ERROR.value,
+                    error=str(e)
+                )
         except Exception as update_err:
             logger.error(f"[Background] Failed to update job status: {update_err}")
             pass
