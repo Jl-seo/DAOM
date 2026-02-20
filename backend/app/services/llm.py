@@ -722,16 +722,21 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     # 2. Construct Synthesis Context
     ssim_context = ""
     ssim_identical = False
-    if ssim_diffs:
-        ssim_context = f"**PHYSICAL LAYER (SSIM)**: Detected {len(ssim_diffs)} areas with low structural similarity. These indicate POTENTIAL changes.\n"
-        for i, d in enumerate(ssim_diffs[:5]):
-            ssim_context += f"- Diff #{i}: score={d.get('diff_score',0)}, bbox={d['bbox']}\n"
+    
+    if use_ssim:
+        if ssim_diffs:
+            ssim_context = f"**PHYSICAL LAYER (SSIM)**: Detected {len(ssim_diffs)} areas with low structural similarity. These indicate POTENTIAL changes.\n"
+            ssim_context += "Targeted image crops for these regions are attached at the end of the prompt sequence for your direct verification.\n"
+            for i, d in enumerate(ssim_diffs[:5]):
+                ssim_context += f"- Diff #{i}: score={d.get('diff_score',0)}, bbox={d['bbox']}\n"
+        else:
+            ssim_identical = True
+            ssim_context = """**PHYSICAL LAYER (SSIM)**: Images are structurally IDENTICAL (High Similarity).
+            
+    ⚠️ CRITICAL: Since SSIM analysis confirms the images are IDENTICAL, you should NOT report any differences.
+    If you cannot find clear, obvious, and verifiable differences, return an EMPTY differences array."""
     else:
-        ssim_identical = True
-        ssim_context = """**PHYSICAL LAYER (SSIM)**: Images are structurally IDENTICAL (High Similarity).
-        
-⚠️ CRITICAL: Since SSIM analysis confirms the images are IDENTICAL, you should NOT report any differences.
-If you cannot find clear, obvious, and verifiable differences, return an EMPTY differences array."""
+        ssim_context = "**PHYSICAL LAYER (SSIM)**: Disabled by user. You must rely entirely on your own visual inspection."
 
     vision_context = f"""
     **VISUAL LAYER (Azure Vision)**:
@@ -837,7 +842,10 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
         "differences": [
             {{
                 "id": "1",
-                "description": "Description in {output_language}",
+                "observation_1": "Exact visual state/text in the Baseline Image",
+                "observation_2": "Exact visual state/text in the Candidate Image",
+                "reasoning": "Step-by-step logic explaining why this is a valid difference based on the ignore rules",
+                "description": "Brief description in {output_language} (e.g., 'The date changed from X to Y')",
                 "category": "One of {categories_str} (ALWAYS English)",
                 "confidence": 0.95,
                 "location_1": [y1, x1, y2, x2] (0-1000 scale)
@@ -846,9 +854,10 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
     }}
     
     IMPORTANT: 
+    - You MUST fill out "observation_1", "observation_2", and "reasoning" BEFORE providing the final "description".
     - "category" MUST be one of the English keys in {categories_str}. DO NOT translate the category.
     - "description" MUST be in {output_language}.
-    - If images are identical, return {{"differences": []}}
+    - If images are identical or changes are ignored by rules, return {{"differences": []}}
     - DO NOT report text differences unless you are 100% certain you read both texts correctly.
     """
 
@@ -857,6 +866,22 @@ If you cannot find clear, obvious, and verifiable differences, return an EMPTY d
         {"type": "image_url", "image_url": {"url": image_url_1}},
         {"type": "image_url", "image_url": {"url": image_url_2}}
     ]
+
+    # Crop-Level Verification: Append targeted crops to the end of the visual inspection sequence
+    if use_ssim and ssim_diffs:
+        user_message.append({
+            "type": "text", 
+            "text": "The SSIM Physical Layer identified the following specific regions of interest. Please review these paired crops carefully. For each pair, compare the Baseline Crop to the Candidate Crop. If they are semantically identical based on the ignore rules, DO NOT report a difference."
+        })
+        for i, d in enumerate(ssim_diffs[:5]):
+            crop1_url = d.get('crop_1')
+            crop2_url = d.get('crop_2')
+            if crop1_url and crop2_url:
+                user_message.append({"type": "text", "text": f"\n--- Diff #{i} Context ---"})
+                user_message.append({"type": "text", "text": f"Diff #{i} - Baseline Image Crop:"})
+                user_message.append({"type": "image_url", "image_url": {"url": crop1_url}})
+                user_message.append({"type": "text", "text": f"Diff #{i} - Candidate Image Crop:"})
+                user_message.append({"type": "image_url", "image_url": {"url": crop2_url}})
 
     try:
         response = await client.chat.completions.create(
