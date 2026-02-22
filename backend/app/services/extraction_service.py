@@ -29,7 +29,7 @@ class ExtractionService:
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
         )
 
-    async def run_extraction_pipeline(self, file_content: bytes, model_id: str, filename: str = "", mime_type: str = "") -> Dict[str, Any]:
+    async def run_extraction_pipeline(self, file_content: bytes, model_id: str, filename: str = "", mime_type: str = "", barcode: Optional[str] = None) -> Dict[str, Any]:
         """
         Main entry point for extraction.
         1. Check Vision mode (skip OCR if enabled)
@@ -140,6 +140,44 @@ class ExtractionService:
             "model_name": model.name,
             "timestamp": start_time.isoformat()
         }
+
+        # 5. DEX Integration (LLM vs LIS Check)
+        if barcode:
+            # Find the field marked as is_dex_target=True
+            target_field_key = next((f.key for f in model.fields if getattr(f, "is_dex_target", False)), None)
+            
+            if target_field_key:
+                # Mock LIS lookup
+                def mock_lis_lookup(code: str) -> str:
+                    last_char = code[-1] if code else "0"
+                    mock_db = {
+                        "0": "김철수", "1": "홍길동", "2": "이영희", "3": "박지성", "4": "김연아",
+                        "5": "유재석", "6": "강호동", "7": "신동엽", "8": "이수근", "9": "전현무"
+                    }
+                    return mock_db.get(last_char, "알수없음")
+                
+                lis_expected = mock_lis_lookup(barcode)
+                
+                # Retrieve extracted LLM value
+                llm_extracted_item = final_result.get("guide_extracted", {}).get(target_field_key, {})
+                llm_value = llm_extracted_item.get("value") if isinstance(llm_extracted_item, dict) else str(llm_extracted_item)
+                
+                # Compare
+                import re
+                clean_lis = re.sub(r'\s+', '', lis_expected).strip()
+                clean_llm = re.sub(r'\s+', '', str(llm_value or "")).strip()
+                
+                is_match = (clean_llm != "") and (clean_llm == clean_lis)
+                
+                # Append Metadata
+                final_result["__dex_validation__"] = {
+                    "status": "PASS" if is_match else "FAIL",
+                    "barcode": barcode,
+                    "target_field_key": target_field_key,
+                    "lis_expected_value": lis_expected,
+                    "llm_extracted_value": llm_value
+                }
+                logger.info(f"[Extraction DEX] Validated barcode {barcode}. Expected: {lis_expected}, Got: {llm_value}. Status: {'PASS' if is_match else 'FAIL'}")
 
         return final_result
 

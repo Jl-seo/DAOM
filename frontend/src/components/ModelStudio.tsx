@@ -12,6 +12,7 @@ import type { Model, Field } from '../types/model'
 import { Card } from '@/components/ui/icon-card'
 import { Button } from '@/components/ui/button'
 import { DataStructureSelector } from './studio/DataStructureSelector'
+import { DexSettingsPanel } from './studio/DexSettingsPanel'
 import { FieldEditorTable } from './studio/FieldEditorTable'
 import { TransformationRulesEditor } from './studio/TransformationRulesEditor'
 import { SampleAnalysisPanel } from './studio/SampleAnalysisPanel'
@@ -65,7 +66,7 @@ export interface ExtractionModel {
 }
 
 export function ModelStudio() {
-    const { models, loading, saveModel, deleteModel, refineSchema } = useModels()
+    const { models, loading, saveModel, deleteModel, refineSchema, fetchModels } = useModels()
     const [editingModel, setEditingModel] = useState<Partial<Model> | null>(null)
     const [originalModel, setOriginalModel] = useState<Partial<Model> | null>(null)
     const [isEditing, setIsEditing] = useState(false)
@@ -76,6 +77,12 @@ export function ModelStudio() {
     // Auto-select model from URL query param (e.g. ?modelId=xxx)
     useEffect(() => {
         const targetModelId = searchParams.get('modelId')
+
+        // Force refresh models when entering Studio from another page
+        if (targetModelId) {
+            fetchModels()
+        }
+
         if (targetModelId && models.length > 0 && !editingModel) {
             const found = models.find(m => m.id === targetModelId)
             if (found) {
@@ -85,7 +92,7 @@ export function ModelStudio() {
                 setSearchParams(searchParams, { replace: true })
             }
         }
-    }, [models, searchParams])
+    }, [models.length, searchParams]) // Listen to length to trigger after fetch completes
 
     const handleNewModel = () => {
         setEditingModel(DEFAULTS.NEW_MODEL)
@@ -231,6 +238,18 @@ export function ModelStudio() {
                                                 ...editingModel,
                                                 fields: [...currentFields, ...newFields]
                                             })
+                                        }}
+                                        disabled={!isEditing}
+                                    />
+                                )}
+
+                                {/* DEX Settings Panel (Below the fields table) */}
+                                {(!editingModel.model_type || editingModel.model_type === 'extraction') && (
+                                    <DexSettingsPanel
+                                        fields={editingModel.fields || []}
+                                        onChange={(fields) => {
+                                            const updated = { ...editingModel, fields }
+                                            setEditingModel(updated)
                                         }}
                                         disabled={!isEditing}
                                     />

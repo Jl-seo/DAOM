@@ -53,7 +53,7 @@ class StartExtractionRequest(BaseModel):
 
 
 # Background task to process extraction
-async def process_extraction_job(job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None, candidate_filenames: Optional[List[str]] = None):
+async def process_extraction_job(job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None, candidate_filenames: Optional[List[str]] = None, barcode: Optional[str] = None):
     """Background task to run full extraction or comparison pipeline"""
     logger.info(f"[Background] Starting extraction job {job_id}")
     import mimetypes
@@ -163,12 +163,12 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         mime_type, _ = mimetypes.guess_type(filename)
         
         # 4. Call Pure Extraction Service
-        from app.services.extraction_service import extraction_service
         result = await extraction_service.run_extraction_pipeline(
             file_content=file_content,
             model_id=model_id,
             filename=filename,
-            mime_type=mime_type or ""
+            mime_type=mime_type or "",
+            barcode=barcode
         )
         
         # 5. Handle Result
@@ -221,6 +221,7 @@ async def start_job_with_upload(
     file: UploadFile = File(...),
     candidate_files: List[UploadFile] = File(None),  # Multi-file support
     model_id: str = Form(...),
+    barcode: Optional[str] = Form(None), # DEX target validation (optional)
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """
@@ -296,7 +297,8 @@ async def start_job_with_upload(
         file_url,
         candidate_file_url,
         candidate_file_urls,
-        candidate_filenames  # NEW: Pass original filenames
+        candidate_filenames,  # NEW: Pass original filenames
+        barcode # DEX validation
     )
 
     return {
@@ -388,6 +390,7 @@ async def dex_validate(
     cropped_image: UploadFile = File(...),
     barcode_value: str = Form(...),
     model_id: str = Form(...),
+    target_field: str = Form(...),
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """
@@ -426,7 +429,7 @@ async def dex_validate(
             filename=cropped_image.filename,
             mime_type=cropped_image.content_type,
             features=["queryFields"],
-            query_fields=["환자 성명"] # Targeting the handwritten name
+            query_fields=[target_field] # Targeting the dynamic handwritten name
         )
 
         handwritten_name = "인식 실패"
@@ -437,8 +440,8 @@ async def dex_validate(
         if documents and len(documents) > 0:
             fields = documents[0].get("fields", {})
             # Look for the exact query field name
-            if "환자 성명" in fields:
-                field_data = fields["환자 성명"]
+            if target_field in fields:
+                field_data = fields[target_field]
                 # Azure DI SDK usually populates `value_string` or `content`
                 handwritten_name = field_data.get("value_string") or field_data.get("content") or "인식 실패"
         

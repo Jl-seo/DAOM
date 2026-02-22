@@ -18,6 +18,7 @@ class FieldDefinition(BaseModel):
     description: Optional[str] = None  # 자연어 정의 (무엇을 추출할지)
     rules: Optional[str] = None  # 출력 보정/형태 정의 (자연어)
     type: str = "string"
+    is_dex_target: Optional[bool] = False # DEX 바코드 검증 타겟 여부
 
 class ComparisonSettings(BaseModel):
     """비교 설정 (comparison 모델 전용)"""
@@ -72,6 +73,8 @@ class ExtractionModel(BaseModel):
     excel_columns: Optional[List[ExcelExportColumn]] = None
 
 class ExtractionModelCreate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     name: str
     description: Optional[str] = None
     global_rules: Optional[str] = None

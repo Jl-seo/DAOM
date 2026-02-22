@@ -64,6 +64,7 @@ export interface PreviewData {
         file_url?: string
         error?: string
     }>
+    __dex_validation__?: any
 }
 
 // Comparison Settings Types

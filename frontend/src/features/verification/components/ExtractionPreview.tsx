@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { useVirtualizer } from '@tanstack/react-virtual'
+import type { DexValidationData } from './DexValidationBanner'
 
 interface ExtractionPreviewProps {
     guideExtracted: Record<string, any>
@@ -23,6 +24,7 @@ interface ExtractionPreviewProps {
 
     selectedField?: string | null // Controlled selection prop
     readOnly?: boolean
+    dexValidation?: DexValidationData
 }
 
 function extractValue(data: any): any {
@@ -635,7 +637,8 @@ export function ExtractionPreview({
     onDataChange,
     onSave,
     selectedField: controlledSelectedField,
-    readOnly = false
+    readOnly = false,
+    dexValidation
 }: ExtractionPreviewProps) {
     // -- Local State --
     // Legacy Array Check (Should be false for new backend, but kept for safety)
@@ -674,9 +677,8 @@ export function ExtractionPreview({
 
     const [selectedOtherColumns, setSelectedOtherColumns] = useState<Set<string>>(new Set())
     const [showOtherData, setShowOtherData] = useState(false)
+    // -- Selection State --
     const [internalSelectedField, setInternalSelectedField] = useState<string | null>(null)
-
-    // Derived state: Use controlled prop if available, otherwise internal
     const selectedField = controlledSelectedField !== undefined ? controlledSelectedField : internalSelectedField
 
     // Sync scroll when selectedField changes
@@ -876,19 +878,25 @@ export function ExtractionPreview({
 
                                         const isLowConfidence = confidence !== null && confidence < 0.9
 
+                                        const isDexValidationTarget = dexValidation?.target_field_key === field.key
+                                        const hasDexFailed = isDexValidationTarget && dexValidation?.status === 'FAIL'
+                                        const hasDexPassed = isDexValidationTarget && dexValidation?.status === 'PASS'
+
                                         return (
                                             <tr
                                                 key={field.key}
                                                 className={clsx(
-                                                    hasValue ? "bg-card" : "bg-chart-4/5",
-                                                    isLowConfidence && "bg-chart-4/5",
+                                                    hasDexFailed ? "bg-destructive/10 border-l-4 border-l-destructive" :
+                                                        hasDexPassed ? "bg-emerald-50/50 border-l-4 border-l-emerald-500" :
+                                                            hasValue ? "bg-card" : "bg-chart-4/5",
+                                                    isLowConfidence && !hasDexFailed && "bg-chart-4/5",
                                                     selectedField === field.key && "ring-2 ring-primary bg-primary/5",
-                                                    "cursor-pointer hover:bg-accent transition-colors"
+                                                    "cursor-pointer hover:bg-accent transition-colors relative"
                                                 )}
                                                 id={`field-row-${field.key}`}
                                                 onClick={() => handleFieldClick(field.key)}
                                                 onMouseEnter={() => {
-                                                    if (controlledSelectedField === undefined) {
+                                                    if (selectedField === undefined) {
                                                         setInternalSelectedField(field.key)
                                                     }
                                                 }}

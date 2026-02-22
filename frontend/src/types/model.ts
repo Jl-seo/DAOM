@@ -10,6 +10,7 @@ export interface Field {
     description: string
     rules: string
     type: FieldType
+    is_dex_target?: boolean
 }
 
 export interface ComparisonSettings {

@@ -92,10 +92,12 @@ export const DEXScanner: React.FC<DEXScannerProps> = ({ model, onClose }) => {
             }
 
             // Step 2: Send Blob & Barcode to Backend DEX API
+            const targetField = model.fields?.[0]?.label || '환자 성명';
             const formData = new FormData();
             formData.append('cropped_image', blobToSend, 'capture.jpg');
             formData.append('barcode_value', text);
             formData.append('model_id', model.id);
+            formData.append('target_field', targetField);
 
             const response = await apiClient.post('/extraction/dex-validate', formData);
             const res = response as any;
@@ -113,7 +115,7 @@ export const DEXScanner: React.FC<DEXScannerProps> = ({ model, onClose }) => {
                     barcode: text,
                     name: res.handwritten_name,
                     lisName: res.lis_name,
-                    errorMsg: `불일치 발생: 수기 이름 '${res.handwritten_name}'과 LIS 등록 이름 '${res.lis_name}'가 일치하지 않습니다.`
+                    errorMsg: `불일치 발생: 수기 ${targetField} '${res.handwritten_name}'과 LIS 등록 이름 '${res.lis_name}'가 일치하지 않습니다.`
                 });
             }
 
@@ -152,7 +154,7 @@ export const DEXScanner: React.FC<DEXScannerProps> = ({ model, onClose }) => {
                             <Camera className="w-5 h-5 mr-2 text-primary" />
                             DEX 실시간 교차 검증 (Beta)
                         </h3>
-                        <p className="text-sm text-slate-500">라벨의 바코드와 환자 수기 성명을 스캔합니다.</p>
+                        <p className="text-sm text-slate-500">라벨의 바코드와 {model.fields?.[0]?.label || '환자 성명'}을 스캔합니다.</p>
                     </div>
                     <Button variant="ghost" size="icon" onClick={() => { stopScanner(); onClose(); }}>
                         <X className="w-6 h-6" />

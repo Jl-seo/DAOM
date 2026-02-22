@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ExtractionPreview } from './ExtractionPreview'
-// import { ExtractionGrid } from '../../extraction/components/ExtractionGrid'
+import { DexValidationBanner, type DexValidationData } from './DexValidationBanner'
 import { DebugInfoModal } from './DebugInfoModal'
 import type { ExtractionModel, PreviewData } from '../types'
 
@@ -255,6 +255,13 @@ export function DataReviewPanel({
                 </div>
             )}
 
+            {/* DEX Validation Banner */}
+            {previewData?.__dex_validation__ && (
+                <div className="px-6 pt-4">
+                    <DexValidationBanner data={previewData.__dex_validation__ as DexValidationData} />
+                </div>
+            )}
+
             <Tabs defaultValue="fields" className="flex-1 flex flex-col min-h-0">
                 <div className="px-6 border-b bg-muted/40">
                     <TabsList className="bg-transparent h-12 p-0 space-x-6">
@@ -283,6 +290,7 @@ export function DataReviewPanel({
                             onSave={onSave}
                             selectedField={selectedFieldKey} // Sync: Data Selection Control
                             readOnly={false}
+                            dexValidation={previewData?.__dex_validation__ as DexValidationData | undefined}
                         />
                     </TabsContent>
                     <TabsContent value="parsed_text" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
