@@ -82,262 +82,350 @@
                                 }
                             }
                         }
-                    }
-                }
-            }
-        },
-        "/connectors/result/{job_id}": {
-            "get": {
-                "summary": "Get Extraction Result",
-                "description": "Get extraction result by job ID. Returns 202 if still processing, 200 when complete.",
-                "operationId": "GetExtractionResult",
-                "parameters": [
-                    {
-                        "name": "job_id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "description": "Job ID from upload",
-                        "x-ms-summary": "Job ID"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Completed (success or error)",
-                        "schema": {
-                            "$ref": "#/definitions/ExtractionResult"
-                        }
                     },
-                    "202": {
-                        "description": "Still processing",
-                        "schema": {
-                            "$ref": "#/definitions/ExtractionResult"
-                        },
-                        "headers": {
-                            "Retry-After": {
-                                "type": "integer",
-                                "description": "Seconds to wait before retry"
-                            },
-                            "Location": {
-                                "type": "string",
-                                "description": "Polling URL"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/connectors/wait/{job_id}": {
-            "get": {
-                "summary": "Wait for Extraction",
-                "description": "Polls until extraction is complete (async polling pattern)",
-                "operationId": "WaitForExtraction",
-                "x-ms-visibility": "internal",
-                "parameters": [
-                    {
-                        "name": "job_id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "x-ms-summary": "Job ID"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Completed",
-                        "schema": {
-                            "$ref": "#/definitions/ExtractionResult"
-                        }
-                    },
-                    "202": {
-                        "description": "Processing",
-                        "schema": {
-                            "$ref": "#/definitions/ExtractionResult"
-                        }
-                    }
-                }
-            }
-        },
-        "/connectors/models": {
-            "get": {
-                "summary": "List Models",
-                "description": "Get available extraction models (filtered by user permissions)",
-                "operationId": "ListModels",
-                "parameters": [],
-                "responses": {
-                    "200": {
-                        "description": "Success",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "models": {
+                    "/connectors/batch-upload": {
+                        "post": {
+                            "summary": "Batch Upload Documents",
+                            "description": "Upload multiple files and start extraction jobs for each. Returns a list of results with job_ids.",
+                            "operationId": "BatchUploadDocuments",
+                            "parameters": [
+                                {
+                                    "name": "files",
+                                    "in": "formData",
+                                    "required": true,
                                     "type": "array",
-                                    "description": "Available models",
-                                    "x-ms-summary": "Models",
                                     "items": {
+                                        "type": "file"
+                                    },
+                                    "description": "List of document files to extract",
+                                    "x-ms-summary": "Document Files"
+                                },
+                                {
+                                    "name": "model_id",
+                                    "in": "formData",
+                                    "required": true,
+                                    "type": "string",
+                                    "description": "Extraction model ID to use",
+                                    "x-ms-summary": "Model ID"
+                                },
+                                {
+                                    "name": "metadata",
+                                    "in": "formData",
+                                    "required": false,
+                                    "type": "string",
+                                    "description": "Custom metadata as JSON string (will be returned in results)",
+                                    "x-ms-summary": "Metadata (JSON)",
+                                    "x-ms-visibility": "advanced"
+                                }
+                            ],
+                            "responses": {
+                                "200": {
+                                    "description": "Batch processing accepted",
+                                    "schema": {
                                         "type": "object",
                                         "properties": {
-                                            "id": {
+                                            "batch_status": {
                                                 "type": "string",
-                                                "description": "Model ID",
-                                                "x-ms-summary": "Model ID"
+                                                "description": "Status of the batch submission",
+                                                "x-ms-summary": "Batch Status"
                                             },
-                                            "name": {
+                                            "message": {
                                                 "type": "string",
-                                                "description": "Model name",
-                                                "x-ms-summary": "Model Name"
+                                                "description": "Confirmation message",
+                                                "x-ms-summary": "Message"
                                             },
-                                            "description": {
-                                                "type": "string",
-                                                "description": "Model description",
-                                                "x-ms-summary": "Description"
+                                            "results": {
+                                                "type": "array",
+                                                "description": "Results for each uploaded file",
+                                                "x-ms-summary": "Upload Results",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "filename": {
+                                                            "type": "string",
+                                                            "x-ms-summary": "Filename"
+                                                        },
+                                                        "job_id": {
+                                                            "type": "string",
+                                                            "x-ms-summary": "Job ID"
+                                                        },
+                                                        "status": {
+                                                            "type": "string",
+                                                            "x-ms-summary": "Status"
+                                                        },
+                                                        "message": {
+                                                            "type": "string",
+                                                            "x-ms-summary": "Message"
+                                                        },
+                                                        "poll_url": {
+                                                            "type": "string",
+                                                            "x-ms-summary": "Poll URL"
+                                                        },
+                                                        "error": {
+                                                            "type": "string",
+                                                            "x-ms-summary": "Error"
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
-                                },
-                                "total": {
-                                    "type": "integer",
-                                    "description": "Total count",
-                                    "x-ms-summary": "Total"
                                 }
                             }
                         }
-                    }
-                }
-            }
-        },
-        "/connectors/cancel/{job_id}": {
-            "post": {
-                "summary": "Cancel Job",
-                "description": "Cancel a running extraction job",
-                "operationId": "CancelExtraction",
-                "parameters": [
-                    {
-                        "name": "job_id",
-                        "in": "path",
-                        "required": true,
-                        "type": "string",
-                        "x-ms-summary": "Job ID"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Cancelled",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "job_id": {
+                    },
+                    "/connectors/result/{job_id}": {
+                        "get": {
+                            "summary": "Get Extraction Result",
+                            "description": "Get extraction result by job ID. Returns 202 if still processing, 200 when complete.",
+                            "operationId": "GetExtractionResult",
+                            "parameters": [
+                                {
+                                    "name": "job_id",
+                                    "in": "path",
+                                    "required": true,
+                                    "type": "string",
+                                    "description": "Job ID from upload",
+                                    "x-ms-summary": "Job ID"
+                                }
+                            ],
+                            "responses": {
+                                "200": {
+                                    "description": "Completed (success or error)",
+                                    "schema": {
+                                        "$ref": "#/definitions/ExtractionResult"
+                                    }
+                                },
+                                "202": {
+                                    "description": "Still processing",
+                                    "schema": {
+                                        "$ref": "#/definitions/ExtractionResult"
+                                    },
+                                    "headers": {
+                                        "Retry-After": {
+                                            "type": "integer",
+                                            "description": "Seconds to wait before retry"
+                                        },
+                                        "Location": {
+                                            "type": "string",
+                                            "description": "Polling URL"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "/connectors/wait/{job_id}": {
+                        "get": {
+                            "summary": "Wait for Extraction",
+                            "description": "Polls until extraction is complete (async polling pattern)",
+                            "operationId": "WaitForExtraction",
+                            "x-ms-visibility": "internal",
+                            "parameters": [
+                                {
+                                    "name": "job_id",
+                                    "in": "path",
+                                    "required": true,
                                     "type": "string",
                                     "x-ms-summary": "Job ID"
+                                }
+                            ],
+                            "responses": {
+                                "200": {
+                                    "description": "Completed",
+                                    "schema": {
+                                        "$ref": "#/definitions/ExtractionResult"
+                                    }
                                 },
-                                "status": {
+                                "202": {
+                                    "description": "Processing",
+                                    "schema": {
+                                        "$ref": "#/definitions/ExtractionResult"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "/connectors/models": {
+                        "get": {
+                            "summary": "List Models",
+                            "description": "Get available extraction models (filtered by user permissions)",
+                            "operationId": "ListModels",
+                            "parameters": [],
+                            "responses": {
+                                "200": {
+                                    "description": "Success",
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "models": {
+                                                "type": "array",
+                                                "description": "Available models",
+                                                "x-ms-summary": "Models",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "id": {
+                                                            "type": "string",
+                                                            "description": "Model ID",
+                                                            "x-ms-summary": "Model ID"
+                                                        },
+                                                        "name": {
+                                                            "type": "string",
+                                                            "description": "Model name",
+                                                            "x-ms-summary": "Model Name"
+                                                        },
+                                                        "description": {
+                                                            "type": "string",
+                                                            "description": "Model description",
+                                                            "x-ms-summary": "Description"
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "total": {
+                                                "type": "integer",
+                                                "description": "Total count",
+                                                "x-ms-summary": "Total"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "/connectors/cancel/{job_id}": {
+                        "post": {
+                            "summary": "Cancel Job",
+                            "description": "Cancel a running extraction job",
+                            "operationId": "CancelExtraction",
+                            "parameters": [
+                                {
+                                    "name": "job_id",
+                                    "in": "path",
+                                    "required": true,
                                     "type": "string",
-                                    "x-ms-summary": "Status"
-                                },
-                                "message": {
-                                    "type": "string",
-                                    "x-ms-summary": "Message"
+                                    "x-ms-summary": "Job ID"
+                                }
+                            ],
+                            "responses": {
+                                "200": {
+                                    "description": "Cancelled",
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "job_id": {
+                                                "type": "string",
+                                                "x-ms-summary": "Job ID"
+                                            },
+                                            "status": {
+                                                "type": "string",
+                                                "x-ms-summary": "Status"
+                                            },
+                                            "message": {
+                                                "type": "string",
+                                                "x-ms-summary": "Message"
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                }
+                },
+                "definitions": {
+                    "ExtractionResult": {
+                        "type": "object",
+                        "properties": {
+                            "job_id": {
+                                "type": "string",
+                                "description": "Job identifier",
+                                "x-ms-summary": "Job ID"
+                            },
+                            "status": {
+                                "type": "string",
+                                "description": "Job status",
+                                "enum": [
+                                    "pending",
+                                    "processing",
+                                    "success",
+                                    "error",
+                                    "cancelled",
+                                    "S000",
+                                    "S050",
+                                    "S100",
+                                    "S200",
+                                    "E100"
+                                ],
+                                "x-ms-summary": "Status"
+                            },
+                            "model_id": {
+                                "type": "string",
+                                "description": "Model ID used",
+                                "x-ms-summary": "Model ID"
+                            },
+                            "model_name": {
+                                "type": "string",
+                                "description": "Model name",
+                                "x-ms-summary": "Model Name"
+                            },
+                            "filename": {
+                                "type": "string",
+                                "description": "Original file name",
+                                "x-ms-summary": "File Name"
+                            },
+                            "extracted_data": {
+                                "description": "Extracted field values. Object for form mode, Array for table mode (available when status=success)",
+                                "x-ms-summary": "Extracted Data"
+                            },
+                            "is_table": {
+                                "type": "boolean",
+                                "description": "True if result is multi-row table format (extracted_data is array)",
+                                "x-ms-summary": "Is Table Mode"
+                            },
+                            "confidence": {
+                                "type": "number",
+                                "format": "float",
+                                "description": "Average confidence score (0.0-1.0)",
+                                "x-ms-summary": "Confidence"
+                            },
+                            "error": {
+                                "type": "string",
+                                "description": "Error message (if status=error)",
+                                "x-ms-summary": "Error"
+                            },
+                            "metadata": {
+                                "type": "object",
+                                "description": "Custom metadata (passthrough from upload)",
+                                "x-ms-summary": "Metadata"
+                            },
+                            "created_at": {
+                                "type": "string",
+                                "description": "Creation timestamp (ISO 8601)",
+                                "x-ms-summary": "Created At"
+                            }
+                        }
+                    }
+                },
+                "parameters": {},
+                "responses": {},
+                "securityDefinitions": {
+                    "oauth2_auth": {
+                        "type": "oauth2",
+                        "flow": "accessCode",
+                        "authorizationUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+                        "tokenUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                        "scopes": {
+                            "689d0170-0576-4563-8a24-a323625196ca/.default": "Access DAOM API"
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "oauth2_auth": [
+                            "689d0170-0576-4563-8a24-a323625196ca/.default"
+                        ]
+                    }
+                ],
+                "tags": []
             }
-        }
-    },
-    "definitions": {
-        "ExtractionResult": {
-            "type": "object",
-            "properties": {
-                "job_id": {
-                    "type": "string",
-                    "description": "Job identifier",
-                    "x-ms-summary": "Job ID"
-                },
-                "status": {
-                    "type": "string",
-                    "description": "Job status",
-                    "enum": [
-                        "pending",
-                        "processing",
-                        "success",
-                        "error",
-                        "cancelled",
-                        "S000",
-                        "S050",
-                        "S100",
-                        "S200",
-                        "E100"
-                    ],
-                    "x-ms-summary": "Status"
-                },
-                "model_id": {
-                    "type": "string",
-                    "description": "Model ID used",
-                    "x-ms-summary": "Model ID"
-                },
-                "model_name": {
-                    "type": "string",
-                    "description": "Model name",
-                    "x-ms-summary": "Model Name"
-                },
-                "filename": {
-                    "type": "string",
-                    "description": "Original file name",
-                    "x-ms-summary": "File Name"
-                },
-                "extracted_data": {
-                    "description": "Extracted field values. Object for form mode, Array for table mode (available when status=success)",
-                    "x-ms-summary": "Extracted Data"
-                },
-                "is_table": {
-                    "type": "boolean",
-                    "description": "True if result is multi-row table format (extracted_data is array)",
-                    "x-ms-summary": "Is Table Mode"
-                },
-                "confidence": {
-                    "type": "number",
-                    "format": "float",
-                    "description": "Average confidence score (0.0-1.0)",
-                    "x-ms-summary": "Confidence"
-                },
-                "error": {
-                    "type": "string",
-                    "description": "Error message (if status=error)",
-                    "x-ms-summary": "Error"
-                },
-                "metadata": {
-                    "type": "object",
-                    "description": "Custom metadata (passthrough from upload)",
-                    "x-ms-summary": "Metadata"
-                },
-                "created_at": {
-                    "type": "string",
-                    "description": "Creation timestamp (ISO 8601)",
-                    "x-ms-summary": "Created At"
-                }
-            }
-        }
-    },
-    "parameters": {},
-    "responses": {},
-    "securityDefinitions": {
-        "oauth2_auth": {
-            "type": "oauth2",
-            "flow": "accessCode",
-            "authorizationUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
-            "tokenUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-            "scopes": {
-                "689d0170-0576-4563-8a24-a323625196ca/.default": "Access DAOM API"
-            }
-        }
-    },
-    "security": [
-        {
-            "oauth2_auth": [
-                "689d0170-0576-4563-8a24-a323625196ca/.default"
-            ]
-        }
-    ],
-    "tags": []
-}

@@ -260,6 +260,113 @@ async def upload_document(
     )
 
 
+class BatchUploadItemResponse(BaseModel):
+    filename: str
+    job_id: Optional[str] = None
+    status: str
+    message: str
+    poll_url: Optional[str] = None
+    error: Optional[str] = None
+
+class BatchUploadResponse(BaseModel):
+    batch_status: str
+    message: str
+    results: List[BatchUploadItemResponse]
+
+
+@router.post("/batch-upload", response_model=BatchUploadResponse,
+             summary="📑 일괄 문서 업로드",
+             description="여러 파일을 순차적으로 업로드하고 각각의 추출 작업을 시작합니다.")
+async def batch_upload_documents(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(..., description="추출할 문서 파일 목록"),
+    model_id: str = Form(..., description="사용할 추출 모델 ID"),
+    metadata: Optional[str] = Form(None, description="사용자 정의 메타데이터 (JSON 문자열)"),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    import json
+    import os
+
+    ALLOWED_EXTENSIONS = {
+        '.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp',
+        '.xlsx', '.xls', '.csv', '.docx'
+    }
+
+    if len(files) > 20:
+        raise HTTPException(status_code=400, detail="최대 20개까지만 동시에 업로드할 수 있습니다.")
+
+    parsed_metadata = None
+    if metadata:
+        try:
+            parsed_metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="metadata must be valid JSON")
+
+    results = []
+
+    for file in files:
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        if file_ext not in ALLOWED_EXTENSIONS:
+            results.append(BatchUploadItemResponse(
+                filename=file.filename,
+                status="error",
+                message="지원하지 않는 파일 확장자입니다",
+                error=f"Invalid extension {file_ext}"
+            ))
+            continue
+
+        try:
+            file_content = await file.read()
+            job_id = str(uuid.uuid4())
+            file_url = upload_file_to_blob(file_content, file.filename, f"connector/{job_id}")
+
+            extraction_logs.save_extraction_log(
+                model_id=model_id,
+                user_id=current_user.id,
+                filename=file.filename,
+                status="pending",
+                file_url=file_url,
+                log_id=job_id,
+                job_id=job_id,
+                tenant_id=current_user.tenant_id,
+                user_name=current_user.name if hasattr(current_user, 'name') else None,
+                user_email=current_user.email if hasattr(current_user, 'email') else None,
+                metadata=parsed_metadata
+            )
+
+            background_tasks.add_task(
+                run_extraction_with_metadata,
+                job_id=job_id,
+                model_id=model_id,
+                file_urls=[file_url],
+                filenames=[file.filename],
+                metadata=parsed_metadata
+            )
+
+            results.append(BatchUploadItemResponse(
+                filename=file.filename,
+                job_id=job_id,
+                status="pending",
+                message="추출 작업이 시작되었습니다",
+                poll_url=f"/api/v1/connectors/result/{job_id}"
+            ))
+        except Exception as e:
+            logger.error(f"[Connector Batch] Error uploading {file.filename}: {e}")
+            results.append(BatchUploadItemResponse(
+                filename=file.filename,
+                status="error",
+                message="업로드 처리 중 오류 발생",
+                error=str(e)
+            ))
+
+    response_status = "success" if any(r.status == "pending" for r in results) else "error"
+    return BatchUploadResponse(
+        batch_status=response_status,
+        message="일괄 업로드 처리가 완료되었습니다.",
+        results=results
+    )
+
+
 @router.get("/result/{job_id}",
             summary="🔍 추출 결과 조회",
             description="Job ID로 추출 상태 및 결과를 조회합니다.")
