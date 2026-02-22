@@ -65,7 +65,6 @@ def update_model(model_id: str, model_in: ExtractionModelCreate):
             updated_dict.update(model_in_dict)
             
             updated_model = ExtractionModel(
-                id=model_id,
                 **updated_dict
             )
             models[i] = updated_model
