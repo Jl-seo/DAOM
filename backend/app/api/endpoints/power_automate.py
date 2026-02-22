@@ -274,41 +274,49 @@ class BatchUploadResponse(BaseModel):
     results: List[BatchUploadItemResponse]
 
 
+class PAFileItem(BaseModel):
+    name: str
+    contentBytes: str  # Base64 encoded content
+
+class PABatchUploadRequest(BaseModel):
+    model_id: str
+    metadata: Optional[str] = None
+    files: List[PAFileItem]
+
 @router.post("/batch-upload", response_model=BatchUploadResponse,
-             summary="📑 일괄 문서 업로드",
-             description="여러 파일을 순차적으로 업로드하고 각각의 추출 작업을 시작합니다.")
-async def batch_upload_documents(
+             summary="📑 일괄 문서 업로드 (JSON/Base64)",
+             description="Base64로 인코딩된 여러 파일을 순차적으로 업로드하고 각각의 추출 작업을 시작합니다.")
+async def batch_upload_documents_json(
     background_tasks: BackgroundTasks,
-    files: List[UploadFile] = File(..., description="추출할 문서 파일 목록"),
-    model_id: str = Form(..., description="사용할 추출 모델 ID"),
-    metadata: Optional[str] = Form(None, description="사용자 정의 메타데이터 (JSON 문자열)"),
+    payload: PABatchUploadRequest,
     current_user: CurrentUser = Depends(get_current_user)
 ):
     import json
     import os
+    import base64
 
     ALLOWED_EXTENSIONS = {
         '.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp',
         '.xlsx', '.xls', '.csv', '.docx'
     }
 
-    if len(files) > 20:
+    if len(payload.files) > 20:
         raise HTTPException(status_code=400, detail="최대 20개까지만 동시에 업로드할 수 있습니다.")
 
     parsed_metadata = None
-    if metadata:
+    if payload.metadata:
         try:
-            parsed_metadata = json.loads(metadata)
+            parsed_metadata = json.loads(payload.metadata)
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="metadata must be valid JSON")
 
     results = []
-
-    for file in files:
-        file_ext = os.path.splitext(file.filename)[1].lower()
+    
+    for file_item in payload.files:
+        file_ext = os.path.splitext(file_item.name)[1].lower()
         if file_ext not in ALLOWED_EXTENSIONS:
             results.append(BatchUploadItemResponse(
-                filename=file.filename,
+                filename=file_item.name,
                 status="error",
                 message="지원하지 않는 파일 확장자입니다",
                 error=f"Invalid extension {file_ext}"
@@ -316,14 +324,20 @@ async def batch_upload_documents(
             continue
 
         try:
-            file_content = await file.read()
+            # Decode base64 
+            # Power Automate sometimes leaves the data:image/png;base64, prefix
+            b64_str = file_item.contentBytes
+            if "," in b64_str:
+                b64_str = b64_str.split(",")[1]
+            
+            file_content = base64.b64decode(b64_str)
             job_id = str(uuid.uuid4())
-            file_url = upload_file_to_blob(file_content, file.filename, f"connector/{job_id}")
+            file_url = upload_file_to_blob(file_content, file_item.name, f"connector/{job_id}")
 
             extraction_logs.save_extraction_log(
-                model_id=model_id,
+                model_id=payload.model_id,
                 user_id=current_user.id,
-                filename=file.filename,
+                filename=file_item.name,
                 status="pending",
                 file_url=file_url,
                 log_id=job_id,
@@ -337,23 +351,23 @@ async def batch_upload_documents(
             background_tasks.add_task(
                 run_extraction_with_metadata,
                 job_id=job_id,
-                model_id=model_id,
+                model_id=payload.model_id,
                 file_urls=[file_url],
-                filenames=[file.filename],
+                filenames=[file_item.name],
                 metadata=parsed_metadata
             )
 
             results.append(BatchUploadItemResponse(
-                filename=file.filename,
+                filename=file_item.name,
                 job_id=job_id,
                 status="pending",
                 message="추출 작업이 시작되었습니다",
                 poll_url=f"/api/v1/connectors/result/{job_id}"
             ))
         except Exception as e:
-            logger.error(f"[Connector Batch] Error uploading {file.filename}: {e}")
+            logger.error(f"[Connector Batch] Error uploading {file_item.name}: {e}")
             results.append(BatchUploadItemResponse(
-                filename=file.filename,
+                filename=file_item.name,
                 status="error",
                 message="업로드 처리 중 오류 발생",
                 error=str(e)

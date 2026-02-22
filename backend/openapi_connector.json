@@ -90,32 +90,55 @@
                             "operationId": "BatchUploadDocuments",
                             "parameters": [
                                 {
-                                    "name": "files",
-                                    "in": "formData",
+                                    "name": "body",
+                                    "in": "body",
                                     "required": true,
-                                    "type": "array",
-                                    "items": {
-                                        "type": "file"
-                                    },
-                                    "description": "List of document files to extract",
-                                    "x-ms-summary": "Document Files"
-                                },
-                                {
-                                    "name": "model_id",
-                                    "in": "formData",
-                                    "required": true,
-                                    "type": "string",
-                                    "description": "Extraction model ID to use",
-                                    "x-ms-summary": "Model ID"
-                                },
-                                {
-                                    "name": "metadata",
-                                    "in": "formData",
-                                    "required": false,
-                                    "type": "string",
-                                    "description": "Custom metadata as JSON string (will be returned in results)",
-                                    "x-ms-summary": "Metadata (JSON)",
-                                    "x-ms-visibility": "advanced"
+                                    "description": "Batch upload payload containing model ID, metadata, and list of files",
+                                    "schema": {
+                                        "type": "object",
+                                        "required": [
+                                            "model_id",
+                                            "files"
+                                        ],
+                                        "properties": {
+                                            "model_id": {
+                                                "type": "string",
+                                                "description": "Extraction model ID to use",
+                                                "x-ms-summary": "Model ID"
+                                            },
+                                            "metadata": {
+                                                "type": "string",
+                                                "description": "Custom metadata as JSON string (will be returned in results)",
+                                                "x-ms-summary": "Metadata (JSON)",
+                                                "x-ms-visibility": "advanced"
+                                            },
+                                            "files": {
+                                                "type": "array",
+                                                "description": "List of document files to extract",
+                                                "x-ms-summary": "Document Files",
+                                                "items": {
+                                                    "type": "object",
+                                                    "required": [
+                                                        "name",
+                                                        "contentBytes"
+                                                    ],
+                                                    "properties": {
+                                                        "name": {
+                                                            "type": "string",
+                                                            "description": "File name with extension",
+                                                            "x-ms-summary": "File Name"
+                                                        },
+                                                        "contentBytes": {
+                                                            "type": "string",
+                                                            "format": "byte",
+                                                            "description": "Base64 encoded file content",
+                                                            "x-ms-summary": "File Content"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             ],
                             "responses": {
