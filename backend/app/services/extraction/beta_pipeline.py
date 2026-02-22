@@ -62,8 +62,11 @@ class BetaPipeline(ExtractionPipeline):
         work_order = await self._run_designer(model)
         
         # --- 3. Engineer LLM (Extraction) ---
-        SINGLE_SHOT_CHAR_LIMIT = 50_000
-        TEXT_CHUNK_SIZE = 25_000
+        is_excel = ocr_data.get("_is_direct_markdown", False)
+        
+        # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
+        SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else 50_000
+        TEXT_CHUNK_SIZE = 150_000 if is_excel else 25_000
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
             logger.info("[BetaPipeline] Route: Single-Shot Engineer")
