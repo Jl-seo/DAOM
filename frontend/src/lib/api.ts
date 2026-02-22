@@ -14,7 +14,7 @@ import { loginRequest } from '../auth/authConfig'
 // Create axios instance with base configuration
 const apiClient: AxiosInstance = axios.create({
     baseURL: API_CONFIG.BASE_URL,
-    timeout: 30000,
+    timeout: 300000, // 5 minutes to allow massive LLM text generation for complex Excel layouts
     // NOTE: Do NOT set default Content-Type here.
     // FormData needs the browser to auto-set multipart/form-data with boundary.
     // JSON Content-Type is set dynamically in the request interceptor below.

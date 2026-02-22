@@ -120,14 +120,31 @@ export function DataReviewPanel({
 }: DataReviewPanelProps) {
     const [isExpanded, setIsExpanded] = useState(false)
     const [showDebugModal, setShowDebugModal] = useState(false)
+    const [isRendering, setIsRendering] = useState(false)
 
+    // Defer rendering of massive payloads to ensure the browser paints the loading state first
+    useEffect(() => {
+        setIsRendering(true)
+        // Give the browser 150ms to paint the "Rendering..." spinner before locking the main thread with heavy DOM generation
+        const timer = setTimeout(() => {
+            setIsRendering(false)
+        }, 150)
+        return () => clearTimeout(timer)
+    }, [currentGuideExtracted, documentId, currentParsedContent])
 
 
     // Columns for the "Other Data" (Table) tab - REMOVED for Beta Text View
     // const tableColumns = ...
 
     return (
-        <Card className={`h-full flex flex-col bg-background overflow-hidden border-0 rounded-none transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-50' : ''}`}>
+        <Card className={`h-full flex flex-col bg-background overflow-hidden border-0 rounded-none relative transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-50' : ''}`}>
+            {isRendering && (
+                <div className="absolute inset-0 z-[100] bg-background/80 flex flex-col items-center justify-center backdrop-blur-sm">
+                    <RefreshCw className="w-8 h-8 animate-spin text-primary mb-4" />
+                    <p className="text-base font-semibold text-foreground">대용량 데이터를 렌더링 중입니다...</p>
+                    <p className="text-sm text-muted-foreground mt-2">표가 매우 클 경우 화면 표시에 수 초가 소요될 수 있습니다.</p>
+                </div>
+            )}
             <DebugInfoModal
                 isOpen={showDebugModal}
                 onClose={() => setShowDebugModal(false)}
