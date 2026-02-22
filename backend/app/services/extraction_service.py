@@ -615,16 +615,16 @@ If a field is not found, return null.
         target_field_key = next((f.key for f in model.fields if getattr(f, "is_dex_target", False)), None)
         
         if target_field_key:
-            # LIS lookup using model reference_data
-            lis_expected = "알수없음"
-            if model.reference_data and isinstance(model.reference_data, dict):
-                # Search exact barcode match in reference data JSON.
-                # Check inside 'dex_mapping' key to avoid polluting LLM reference context.
-                dex_mapping = model.reference_data.get("dex_mapping")
-                if isinstance(dex_mapping, dict):
-                    lis_expected = dex_mapping.get(barcode, "알수없음")
-                else:
-                    lis_expected = model.reference_data.get(barcode, "알수없음")
+            # Mock LIS lookup
+            def mock_lis_lookup(code: str) -> str:
+                last_char = code[-1] if code else "0"
+                mock_db = {
+                    "0": "김철수", "1": "홍길동", "2": "이영희", "3": "박지성", "4": "김연아",
+                    "5": "유재석", "6": "강호동", "7": "신동엽", "8": "이수근", "9": "전현무"
+                }
+                return mock_db.get(last_char, "알수없음")
+            
+            lis_expected = mock_lis_lookup(barcode)
             
             # Retrieve extracted LLM value
             llm_extracted_item = final_result.get("guide_extracted", {}).get(target_field_key, {})
