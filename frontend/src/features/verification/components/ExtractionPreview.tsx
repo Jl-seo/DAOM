@@ -584,7 +584,9 @@ function EditableValueCell({
     }
 
     const isArray = Array.isArray(parsedValue)
-    const isObject = typeof parsedValue === 'object' && parsedValue !== null && !isArray
+    // Check if it's a rich object from the backend (i.e. just a value and confidence wrapper)
+    const isRichScalar = typeof parsedValue === 'object' && parsedValue !== null && !isArray && Object.keys(parsedValue).length <= 5 && 'value' in parsedValue;
+    const isObject = typeof parsedValue === 'object' && parsedValue !== null && !isArray && !isRichScalar;
     const hasValue = value !== null && value !== undefined && value !== ''
 
     if (isArray) {
