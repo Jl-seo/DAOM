@@ -291,7 +291,7 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
     }, [model?.fields])
 
     // File processing
-    const processFile = useCallback(async (selectedInput: File | File[], selectedCandidateFiles?: File[]) => {
+    const processFile = useCallback(async (selectedInput: File | File[], selectedCandidateFiles?: File[], barcode?: string) => {
         // Clear any existing polling first
         if (pollingRef.current) {
             clearInterval(pollingRef.current)
@@ -332,6 +332,11 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
         }
 
         formData.append('model_id', modelId)
+
+        // Append optional barcode for DEX validation
+        if (barcode) {
+            formData.append('barcode', barcode)
+        }
 
         try {
             const res = await apiClient.post('/extraction/start-job', formData)

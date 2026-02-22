@@ -26,7 +26,7 @@ interface ExtractionUploadViewProps {
     status: ExtractionStatus
     error?: string | null
     model: ExtractionModel | null // NEW
-    onFileSelect: (file: File, candidateFiles?: File[]) => void
+    onFileSelect: (file: File, candidateFiles?: File[], barcode?: string) => void
     onCancel: () => void
 }
 
@@ -44,12 +44,13 @@ export function ExtractionUploadView({
     const [isDragging, setIsDragging] = useState(false)
     const [selectedBaseline, setSelectedBaseline] = useState<File | null>(null)
     const [selectedCandidates, setSelectedCandidates] = useState<File[]>([]) // CHANGED: Array
+    const [barcodeInput, setBarcodeInput] = useState('') // NEW: Optional Barcode
 
     // Handle single file (Extraction Mode)
     const acceptTypes = '.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.csv'
 
     const handleFileSelect = (selectedFile: File | null | undefined) => {
-        if (selectedFile) onFileSelect(selectedFile)
+        if (selectedFile) onFileSelect(selectedFile, undefined, barcodeInput ? barcodeInput.trim() : undefined)
     }
 
     // Determine if we're in a processing state
@@ -277,9 +278,22 @@ export function ExtractionUploadView({
                     </div>
 
                     <h3 className="text-xl font-bold mb-2">{t('extraction.upload.drag_drop')}</h3>
-                    <p className="text-muted-foreground mb-8 text-center max-w-xs">
+                    <p className="text-muted-foreground mb-6 text-center max-w-xs">
                         {t('extraction.upload.click_to_select')}<br />{t('extraction.upload.supported_formats')}
                     </p>
+
+                    {/* Optional Barcode Input before uploading */}
+                    <div className="w-full max-w-[240px] mb-6">
+                        <label className="text-xs font-semibold text-muted-foreground mb-1 block text-left">바코드 (선택사항)</label>
+                        <input
+                            type="text"
+                            placeholder="바코드 스캔 또는 직접 입력"
+                            className="w-full text-sm py-2 px-3 border rounded focus:outline-none focus:ring-2 focus:ring-primary/50"
+                            value={barcodeInput}
+                            onChange={(e) => setBarcodeInput(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    </div>
 
                     <Button size="lg" className="min-w-[180px]">
                         {t('extraction.upload.select_file')}
