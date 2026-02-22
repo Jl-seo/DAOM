@@ -615,24 +615,26 @@ If a field is not found, return null.
         target_field_key = next((f.key for f in model.fields if getattr(f, "is_dex_target", False)), None)
         
         if target_field_key:
-            # Mock LIS lookup
-            def mock_lis_lookup(code: str) -> str:
-                last_char = code[-1] if code else "0"
-                mock_db = {
-                    "0": "김철수", "1": "홍길동", "2": "이영희", "3": "박지성", "4": "김연아",
-                    "5": "유재석", "6": "강호동", "7": "신동엽", "8": "이수근", "9": "전현무"
-                }
-                return mock_db.get(last_char, "알수없음")
-            
-            lis_expected = mock_lis_lookup(barcode)
+            # LIS lookup using model reference_data
+            lis_expected = "알수없음"
+            if model.reference_data and isinstance(model.reference_data, dict):
+                # Search exact barcode match in reference data JSON
+                lis_expected = model.reference_data.get(barcode, "알수없음")
             
             # Retrieve extracted LLM value
             llm_extracted_item = final_result.get("guide_extracted", {}).get(target_field_key, {})
-            llm_value = llm_extracted_item.get("value") if isinstance(llm_extracted_item, dict) else str(llm_extracted_item)
+            # Unwrap {"value": "...", "confidence": ...}
+            if isinstance(llm_extracted_item, dict):
+                llm_value = llm_extracted_item.get("value", llm_extracted_item)
+                if isinstance(llm_value, dict):
+                    import json
+                    llm_value = json.dumps(llm_value, ensure_ascii=False)
+            else:
+                llm_value = str(llm_extracted_item)
             
             # Compare
             import re
-            clean_lis = re.sub(r'\s+', '', lis_expected).strip()
+            clean_lis = re.sub(r'\s+', '', str(lis_expected)).strip()
             clean_llm = re.sub(r'\s+', '', str(llm_value or "")).strip()
             
             is_match = (clean_llm != "") and (clean_llm == clean_lis)
