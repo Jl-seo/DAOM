@@ -57,8 +57,8 @@ def update_model(model_id: str, model_in: ExtractionModelCreate):
             updated_dict = m.model_dump()
             model_in_dict = model_in.model_dump(exclude_unset=True)
             
-            # Explicitly preserve reference_data if it's currently None in model_in but exists in m
-            if "reference_data" not in model_in_dict or model_in_dict["reference_data"] is None:
+            # Explicitly preserve reference_data if it's NOT provided at all in model_in
+            if "reference_data" not in model_in_dict:
                 if m.reference_data is not None:
                     model_in_dict["reference_data"] = m.reference_data
                     
