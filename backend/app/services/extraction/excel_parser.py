@@ -111,26 +111,32 @@ class ExcelParser:
             # Pad the row to max_cols before pruning empty columns
             padded_row = row + [""] * (max_cols - len(row))
             filtered_row = [cell for idx, cell in enumerate(padded_row) if idx not in empty_cols]
-            optimized_rows.append(filtered_row)
+            
+            # AGGRESSIVE TOKEN SAVING: Strip trailing empty cells from this specific row.
+            # We preserve leading empty cells to maintain column alignment index.
+            while filtered_row and not filtered_row[-1].strip():
+                filtered_row.pop()
+                
+            if filtered_row: # Only keep row if it has actual data
+                optimized_rows.append(filtered_row)
 
         if not optimized_rows:
              return ""
 
-        final_col_count = len(optimized_rows[0])
+        # Determine the True max columns after pruning and stripping
+        max_final_cols = max(len(row) for row in optimized_rows)
         
         # 4. Build Markdown
         md_lines = [f"### Sheet: {sheet_name}"]
         
-        # Extract the first row as the pseudo-header
-        header_row = optimized_rows[0]
-        md_lines.append("| " + " | ".join(header_row) + " |")
+        # We don't force a user-row to be the header, as it might be sparse.
+        # Create a generic header to establish the max grid width for the LLM.
+        generic_header = ["C" + str(i+1) for i in range(max_final_cols)]
+        md_lines.append("| " + " | ".join(generic_header) + " |")
+        md_lines.append("|" + "|".join(["---"] * max_final_cols) + "|")
         
-        # Build Separator
-        separator = "| " + " | ".join(["---"] * final_col_count) + " |"
-        md_lines.append(separator)
-        
-        # Build Body
-        for row in optimized_rows[1:]:
+        # Build Body with Ragged Rows (saving massive tokens on sparse rows)
+        for row in optimized_rows:
             md_lines.append("| " + " | ".join(row) + " |")
             
         return "\n".join(md_lines)
