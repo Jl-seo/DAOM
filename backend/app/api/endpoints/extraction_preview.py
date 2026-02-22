@@ -58,6 +58,7 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
     logger.info(f"[Background] Starting extraction job {job_id}")
     import mimetypes
     from app.services.storage import download_blob_to_bytes
+    from app.services.extraction_service import extraction_service
 
     try:
         # 1. Update Status
