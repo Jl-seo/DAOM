@@ -408,18 +408,20 @@ async def dex_validate(
     try:
         image_bytes = await cropped_image.read()
 
-        # Step 1: Mock LIS Lookup based on Barcode ID
-        # In a real scenario, this would be `requests.get('https://gclabs.lis/api/patient?barcode=...')`
-        def mock_lis_lookup(barcode: str) -> str:
-            # Deterministic mock based on the last digit of the barcode
-            last_char = barcode[-1] if barcode else "0"
-            mock_db = {
-                "0": "김철수", "1": "홍길동", "2": "이영희", "3": "박지성", "4": "김연아",
-                "5": "유재석", "6": "강호동", "7": "신동엽", "8": "이수근", "9": "전현무"
-            }
-            return mock_db.get(last_char, "알수없음")
-
-        lis_name = mock_lis_lookup(barcode_value)
+        # Check for target mapping field from model
+        model = get_model_by_id(model_id)
+        lis_name = "알수없음"
+        
+        # Step 1: LIS Lookup based on Barcode ID and Model Reference Data
+        if model.reference_data and isinstance(model.reference_data, dict):
+            # Look up the exact barcode in the reference data JSON uploaded by user.
+            # To prevent polluting general LLM reference data, check inside "dex_mapping" key first.
+            dex_mapping = model.reference_data.get("dex_mapping")
+            if isinstance(dex_mapping, dict):
+                lis_name = dex_mapping.get(barcode_value, "알수없음")
+            else:
+                # Fallback to root level for backward compatibility
+                lis_name = model.reference_data.get(barcode_value, "알수없음")
 
         # Clean up target_field to meet Azure DI queryFields regex ^[\\p{L}\\p{M}\\p{N}_]{1,64}$
         import re

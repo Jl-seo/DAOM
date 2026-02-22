@@ -618,8 +618,13 @@ If a field is not found, return null.
             # LIS lookup using model reference_data
             lis_expected = "알수없음"
             if model.reference_data and isinstance(model.reference_data, dict):
-                # Search exact barcode match in reference data JSON
-                lis_expected = model.reference_data.get(barcode, "알수없음")
+                # Search exact barcode match in reference data JSON.
+                # Check inside 'dex_mapping' key to avoid polluting LLM reference context.
+                dex_mapping = model.reference_data.get("dex_mapping")
+                if isinstance(dex_mapping, dict):
+                    lis_expected = dex_mapping.get(barcode, "알수없음")
+                else:
+                    lis_expected = model.reference_data.get(barcode, "알수없음")
             
             # Retrieve extracted LLM value
             llm_extracted_item = final_result.get("guide_extracted", {}).get(target_field_key, {})
