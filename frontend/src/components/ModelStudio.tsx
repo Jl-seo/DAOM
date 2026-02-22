@@ -551,6 +551,45 @@ export function ModelStudio() {
                                                     />
                                                 </button>
                                             </div>
+
+                                            {/* DEX Validation Toggle */}
+                                            <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/50">
+                                                <div>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs font-medium text-foreground">⚡ [Beta] DEX 실시간 검증 (바코드)</span>
+                                                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/10 text-blue-600 font-bold border border-blue-500/20">SCAN</span>
+                                                    </div>
+                                                    <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[300px]">
+                                                        바코드 스캔 후 환자 성명을 즉시 수기 인식(OCR)하여 LIS 데이터와 실시간으로 교차 검증합니다.
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    id="toggle-dex-validation"
+                                                    disabled={!isEditing}
+                                                    onClick={() => setEditingModel({
+                                                        ...editingModel,
+                                                        beta_features: {
+                                                            ...editingModel.beta_features,
+                                                            use_dex_validation: !editingModel.beta_features?.use_dex_validation
+                                                        }
+                                                    })}
+                                                    className={clsx(
+                                                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                                                        editingModel.beta_features?.use_dex_validation
+                                                            ? "bg-blue-600"
+                                                            : "bg-muted-foreground/30",
+                                                        !isEditing && "opacity-50 cursor-not-allowed"
+                                                    )}
+                                                >
+                                                    <span
+                                                        className={clsx(
+                                                            "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
+                                                            editingModel.beta_features?.use_dex_validation ? "translate-x-6" : "translate-x-1"
+                                                        )}
+                                                    />
+                                                </button>
+                                            </div>
                                         </div>
                                     )}
 

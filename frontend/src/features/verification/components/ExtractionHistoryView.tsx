@@ -71,13 +71,15 @@ export function ExtractionHistoryView({
                         <p className="text-muted-foreground mt-1 md:mt-2 text-sm md:text-lg line-clamp-2">{model.description}</p>
                     </div>
                     <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto shrink-0">
-                        <Button
-                            variant="secondary"
-                            onClick={() => setIsScannerOpen(true)}
-                            className="text-sm md:text-base px-4 md:px-6 h-10 md:h-12 shadow-sm transition-transform hover:scale-105"
-                        >
-                            <ScanLine className="w-4 h-4 md:w-5 md:h-5 mr-2" /> 실시간 스캔 (DEX Beta)
-                        </Button>
+                        {model.beta_features?.use_dex_validation && (
+                            <Button
+                                variant="secondary"
+                                onClick={() => setIsScannerOpen(true)}
+                                className="text-sm md:text-base px-4 md:px-6 h-10 md:h-12 shadow-sm transition-transform hover:scale-105"
+                            >
+                                <ScanLine className="w-4 h-4 md:w-5 md:h-5 mr-2" /> 실시간 스캔 (DEX Beta)
+                            </Button>
+                        )}
                         <Button
                             variant="outline"
                             size="default"
