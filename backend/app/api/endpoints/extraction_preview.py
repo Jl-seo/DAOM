@@ -421,6 +421,12 @@ async def dex_validate(
 
         lis_name = mock_lis_lookup(barcode_value)
 
+        # Clean up target_field to meet Azure DI queryFields regex ^[\\p{L}\\p{M}\\p{N}_]{1,64}$
+        import re
+        sanitized_query_field = re.sub(r'[^\w\s]', '', target_field) # Keep words, strip punctuation
+        sanitized_query_field = re.sub(r'\s+', '_', sanitized_query_field) # Replace spaces with _
+        sanitized_query_field = sanitized_query_field[:64] # Limit length
+
         # Step 2: Extract Handwritten text using Azure DI (query_fields)
         from app.services.doc_intel import extract_with_strategy
         # Using prebuilt-layout, requesting specific query fields
@@ -430,7 +436,7 @@ async def dex_validate(
             filename=cropped_image.filename,
             mime_type=cropped_image.content_type,
             features=["queryFields"],
-            query_fields=[target_field] # Targeting the dynamic handwritten name
+            query_fields=[sanitized_query_field] # Targeting the dynamic handwritten name
         )
 
         handwritten_name = "인식 실패"
@@ -441,8 +447,8 @@ async def dex_validate(
         if documents and len(documents) > 0:
             fields = documents[0].get("fields", {})
             # Look for the exact query field name
-            if target_field in fields:
-                field_data = fields[target_field]
+            if sanitized_query_field in fields:
+                field_data = fields[sanitized_query_field]
                 # Azure DI SDK usually populates `value_string` or `content`
                 handwritten_name = field_data.get("value_string") or field_data.get("content") or "인식 실패"
         
