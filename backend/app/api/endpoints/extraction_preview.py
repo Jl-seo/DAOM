@@ -307,6 +307,167 @@ async def start_job_with_upload(
         "status": job.status
     }
 
+@router.post("/start-batch-jobs")
+async def start_batch_jobs(
+    background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...),
+    model_id: str = Form(...),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Upload multiple files and start independent extraction jobs for each (Phase 1 Batch Mode).
+    """
+    allowed_exts = ('.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.xlsx', '.xls', '.csv', '.docx')
+    user_id = current_user.id if current_user else "unknown"
+    
+    if len(files) > 20:
+        raise HTTPException(status_code=400, detail="Maximum 20 files allowed per batch request to prevent timeouts. Please upload in smaller chunks.")
+    
+    from app.services.storage import upload_file_to_blob
+    results = []
+    
+    for file in files:
+        if not file.filename.lower().endswith(allowed_exts):
+            results.append({"filename": file.filename, "error": f"Invalid extension"})
+            continue
+            
+        try:
+            file_url = await upload_file_to_blob(file)
+            
+            # Create Log
+            log = extraction_logs.save_extraction_log(
+                model_id=model_id,
+                user_id=user_id,
+                user_name=current_user.name if current_user else None,
+                user_email=current_user.email if current_user else None,
+                filename=file.filename,
+                file_url=file_url,
+                status="P100",  # Pending
+                tenant_id=current_user.tenant_id if current_user else None
+            )
+            log_id = log.id if log else None
+            
+            # Create Job
+            job = extraction_jobs.create_job(
+                model_id=model_id,
+                user_id=user_id,
+                filename=file.filename,
+                file_url=file_url,
+                user_name=current_user.name if current_user else None,
+                user_email=current_user.email if current_user else None,
+                original_log_id=log_id,
+                tenant_id=current_user.tenant_id if current_user else None
+            )
+            
+            # Start Background Task
+            background_tasks.add_task(
+                process_extraction_job,
+                job.id,
+                model_id,
+                file_url,
+                None,  # No single candidate
+                None,  # No candidate_file_urls
+                None   # No candidate_filenames
+            )
+            
+            results.append({
+                "filename": file.filename,
+                "job_id": job.id,
+                "log_id": log_id,
+                "status": "started"
+            })
+            
+        except Exception as e:
+            logger.error(f"[Batch Upload] Failed for {file.filename}: {str(e)}")
+            results.append({"filename": file.filename, "error": str(e)})
+
+    return {"results": results}
+
+@router.post("/dex-validate")
+async def dex_validate(
+    cropped_image: UploadFile = File(...),
+    barcode_value: str = Form(...),
+    model_id: str = Form(...),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Hybrid Progressive UX DEX Validation Endpoint.
+    1. Receives a small cropped Image & Barcode from the React Scanner.
+    2. Calls Azure DI to extract 'queryFields' (Handwritten Name).
+    3. Mocks an LIS database lookup using the barcode.
+    4. Compares and returns Pass/Fail.
+    """
+    allowed_exts = ('.jpg', '.jpeg', '.png')
+    if not cropped_image.filename.lower().endswith(allowed_exts):
+        raise HTTPException(status_code=400, detail="Invalid cropped image format.")
+
+    try:
+        image_bytes = await cropped_image.read()
+
+        # Step 1: Mock LIS Lookup based on Barcode ID
+        # In a real scenario, this would be `requests.get('https://gclabs.lis/api/patient?barcode=...')`
+        def mock_lis_lookup(barcode: str) -> str:
+            # Deterministic mock based on the last digit of the barcode
+            last_char = barcode[-1] if barcode else "0"
+            mock_db = {
+                "0": "김철수", "1": "홍길동", "2": "이영희", "3": "박지성", "4": "김연아",
+                "5": "유재석", "6": "강호동", "7": "신동엽", "8": "이수근", "9": "전현무"
+            }
+            return mock_db.get(last_char, "알수없음")
+
+        lis_name = mock_lis_lookup(barcode_value)
+
+        # Step 2: Extract Handwritten text using Azure DI (query_fields)
+        from app.services.doc_intel import extract_with_strategy
+        # Using prebuilt-layout, requesting specific query fields
+        di_result = await extract_with_strategy(
+            file_source=image_bytes,
+            model_type="prebuilt-layout",
+            filename=cropped_image.filename,
+            mime_type=cropped_image.content_type,
+            features=["queryFields"],
+            query_fields=["환자 성명"] # Targeting the handwritten name
+        )
+
+        handwritten_name = "인식 실패"
+        
+        # Step 3: Parse Azure DI Output for the query field
+        # In Azure DI, query fields appear in `result.documents[0].fields`
+        documents = di_result.get("documents", [])
+        if documents and len(documents) > 0:
+            fields = documents[0].get("fields", {})
+            # Look for the exact query field name
+            if "환자 성명" in fields:
+                field_data = fields["환자 성명"]
+                # Azure DI SDK usually populates `value_string` or `content`
+                handwritten_name = field_data.get("value_string") or field_data.get("content") or "인식 실패"
+        
+        # Clean up strings (remove spaces, standardize)
+        import re
+        clean_lis = re.sub(r'\s+', '', lis_name).strip()
+        clean_handwritten = re.sub(r'\s+', '', handwritten_name).strip()
+
+        # Step 4: String Matching Logic
+        is_match = (clean_lis == clean_handwritten)
+
+        # Allow basic Levenshtein distance fallback (e.g., 홍길동 vs 홍길둥)
+        if not is_match and len(clean_lis) > 2 and len(clean_handwritten) > 2:
+            import Levenshtein
+            distance = Levenshtein.distance(clean_lis, clean_handwritten)
+            if distance <= 1: # Tolerate 1 typo
+                is_match = True
+
+        return {
+            "barcode": barcode_value,
+            "lis_name": lis_name,
+            "handwritten_name": handwritten_name,
+            "is_match": is_match
+        }
+
+    except Exception as e:
+        logger.error(f"[DEX Validate] Failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/start-extraction")
 async def start_extraction(
     request: StartExtractionRequest,

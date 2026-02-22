@@ -25,7 +25,14 @@ def get_supported_models() -> List[Dict[str, str]]:
         for m in AzureModelType
     ]
 
-async def extract_with_strategy(file_source: Any, model_type: str = settings.OCR_DEFAULT_MODEL, filename: str = None, mime_type: str = None) -> Dict[str, Any]:
+async def extract_with_strategy(
+    file_source: Any, 
+    model_type: str = settings.OCR_DEFAULT_MODEL, 
+    filename: str = None, 
+    mime_type: str = None,
+    features: List[str] = None,
+    query_fields: List[str] = None
+) -> Dict[str, Any]:
     """
     Universal extraction, strategy determined by model_type.
     file_source: str (URL) or bytes/stream
@@ -52,11 +59,19 @@ async def extract_with_strategy(file_source: Any, model_type: str = settings.OCR
             credential=AzureKeyCredential(settings.AZURE_FORM_KEY)
         ) as client:
 
+            # Prepare common kwargs
+            analyze_kwargs = {}
+            if features:
+                analyze_kwargs['features'] = features
+            if query_fields:
+                analyze_kwargs['query_fields'] = query_fields
+
             # Check if file_source is a string (URL)
             if isinstance(file_source, str):
                 poller = await client.begin_analyze_document(
                     model_id=model_type,
-                    body={"urlSource": file_source}
+                    body={"urlSource": file_source},
+                    **analyze_kwargs
                 )
             else:
                 # Assume bytes/stream
@@ -81,7 +96,8 @@ async def extract_with_strategy(file_source: Any, model_type: str = settings.OCR
                 poller = await client.begin_analyze_document(
                     model_id=model_type,
                     body=file_source,
-                    content_type=content_type
+                    content_type=content_type,
+                    **analyze_kwargs
                 )
 
 
