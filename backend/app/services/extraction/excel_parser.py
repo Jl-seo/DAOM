@@ -72,54 +72,65 @@ class ExcelParser:
     def _rows_to_markdown(cls, rows: List[List[str]], sheet_name: str) -> str:
         """
         Convert a 2D array of rows to a valid Markdown table string.
-        Automatically prunes entirely empty columns to save token space.
+        Handles dynamic Excel structures (sparse rows, varying lengths).
         """
         if not rows:
             return ""
             
-        # 1. Prune Empty Columns
-        col_count = max(len(row) for row in rows)
+        # 1. Clean data: strip whitespace and resolve newlines
+        cleaned_rows = []
+        for row in rows:
+             new_row = [cell.strip().replace("\n", " ") for cell in row]
+             
+             # Remove trailing empty cells from row (compacting)
+             while new_row and not new_row[-1]:
+                 new_row.pop()
+                 
+             if new_row:
+                 cleaned_rows.append(new_row)
+
+        if not cleaned_rows:
+            return ""
+
+        # 2. Determine MAXIMUM column width across ALL non-empty rows
+        max_cols = max(len(row) for row in cleaned_rows)
+
+        # 3. Prune Entirely Empty Columns
         empty_cols = set()
-        for col_idx in range(col_count):
+        for col_idx in range(max_cols):
             all_empty = True
-            for row in rows:
-                if col_idx < len(row) and row[col_idx].strip():
+            for row in cleaned_rows:
+                if col_idx < len(row) and row[col_idx]:
                     all_empty = False
                     break
             if all_empty:
                 empty_cols.add(col_idx)
-                
+
         optimized_rows = []
-        for row in rows:
-            new_row = [cell.strip().replace("\n", " ") for col_idx, cell in enumerate(row) if col_idx not in empty_cols]
-            
-            # Remove trailing empty cells to compact the row
-            while new_row and not new_row[-1]:
-                new_row.pop()
-                
-            if new_row:
-                optimized_rows.append(new_row)
-                
+        for row in cleaned_rows:
+            # Pad the row to max_cols before pruning empty columns
+            padded_row = row + [""] * (max_cols - len(row))
+            filtered_row = [cell for idx, cell in enumerate(padded_row) if idx not in empty_cols]
+            optimized_rows.append(filtered_row)
+
         if not optimized_rows:
-            return ""
-            
-        # 2. Build Markdown
+             return ""
+
+        final_col_count = len(optimized_rows[0])
+        
+        # 4. Build Markdown
         md_lines = [f"### Sheet: {sheet_name}"]
         
-        # Assume first non-empty row is header conceptually for Markdown structure
+        # Extract the first row as the pseudo-header
         header_row = optimized_rows[0]
         md_lines.append("| " + " | ".join(header_row) + " |")
         
         # Build Separator
-        separator = "| " + " | ".join(["---"] * len(header_row)) + " |"
+        separator = "| " + " | ".join(["---"] * final_col_count) + " |"
         md_lines.append(separator)
         
         # Build Body
         for row in optimized_rows[1:]:
-            # Pad row to match header length for valid markdown
-            padded_row = row + [""] * (len(header_row) - len(row))
-            # Truncate if row is longer than header
-            padded_row = padded_row[:len(header_row)]
-            md_lines.append("| " + " | ".join(padded_row) + " |")
+            md_lines.append("| " + " | ".join(row) + " |")
             
         return "\n".join(md_lines)
