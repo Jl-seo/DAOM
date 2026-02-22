@@ -183,20 +183,19 @@ def save_extraction_log(
         if payload_size > THRESHOLD_BYTES:
             try:
                 loop = asyncio.get_running_loop()
-                # Run as async task if loop exists, but since save_extraction_log is synchronous,
-                # we just use run_until_complete if no loop, or create a new task
-                if loop and loop.is_running():
-                    # We shouldn't block the running loop, but if this is critical, we might have an issue
-                    # In FastAPI we typically would fire-and-forget or await. Since this is a sync func:
-                    # For safety, let's assume we can trigger offload synchronously using a fresh event loop or threading if needed
-                    # However, for simplicity and relying on Azure SDK's sync clients internally:
-                    target = loop.create_task(_offload_data_if_needed(log_dict, log.id))
-                    # Actually, if we just let it run async, `log_dict` is mutating.
-                    # But if we must wait, we should ideally refactor to `async def save_extraction_log`.
-                    # Given time constraints, let's use `asyncio.run` in a ThreadPool if loop is busy
-                    import nest_asyncio
-                    nest_asyncio.apply()
-                    log_dict = loop.run_until_complete(_offload_data_if_needed(log_dict, log.id))
+                # Run as async task if loop exists. Since save_extraction_log is synchronous,
+                # use threading to run the new loop safely without nest_asyncio.
+                result_container = []
+                def _run_in_thread():
+                    res = asyncio.run(_offload_data_if_needed(log_dict, log.id))
+                    result_container.append(res)
+                
+                import threading
+                t = threading.Thread(target=_run_in_thread)
+                t.start()
+                t.join()
+                if result_container:
+                    log_dict = result_container[0]
             except RuntimeError:
                 # No loop running, straight asyncio.run
                 log_dict = asyncio.run(_offload_data_if_needed(log_dict, log.id))
