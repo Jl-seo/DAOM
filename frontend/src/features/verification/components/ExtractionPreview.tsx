@@ -483,7 +483,7 @@ function ResizableNestedTable({
                     <tbody style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative', display: 'block' }}>
                         {virtualizer.getVirtualItems().map((virtualRow) => {
                             const row = displayData[virtualRow.index]
-                            const isHighlightRow = dexValidation && dexValidation.status !== 'untested'
+                            const isHighlightRow = !!dexValidation
 
                             return (
                                 <tr
@@ -597,8 +597,15 @@ function EditableValueCell({
                     }}
                     dexValidation={dexValidation}
                 />
-                <div className="text-[10px] text-muted-foreground mt-1 text-right">
-                    * 테이블 모드로 자동 변환됨
+                <div className="flex justify-between flex-wrap items-center mt-1 gap-2">
+                    <div className="text-[10px] text-muted-foreground">
+                        * 테이블 모드로 자동 변환됨
+                    </div>
+                    {dexValidation && (
+                        <div className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 flex items-center gap-1 shadow-sm">
+                            <span className="opacity-70">바코드 정답:</span> {dexValidation.lis_expected_value}
+                        </div>
+                    )}
                 </div>
             </div>
         )
@@ -616,31 +623,49 @@ function EditableValueCell({
                     }}
                     dexValidation={dexValidation}
                 />
-                <div className="text-[10px] text-muted-foreground mt-1 text-right">
-                    * 단일 객체를 테이블로 표시
+                <div className="flex justify-between flex-wrap items-center mt-1 gap-2">
+                    <div className="text-[10px] text-muted-foreground">
+                        * 단일 객체를 테이블로 표시
+                    </div>
+                    {dexValidation && (
+                        <div className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 flex items-center gap-1 shadow-sm">
+                            <span className="opacity-70">바코드 정답:</span> {dexValidation.lis_expected_value}
+                        </div>
+                    )}
                 </div>
             </div>
         )
     }
 
     // Default Text Input (changed to Textarea for better visibility of long content)
-    return hasValue ? (
-        <textarea
-            className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:bg-card outline-none text-foreground py-1 min-h-[24px] resize-y text-sm block"
-            style={{ fieldSizing: 'content' } as any}
-            value={renderValue(value)}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder="값 입력..."
-            rows={1}
-        />
-    ) : (
-        <input
-            type="text"
-            className="w-full bg-chart-4/10 border-b border-chart-4/30 focus:border-primary focus:bg-card outline-none text-foreground py-0.5 placeholder-chart-4"
-            value=""
-            onChange={(e) => onChange(e.target.value)}
-            placeholder="값을 찾지 못함 - 직접 입력"
-        />
+    return (
+        <div className="w-full flex flex-col gap-1.5">
+            {hasValue ? (
+                <textarea
+                    className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:bg-card outline-none text-foreground py-1 min-h-[24px] resize-y text-sm block"
+                    style={{ fieldSizing: 'content' } as any}
+                    value={renderValue(value)}
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder="값 입력..."
+                    rows={1}
+                />
+            ) : (
+                <input
+                    type="text"
+                    className="w-full bg-chart-4/10 border-b border-chart-4/30 focus:border-primary focus:bg-card outline-none text-foreground py-0.5 placeholder-chart-4"
+                    value=""
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder="값을 찾지 못함 - 직접 입력"
+                />
+            )}
+            {dexValidation && (
+                <div className="flex justify-end w-full">
+                    <div className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 flex items-center gap-1 shadow-sm">
+                        <span className="opacity-70">바코드 정답:</span> {dexValidation.lis_expected_value}
+                    </div>
+                </div>
+            )}
+        </div>
     )
 }
 
