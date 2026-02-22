@@ -13,9 +13,10 @@ class ExcelParser:
     """
     
     @classmethod
-    def from_bytes(cls, file_bytes: bytes, file_ext: str) -> str:
+    def from_bytes(cls, file_bytes: bytes, file_ext: str) -> List[Dict[str, str]]:
         """
-        Parse Excel/CSV file bytes directly into a single Markdown string containing all tables.
+        Parse Excel/CSV file bytes directly into a list of Markdown sections (one per sheet).
+        Returns: [{"sheet_name": "Data", "content": "...markdown..."}, ...]
         """
         ext = file_ext.lower().replace(".", "")
         if ext == "csv":
@@ -26,7 +27,7 @@ class ExcelParser:
             raise ValueError(f"Unsupported file extension: {ext}")
             
     @classmethod
-    def _parse_csv(cls, file_bytes: bytes) -> str:
+    def _parse_csv(cls, file_bytes: bytes) -> List[Dict[str, str]]:
         # Try to decode with different encodings
         content_str = None
         for encoding in ["utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"]:
@@ -43,10 +44,11 @@ class ExcelParser:
         reader = csv.reader(io.StringIO(content_str))
         rows = list(reader)
         
-        return cls._rows_to_markdown(rows, sheet_name="Data")
+        md_content = cls._rows_to_markdown(rows, sheet_name="Data")
+        return [{"sheet_name": "Data", "content": md_content}] if md_content else []
 
     @classmethod
-    def _parse_excel(cls, file_bytes: bytes) -> str:
+    def _parse_excel(cls, file_bytes: bytes) -> List[Dict[str, str]]:
         try:
             excel_file = pd.ExcelFile(io.BytesIO(file_bytes), engine="calamine")
         except ImportError:
@@ -64,9 +66,9 @@ class ExcelParser:
                 
             md_table = cls._rows_to_markdown(rows, sheet_name)
             if md_table:
-                markdown_sections.append(md_table)
+                markdown_sections.append({"sheet_name": sheet_name, "content": md_table})
                 
-        return "\n\n".join(markdown_sections)
+        return markdown_sections
 
     @classmethod
     def _rows_to_markdown(cls, rows: List[List[str]], sheet_name: str) -> str:

@@ -499,75 +499,72 @@ class BetaPipeline(ExtractionPipeline):
 
     async def _extract_table_chunked(self, model: ExtractionModel, tagged_text: str, ocr_data: Dict[str, Any], ref_map: Dict, chunk_size: int) -> ExtractionResult:
         """
-        Stage 2 (Large Content): Extract TABLE data from chunks (lines).
+        Stage 2 (Large Content): Extract TABLE data from chunks.
+        Supports multi-sheet Excel files via `_excel_sheets` to prevent cross-sheet header contamination.
         """
-        # --- Step 1: Split TAGGED text into chunks by line boundaries ---
-        lines = tagged_text.split("\n")
-        
-        chunks = []
-        current_chunk_lines = []
-        current_chunk_len = 0
-        
-        for line in lines:
-            line_len = len(line) + 1  # +1 for newline
-            
-            if current_chunk_len + line_len > chunk_size and current_chunk_lines:
-                chunks.append("\n".join(current_chunk_lines))
-                current_chunk_lines = []
-                current_chunk_len = 0
-            
-            current_chunk_lines.append(line)
-            current_chunk_len += line_len
-        
-        if current_chunk_lines:
-            chunks.append("\n".join(current_chunk_lines))
-        
-        logger.info(f"[BetaPipeline] Table Chunking: Created {len(chunks)} text chunks")
-        
-        if not chunks:
-            return ExtractionResult()
-        
-        # Header context for every chunk (so LLM knows table structure)
-        header_context = tagged_text[:1500]
-        
-        # --- Run Parallel Extraction (Table Mode) ---
         table_prompt = RefinerEngine.construct_prompt(model, language="ko", mode="table")
         
-        async def process_text_chunk(chunk_text: str, chunk_idx: int) -> ExtractionResult:
-            """Send a tagged text chunk to LLM for TABLE field extraction only."""
-            
-            # Prepend header context to non-first chunks
-            final_chunk = chunk_text
-            if chunk_idx > 0:
-                final_chunk = header_context + "\n... [Header Context End] ...\n" + chunk_text
-            
-            user_prompt = (
-                f"DOCUMENT DATA (Tagged Layout Format):\n{final_chunk}\n\n"
-                f"TASK: Extract table rows from this section of the document.\n"
-                f"Return valid JSON."
-            )
-            
-            messages = [
-                {"role": "system", "content": table_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-            
-            async with self.semaphore:
-                try:
-                    raw_result = await self.call_llm(messages)
-                    return self._normalize_output(raw_result, ocr_data, ref_map, chunk_text)
-                except Exception as e:
-                    logger.error(f"[BetaPipeline] Table Chunk {chunk_idx} failed: {e}")
-                    # Return empty result with error
-                    res = ExtractionResult()
-                    res.error = str(e)
-                    return res
+        # 1. Prepare Target Sheets / Texts
+        target_sections = []
+        if "_excel_sheets" in ocr_data and isinstance(ocr_data["_excel_sheets"], list):
+            for sheet in ocr_data["_excel_sheets"]:
+                target_sections.append({
+                    "name": sheet.get("sheet_name", "Unknown Sheet"),
+                    "content": sheet.get("content", "")
+                })
+        else:
+            # Standard PDF/Image routing
+            target_sections.append({
+                "name": "Document",
+                "content": tagged_text
+            })
+
+        # 2. Build Chunks Per Section
+        all_chunk_tasks = []
         
-        # Parallel execution
-        tasks = [process_text_chunk(chunk, idx) for idx, chunk in enumerate(chunks)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for section in target_sections:
+            content = section["content"]
+            if not content.strip():
+                continue
+                
+            lines = content.split("\n")
+            chunks = []
+            current_chunk_lines = []
+            current_chunk_len = 0
+            
+            for line in lines:
+                line_len = len(line) + 1  # +1 for newline
+                if current_chunk_len + line_len > chunk_size and current_chunk_lines:
+                    chunks.append("\n".join(current_chunk_lines))
+                    current_chunk_lines = []
+                    current_chunk_len = 0
+                
+                current_chunk_lines.append(line)
+                current_chunk_len += line_len
+            
+            if current_chunk_lines:
+                chunks.append("\n".join(current_chunk_lines))
+                
+            # Header context STRICTLY isolated to this specific sheet/section
+            header_context = content[:1500]
+            
+            # Create process task closure for this specific chunk
+            for idx, chunk_text in enumerate(chunks):
+                all_chunk_tasks.append(
+                    self._process_table_chunk_task(
+                        chunk_text, idx, header_context, section["name"], table_prompt, ocr_data, ref_map
+                    )
+                )
+
+        if not all_chunk_tasks:
+            return ExtractionResult()
+            
+        logger.info(f"[BetaPipeline] Table Chunking: Created {len(all_chunk_tasks)} tasks across {len(target_sections)} sections")
         
-        # --- Merge Results (Field-aware Deduplication) ---
+        # 3. Parallel Execution
+        results = await asyncio.gather(*all_chunk_tasks, return_exceptions=True)
+        
+        # 4. Merge Results (Field-aware Deduplication)
         merged_result = ExtractionResult()
         merged_guide = {} # Key -> List[Row]
         seen_rows = {}    # Key -> Set(row_hash)
@@ -580,7 +577,7 @@ class BetaPipeline(ExtractionPipeline):
             merged_result.token_usage.prompt_tokens += res.token_usage.prompt_tokens
             merged_result.token_usage.completion_tokens += res.token_usage.completion_tokens
             merged_result.token_usage.total_tokens += res.token_usage.total_tokens
-            
+                        
             # Merge Lists
             if res.guide_extracted:
                 for key, val in res.guide_extracted.items():
@@ -596,11 +593,36 @@ class BetaPipeline(ExtractionPipeline):
                             if row_hash not in seen_rows[key]:
                                 seen_rows[key].add(row_hash)
                                 merged_guide[key].append(row)
-        
+
         merged_result.guide_extracted = self._normalize_column_keys(merged_guide)
-        logger.info(f"[BetaPipeline] Table Merge: Extracted fields {list(merged_guide.keys())}")
-        
         return merged_result
+
+    async def _process_table_chunk_task(self, chunk_text: str, chunk_idx: int, header_context: str, section_name: str, table_prompt: str, ocr_data: Dict, ref_map: Dict) -> ExtractionResult:
+        """Helper to process a single chunk safely."""
+        final_chunk = chunk_text
+        if chunk_idx > 0:
+            final_chunk = f"--- [SHEET/SECTION HEADER: {section_name}] ---\n{header_context}\n... [Header Context End] ...\n{chunk_text}"
+        
+        user_prompt = (
+            f"DOCUMENT DATA (Tagged Layout Format):\n{final_chunk}\n\n"
+            f"TASK: Extract table rows from this section of the document.\n"
+            f"Return valid JSON."
+        )
+        
+        messages = [
+            {"role": "system", "content": table_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        async with self.semaphore:
+            try:
+                raw_result = await self.call_llm(messages)
+                return self._normalize_output(raw_result, ocr_data, ref_map, chunk_text)
+            except Exception as e:
+                logger.error(f"[BetaPipeline] Table Chunk {chunk_idx} in {section_name} failed: {e}")
+                res = ExtractionResult()
+                res.error = str(e)
+                return res
 
     def _normalize_column_keys(self, merged_guide: dict) -> dict:
         """

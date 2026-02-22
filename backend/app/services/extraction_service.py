@@ -118,7 +118,10 @@ class ExtractionService:
                 ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else 'xlsx'
                 if mime_type == "text/csv": ext = "csv"
                 
-                md_content = ExcelParser.from_bytes(file_content, ext)
+                parsed_sheets = ExcelParser.from_bytes(file_content, ext)
+                
+                # Join all sheet contents for the legacy full 'content' string fallback
+                md_content = "\n\n".join([s.get("content", "") for s in parsed_sheets])
                 
                 # Mock OCR structure for compatibility with downstream
                 ocr_result = {
@@ -127,7 +130,8 @@ class ExtractionService:
                     "tables": [],
                     "paragraphs": [],
                     "styles": [],
-                    "_is_direct_markdown": True
+                    "_is_direct_markdown": True,
+                    "_excel_sheets": parsed_sheets  # Pass structured sheets downstream
                 }
                 is_excel_mode = True
             except Exception as e:
