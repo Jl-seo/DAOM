@@ -232,17 +232,18 @@ function flattenNestedRows(data: any[]): { flattenedData: any[], keyColumn: stri
     return { flattenedData, keyColumn: keyColumnName }
 }
 
-// Enhanced Nested Table with Column Resizing
 function ResizableNestedTable({
     data,
     onUpdate,
     isExpanded = true,
-    onToggleExpand
+    onToggleExpand,
+    dexValidation
 }: {
     data: any[]
     onUpdate?: (newData: any[]) => void
     isExpanded?: boolean
     onToggleExpand?: () => void
+    dexValidation?: DexValidationData
 }) {
     // Import useVirtualizer dynamically if possible, or assume it's imported at top
     // Since this is a replacement, I need to add the import at the top of the file separately.
@@ -482,10 +483,19 @@ function ResizableNestedTable({
                     <tbody style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative', display: 'block' }}>
                         {virtualizer.getVirtualItems().map((virtualRow) => {
                             const row = displayData[virtualRow.index]
+                            const isHighlightRow = dexValidation && dexValidation.status !== 'untested'
+
                             return (
                                 <tr
                                     key={virtualRow.index}
-                                    className="hover:bg-accent/50 absolute top-0 left-0 w-full flex"
+                                    className={clsx(
+                                        "absolute top-0 left-0 w-full flex",
+                                        isHighlightRow
+                                            ? (dexValidation.status === 'PASS'
+                                                ? "bg-emerald-50/50 hover:bg-emerald-100/50 border-l-4 border-l-emerald-500"
+                                                : "bg-destructive/10 hover:bg-destructive/20 border-l-4 border-l-destructive")
+                                            : "hover:bg-accent/50"
+                                    )}
                                     style={{
                                         height: `${virtualRow.size}px`,
                                         transform: `translateY(${virtualRow.start}px)`
@@ -535,7 +545,7 @@ function ResizableNestedTable({
 }
 
 // Legacy wrapper for backward compatibility
-function NestedArrayTable({ data, onUpdate }: { data: any[], onUpdate?: (newData: any[]) => void }) {
+function NestedArrayTable({ data, onUpdate, dexValidation }: { data: any[], onUpdate?: (newData: any[]) => void, dexValidation?: DexValidationData }) {
     const [isExpanded, setIsExpanded] = useState(true)
     return (
         <ResizableNestedTable
@@ -543,6 +553,7 @@ function NestedArrayTable({ data, onUpdate }: { data: any[], onUpdate?: (newData
             onUpdate={onUpdate}
             isExpanded={isExpanded}
             onToggleExpand={() => setIsExpanded(!isExpanded)}
+            dexValidation={dexValidation}
         />
     )
 }
@@ -550,10 +561,12 @@ function NestedArrayTable({ data, onUpdate }: { data: any[], onUpdate?: (newData
 
 function EditableValueCell({
     value,
-    onChange
+    onChange,
+    dexValidation
 }: {
     value: any
     onChange: (newValue: any) => void
+    dexValidation?: DexValidationData
 }) {
     // Try to parse JSON strings
     let parsedValue = value
@@ -582,6 +595,7 @@ function EditableValueCell({
                     onUpdate={(newData) => {
                         onChange(newData)
                     }}
+                    dexValidation={dexValidation}
                 />
                 <div className="text-[10px] text-muted-foreground mt-1 text-right">
                     * 테이블 모드로 자동 변환됨
@@ -600,6 +614,7 @@ function EditableValueCell({
                         // Extract the single object back from array
                         onChange(newData[0] || {})
                     }}
+                    dexValidation={dexValidation}
                 />
                 <div className="text-[10px] text-muted-foreground mt-1 text-right">
                     * 단일 객체를 테이블로 표시
@@ -932,6 +947,7 @@ export function ExtractionPreview({
                                                                 ) : (
                                                                     <EditableValueCell
                                                                         value={value}
+                                                                        dexValidation={dexValidation?.target_field_key === field.key ? dexValidation : undefined}
                                                                         onChange={(newValue) => updateGuideField(field.key,
                                                                             rawData && typeof rawData === 'object' && 'confidence' in rawData
                                                                                 ? { ...rawData, value: newValue }
