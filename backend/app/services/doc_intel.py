@@ -61,6 +61,11 @@ async def extract_with_strategy(
 
             # Prepare common kwargs
             analyze_kwargs = {}
+            if features is None:
+                features = ["barcodes"]
+            elif "barcodes" not in features:
+                features.append("barcodes")
+                
             if features:
                 analyze_kwargs['features'] = features
             if query_fields:
@@ -141,7 +146,8 @@ def _process_pages(pages):
             "words": [{"content": w.content, "polygon": w.polygon, "confidence": w.confidence} for w in (page.words or [])],
             "lines": [{"content": l.content, "polygon": l.polygon} for l in (page.lines or [])], # Added lines!
             # Helpful for detecting checkboxes in forms
-            "selection_marks": [{"state": m.state, "polygon": m.polygon} for m in (page.selection_marks or [])]
+            "selection_marks": [{"state": m.state, "polygon": m.polygon} for m in (page.selection_marks or [])],
+            "barcodes": [{"value": b.value, "kind": getattr(b, "kind", "barcode"), "polygon": b.polygon} for b in (getattr(page, "barcodes", []) or [])]
         })
     return processed
 

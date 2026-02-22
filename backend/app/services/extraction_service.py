@@ -56,6 +56,24 @@ class ExtractionService:
                 vision_pipeline = VisionExtractionPipeline(self.azure_openai)
                 extraction_result = await vision_pipeline.execute(model, file_content, filename, mime_type)
                 
+                # Check for DEX target and try to get barcode via DI Read if needed
+                if not barcode and mime_type not in ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "text/csv"]:
+                    target_field_key = next((f.key for f in model.fields if getattr(f, "is_dex_target", False)), None)
+                    if target_field_key:
+                        try:
+                            from app.services.doc_intel import extract_with_strategy, AzureModelType
+                            logger.info("[Extraction] Vision Mode: Auto-fetching barcode via DI Read model")
+                            di_res = await extract_with_strategy(file_content, model_type=AzureModelType.READ, mime_type=mime_type, features=["barcodes"])
+                            for page in di_res.get("pages", []):
+                                barcodes = page.get("barcodes", [])
+                                if barcodes:
+                                    barcode = barcodes[0].get("value", "")
+                                    if barcode:
+                                        logger.info(f"[Extraction] Vision Mode: Auto-detected barcode from DI: {barcode}")
+                                        break
+                        except Exception as e:
+                            logger.warning(f"[Extraction] Auto-barcode fetch failed in Vision Mode: {e}")
+
                 # Convert to dict for _validate_and_format compatibility
                 result_dict = {
                     "guide_extracted": extraction_result.guide_extracted,
@@ -78,6 +96,10 @@ class ExtractionService:
                     "timestamp": start_time.isoformat(),
                     "pipeline_mode": "vision-extraction",
                 }
+
+                if barcode:
+                    final_result = self._apply_dex_validation(final_result, model, barcode)
+
                 return final_result
             except Exception as e:
                 import traceback
@@ -120,6 +142,16 @@ class ExtractionService:
                 logger.error(f"[Extraction] OCR failed: {e}")
                 return {"error": f"OCR Analysis failed: {str(e)}"}
             
+        # 2.5 Auto-extract Barcode from OCR if not manually provided
+        if not barcode and not is_excel_mode and ocr_result and "pages" in ocr_result:
+            for page in ocr_result.get("pages", []):
+                barcodes = page.get("barcodes", [])
+                if barcodes:
+                    barcode = barcodes[0].get("value", "")
+                    if barcode:
+                        logger.info(f"[Extraction] Auto-detected barcode from Azure DI: {barcode}")
+                        break
+
         # 3. LLM Extraction
         try:
             # We pass the full model object to allow checking flags/rules
@@ -143,41 +175,7 @@ class ExtractionService:
 
         # 5. DEX Integration (LLM vs LIS Check)
         if barcode:
-            # Find the field marked as is_dex_target=True
-            target_field_key = next((f.key for f in model.fields if getattr(f, "is_dex_target", False)), None)
-            
-            if target_field_key:
-                # Mock LIS lookup
-                def mock_lis_lookup(code: str) -> str:
-                    last_char = code[-1] if code else "0"
-                    mock_db = {
-                        "0": "김철수", "1": "홍길동", "2": "이영희", "3": "박지성", "4": "김연아",
-                        "5": "유재석", "6": "강호동", "7": "신동엽", "8": "이수근", "9": "전현무"
-                    }
-                    return mock_db.get(last_char, "알수없음")
-                
-                lis_expected = mock_lis_lookup(barcode)
-                
-                # Retrieve extracted LLM value
-                llm_extracted_item = final_result.get("guide_extracted", {}).get(target_field_key, {})
-                llm_value = llm_extracted_item.get("value") if isinstance(llm_extracted_item, dict) else str(llm_extracted_item)
-                
-                # Compare
-                import re
-                clean_lis = re.sub(r'\s+', '', lis_expected).strip()
-                clean_llm = re.sub(r'\s+', '', str(llm_value or "")).strip()
-                
-                is_match = (clean_llm != "") and (clean_llm == clean_lis)
-                
-                # Append Metadata
-                final_result["__dex_validation__"] = {
-                    "status": "PASS" if is_match else "FAIL",
-                    "barcode": barcode,
-                    "target_field_key": target_field_key,
-                    "lis_expected_value": lis_expected,
-                    "llm_extracted_value": llm_value
-                }
-                logger.info(f"[Extraction DEX] Validated barcode {barcode}. Expected: {lis_expected}, Got: {llm_value}. Status: {'PASS' if is_match else 'FAIL'}")
+            final_result = self._apply_dex_validation(final_result, model, barcode)
 
         return final_result
 
@@ -611,6 +609,45 @@ If a field is not found, return null.
             # If standard list or garbage, return empty or wrap
             return {}
         return extracted
+
+    def _apply_dex_validation(self, final_result: Dict[str, Any], model: ExtractionModel, barcode: str) -> Dict[str, Any]:
+        """Applies DEX validation logic by comparing LIS expected value against LLM extracted value."""
+        target_field_key = next((f.key for f in model.fields if getattr(f, "is_dex_target", False)), None)
+        
+        if target_field_key:
+            # Mock LIS lookup
+            def mock_lis_lookup(code: str) -> str:
+                last_char = code[-1] if code else "0"
+                mock_db = {
+                    "0": "김철수", "1": "홍길동", "2": "이영희", "3": "박지성", "4": "김연아",
+                    "5": "유재석", "6": "강호동", "7": "신동엽", "8": "이수근", "9": "전현무"
+                }
+                return mock_db.get(last_char, "알수없음")
+            
+            lis_expected = mock_lis_lookup(barcode)
+            
+            # Retrieve extracted LLM value
+            llm_extracted_item = final_result.get("guide_extracted", {}).get(target_field_key, {})
+            llm_value = llm_extracted_item.get("value") if isinstance(llm_extracted_item, dict) else str(llm_extracted_item)
+            
+            # Compare
+            import re
+            clean_lis = re.sub(r'\s+', '', lis_expected).strip()
+            clean_llm = re.sub(r'\s+', '', str(llm_value or "")).strip()
+            
+            is_match = (clean_llm != "") and (clean_llm == clean_lis)
+            
+            # Append Metadata
+            final_result["__dex_validation__"] = {
+                "status": "PASS" if is_match else "FAIL",
+                "barcode": barcode,
+                "target_field_key": target_field_key,
+                "lis_expected_value": lis_expected,
+                "llm_extracted_value": llm_value
+            }
+            logger.info(f"[Extraction DEX] Validated barcode {barcode}. Expected: {lis_expected}, Got: {llm_value}. Status: {'PASS' if is_match else 'FAIL'}")
+        
+        return final_result
 
 
 # Singleton Instance
