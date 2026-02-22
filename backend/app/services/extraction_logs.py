@@ -471,7 +471,7 @@ def update_log_status(
         from app.services.storage import save_json_as_blob
         import json as _json
         import asyncio
-        import nest_asyncio
+        import threading
         
         def get_json_size(obj):
             return len(_json.dumps(obj, ensure_ascii=False, default=str))
@@ -532,11 +532,19 @@ def update_log_status(
         if payload_size > THRESHOLD_BYTES:
             try:
                 loop = asyncio.get_running_loop()
-                if loop and loop.is_running():
-                    target = loop.create_task(_offload_data_if_needed(log_dict, log.id))
-                    nest_asyncio.apply()
-                    log_dict = loop.run_until_complete(_offload_data_if_needed(log_dict, log.id))
+                # Already in an event loop. Spawn a thread to block and run the new loop safely.
+                result_container = []
+                def _run_in_thread():
+                    res = asyncio.run(_offload_data_if_needed(log_dict, log.id))
+                    result_container.append(res)
+                
+                t = threading.Thread(target=_run_in_thread)
+                t.start()
+                t.join()
+                if result_container:
+                    log_dict = result_container[0]
             except RuntimeError:
+                # No event loop is running
                 log_dict = asyncio.run(_offload_data_if_needed(log_dict, log.id))
 
         container.upsert_item(log_dict)
