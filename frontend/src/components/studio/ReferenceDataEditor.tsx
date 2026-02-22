@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps */
- 
+
 import { useState, useEffect } from 'react'
 import { AlertCircle, CheckCircle2, Database, HelpCircle } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -141,10 +141,40 @@ export function ReferenceDataEditor({ value, onChange, disabled }: ReferenceData
             )}
 
             {/* Help text */}
-            <div className="text-[10px] text-muted-foreground space-y-1">
-                <p>• <strong>customer_codes</strong>: 코드 → 이름 매핑 (예: 고객코드, 품목코드)</p>
-                <p>• <strong>validation</strong>: 유효값 목록, 형식 규칙 등</p>
-                <p>• 추출 시 LLM이 이 데이터를 참고하여 값을 변환하거나 검증합니다.</p>
+            <div className="text-[10px] text-muted-foreground space-y-2 mt-2">
+                <div className="space-y-1">
+                    <p>• <strong>customer_codes</strong>: 코드 → 이름 매핑 (예: 고객코드, 품목코드)</p>
+                    <p>• <strong>validation</strong>: 유효값 목록, 형식 규칙 등</p>
+                    <p>• 추출 시 LLM이 이 데이터를 참고하여 값을 변환하거나 검증합니다.</p>
+                </div>
+
+                <div className="p-2.5 bg-blue-50/50 border border-blue-100 rounded-md">
+                    <p className="text-blue-800 font-medium flex items-center gap-1 mb-1">
+                        <HelpCircle className="w-3 h-3" />
+                        여러 데이터를 넣을 때 주의사항
+                    </p>
+                    <p className="text-blue-700/80 mb-1.5 leading-relaxed">
+                        JSON 규칙상 <strong>동일한 키를 여러 번 쓰면 맨 마지막 1개만 저장</strong>됩니다. 여러 사람의 정보를 넣으려면 <strong>반드시 배열 <code>[ ]</code> 기호를 사용</strong>해주세요.
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-[9px] font-mono">
+                        <div className="bg-white p-1.5 rounded border border-red-100">
+                            <span className="text-red-500 font-bold block mb-1">❌ 잘못된 예 (덮어쓰기 발생)</span>
+                            {`{
+  "고객정보": { "이름": "황양숙" },
+  "고객정보": { "이름": "강수빈" }
+}`}
+                        </div>
+                        <div className="bg-white p-1.5 rounded border border-green-100">
+                            <span className="text-emerald-500 font-bold block mb-1">✅ 올바른 예 (배열 사용)</span>
+                            {`{
+  "고객목록": [
+    { "이름": "황양숙" },
+    { "이름": "강수빈" }
+  ]
+}`}
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     )
