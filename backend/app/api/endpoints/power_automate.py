@@ -11,7 +11,7 @@ from app.core.enums import ExtractionStatus
 from app.services import extraction_logs
 from app.services.models import load_models
 from app.services.storage import upload_file_to_blob, upload_bytes_to_blob
-from app.core.group_permission_utils import get_accessible_model_ids
+from app.core.group_permission_utils import get_accessible_model_ids, get_model_role_by_group
 from app.core.auth import is_super_admin
 import logging
 import uuid
@@ -170,6 +170,20 @@ async def upload_document(
     import json
     import os
 
+    # ========== PERMISSION CHECK ==========
+    is_super = await is_super_admin(current_user)
+    if not is_super:
+        model_role = await get_model_role_by_group(
+            current_user.id,
+            current_user.tenant_id,
+            payload.model_id
+        )
+        if model_role is None:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to use this model"
+            )
+
     # ========== FILE TYPE VALIDATION ==========
     # Check 1: Extension validation
     ALLOWED_EXTENSIONS = {
@@ -206,6 +220,10 @@ async def upload_document(
     
     # Power Automate sometimes passes dicts stringified like "{\"$content-type\":\"...\",\"$content\":\"base64str\"}"
     b64_str = payload.file.contentBytes.strip()
+    
+    # DoS Prevention: Limit base64 length (approx 15MB)
+    if len(b64_str) > 20_000_000:
+        raise HTTPException(status_code=413, detail="File too large. Maximum supported size via JSON connector is 15MB.")
     
     # Extract just the base64 part if it's a JSON string from Power Automate
     if b64_str.startswith("{") and "$content" in b64_str:
@@ -384,6 +402,16 @@ async def batch_upload_documents_json(
             import re
             b64_str = file_item.contentBytes.strip()
             
+            # DoS Prevention: Limit base64 length (approx 15MB) per file
+            if len(b64_str) > 20_000_000:
+                results.append(BatchUploadItemResponse(
+                    filename=filename,
+                    status="error",
+                    message="파일 업로드 스킵됨",
+                    error="File too large. Maximum supported size via JSON connector is 15MB."
+                ))
+                continue
+            
             if b64_str.startswith("{") and "$content" in b64_str:
                 try:
                     content_dict = json.loads(b64_str)
@@ -508,6 +536,16 @@ async def get_extraction_result(
 
     if not log:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # ========== IDOR Security Check ==========
+    if log.user_id != current_user.id:
+        is_super = await is_super_admin(current_user)
+        if not is_super:
+            # Maybe they are admin of this model?
+            from app.core.permissions import check_model_permission
+            has_permission = await check_model_permission(current_user, log.model_id, "Admin")
+            if not has_permission:
+                raise HTTPException(status_code=403, detail="Not authorized to view this extraction result")
 
     # Get model name
     model_name = None
