@@ -142,15 +142,22 @@ async def run_extraction_with_metadata(
 # Endpoints
 # ============================================
 
+class PAFileItem(BaseModel):
+    name: str
+    contentBytes: str  # Base64 encoded content
+
+class PAUploadRequest(BaseModel):
+    model_id: str
+    metadata: Optional[str] = None
+    webhook_url: Optional[str] = None
+    file: PAFileItem
+
 @router.post("/upload", response_model=UploadResponse,
-             summary="📄 문서 업로드",
-             description="파일을 업로드하고 추출 작업을 시작합니다. 비동기로 처리되며 job_id로 결과를 조회할 수 있습니다.")
+             summary="📄 문서 업로드 (JSON)",
+             description="JSON/Base64를 통해 단건 파일을 업로드하고 추출을 시작합니다. (Multipart의 한글 파일명 깨짐 버그 완벽 방지)")
 async def upload_document(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(..., description="추출할 문서 파일 (PDF, 이미지 등)"),
-    model_id: str = Form(..., description="사용할 추출 모델 ID"),
-    metadata: Optional[str] = Form(None, description="사용자 정의 메타데이터 (JSON 문자열)"),
-    webhook_url: Optional[str] = Form(None, description="완료 시 콜백 URL"),
+    payload: PAUploadRequest,
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """
@@ -167,19 +174,16 @@ async def upload_document(
     # Check 1: Extension validation
     ALLOWED_EXTENSIONS = {
         '.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp',
-        '.xlsx', '.xls', '.csv',  # Excel/CSV — Azure DI Layout supports these
-        '.docx',  # Word — Azure DI Layout supports this
+        '.xlsx', '.xls', '.csv',  # Excel/CSV
+        '.docx',  # Word
     }
-    # Power Automate sometimes leaves filename empty or null
-    filename = file.filename if file.filename else "document"
+    
+    filename = payload.file.name if payload.file.name else "document"
     file_ext = os.path.splitext(filename)[1].lower()
 
-    # Fallback to content type inference if extension is missing
+    # Fallback if extension is somehow missing from JSON (very rare now)
     if not file_ext:
-        if file.content_type == "application/pdf": file_ext = ".pdf"
-        elif file.content_type in ["image/jpeg", "image/jpg"]: file_ext = ".jpg"
-        elif file.content_type == "image/png": file_ext = ".png"
-        else: file_ext = ".pdf" # Default fallback
+        file_ext = ".pdf" # Default fallback
         filename = f"{filename}{file_ext}"
 
     if file_ext not in ALLOWED_EXTENSIONS:
@@ -188,37 +192,24 @@ async def upload_document(
             detail=f"지원하지 않는 파일 확장자입니다: {file_ext}. 지원 형식: PDF, 이미지, Excel, Word"
         )
 
-    # Check 2: MIME type validation
-    ALLOWED_MIME_TYPES = {
-        'application/pdf',
-        'image/jpeg',
-        'image/png',
-        'image/tiff',
-        'image/bmp',
-        'image/x-ms-bmp',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
-        'application/vnd.ms-excel',  # .xls
-        'text/csv',  # .csv
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',  # .docx
-    }
-
-    if file.content_type and file.content_type not in ALLOWED_MIME_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"지원하지 않는 파일 타입입니다: {file.content_type}. 지원 형식: PDF, 이미지, Excel, Word"
-        )
-
-    # Parse metadata if provided
     # Parse metadata if provided
     parsed_metadata = None
-    if metadata:
+    if payload.metadata:
         try:
-            parsed_metadata = json.loads(metadata)
+            parsed_metadata = json.loads(payload.metadata)
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="metadata must be valid JSON")
 
-    # Upload file to blob
-    file_content = await file.read()
+    # Decode base64 file content
+    import base64
+    b64_str = payload.file.contentBytes
+    if "," in b64_str:
+        b64_str = b64_str.split(",")[1]
+    
+    try:
+        file_content = base64.b64decode(b64_str)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="유효하지 않은 Base64 파일 내용입니다.")
     job_id = str(uuid.uuid4())
 
     try:
@@ -229,7 +220,7 @@ async def upload_document(
 
     # Create initial log entry with metadata
     extraction_logs.save_extraction_log(
-        model_id=model_id,
+        model_id=payload.model_id,
         user_id=current_user.id,
         filename=filename,
         status="pending",
@@ -246,19 +237,19 @@ async def upload_document(
     background_tasks.add_task(
         run_extraction_with_metadata,
         job_id=job_id,
-        model_id=model_id,
+        model_id=payload.model_id,
         file_urls=[file_url],
         filenames=[filename],
         metadata=parsed_metadata
     )
 
     # Send webhook if provided
-    if webhook_url:
+    if payload.webhook_url:
         from app.services.webhook import send_webhook_background
-        send_webhook_background(webhook_url, {
+        send_webhook_background(payload.webhook_url, {
             "event": "extraction_started",
             "job_id": job_id,
-            "model_id": model_id,
+            "model_id": payload.model_id,
             "filename": filename
         })
 
@@ -290,11 +281,6 @@ class BatchUploadResponse(BaseModel):
     batch_status: str
     message: str
     results: List[BatchUploadItemResponse]
-
-
-class PAFileItem(BaseModel):
-    name: str
-    contentBytes: str  # Base64 encoded content
 
 class PABatchUploadRequest(BaseModel):
     model_id: str

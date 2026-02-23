@@ -20,38 +20,64 @@
                 "operationId": "UploadDocument",
                 "parameters": [
                     {
-                        "name": "file",
-                        "in": "formData",
+                        "name": "body",
+                        "in": "body",
                         "required": true,
-                        "type": "file",
-                        "description": "Document file to extract (PDF, Image, etc.)",
-                        "x-ms-summary": "Document File"
-                    },
-                    {
-                        "name": "model_id",
-                        "in": "formData",
-                        "required": true,
-                        "type": "string",
-                        "description": "Extraction model ID to use",
-                        "x-ms-summary": "Model ID"
-                    },
-                    {
-                        "name": "metadata",
-                        "in": "formData",
-                        "required": false,
-                        "type": "string",
-                        "description": "Custom metadata as JSON string (will be returned in results)",
-                        "x-ms-summary": "Metadata (JSON)",
-                        "x-ms-visibility": "advanced"
-                    },
-                    {
-                        "name": "webhook_url",
-                        "in": "formData",
-                        "required": false,
-                        "type": "string",
-                        "description": "Callback URL for completion notification",
-                        "x-ms-summary": "Webhook URL",
-                        "x-ms-visibility": "advanced"
+                        "description": "Upload payload containing model ID, optional metadata, and the file",
+                        "schema": {
+                            "type": "object",
+                            "required": [
+                                "model_id",
+                                "file"
+                            ],
+                            "properties": {
+                                "model_id": {
+                                    "type": "string",
+                                    "description": "Extraction model ID to use",
+                                    "x-ms-summary": "Model ID",
+                                    "x-ms-dynamic-values": {
+                                        "operationId": "ListModels",
+                                        "value-collection": "models",
+                                        "value-path": "id",
+                                        "value-title": "name"
+                                    }
+                                },
+                                "metadata": {
+                                    "type": "string",
+                                    "description": "Custom metadata as JSON string (will be returned in results)",
+                                    "x-ms-summary": "Metadata (JSON)",
+                                    "x-ms-visibility": "advanced"
+                                },
+                                "webhook_url": {
+                                    "type": "string",
+                                    "description": "Callback URL for completion notification",
+                                    "x-ms-summary": "Webhook URL",
+                                    "x-ms-visibility": "advanced"
+                                },
+                                "file": {
+                                    "type": "object",
+                                    "description": "Document file to extract",
+                                    "x-ms-summary": "Document File",
+                                    "required": [
+                                        "name",
+                                        "contentBytes"
+                                    ],
+                                    "properties": {
+                                        "name": {
+                                            "type": "string",
+                                            "description": "File name with extension",
+                                            "x-ms-summary": "File Name"
+                                        },
+                                        "contentBytes": {
+                                            "type": "string",
+                                            "format": "byte",
+                                            "description": "Base64 encoded file content",
+                                            "x-ms-summary": "File Content"
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 ],
                 "responses": {
@@ -117,7 +143,13 @@
                                 "model_id": {
                                     "type": "string",
                                     "description": "Extraction model ID to use",
-                                    "x-ms-summary": "Model ID"
+                                    "x-ms-summary": "Model ID",
+                                    "x-ms-dynamic-values": {
+                                        "operationId": "ListModels",
+                                        "value-collection": "models",
+                                        "value-path": "id",
+                                        "value-title": "name"
+                                    }
                                 },
                                 "metadata": {
                                     "type": "string",
