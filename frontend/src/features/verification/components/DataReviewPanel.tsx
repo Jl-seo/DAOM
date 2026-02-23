@@ -121,16 +121,27 @@ export function DataReviewPanel({
     const [isExpanded, setIsExpanded] = useState(false)
     const [showDebugModal, setShowDebugModal] = useState(false)
     const [isRendering, setIsRendering] = useState(false)
+    const [deferredData, setDeferredData] = useState({
+        guideExtracted: currentGuideExtracted,
+        parsedContent: currentParsedContent,
+        otherData: currentOtherData
+    })
 
     // Defer rendering of massive payloads to ensure the browser paints the loading state first
     useEffect(() => {
         setIsRendering(true)
-        // Give the browser 150ms to paint the "Rendering..." spinner before locking the main thread with heavy DOM generation
+
+        // Give the browser 50ms to paint the "Rendering..." spinner before locking the main thread with heavy DOM generation
         const timer = setTimeout(() => {
+            setDeferredData({
+                guideExtracted: currentGuideExtracted,
+                parsedContent: currentParsedContent,
+                otherData: currentOtherData
+            })
             setIsRendering(false)
-        }, 150)
+        }, 50)
         return () => clearTimeout(timer)
-    }, [currentGuideExtracted, documentId, currentParsedContent])
+    }, [currentGuideExtracted, currentParsedContent, currentOtherData, documentId])
 
 
     // Columns for the "Other Data" (Table) tab - REMOVED for Beta Text View
@@ -286,7 +297,7 @@ export function DataReviewPanel({
                         {/* Only show Parsed Text tab when Beta mode is enabled — content may or may not be available */}
                         {isBetaMode && (
                             <TabsTrigger value="parsed_text" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">
-                                Parsed Text {currentParsedContent ? `(${(currentParsedContent.length / 1000).toFixed(1)}K)` : '(대기중)'} <span className="ml-1 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">BETA</span>
+                                Parsed Text {deferredData.parsedContent ? `(${(deferredData.parsedContent.length / 1000).toFixed(1)}K)` : '(대기중)'} <span className="ml-1 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">BETA</span>
                             </TabsTrigger>
                         )}
                         <TabsTrigger value="raw" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">Raw JSON</TabsTrigger>
@@ -298,9 +309,9 @@ export function DataReviewPanel({
                         <ExtractionPreview
                             // Force remount when document changes OR when data arrives
                             // This resets local state while preventing loops during editing
-                            key={`${documentId || 'default'}-${Object.keys(currentGuideExtracted || {}).length}`}
-                            guideExtracted={currentGuideExtracted || {}}
-                            otherData={currentOtherData || []}
+                            key={`${documentId || 'default'}-${Object.keys(deferredData.guideExtracted || {}).length}`}
+                            guideExtracted={deferredData.guideExtracted || {}}
+                            otherData={deferredData.otherData || []}
                             modelFields={model?.fields || previewData?.model_fields || []}
                             onFieldSelect={onFieldSelect}
                             onDataChange={onDataChange}
@@ -313,9 +324,9 @@ export function DataReviewPanel({
                     <TabsContent value="parsed_text" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
                         <ScrollArea className="h-full">
                             <div className="p-6">
-                                {currentParsedContent ? (
+                                {deferredData.parsedContent ? (
                                     <pre className="text-xs font-mono whitespace-pre-wrap bg-muted/30 p-4 rounded-md border text-foreground/80 leading-relaxed">
-                                        {currentParsedContent}
+                                        {deferredData.parsedContent}
                                     </pre>
                                 ) : (
                                     <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
@@ -327,7 +338,7 @@ export function DataReviewPanel({
                         </ScrollArea>
                     </TabsContent>
                     <TabsContent value="raw" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
-                        <RawJsonView data={currentGuideExtracted} />
+                        <RawJsonView data={deferredData.guideExtracted} />
                     </TabsContent>
                 </div>
             </Tabs>
