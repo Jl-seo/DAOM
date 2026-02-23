@@ -10,7 +10,7 @@ from app.core.auth import get_current_user, CurrentUser
 from app.core.enums import ExtractionStatus
 from app.services import extraction_logs
 from app.services.models import load_models
-from app.services.storage import upload_file_to_blob
+from app.services.storage import upload_file_to_blob, upload_bytes_to_blob
 from app.core.group_permission_utils import get_accessible_model_ids
 from app.core.auth import is_super_admin
 import logging
@@ -232,7 +232,7 @@ async def upload_document(
     job_id = str(uuid.uuid4())
 
     try:
-        file_url = upload_file_to_blob(file_content, filename, f"connector/{job_id}")
+        file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
     except Exception as e:
         logger.error(f"[Connector] File upload failed: {e}")
         raise HTTPException(status_code=500, detail="File upload failed")
@@ -374,7 +374,7 @@ async def batch_upload_documents_json(
                 
             file_content = base64.b64decode(b64_str, validate=True)
             job_id = str(uuid.uuid4())
-            file_url = upload_file_to_blob(file_content, filename, f"connector/{job_id}")
+            file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
 
             extraction_logs.save_extraction_log(
                 model_id=payload.model_id,

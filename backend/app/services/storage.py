@@ -64,6 +64,40 @@ async def upload_file_to_blob(file: UploadFile) -> str:
         logger.error(f"[Storage] Error uploading to blob: {e}")
         raise e
 
+async def upload_bytes_to_blob(content: bytes, filename: str, folder: str = "connector") -> str:
+    """Uploads raw bytes to Azure Blob Storage"""
+    client = get_blob_service_client()
+
+    if not client:
+        TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        safe_filename = filename.replace("/", "_").replace("\\", "_")
+        blob_name = f"{folder}_{uuid.uuid4()}_{safe_filename}"
+        local_path = TEMP_DIR / blob_name
+        with open(local_path, "wb") as f:
+            f.write(content)
+        return f"{settings.API_BASE_URL}/static/{blob_name}"
+
+    try:
+        container_name = settings.AZURE_CONTAINER_NAME
+        blob_name = f"{folder}/{uuid.uuid4()}_{filename}"
+        blob_client = client.get_blob_client(container=container_name, blob=blob_name)
+
+        try:
+            container_client = client.get_container_client(container_name)
+            if not container_client.exists():
+                logger.info(f"[Storage] Container '{container_name}' not found, creating...")
+                container_client.create_container()
+        except Exception as container_err:
+             logger.warning(f"[Storage] Container check failed (non-fatal): {container_err}")
+
+        blob_client.upload_blob(content, overwrite=True)
+        logger.info(f"[Storage] Uploaded bytes blob: {blob_name}")
+        return blob_client.url
+
+    except Exception as e:
+        logger.error(f"[Storage] Error uploading bytes to blob: {e}")
+        raise e
+
 async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
     """Save JSON data to a blob"""
     import json
