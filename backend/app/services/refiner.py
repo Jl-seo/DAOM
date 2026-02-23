@@ -320,16 +320,25 @@ OUTPUT: A JSON object with this structure:
     "document_type": "brief description",
     "extraction_mode": "data" or "table",
     "common_fields": [
-      {{"key": "field_key", "instruction": "1-2 sentence extraction command", "expected_format": "type"}}
+      {{
+        "key": "field_key", 
+        "instruction": "Detailed extraction command incorporating the user description", 
+        "rules": ["Verbatim rule 1 from schema", "Verbatim rule 2 from schema"],
+        "expected_format": "type"
+      }}
     ],
     "table_fields": [
       {{
         "key": "field_key",
-        "instruction": "1-2 sentence extraction command",
+        "instruction": "Detailed extraction command",
         "columns": {{
-          "col_key": {{"instruction": "command", "source_hint": "likely header variations"}}
+          "col_key": {{
+            "instruction": "command", 
+            "source_hint": "likely header variations",
+            "rules": ["Verbatim column rule from schema"]
+          }}
         }},
-        "rules": ["rule1"]
+        "rules": ["table level rule from schema"]
       }}
     ],
     "integrity_rules": [
@@ -345,10 +354,10 @@ FIELD CLASSIFICATION RULES:
 - All other fields → common_fields (single values)
 - table_fields MUST include a "columns" object with ALL sub-field keys.
 
-CRITICAL:
-- Column keys MUST use the EXACT field keys from the schema. Do NOT rename.
-- The work order is for an AI engineer, not a human. Be precise and unambiguous.
-- For table fields: add a rule "DENORMALIZE: If merged/hierarchical cells exist, repeat parent value for every child row."
+CRITICAL PRECISION & RULE PRESERVATION:
+- DO NOT SUMMARIZE OR CONDENSE the user's "description" and "rules" from the schema.
+- You MUST explicitly copy the user's custom "rules" into the "rules" array of each field/column. Loss of rule details causes catastrophic extraction failures.
+- If the schema has a rich description, the "instruction" must be detailed enough to capture all edge cases mentioned.
 
 ZERO TOLERANCE — FIELD COVERAGE:
 - You MUST generate exactly one instruction entry for EVERY field in the schema.
@@ -362,15 +371,14 @@ ALWAYS APPEND THIS ENTRY to common_fields (after all schema fields):
 {{
   "key": "unmapped_critical_info",
   "instruction": "Scan the entire document for text marked as 'Important', 'Note', '주의', '특약', '비고', 'Remark', or similar annotations that do NOT belong to any field above. Copy verbatim. If none found, return null.",
-  "expected_format": "text"
+  "expected_format": "text",
+  "rules": ["Do not duplicate data already extracted in other fields"]
 }}
 
-STYLE CONSTRAINTS (MANDATORY):
-- Be CONCISE. Each instruction MUST be 1-2 sentences max.
-- Do NOT write prose or rationale. Write commands.
-- Do NOT add examples beyond what the schema provides.
-- Do NOT repeat integrity rules per field — use the shared integrity_rules array.
-- Target: entire work_order JSON under 2000 tokens.
+STYLE CONSTRAINTS:
+- Do NOT write prose or rationale. Write explicit commands.
+- Do NOT repeat generic integrity rules per field — use the shared integrity_rules array.
+- Target: entire work_order JSON under 3000 tokens.
 """
         return prompt
 

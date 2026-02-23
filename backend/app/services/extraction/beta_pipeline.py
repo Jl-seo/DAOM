@@ -201,16 +201,17 @@ class BetaPipeline(ExtractionPipeline):
             entry = {
                 "key": f.key,
                 "instruction": f"Extract '{f.label}' from the document.",
-                "expected_format": f.type
+                "expected_format": f.type,
+                "rules": []
             }
             if f.description:
-                entry["instruction"] += f" {f.description}"
+                entry["instruction"] += f" Description: {f.description}"
             if f.rules:
-                entry["instruction"] += f" Rule: {f.rules}"
+                entry["rules"].append(f.rules)
             
             if f.type in TABLE_FIELD_TYPES:
                 entry["columns"] = {}
-                entry["rules"] = ["Extract ALL rows."]
+                entry["rules"].append("Extract ALL rows.")
                 table_fields.append(entry)
             else:
                 common_fields.append(entry)
