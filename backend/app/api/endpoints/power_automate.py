@@ -238,24 +238,51 @@ async def upload_document(
         raise HTTPException(status_code=500, detail="File upload failed")
 
     # Create initial log entry with metadata
-    extraction_logs.save_extraction_log(
+    log = extraction_logs.save_extraction_log(
         model_id=payload.model_id,
         user_id=current_user.id,
         filename=filename,
         status="pending",
         file_url=file_url,
-        log_id=job_id,
-        job_id=job_id,
         tenant_id=current_user.tenant_id,
         user_name=current_user.name if hasattr(current_user, 'name') else None,
         user_email=current_user.email if hasattr(current_user, 'email') else None,
         metadata=parsed_metadata
     )
 
-    # Start background extraction
+    # Create extraction job so frontend doesn't throw 404
+    from app.services import extraction_jobs
+    job = extraction_jobs.create_job(
+        model_id=payload.model_id,
+        user_id=current_user.id,
+        user_name=current_user.name if hasattr(current_user, 'name') else None,
+        user_email=current_user.email if hasattr(current_user, 'email') else None,
+        filename=filename,
+        file_url=file_url,
+        file_urls=[file_url],
+        filenames=[filename],
+        original_log_id=log.id if log else None,
+        tenant_id=current_user.tenant_id
+    )
+
+    # Update log with proper job_id
+    if log:
+        extraction_logs.save_extraction_log(
+            model_id=payload.model_id,
+            user_id=current_user.id,
+            filename=filename,
+            status="pending",
+            file_url=file_url,
+            log_id=log.id,
+            job_id=job.id,
+            tenant_id=current_user.tenant_id,
+            metadata=parsed_metadata
+        )
+
+    # Start background extraction using job.id (for updates) but PA polls using log.id
     background_tasks.add_task(
         run_extraction_with_metadata,
-        job_id=job_id,
+        job_id=job.id,
         model_id=payload.model_id,
         file_urls=[file_url],
         filenames=[filename],
@@ -267,7 +294,7 @@ async def upload_document(
         from app.services.webhook import send_webhook_background
         send_webhook_background(payload.webhook_url, {
             "event": "extraction_started",
-            "job_id": job_id,
+            "job_id": job.id,
             "model_id": payload.model_id,
             "filename": filename
         })
@@ -376,23 +403,48 @@ async def batch_upload_documents_json(
             job_id = str(uuid.uuid4())
             file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
 
-            extraction_logs.save_extraction_log(
+            log = extraction_logs.save_extraction_log(
                 model_id=payload.model_id,
                 user_id=current_user.id,
                 filename=filename,
                 status="pending",
                 file_url=file_url,
-                log_id=job_id,
-                job_id=job_id,
                 tenant_id=current_user.tenant_id,
                 user_name=current_user.name if hasattr(current_user, 'name') else None,
                 user_email=current_user.email if hasattr(current_user, 'email') else None,
                 metadata=parsed_metadata
             )
+            
+            from app.services import extraction_jobs
+            job = extraction_jobs.create_job(
+                model_id=payload.model_id,
+                user_id=current_user.id,
+                user_name=current_user.name if hasattr(current_user, 'name') else None,
+                user_email=current_user.email if hasattr(current_user, 'email') else None,
+                filename=filename,
+                file_url=file_url,
+                file_urls=[file_url],
+                filenames=[filename],
+                original_log_id=log.id if log else None,
+                tenant_id=current_user.tenant_id
+            )
+
+            if log:
+                extraction_logs.save_extraction_log(
+                    model_id=payload.model_id,
+                    user_id=current_user.id,
+                    filename=filename,
+                    status="pending",
+                    file_url=file_url,
+                    log_id=log.id,
+                    job_id=job.id,
+                    tenant_id=current_user.tenant_id,
+                    metadata=parsed_metadata
+                )
 
             background_tasks.add_task(
                 run_extraction_with_metadata,
-                job_id=job_id,
+                job_id=job.id,
                 model_id=payload.model_id,
                 file_urls=[file_url],
                 filenames=[filename],
@@ -401,10 +453,10 @@ async def batch_upload_documents_json(
 
             results.append(BatchUploadItemResponse(
                 filename=filename,
-                job_id=job_id,
+                job_id=log.id,
                 status="pending",
                 message="추출 작업이 시작되었습니다",
-                poll_url=f"/api/v1/connectors/result/{job_id}"
+                poll_url=f"/api/v1/connectors/result/{log.id}"
             ))
         except Exception as e:
             logger.error(f"[Connector Batch] Error uploading {filename}: {e}")
