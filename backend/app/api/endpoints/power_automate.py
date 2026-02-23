@@ -200,14 +200,33 @@ async def upload_document(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="metadata must be valid JSON")
 
-    # Decode base64 file content
+    # Decode base64 file content securely
     import base64
-    b64_str = payload.file.contentBytes
-    if "," in b64_str:
-        b64_str = b64_str.split(",")[1]
+    import re
     
+    # Power Automate sometimes passes dicts stringified like "{\"$content-type\":\"...\",\"$content\":\"base64str\"}"
+    b64_str = payload.file.contentBytes.strip()
+    
+    # Extract just the base64 part if it's a JSON string from Power Automate
+    if b64_str.startswith("{") and "$content" in b64_str:
+        try:
+            content_dict = json.loads(b64_str)
+            b64_str = content_dict.get("$content", b64_str)
+        except json.JSONDecodeError:
+            pass
+
+    # Clean data URL prefixes and whitespaces
+    if "," in b64_str:
+        b64_str = b64_str.split(",", 1)[1]
+    b64_str = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_str)
+    
+    # Pad if necessary
+    padding_needed = len(b64_str) % 4
+    if padding_needed:
+        b64_str += '=' * (4 - padding_needed)
+
     try:
-        file_content = base64.b64decode(b64_str)
+        file_content = base64.b64decode(b64_str, validate=True)
     except Exception as e:
         raise HTTPException(status_code=400, detail="유효하지 않은 Base64 파일 내용입니다.")
     job_id = str(uuid.uuid4())
@@ -334,13 +353,26 @@ async def batch_upload_documents_json(
             continue
 
         try:
-            # Decode base64 
-            # Power Automate sometimes leaves the data:image/png;base64, prefix
-            b64_str = file_item.contentBytes
-            if "," in b64_str:
-                b64_str = b64_str.split(",")[1]
+            # Decode base64 securely for Batch
+            import re
+            b64_str = file_item.contentBytes.strip()
             
-            file_content = base64.b64decode(b64_str)
+            if b64_str.startswith("{") and "$content" in b64_str:
+                try:
+                    content_dict = json.loads(b64_str)
+                    b64_str = content_dict.get("$content", b64_str)
+                except json.JSONDecodeError:
+                    pass
+
+            if "," in b64_str:
+                b64_str = b64_str.split(",", 1)[1]
+            b64_str = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_str)
+            
+            padding_needed = len(b64_str) % 4
+            if padding_needed:
+                b64_str += '=' * (4 - padding_needed)
+                
+            file_content = base64.b64decode(b64_str, validate=True)
             job_id = str(uuid.uuid4())
             file_url = upload_file_to_blob(file_content, filename, f"connector/{job_id}")
 
