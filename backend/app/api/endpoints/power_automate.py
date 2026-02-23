@@ -170,7 +170,17 @@ async def upload_document(
         '.xlsx', '.xls', '.csv',  # Excel/CSV — Azure DI Layout supports these
         '.docx',  # Word — Azure DI Layout supports this
     }
-    file_ext = os.path.splitext(file.filename)[1].lower()
+    # Power Automate sometimes leaves filename empty or null
+    filename = file.filename if file.filename else "document"
+    file_ext = os.path.splitext(filename)[1].lower()
+
+    # Fallback to content type inference if extension is missing
+    if not file_ext:
+        if file.content_type == "application/pdf": file_ext = ".pdf"
+        elif file.content_type in ["image/jpeg", "image/jpg"]: file_ext = ".jpg"
+        elif file.content_type == "image/png": file_ext = ".png"
+        else: file_ext = ".pdf" # Default fallback
+        filename = f"{filename}{file_ext}"
 
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -212,7 +222,7 @@ async def upload_document(
     job_id = str(uuid.uuid4())
 
     try:
-        file_url = upload_file_to_blob(file_content, file.filename, f"connector/{job_id}")
+        file_url = upload_file_to_blob(file_content, filename, f"connector/{job_id}")
     except Exception as e:
         logger.error(f"[Connector] File upload failed: {e}")
         raise HTTPException(status_code=500, detail="File upload failed")
@@ -221,7 +231,7 @@ async def upload_document(
     extraction_logs.save_extraction_log(
         model_id=model_id,
         user_id=current_user.id,
-        filename=file.filename,
+        filename=filename,
         status="pending",
         file_url=file_url,
         log_id=job_id,
@@ -238,7 +248,7 @@ async def upload_document(
         job_id=job_id,
         model_id=model_id,
         file_urls=[file_url],
-        filenames=[file.filename],
+        filenames=[filename],
         metadata=parsed_metadata
     )
 
@@ -249,7 +259,7 @@ async def upload_document(
             "event": "extraction_started",
             "job_id": job_id,
             "model_id": model_id,
-            "filename": file.filename
+            "filename": filename
         })
 
     # Return JSONResponse specifically to inject the Location and Retry-After headers
@@ -321,7 +331,13 @@ async def batch_upload_documents_json(
     results = []
     
     for file_item in payload.files:
-        file_ext = os.path.splitext(file_item.name)[1].lower()
+        filename = file_item.name if file_item.name else "document"
+        file_ext = os.path.splitext(filename)[1].lower()
+        
+        if not file_ext:
+            file_ext = ".pdf" # default for batch if totally blind
+            filename = f"{filename}{file_ext}"
+            
         if file_ext not in ALLOWED_EXTENSIONS:
             results.append(BatchUploadItemResponse(
                 filename=file_item.name,
@@ -340,12 +356,12 @@ async def batch_upload_documents_json(
             
             file_content = base64.b64decode(b64_str)
             job_id = str(uuid.uuid4())
-            file_url = upload_file_to_blob(file_content, file_item.name, f"connector/{job_id}")
+            file_url = upload_file_to_blob(file_content, filename, f"connector/{job_id}")
 
             extraction_logs.save_extraction_log(
                 model_id=payload.model_id,
                 user_id=current_user.id,
-                filename=file_item.name,
+                filename=filename,
                 status="pending",
                 file_url=file_url,
                 log_id=job_id,
@@ -361,21 +377,21 @@ async def batch_upload_documents_json(
                 job_id=job_id,
                 model_id=payload.model_id,
                 file_urls=[file_url],
-                filenames=[file_item.name],
+                filenames=[filename],
                 metadata=parsed_metadata
             )
 
             results.append(BatchUploadItemResponse(
-                filename=file_item.name,
+                filename=filename,
                 job_id=job_id,
                 status="pending",
                 message="추출 작업이 시작되었습니다",
                 poll_url=f"/api/v1/connectors/result/{job_id}"
             ))
         except Exception as e:
-            logger.error(f"[Connector Batch] Error uploading {file_item.name}: {e}")
+            logger.error(f"[Connector Batch] Error uploading {filename}: {e}")
             results.append(BatchUploadItemResponse(
-                filename=file_item.name,
+                filename=filename,
                 status="error",
                 message="업로드 처리 중 오류 발생",
                 error=str(e)
