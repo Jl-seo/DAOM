@@ -252,11 +252,19 @@ async def upload_document(
             "filename": file.filename
         })
 
-    return UploadResponse(
-        job_id=job_id,
-        status="pending",
-        message="추출 작업이 시작되었습니다",
-        poll_url=f"/api/v1/connectors/result/{job_id}"
+    # Return JSONResponse specifically to inject the Location and Retry-After headers
+    return JSONResponse(
+        status_code=202,
+        content={
+            "job_id": job_id,
+            "status": "pending",
+            "message": "추출 작업이 시작되었습니다",
+            "poll_url": f"/api/v1/connectors/result/{job_id}"
+        },
+        headers={
+            "Location": f"/api/v1/connectors/result/{job_id}",
+            "Retry-After": "5"
+        }
     )
 
 
@@ -374,10 +382,25 @@ async def batch_upload_documents_json(
             ))
 
     response_status = "success" if any(r.status == "pending" for r in results) else "error"
-    return BatchUploadResponse(
-        batch_status=response_status,
-        message="일괄 업로드 처리가 완료되었습니다.",
-        results=results
+    
+    # Critical for Power Automate 2026 async pattern: Include Location and Retry-After
+    headers = {}
+    if response_status == "success" and results:
+        # Since this is a batch, we point the primary polling location to the first job
+        # (Users can map over the 'results' array for individual status later)
+        first_job = next((r.job_id for r in results if r.job_id), None)
+        if first_job:
+            headers["Location"] = f"/api/v1/connectors/result/{first_job}"
+            headers["Retry-After"] = "10"
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "batch_status": response_status,
+            "message": "일괄 업로드 처리가 완료되었습니다.",
+            "results": [r.model_dump() for r in results]
+        },
+        headers=headers if headers else None
     )
 
 
