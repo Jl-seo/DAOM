@@ -59,9 +59,6 @@ function getFilenameFromUrl(url?: string, fallbackIndex?: number, fallbackPrefix
         if (match) {
             // UUID 뒤의 원본 파일명 추출
             const originalFilename = match[1]
-            if (originalFilename.length > 30) {
-                return originalFilename.slice(0, 27) + '...'
-            }
             return originalFilename
         }
 
@@ -71,10 +68,6 @@ function getFilenameFromUrl(url?: string, fallbackIndex?: number, fallbackPrefix
             return fallbackName
         }
 
-        // 너무 길면 자르기
-        if (decoded.length > 30) {
-            return decoded.slice(0, 27) + '...'
-        }
         return decoded || fallbackName
     } catch {
         return fallbackName
@@ -399,7 +392,7 @@ export function ComparisonWorkspace({
                                             : "bg-card border-border text-foreground"
                                     )}
                                 >
-                                    <span className="flex-1 break-all line-clamp-2 text-xs" title={comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex, t('comparison.workspace.candidate'))}>
+                                    <span className="flex-1 break-words whitespace-normal text-xs pr-2" title={comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex, t('comparison.workspace.candidate'))}>
                                         {comp.filename || getFilenameFromUrl(comp.file_url, comp.originalIndex, t('comparison.workspace.candidate'))}
                                     </span>
                                     {comp.error ? (
