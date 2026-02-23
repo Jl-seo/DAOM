@@ -15,9 +15,9 @@
     "paths": {
         "/connectors/upload": {
             "post": {
-                "summary": "Upload Document",
+                "summary": "Upload Document (JSON)",
                 "description": "Uploads a file and starts extraction job. Returns job_id for tracking progress.",
-                "operationId": "UploadDocument",
+                "operationId": "UploadDocumentV2",
                 "parameters": [
                     {
                         "name": "body",
