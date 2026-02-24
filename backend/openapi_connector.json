@@ -326,7 +326,13 @@
                         "in": "query",
                         "required": true,
                         "type": "string",
-                        "x-ms-summary": "Model ID"
+                        "x-ms-summary": "Model ID",
+                        "x-ms-dynamic-values": {
+                            "operationId": "ListModels",
+                            "value-collection": "models",
+                            "value-path": "id",
+                            "value-title": "name"
+                        }
                     },
                     {
                         "name": "status",
