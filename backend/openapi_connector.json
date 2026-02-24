@@ -442,6 +442,11 @@
                     "description": "Original file name",
                     "x-ms-summary": "File Name"
                 },
+                "file_url": {
+                    "type": "string",
+                    "description": "URL to download the uploaded file from Azure Blob Storage",
+                    "x-ms-summary": "File URL"
+                },
                 "extracted_data": {
                     "description": "Extracted field values. Object for form mode, Array for table mode (available when status=success)",
                     "x-ms-summary": "Extracted Data"

@@ -567,6 +567,7 @@ async def get_extraction_result(
         "model_id": log.model_id,
         "model_name": model_name,
         "filename": log.filename,
+        "file_url": log.file_url,
         "extracted_data": log.extracted_data if is_done else None,
         "is_table": isinstance(log.extracted_data, list) if log.extracted_data else False,
         "error": log.error if is_err else None,
