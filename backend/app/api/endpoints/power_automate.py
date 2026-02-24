@@ -2,9 +2,9 @@
 Power Automate Custom Connector API Endpoints
 Provides clean, well-documented endpoints for Power Automate integration
 """
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File, Form, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from app.core.auth import get_current_user, CurrentUser
 from app.core.enums import ExtractionStatus
@@ -141,6 +141,24 @@ async def run_extraction_with_metadata(
 # ============================================
 # Endpoints
 # ============================================
+
+class QueryResultItem(BaseModel):
+    job_id: str
+    status: str
+    model_id: str
+    filename: Optional[str] = None
+    file_url: Optional[str] = None
+    extracted_data: Optional[Dict[str, Any]] = None
+    is_table: bool = False
+    error: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: str
+
+class QueryResultList(BaseModel):
+    total: int
+    limit: int
+    next_link: Optional[str] = Field(None, alias="@odata.nextLink")
+    results: List[QueryResultItem]
 
 class PAFileItem(BaseModel):
     name: str
@@ -622,6 +640,153 @@ async def wait_for_extraction(
     Power Automate가 자동으로 폴링하며, 완료 시 결과를 반환합니다.
     """
     return await get_extraction_result(job_id, current_user)
+
+
+
+@router.get("/results", response_model=QueryResultList, response_model_by_alias=True,
+            summary="🔍 다중 문서 결과 조회 (List Extractions)",
+            description="모델별, 기간별, 상태별 및 메타데이터 필터를 통해 추출 결과를 배열(Array) 형태로 조회합니다. (Pagination 지원)")
+async def query_extraction_results(
+    request: Request,
+    model_id: str,
+    status: Optional[str] = Query(None, description="상태 필터 (success, error, pending 등)"),
+    start_date: Optional[str] = Query(None, description="ISO 8601 UTC 예: 2026-02-23T00:00:00Z"),
+    end_date: Optional[str] = Query(None, description="ISO 8601 UTC 예: 2026-02-23T23:59:59Z"),
+    filename_contains: Optional[str] = Query(None, description="파일명 포함 단어 (대소문자 무시)"),
+    metadata_key: Optional[str] = Query(None, description="메타데이터 필터용 Key"),
+    metadata_value: Optional[str] = Query(None, description="메타데이터 필터용 Value"),
+    continuation_token: Optional[str] = Query(None, description="다음 페이지용 토큰"),
+    limit: int = Query(100, ge=1, le=100, description="최대 100건 제한 (파워오토메이트 페이징용)"),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    조건에 맞는 추출 이력(Job) 리스트를 한 번의 DB 조회로 가져오는 페이징 API.
+    100건이 넘더라도 @odata.nextLink 값을 던져주면 Power Automate가 자체적으로 합칩니다.
+    """
+    import base64
+    import json
+    import asyncio
+    import urllib.parse
+    from app.services.extraction_logs import get_extractions_container
+    
+    # ========== PERMISSION CHECK ==========
+    is_super = await is_super_admin(current_user)
+    if not is_super:
+        model_role = await get_model_role_by_group(
+            current_user.id,
+            current_user.tenant_id,
+            model_id
+        )
+        if not model_role or model_role not in ["View", "Admin"]:
+            raise HTTPException(status_code=403, detail="Not authorized to query this model")
+
+    container = get_extractions_container()
+    if not container:
+        raise HTTPException(status_code=500, detail="Database not configured")
+
+    # ========== BUILD QUERY (Optimization: SINGLE QUERY) ==========
+    query = """
+        SELECT c.id AS job_id, c.status, c.model_id, c.filename, c.file_url, c.extracted_data, c.error, c.metadata, c.created_at
+        FROM c 
+        WHERE c.tenant_id = @tenant_id 
+          AND c.model_id = @model_id
+    """
+    parameters = [
+        {"name": "@tenant_id", "value": current_user.tenant_id},
+        {"name": "@model_id", "value": model_id}
+    ]
+
+    if status:
+        query += " AND c.status = @status"
+        parameters.append({"name": "@status", "value": status})
+        
+    if start_date:
+        query += " AND (c.created_at >= @start_date)"
+        parameters.append({"name": "@start_date", "value": start_date})
+        
+    if end_date:
+        query += " AND (c.created_at <= @end_date)"
+        parameters.append({"name": "@end_date", "value": end_date})
+        
+    if filename_contains:
+        query += " AND CONTAINS(LOWER(c.filename), LOWER(@filename_contains))"
+        parameters.append({"name": "@filename_contains", "value": filename_contains})
+        
+    if metadata_key and metadata_value:
+        query += f" AND c.metadata['{metadata_key}'] = @metadata_value"
+        parameters.append({"name": "@metadata_value", "value": metadata_value})
+
+    query += " ORDER BY c.created_at DESC"
+
+    # ========== EXECUTE PAGINATED QUERY ==========
+    try:
+        safe_token = continuation_token
+        query_iterable = container.query_items(
+            query=query,
+            parameters=parameters,
+            partition_key=model_id,
+            max_item_count=limit
+        )
+
+        pager = query_iterable.by_page(continuation_token=safe_token)
+        page = next(pager)
+        raw_items = list(page)
+        next_chunk_token = pager.continuation_token
+    except StopIteration:
+        raw_items = []
+        next_chunk_token = None
+    except Exception as e:
+        logger.error(f"[Connector] Query execution failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to query items")
+
+    # ========== HYDRATE BLOBS (Concurrency Safeguard) ==========
+    sem = asyncio.Semaphore(10)
+    
+    async def process_item(item):
+        extracted_data = item.get("extracted_data")
+        if extracted_data and isinstance(extracted_data, dict):
+            if extracted_data.get("source") == "blob_storage" and extracted_data.get("blob_path"):
+                try:
+                    from app.services.storage import load_json_from_blob
+                    async with sem:
+                        hydrated = await load_json_from_blob(extracted_data["blob_path"])
+                    if hydrated is not None:
+                        extracted_data = hydrated
+                except Exception as e:
+                    logger.error(f"[Connector] Hydration for {item.get('job_id')} failed: {e}")
+                    extracted_data = None
+                    
+        return QueryResultItem(
+            job_id=item.get("job_id", ""),
+            status=item.get("status", "pending"),
+            model_id=item.get("model_id", ""),
+            filename=item.get("filename"),
+            file_url=item.get("file_url"),
+            extracted_data=extracted_data,
+            is_table=isinstance(extracted_data, list),
+            error=item.get("error"),
+            metadata=item.get("metadata"),
+            created_at=item.get("created_at", "")
+        )
+
+    hydrated_results = await asyncio.gather(*(process_item(item) for item in raw_items))
+
+    # ========== ASSEMBLE PAGINATED RESPONSE ==========
+    next_url = None
+    if next_chunk_token:
+        qs = dict(request.query_params)
+        qs["continuation_token"] = next_chunk_token
+        next_url = "?" + urllib.parse.urlencode(qs)
+
+    response_data = {
+        "total": len(hydrated_results),
+        "limit": limit,
+        "results": hydrated_results
+    }
+    if next_url:
+        response_data["@odata.nextLink"] = next_url
+
+    return response_data
 
 
 @router.get("/models", response_model=ModelsListResponse,

@@ -314,6 +314,97 @@
                 }
             }
         },
+        "/connectors/results": {
+            "get": {
+                "summary": "List Extractions",
+                "description": "다수 추출 결과를 조건(모델, 상태, 기간)으로 필터링하여 페이징 리스트(Array) 형태로 반환합니다.",
+                "operationId": "ListExtractions",
+                "x-ms-visibility": "important",
+                "parameters": [
+                    {
+                        "name": "model_id",
+                        "in": "query",
+                        "required": true,
+                        "type": "string",
+                        "x-ms-summary": "Model ID"
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "required": false,
+                        "type": "string",
+                        "x-ms-summary": "Status",
+                        "enum": [
+                            "success",
+                            "error",
+                            "pending"
+                        ]
+                    },
+                    {
+                        "name": "start_date",
+                        "in": "query",
+                        "required": false,
+                        "type": "string",
+                        "x-ms-summary": "Start Date (ISO 8601)",
+                        "description": "Example: 2026-02-23T00:00:00Z"
+                    },
+                    {
+                        "name": "end_date",
+                        "in": "query",
+                        "required": false,
+                        "type": "string",
+                        "x-ms-summary": "End Date (ISO 8601)",
+                        "description": "Example: 2026-02-23T23:59:59Z"
+                    },
+                    {
+                        "name": "filename_contains",
+                        "in": "query",
+                        "required": false,
+                        "type": "string",
+                        "x-ms-summary": "Filename Contains"
+                    },
+                    {
+                        "name": "metadata_key",
+                        "in": "query",
+                        "required": false,
+                        "type": "string",
+                        "x-ms-summary": "Metadata Key"
+                    },
+                    {
+                        "name": "metadata_value",
+                        "in": "query",
+                        "required": false,
+                        "type": "string",
+                        "x-ms-summary": "Metadata Value"
+                    },
+                    {
+                        "name": "continuation_token",
+                        "in": "query",
+                        "required": false,
+                        "type": "string",
+                        "x-ms-summary": "Continuation Token",
+                        "x-ms-visibility": "advanced"
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "type": "integer",
+                        "default": 100,
+                        "x-ms-summary": "Limit",
+                        "x-ms-visibility": "advanced"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful retrieval of extraction results list",
+                        "schema": {
+                            "$ref": "#/definitions/ListExtractionResults"
+                        }
+                    }
+                }
+            }
+        },
         "/connectors/models": {
             "get": {
                 "summary": "List Models",
@@ -476,6 +567,61 @@
                     "type": "string",
                     "description": "Creation timestamp (ISO 8601)",
                     "x-ms-summary": "Created At"
+                }
+            }
+        },
+        "QueryResultItem": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "model_id": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "file_url": {
+                    "type": "string"
+                },
+                "is_table": {
+                    "type": "boolean"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "extracted_data": {
+                    "description": "Extracted Payload"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object"
+                }
+            }
+        },
+        "ListExtractionResults": {
+            "type": "object",
+            "properties": {
+                "total": {
+                    "type": "integer"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "@odata.nextLink": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/QueryResultItem"
+                    }
                 }
             }
         }
