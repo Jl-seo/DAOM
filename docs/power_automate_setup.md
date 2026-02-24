@@ -61,7 +61,7 @@ Security 탭에서:
 
 ## 3. Power Automate Flow 예제
 
-### SharePoint 파일 → DAOM 추출 → Excel 저장
+### 3.1 단건: SharePoint 파일 → DAOM 추출 → Excel 저장
 
 ```
 트리거: When a file is created in a folder (SharePoint)
@@ -80,6 +80,28 @@ Security 탭에서:
     - Table: "Extractions"
     - Invoice Number: body('WaitForExtraction')?['extracted_data/invoice_number']
     - Amount: body('WaitForExtraction')?['extracted_data/total_amount']
+```
+
+### 3.2 다건 필터 조회: 어제 처리된 추출 결과 모조리 가져오기 (배치/루프 처리)
+
+```
+트리거: Recurrence (매일 아침 9시 실행)
+    ↓
+액션 1: DAOM - ListExtractions
+    - model_id: "invoice-model-id"
+    - status: "success"
+    - start_date: "2026-02-23T00:00:00Z" (어제 시작일)
+    - end_date: "2026-02-23T23:59:59Z" (어제 종료일)
+    
+    ⚠️ 필수 설정 (Pagination): 
+    ListExtractions 우측 상단 '...' 클릭 -> Settings(설정) 메뉴 
+    -> 'Pagination(페이지 매김)' 켜기 -> Threshold(임계값)을 5000으로 설정
+    ↓
+액션 2: Apply to each (루프)
+    - 입력 배열: outputs('ListExtractions')?['body/results']
+    ↓
+액션 3 (루프 내부): Add row to Excel
+    - Invoice Number: item()?['extracted_data']?['invoice_number']
 ```
 
 ---
@@ -128,10 +150,12 @@ Power Automate에서 자동 재시도 설정:
 
 ## 6. 엔드포인트 요약
 
-| 액션 | 메서드 | 경로 |
-|------|--------|------|
-| 📄 UploadDocument | POST | `/api/v1/connectors/upload` |
-| 🔍 GetExtractionResult | GET | `/api/v1/connectors/result/{job_id}` |
-| ⏳ WaitForExtraction | GET | `/api/v1/connectors/wait/{job_id}` |
-| 📋 ListModels | GET | `/api/v1/connectors/models` |
-| ❌ CancelExtraction | POST | `/api/v1/connectors/cancel/{job_id}` |
+| 액션 | 메서드 | 경로 | 기능 설명 |
+|------|--------|------|------|
+| 📄 UploadDocument | POST | `/api/v1/connectors/upload` | 단일 파일 업로드 및 추출 |
+| 📚 BatchUpload | POST | `/api/v1/connectors/batch-upload` | 다중 파일 일괄 업로드 |
+| 🔍 GetExtractionResult | GET | `/api/v1/connectors/result/{job_id}` | 단일 결과 조회 |
+| ⏳ WaitForExtraction | GET | `/api/v1/connectors/wait/{job_id}` | 완료될 때까지 대기 (폴링) |
+| 📋 ListModels | GET | `/api/v1/connectors/models` | 사용 가능한 모델 목록 |
+| ❌ CancelExtraction | POST | `/api/v1/connectors/cancel/{job_id}` | 추출 취소 |
+| 📊 ListExtractions | GET | `/api/v1/connectors/results` | 조건(날짜/상태)에 맞는 결과 리스트 조회 |
