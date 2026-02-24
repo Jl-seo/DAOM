@@ -537,6 +537,18 @@ async def get_extraction_result(
     if not log:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # ========== HYDRATE OFFLOADED DATA ==========
+    # If the payload was massive (e.g. 100+ rows), it might have been offloaded to Blob Storage
+    if log.extracted_data and isinstance(log.extracted_data, dict):
+        if log.extracted_data.get("source") == "blob_storage" and log.extracted_data.get("blob_path"):
+            try:
+                from app.services.storage import load_json_from_blob
+                hydrated = await load_json_from_blob(log.extracted_data["blob_path"])
+                if hydrated is not None:
+                    log.extracted_data = hydrated
+            except Exception as e:
+                logger.error(f"[Connector] Failed to hydrate extracted_data from blob: {e}")
+
     # ========== IDOR Security Check ==========
     if log.user_id != current_user.id:
         is_super = await is_super_admin(current_user)
