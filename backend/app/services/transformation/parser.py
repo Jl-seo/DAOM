@@ -4,18 +4,19 @@ import asyncio
 from typing import List
 from app.core.config import settings
 from openai import AsyncAzureOpenAI
+from app.services.llm import get_openai_client, get_current_model
 from app.services.transformation.engine import TransformationRule
 
 logger = logging.getLogger(__name__)
 
 class RuleParser:
-    def __init__(self):
-        self.client = AsyncAzureOpenAI(
-            api_key=settings.AZURE_OPENAI_API_KEY,
-            api_version=settings.AZURE_OPENAI_API_VERSION,
-            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
-        )
-        self.deployment_name = settings.AZURE_OPENAI_DEPLOYMENT_NAME
+    @property
+    def client(self):
+        return get_openai_client()
+
+    @property
+    def deployment_name(self):
+        return get_current_model()
 
     async def parse_natural_language(self, text: str, available_fields: List[str]) -> List[TransformationRule]:
         """

@@ -13,7 +13,7 @@ from app.services.doc_intel import analyze_document_layout
 from app.services.models import get_model_by_id
 from app.schemas.model import ExtractionModel
 from app.core.config import settings
-from app.services.llm import call_llm_single, get_current_model
+from app.services.llm import call_llm_single, get_current_model, get_openai_client
 from app.services.extraction_utils import normalize_bbox, parse_number
 
 # Async Azure OpenAI client for direct calls
@@ -22,12 +22,9 @@ from openai import AsyncAzureOpenAI
 logger = logging.getLogger(__name__)
 
 class ExtractionService:
-    def __init__(self):
-        self.azure_openai = AsyncAzureOpenAI(
-            api_key=settings.AZURE_OPENAI_API_KEY,
-            api_version=settings.AZURE_OPENAI_API_VERSION,
-            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
-        )
+    @property
+    def azure_openai(self) -> AsyncAzureOpenAI:
+        return get_openai_client()
 
     async def run_extraction_pipeline(self, file_content: bytes, model_id: str, filename: str = "", mime_type: str = "", barcode: Optional[str] = None) -> Dict[str, Any]:
         """

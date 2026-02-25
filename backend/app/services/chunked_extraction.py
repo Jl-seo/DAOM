@@ -354,14 +354,8 @@ async def process_chunks_parallel(
     """
     Process multiple chunks in parallel with concurrency limit.
     """
-    client = AsyncAzureOpenAI(
-        api_key=settings.AZURE_OPENAI_API_KEY,
-        api_version=settings.AZURE_OPENAI_API_VERSION,
-        azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
-    )
-
-    # Use dynamic model from admin settings
-    from app.services.llm import get_current_model
+    from app.services.llm import get_current_model, get_openai_client
+    client = get_openai_client()
     deployment = get_current_model()
     semaphore = asyncio.Semaphore(max_concurrent)
 
