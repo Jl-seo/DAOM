@@ -73,30 +73,52 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         client = get_openai_client()
         deployment = get_current_model()
         
-        res = await client.chat.completions.create(
-            model=deployment,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": "Return the SQL query in JSON format."}
-            ],
-            response_format={"type": "json_object"},
-            temperature=0
-        )
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": "Return the SQL query in JSON format."}
+        ]
         
-        content = res.choices[0].message.content
-        response_json = json.loads(content)
-        sql_query = response_json.get("sql_query", "").strip()
-        logger.info(f"Generated SQL: {sql_query}")
+        # Phase 2: Implement Auto-Healing retry loop
+        max_retries = 1
+        sql_query = ""
+        result_df = None
         
-        # 6. Safety Check on Generated SQL (Strict Regex)
-        if not re.match(r"(?i)^\s*SELECT\s", sql_query):
-            raise ValueError(f"Unsafe or Invalid Query generated (Must start with SELECT): {sql_query}")
-            
-        if re.search(r"(?i)\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|REPLACE|TRUNCATE)\b", sql_query):
-            raise ValueError(f"Unsafe Query generated (Contains forbidden DML/DDL): {sql_query}")
-        
-        # 7. Execute Query & Format Response
-        result_df = con.execute(sql_query).df()
+        for attempt in range(max_retries + 1):
+            try:
+                res = await client.chat.completions.create(
+                    model=deployment,
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                    temperature=0
+                )
+                
+                content = res.choices[0].message.content
+                response_json = json.loads(content)
+                sql_query = response_json.get("sql_query", "").strip()
+                logger.info(f"Generated SQL (Attempt {attempt+1}): {sql_query}")
+                
+                # 6. Safety Check on Generated SQL (Strict Regex)
+                if not re.match(r"(?i)^\s*SELECT\s", sql_query):
+                    raise ValueError(f"Unsafe or Invalid Query generated (Must start with SELECT): {sql_query}")
+                    
+                if re.search(r"(?i)\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|REPLACE|TRUNCATE)\b", sql_query):
+                    raise ValueError(f"Unsafe Query generated (Contains forbidden DML/DDL): {sql_query}")
+                
+                # 7. Execute Query
+                result_df = con.execute(sql_query).df()
+                break # Success! Break out of retry loop
+                
+            except duckdb.BinderException as be:
+                logger.warning(f"SQL Binder Error on Attempt {attempt+1}: {be}")
+                if attempt < max_retries:
+                    logger.info("Auto-healing: Passing error back to LLM for correction...")
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({"role": "user", "content": f"The query failed with error: {be}\nFix the column names or syntax and return the corrected SQL query in JSON format."})
+                else:
+                    raise Exception(f"SQL Execution Failed after {max_retries} retries. LLM generated invalid column names. Error: {be}")
+            except Exception as e:
+                # If it's a security/regex error or something else, don't blindly retry
+                raise e
         
         # OOM Defense
         if len(result_df) > 5000:
