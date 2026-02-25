@@ -41,7 +41,7 @@ export const DocumentPreviewPanel = forwardRef<ViewerHandle, DocumentPreviewPane
     rawTables,
     isBetaMode = false
 }, ref) => {
-    const fileType = getFileType(file, fileUrl)
+    const fileType = getFileType(file, fileUrl, filename)
     const [imageTab, setImageTab] = useState<string>('image')
 
     // ─── Render helpers ───
