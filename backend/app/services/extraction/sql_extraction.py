@@ -105,7 +105,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         ]
         
         # Phase 2: Implement Auto-Healing retry loop
-        max_retries = 1
+        max_retries = 2
         sql_query = ""
         result_df = None
         
@@ -122,6 +122,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 response_json = json.loads(content)
                 sql_query = response_json.get("sql_query", "").strip()
                 logger.info(f"Generated SQL (Attempt {attempt+1}): {sql_query}")
+                
+                # Pre-Execution Safety Net: Auto-Fix common LLM mistakes
+                # Fix: Strip DISTINCT and ORDER BY from json_group_array/object (DuckDB limitation)
+                macro_pattern = r"(?i)(json_group_array|json_group_object)\s*\(\s*(?:DISTINCT\s+)?(.*?)(?:\s+ORDER\s+BY.*?)?\s*\)"
+                sql_query = re.sub(macro_pattern, r"\1(\2)", sql_query)
                 
                 # 6. Safety Check on Generated SQL (Strict Regex)
                 if not re.match(r"(?i)^\s*SELECT\s", sql_query):
