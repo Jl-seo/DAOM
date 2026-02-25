@@ -58,7 +58,7 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
         queryKey: ['extraction-logs', modelId],
         queryFn: async () => {
             const res = await apiClient.get(`/extraction/logs`, {
-                params: { model_id: modelId, limit: 100 }
+                params: { model_id: modelId, limit: 500 }
             })
             return res.data as ExtractionLog[]
         },

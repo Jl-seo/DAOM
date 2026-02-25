@@ -20,7 +20,7 @@ async def get_extraction_logs_by_model(
     request: Request,
     model_id: str,
     current_user: CurrentUser = Depends(get_current_user),
-    limit: int = 100
+    limit: int = 500
 ):
     """
     Get extraction logs for a specific model
@@ -47,7 +47,7 @@ async def get_extraction_logs_by_model(
 async def get_all_extraction_logs(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
-    limit: int = 100,
+    limit: int = 500,
     model_id: Optional[str] = None
 ):
     """

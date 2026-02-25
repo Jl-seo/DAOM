@@ -135,7 +135,7 @@ export function AllExtractionHistory() {
         queryKey: ['extraction-logs-all'],
         queryFn: async () => {
             const res = await apiClient.get(`/extraction/logs/all`, {
-                params: { limit: 200 }
+                params: { limit: 500 }
             })
             return res.data as ExtractionLog[]
         },

@@ -19,8 +19,8 @@ LLM_CONFIG_ID = "llm_config"
 
 # Safety clamp: deployed model's actual max completion tokens.
 # GPT-4o = 16384, GPT-4o-2024-08-06+ = 16384, GPT-4.1 = 32768
-# Update this when changing the Azure deployment model.
-MODEL_MAX_COMPLETION_TOKENS = 32768
+# Lowering default to 16384 to support standard gpt-4o models without throwing 400 Bad Request.
+MODEL_MAX_COMPLETION_TOKENS = 16384
 
 # Singleton client — reuse across all calls
 _openai_client: Optional[AsyncAzureOpenAI] = None
@@ -46,8 +46,11 @@ def initialize_llm_settings():
 def set_llm_model(model_name: str):
     """어드민에서 LLM 모델 변경 (DB 저장)"""
     global _current_model
+    global _openai_client
+    
     _current_model = model_name
-    logger.info(f"[LLM] Model changed to: {_current_model}")
+    _openai_client = None # 클라이언트 캐시 초기화 (Stale connection 방지 / 새 API 연결 강제)
+    logger.info(f"[LLM] Model changed to: {_current_model} & Client cache cleared")
 
     # DB 저장
     try:
