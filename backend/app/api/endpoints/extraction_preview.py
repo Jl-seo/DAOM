@@ -719,7 +719,8 @@ async def confirm_job(
                             preview_data=sub.get("data"),  # Save full structure for this sub-doc
                             job_id=job_id,
                             tenant_id=current_user.tenant_id if current_user else None,
-                            debug_data=job.debug_data
+                            debug_data=job.debug_data,
+                            token_usage=sub.get("data", {}).get("_token_usage")
                         )
                         if log: saved_logs.append(log)
                 except Exception as e:
@@ -744,7 +745,8 @@ async def confirm_job(
                 log_id=job.original_log_id,
                 job_id=job_id,
                 tenant_id=current_user.tenant_id if current_user else None,
-                debug_data=job.debug_data
+                debug_data=job.debug_data,
+                token_usage=job.preview_data.get("_token_usage") if job.preview_data else None
             )
 
     except Exception as e:

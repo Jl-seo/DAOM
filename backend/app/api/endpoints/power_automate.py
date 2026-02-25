@@ -106,8 +106,17 @@ async def run_extraction_with_metadata(
         )
         
         # 5. Handle Result
+        log = extraction_logs.get_log(job_id)
+        
         if result.get("error"):
              await update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
+             if log:
+                 extraction_logs.save_extraction_log(
+                     model_id=log.model_id, user_id=log.user_id, filename=log.filename,
+                     status=ExtractionStatus.ERROR.value, file_url=log.file_url,
+                     error=result["error"], log_id=job_id, tenant_id=log.tenant_id,
+                     metadata=metadata or log.metadata, user_name=log.user_name, user_email=log.user_email
+                 )
         else:
              # Success -> Update Job + Store extracted_data for connector result API
              extracted = result.get("guide_extracted", {})
@@ -117,25 +126,28 @@ async def run_extraction_with_metadata(
                 preview_data=result,
                 extracted_data=extracted
             )
+             if log:
+                 extraction_logs.save_extraction_log(
+                     model_id=log.model_id, user_id=log.user_id, filename=log.filename,
+                     status=ExtractionStatus.SUCCESS.value, file_url=log.file_url,
+                     extracted_data=extracted, preview_data=result,
+                     log_id=job_id, tenant_id=log.tenant_id,
+                     metadata=metadata or log.metadata, user_name=log.user_name, user_email=log.user_email,
+                     token_usage=result.get("_token_usage")
+                 )
 
-        # 6. Update log with metadata if provided
-        if metadata:
-            log = extraction_logs.get_log(job_id)
-            if log:
-                extraction_logs.save_extraction_log(
-                    model_id=log.model_id,
-                    user_id=log.user_id,
-                    filename=log.filename,
-                    status=log.status,
-                    file_url=log.file_url,
-                    extracted_data=log.extracted_data,
-                    log_id=job_id,
-                    tenant_id=log.tenant_id,
-                    metadata=metadata
-                )
     except Exception as e:
         logger.error(f"[Connector] Extraction failed for job {job_id}: {e}")
+        from app.services.extraction_jobs import update_job
         await update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
+        log = extraction_logs.get_log(job_id)
+        if log:
+            extraction_logs.save_extraction_log(
+                model_id=log.model_id, user_id=log.user_id, filename=log.filename,
+                status=ExtractionStatus.ERROR.value, file_url=log.file_url,
+                error=str(e), log_id=job_id, tenant_id=log.tenant_id,
+                metadata=metadata or log.metadata, user_name=log.user_name, user_email=log.user_email
+            )
 
 
 # ============================================
@@ -312,7 +324,9 @@ async def upload_document(
             log_id=log.id,
             job_id=job.id,
             tenant_id=current_user.tenant_id,
-            metadata=parsed_metadata
+            metadata=parsed_metadata,
+            user_name=current_user.name if hasattr(current_user, 'name') else None,
+            user_email=current_user.email if hasattr(current_user, 'email') else None
         )
 
     # Start background extraction using job.id (for updates) but PA polls using log.id
@@ -485,7 +499,9 @@ async def batch_upload_documents_json(
                     log_id=log.id,
                     job_id=job.id,
                     tenant_id=current_user.tenant_id,
-                    metadata=parsed_metadata
+                    metadata=parsed_metadata,
+                    user_name=current_user.name if hasattr(current_user, 'name') else None,
+                    user_email=current_user.email if hasattr(current_user, 'email') else None
                 )
 
             background_tasks.add_task(
@@ -848,7 +864,9 @@ async def cancel_extraction(
         status="cancelled",
         file_url=log.file_url,
         log_id=job_id,
-        tenant_id=log.tenant_id,
+        tenant_id=getattr(log, 'tenant_id', 'default'),
+        user_name=getattr(log, 'user_name', None),
+        user_email=getattr(log, 'user_email', None),
         metadata=log.metadata,
         error="Cancelled by user"
     )
