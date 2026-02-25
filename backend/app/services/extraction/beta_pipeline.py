@@ -978,7 +978,7 @@ class BetaPipeline(ExtractionPipeline):
                 messages=messages,
                 temperature=settings.LLM_DEFAULT_TEMPERATURE,
                 seed=42,
-                max_tokens=max_tokens,
+                max_completion_tokens=max_tokens,
                 response_format={"type": "json_object"}
             )
         except Exception as e:

@@ -308,7 +308,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
                 {"role": "user", "content": user_message}
             ],
             response_format={"type": "json_object"},
-            max_tokens=settings.LLM_COMPARISON_MAX_TOKENS,
+            max_completion_tokens=settings.LLM_COMPARISON_MAX_TOKENS,
             temperature=0,
         )
 

@@ -386,7 +386,7 @@ If a field is not found, return null.
                 model=current_model_name,
                 messages=messages,
                 temperature=settings.LLM_DEFAULT_TEMPERATURE,
-                max_tokens=settings.LLM_DEFAULT_MAX_TOKENS,
+                max_completion_tokens=settings.LLM_DEFAULT_MAX_TOKENS,
                 response_format={"type": "json_object"}
             )
             content = response.choices[0].message.content or "{}"

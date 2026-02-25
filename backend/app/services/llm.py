@@ -466,7 +466,7 @@ async def call_llm_single(
                 {"role": "user", "content": user_prompt}
             ],
             response_format=response_format,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
             temperature=0,
         )
 
