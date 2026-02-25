@@ -28,15 +28,27 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         df = pd.read_excel(io.BytesIO(file_content))
         df = df.dropna(how='all') # Remove entirely empty rows
         
-        # Clean column names to prevent SQL Binder errors (trailing colons, newlines)
+        # Clean column names aggressively to prevent ANY SQL Binder errors
+        # Convert spaces, special chars, brackets to underscores. Keep Korean, English, Numbers.
         clean_cols = []
         for col in df.columns:
             if pd.isna(col) or 'Unnamed' in str(col):
                 clean_cols.append(str(col))
                 continue
-            c = str(col).strip().rstrip(':').strip()
-            c = c.replace('\n', ' ').replace('\r', ' ')
+            
+            c = str(col).strip()
+            # Replace all non-alphanumeric/Korean characters with underscores
+            c = re.sub(r'[^a-zA-Z0-9가-힣_]', '_', c)
+            # Remove multiple consecutive underscores
+            c = re.sub(r'_+', '_', c)
+            c = c.strip('_')
+            
+            # If the column name becomes completely empty after stripping, give it a generic name
+            if not c:
+                c = f"col_{len(clean_cols)}"
+                
             clean_cols.append(c)
+            
         df.columns = clean_cols
     except Exception as e:
         logger.error(f"Failed to load Excel with pandas: {e}")
@@ -79,6 +91,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         3. Aliases in your SELECT clause MUST exactly match the requested target field names.
         4. If a field asks for derived data, use SQL functions (e.g. string concatenation, logic) to fulfill it.
         5. Return ONLY a JSON object containing a `sql_query` string key. Do not explain.
+        6. DUCKDB SPECIFIC RULE: "json_group_array" and "json_group_object" are MACRO functions. You CANNOT use "DISTINCT", "FILTER", or "ORDER BY" inside them. 
+           - WRONG: json_group_array(value ORDER BY value)
+           - CORRECT: WITH ordered AS (SELECT * FROM raw_data ORDER BY value) SELECT json_group_array(value) FROM ordered
         """
         
         client = get_openai_client()
@@ -119,14 +134,14 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 result_df = con.execute(sql_query).df()
                 break # Success! Break out of retry loop
                 
-            except duckdb.BinderException as be:
-                logger.warning(f"SQL Binder Error on Attempt {attempt+1}: {be}")
+            except (duckdb.BinderException, duckdb.InvalidInputException, duckdb.ParserException) as de:
+                logger.warning(f"DuckDB Error on Attempt {attempt+1}: {de}")
                 if attempt < max_retries:
                     logger.info("Auto-healing: Passing error back to LLM for correction...")
                     messages.append({"role": "assistant", "content": content})
-                    messages.append({"role": "user", "content": f"The query failed with error: {be}\nFix the column names or syntax and return the corrected SQL query in JSON format."})
+                    messages.append({"role": "user", "content": f"The query failed with error: {de}\nFix the SQL syntax/macro usage and return the corrected SQL query in JSON format."})
                 else:
-                    raise Exception(f"SQL Execution Failed after {max_retries} retries. LLM generated invalid column names. Error: {be}")
+                    raise Exception(f"SQL Execution Failed after {max_retries} retries. DuckDB Error: {de}")
             except Exception as e:
                 # If it's a security/regex error or something else, don't blindly retry
                 raise e
