@@ -176,4 +176,6 @@
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', var(--font-sans);
   }
-}// trigger build
+}
+
+/* Trigger build */
