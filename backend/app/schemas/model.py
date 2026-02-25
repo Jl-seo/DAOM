@@ -7,6 +7,7 @@ def default_beta_features() -> Dict[str, bool]:
     return {
         "use_optimized_prompt": False,
         "use_vision_extraction": False,
+        "use_sql_extraction": False,  # 가상 DB 쿼리 추출 (DuckDB)
         # DEPRECATED: ExcelMapper moved to _deprecated/
         # "use_virtual_excel_ocr": False
     }

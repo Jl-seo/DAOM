@@ -44,6 +44,35 @@ class ExtractionService:
             logger.error(f"[Extraction] Model not found: {e}")
             return {"error": f"Model {model_id} not found"}
 
+        # 1a. SQL Extraction Mode (DuckDB)
+        use_sql = model.beta_features.get("use_sql_extraction", False) if model.beta_features else False
+        is_excel = mime_type in ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "text/csv"] or filename.lower().endswith(('.xlsx', '.xls', '.csv'))
+        if use_sql and is_excel:
+            logger.info("[Extraction] Route: SQL EXTRACTION MODE (DuckDB)")
+            try:
+                from app.services.extraction.sql_extraction import run_sql_extraction
+                from fastapi import UploadFile
+                import io
+                dummy_file = UploadFile(filename=filename, file=io.BytesIO(file_content))
+                sql_result = await run_sql_extraction(dummy_file, model)
+                
+                duration = (datetime.utcnow() - start_time).total_seconds()
+                if "_meta" not in sql_result:
+                    sql_result["_meta"] = {}
+                sql_result["_meta"].update({
+                    "duration_seconds": duration,
+                    "filename": filename,
+                    "model_name": model.name,
+                    "timestamp": start_time.isoformat(),
+                    "pipeline_mode": "sql-extraction"
+                })
+                return sql_result
+            except Exception as e:
+                import traceback
+                tb = traceback.format_exc()
+                logger.error(f"[Extraction] SQL extraction failed: {e}", exc_info=True)
+                return {"error": f"SQL extraction failed: {str(e)}\n\nTraceback:\n{tb}"}
+
         # 1b. Vision Extraction Mode — skip OCR entirely
         use_vision = model.beta_features.get("use_vision_extraction", False) if model.beta_features else False
         if use_vision:
