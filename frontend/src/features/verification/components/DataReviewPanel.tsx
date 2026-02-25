@@ -131,7 +131,7 @@ export function DataReviewPanel({
     useEffect(() => {
         setIsRendering(true)
 
-        // Give the browser 50ms to paint the "Rendering..." spinner before locking the main thread with heavy DOM generation
+        // Yield to browser event loop to paint the "Loading" overlay before locking main thread
         const timer = setTimeout(() => {
             setDeferredData({
                 guideExtracted: currentGuideExtracted,
@@ -139,7 +139,7 @@ export function DataReviewPanel({
                 otherData: currentOtherData
             })
             setIsRendering(false)
-        }, 50)
+        }, 150)
         return () => clearTimeout(timer)
     }, [currentGuideExtracted, currentParsedContent, currentOtherData, documentId])
 
@@ -150,10 +150,10 @@ export function DataReviewPanel({
     return (
         <Card className={`h-full flex flex-col bg-background overflow-hidden border-0 rounded-none relative transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-50' : ''}`}>
             {isRendering && (
-                <div className="absolute inset-0 z-[100] bg-background/80 flex flex-col items-center justify-center backdrop-blur-sm">
-                    <RefreshCw className="w-8 h-8 animate-spin text-primary mb-4" />
-                    <p className="text-base font-semibold text-foreground">대용량 데이터를 렌더링 중입니다...</p>
-                    <p className="text-sm text-muted-foreground mt-2">표가 매우 클 경우 화면 표시에 수 초가 소요될 수 있습니다.</p>
+                <div className="fixed inset-0 z-[9999] bg-background/80 flex flex-col items-center justify-center backdrop-blur-md">
+                    <RefreshCw className="w-12 h-12 animate-spin text-primary mb-6" />
+                    <p className="text-xl font-bold text-foreground">데이터를 화면에 불러오고 있습니다...</p>
+                    <p className="text-base text-muted-foreground mt-2">데이터 양이 많을 경우 잠시 화면이 멈출 수 있습니다.</p>
                 </div>
             )}
             <DebugInfoModal

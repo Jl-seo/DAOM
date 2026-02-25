@@ -27,6 +27,17 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
     try:
         df = pd.read_excel(io.BytesIO(file_content))
         df = df.dropna(how='all') # Remove entirely empty rows
+        
+        # Clean column names to prevent SQL Binder errors (trailing colons, newlines)
+        clean_cols = []
+        for col in df.columns:
+            if pd.isna(col) or 'Unnamed' in str(col):
+                clean_cols.append(str(col))
+                continue
+            c = str(col).strip().rstrip(':').strip()
+            c = c.replace('\n', ' ').replace('\r', ' ')
+            clean_cols.append(c)
+        df.columns = clean_cols
     except Exception as e:
         logger.error(f"Failed to load Excel with pandas: {e}")
         raise ValueError(f"지원하지 않거나 손상된 엑셀 구조입니다. 파일 로딩 실패: {e}")
