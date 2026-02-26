@@ -70,54 +70,68 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         logger.info(f"Loaded Schema: {schema_info}")
         
         # 4. Target Fields Info
-        target_fields = []
-        for field in model.fields:
-            desc = field.description or ""
-            target_fields.append(f"- {field.key} (label expected: {field.label}, type: {field.type}): {desc}")
-        target_fields_str = "\n".join(target_fields)
+        fields_info = []
+        for f in model.fields:
+            field_entry = {"key": f.key, "label": f.label, "type": f.type}
+            if f.description:
+                field_entry["description"] = f.description
+            if f.rules:
+                field_entry["rules"] = f.rules
+            fields_info.append(field_entry)
+        
+        field_descriptions = json.dumps(fields_info, ensure_ascii=False, indent=2)
+        
+        global_rules_text = ""
+        if model.global_rules:
+            global_rules_text = f"\n\nGlobal Rules (apply to ALL fields):\n{model.global_rules}"
+            
+        ref_data_text = ""
+        if model.reference_data:
+            ref_json = json.dumps(model.reference_data, ensure_ascii=False, indent=2)
+            ref_data_text = f"\n\nReference Data (use to map codes/names if needed):\n{ref_json}"
 
         # 5. Prompt LLM for SQL Query
         system_prompt = f"""
-        You are an expert Data Engineer writing standard SQL queries (DuckDB compatible).
-        We have a table `raw_data` with the following columns:
+        You are an expert Data Engineer writing standard SQL queries (DuckDB compatible) to extract structured data from an Excel file.
+        
+        We have loaded the Excel file into a virtual DuckDB table named `raw_data` with the following schema:
         {schema_info}
         
-        Your task is to write a single SELECT query that extracts data mapping to these specific fields:
-        {target_fields_str}
+        Your task is to write a single SELECT query that extracts data mapping to this exact JSON schema:
+        {field_descriptions}
+        {global_rules_text}
+        {ref_data_text}
         
-        CRITICAL RULES:
+        CRITICAL RULES FOR SQL GENERATION:
         1. Write ONLY a SELECT query targeting the `raw_data` table.
         2. DO NOT write DROP, DELETE, INSERT, or UPDATE.
-        3. Aliases in your SELECT clause MUST exactly match the requested target 'key' name in English. DO NOT use the 'label expected'.
-        4. If a field asks for derived data, use SQL functions (e.g. string concatenation, logic) to fulfill it.
-        5. Return ONLY a JSON object containing a `sql_query` string key. Do not explain.
+        3. Aliases in your SELECT clause MUST exactly match the requested target 'key' name in English.
+        4. Use SQL functions (e.g., string concatenation, logic) if a field asks for derived data based on its 'rules'.
         
-        6. REQUIRED FORMATTING BY DATATYPE (VERY IMPORTANT):
-           - For fields where `type: string` or any scalar type: The SELECT alias MUST return a single primitive string or number. DO NOT use `json_object` or arrays. (e.g. `SELECT (SELECT A FROM raw_data LIMIT 1) AS remark`)
-           - For fields where `type: table`: The SELECT alias MUST return a JSON Array string. You MUST use `json_group_array(json_object(...))` inside a scalar subquery to aggregate the rows.
-             - CORRECT TABLE EXTRACTION: `(SELECT json_group_array(json_object('COL1', col1, 'COL2', col2)) FROM table_cte) AS my_table_field`
-           
-        7. DUCKDB SPECIFIC RULE: "json_group_array" and "json_group_object" are MACRO functions. You CANNOT use "DISTINCT", "FILTER", or "ORDER BY" inside them. 
-           - WRONG: json_group_array(value ORDER BY value)
-           - CORRECT: WITH ordered AS (SELECT * FROM raw_data ORDER BY value) SELECT json_group_array(value) FROM ordered
-           
-        8. DUCKDB SPECIFIC RULE FOR JSON OBJECTS:
-           - To create a JSON object for a SINGLE ROW, use "json_object('key1', val1, 'key2', val2)".
-           - To Aggregate MULTIPLE ROWS into a single JSON object, use "json_group_object(key_col, value_col)". It MUST take EXACTLY TWO arguments.
-           
-        9. DUCKDB SPECIFIC RULE: "regexp_match" DOES NOT EXIST. 
-           - To check if a string matches a pattern (Returns Boolean), use "regexp_matches(string, pattern)".
-           - To EXTRACT a substring matching a pattern (Returns String), use "regexp_extract(string, pattern, group_index)".
-           
-        10. DUCKDB SPECIFIC RULE: SAFE TYPE CASTING
-           - If you are casting a string from `regexp_extract` to an INTEGER or FLOAT, you MUST use `TRY_CAST(value AS target_type)`.
-           - DuckDB's `CAST()` crashes aggressively if the regex returns an empty string (''). `TRY_CAST()` safely returns NULL.
-           
-        MULTI-TABLE CORRELATION STRATEGY (CRITICAL FOR COMPLEX DOCUMENTS):
-        - Raw Excel data often contains fragmented tables, stacked vertically, or split with repeating headers.
-        - You MUST actively CROSS-REFERENCE and MERGE information from disconnected or fragmented sections if they map to the same target schema list.
-        - Use advanced SQL (e.g., CTEs, UNION ALL, Window Functions, or JOINs) to stitch related tables back together.
-        - DO NOT extract only the first visible table section if the document implies more data exists further down the raw dataset.
+        REQUIRED FORMATTING BY DATATYPE (VERY IMPORTANT):
+        - For fields where `type: string`, `number`, or `date`: The SELECT alias MUST return a single primitive scalar value (string or number). DO NOT use `json_object` or arrays. (e.g., `SELECT (SELECT A FROM raw_data LIMIT 1) AS remark`)
+        - For fields where `type: table`: The SELECT alias MUST return a JSON Array string. You MUST use `json_group_array(json_object(...))` inside a scalar subquery to aggregate the rows.
+          - CORRECT TABLE EXTRACTION: `(SELECT json_group_array(json_object('COL1', col1, 'COL2', col2)) FROM table_cte) AS my_table_field`
+        
+        MANDATORY OUTPUT OBJECT WRAPPING (DAOM JSON SCHEMA):
+        - ALL table `json_object` properties MUST WRAP THEIR DATAPOINTS into exactly this shape so the frontend can display them: `json_object('value', actual_data, 'confidence', 1.0, 'validation_status', 'valid', 'original_value', actual_data)`
+        - WRONG: `json_object('POL_CODE', POL_CODE)`
+        - CORRECT: `json_object('POL_CODE', json_object('value', POL_CODE, 'confidence', 1.0, 'validation_status', 'valid', 'original_value', POL_CODE))`
+        - If the extracted data is NULL, return NULL for `value` and `original_value`.
+        
+        DUCKDB SPECIFIC RULES:
+        1. `json_group_array` and `json_group_object` are MACRO functions. You CANNOT use "DISTINCT", "FILTER", or "ORDER BY" inside them. Use CTEs to order data first if needed.
+        2. "regexp_match" DOES NOT EXIST. To check matching, use "regexp_matches(string, pattern)". To extract, use "regexp_extract(string, pattern, group_index)".
+        3. SAFE TYPE CASTING: If you are casting a string from regex, you MUST use `TRY_CAST(value AS target_type)` to avoid crashing on empty strings.
+        
+        MULTI-TABLE CORRELATION STRATEGY:
+        - Raw Excel data often contains fragmented tables or split chunks. Look at the `raw_data` schema and logically deduce which columns map to the requested fields (e.g., if a schema asks for POL, look for columns containing "POL", "Port of Loading", or port names).
+        - Use advanced SQL (e.g., CTEs, Window Functions, JOINs) to stitch related tables back together if the data requires a flat table output.
+        
+        OUTPUT FORMAT:
+        Return ONLY a JSON object containing two keys:
+        - "reasoning": A step-by-zstep brief explanation (in Korean) of how you analyzed the `raw_data` schema and mapped the columns to the requested fields, and why you used specific SQL logic.
+        - "sql_query": The final executable DuckDB SQL string.
         """
         
         client = get_openai_client()
@@ -125,7 +139,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": "Return the SQL query in JSON format."}
+            {"role": "user", "content": "Return the JSON object with your 'reasoning' and 'sql_query'."}
         ]
         
         # Phase 2: Implement Auto-Healing retry loop
@@ -145,7 +159,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 content = res.choices[0].message.content
                 response_json = json.loads(content)
                 sql_query = response_json.get("sql_query", "").strip()
+                reasoning = response_json.get("reasoning", "")
                 logger.info(f"Generated SQL (Attempt {attempt+1}): {sql_query}")
+                logger.debug(f"LLM Reasoning: {reasoning}")
                 
                 # Pre-Execution Safety Net: Auto-Fix common LLM mistakes
                 # Fix 1: Strip DISTINCT and ORDER BY from json_group_array/object (DuckDB limitation)
@@ -226,7 +242,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                             else:
                                 collapsed_result[k].append(parsed_v)
                         except json.JSONDecodeError:
-                            collapsed_result[k].append({"value": v})
+                            collapsed_result[k].append({"value": v, "confidence": 1.0, "validation_status": "valid"})
                     elif isinstance(v, list):
                         collapsed_result[k].extend(v)
                     else:
@@ -236,21 +252,42 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 else:
                     if k not in collapsed_result or collapsed_result[k] == "" or collapsed_result[k] is None:
                         if v:
-                            collapsed_result[k] = v
+                            # Automatically wrap scalar string outputs into DAOM field dictionary
+                            collapsed_result[k] = {
+                                "value": v,
+                                "original_value": v,
+                                "confidence": 1.0,
+                                "validation_status": "valid",
+                                "bbox": None,
+                                "page_number": 1
+                            }
                             
         # Ensure all model fields are present in the final payload
         for f in model.fields:
             if f.key not in collapsed_result:
-                collapsed_result[f.key] = [] if f.type == 'table' else ""
+                if f.type == 'table':
+                    collapsed_result[f.key] = [] 
+                else:
+                    collapsed_result[f.key] = {
+                        "value": "",
+                        "original_value": "",
+                        "confidence": 0.0,
+                        "validation_status": "valid"
+                    }
         
-        # Do not wrap the dictionary in a list. The standard DAOM form pipeline expects a mapping of field -> value.
-        final_payload = collapsed_result
-        
-        return {
-            "guide_extracted": final_payload,
-            "logs": [],
-            "error": None
+        # Build Final Payload using the standard expected format
+        if "reasoning" not in locals():
+            reasoning = "DuckDB SQL Query executed successfully."
+            
+        final_payload = {
+            "guide_extracted": collapsed_result,
+            "_beta_metadata": {
+                "parsed_content": f"DuckDB SQL Generation Mode.\n\n[LLM Reasoning]\n{reasoning}\n\n[SQL Executed]\n{sql_query}",
+                "ref_map": {}
+            }
         }
+        
+        return final_payload
 
     except duckdb.BinderException as be:
         logger.error(f"SQL Binder Error: {be}")
