@@ -870,7 +870,6 @@ async def retry_extraction(
         status="P100",  # Pending status code
         extracted_data=None,  # Clear previous data
         error=None,  # Clear previous error
-        barcode=None, # Clear previous barcode so validation doesn't carry over
         log_id=log_id,  # This updates the existing log
         job_id=job.id,   # Link to the new job
         tenant_id=current_user.tenant_id if current_user else None
