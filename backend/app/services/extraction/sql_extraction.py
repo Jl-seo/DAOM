@@ -108,6 +108,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
            - WRONG: SELECT * FROM regexp_matches(col, 'pattern')
            - CORRECT: SELECT regexp_extract(col, 'pattern', 0) FROM raw_data
            
+        9. DUCKDB SPECIFIC RULE: SAFE TYPE CASTING
+           - If you are casting a string from `regexp_extract` to an INTEGER or FLOAT, you MUST use `TRY_CAST(value AS target_type)`.
+           - DuckDB's `CAST()` crashes aggressively if the regex returns an empty string (''). `TRY_CAST()` safely returns NULL.
+           - WRONG: CAST(regexp_extract(col, 'pattern', 0) AS INT)
+           - CORRECT: TRY_CAST(regexp_extract(col, 'pattern', 0) AS INT)
+           
         MULTI-TABLE CORRELATION STRATEGY (CRITICAL FOR COMPLEX DOCUMENTS):
         - Raw Excel data often contains fragmented tables, stacked vertically, or split with repeating headers.
         - You MUST actively CROSS-REFERENCE and MERGE information from disconnected or fragmented sections if they map to the same target schema list.
@@ -150,6 +156,10 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 # Fix 2: Auto-correct regexp_match to regexp_matches
                 sql_query = re.sub(r"(?i)regexp_match\s*\(", "regexp_matches(", sql_query)
                 
+                # Fix 3: Auto-correct dangerous CASTs to TRY_CAST to prevent ConversionError
+                # Only replace CAST that isn't already TRY_CAST
+                sql_query = re.sub(r"(?i)(?<!TRY_)CAST\s*\(", "TRY_CAST(", sql_query)
+                
                 # 6. Safety Check on Generated SQL (Strict Regex)
                 if not re.match(r"(?i)^\s*(SELECT|WITH)\s", sql_query):
                     raise ValueError(f"Unsafe or Invalid Query generated (Must start with SELECT or WITH): {sql_query}")
@@ -161,7 +171,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 result_df = con.execute(sql_query).df()
                 break # Success! Break out of retry loop
                 
-            except (duckdb.BinderException, duckdb.InvalidInputException, duckdb.ParserException, duckdb.CatalogException) as de:
+            except (RuntimeError, duckdb.Error, Exception) as de:
+                # Catching generic duckdb.Error ensures we catch ConversionException, CatalogException, BinderException, etc.
                 logger.warning(f"DuckDB Error on Attempt {attempt+1}: {de}")
                 if attempt < max_retries:
                     logger.info("Auto-healing: Passing error back to LLM for correction...")
@@ -171,6 +182,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                     HOW TO FIX COMMON DUCKDB ERRORS:
                     - "Macro json_group_object() does not support...": You passed >2 arguments. Use json_object('k1',v1,'k2',v2) for single rows, or exactly json_group_object(key, val) to aggregate rows.
                     - "Table Function with name regexp_matches does not exist": You used regexp_matches in the FROM clause like a table. WRONG. Use SELECT regexp_extract(col, 'pattern') FROM raw_data.
+                    - "Conversion Error": You tried to CAST an empty string. Change CAST(x AS INT) to TRY_CAST(x AS INT).
                     - "json_group_array/object ... ORDER BY": Remove the ORDER BY inside the macro. Use a CTE to order data first.
                     - Column not found: Double check the schema provided.
                     
