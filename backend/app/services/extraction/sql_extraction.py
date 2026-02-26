@@ -95,6 +95,10 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
            - WRONG: json_group_array(value ORDER BY value)
            - CORRECT: WITH ordered AS (SELECT * FROM raw_data ORDER BY value) SELECT json_group_array(value) FROM ordered
            
+        9. DUCKDB SPECIFIC RULE: "regexp_match" DOES NOT EXIST. You MUST use "regexp_matches(string, pattern)" for regex matching.
+           - WRONG: CASE WHEN regexp_match(col, 'pattern') THEN ...
+           - CORRECT: CASE WHEN regexp_matches(col, 'pattern') THEN ...
+           
         MULTI-TABLE CORRELATION STRATEGY (CRITICAL FOR COMPLEX DOCUMENTS):
         - Raw Excel data often contains fragmented tables, stacked vertically, or split with repeating headers.
         - You MUST actively CROSS-REFERENCE and MERGE information from disconnected or fragmented sections if they map to the same target schema list.
@@ -130,9 +134,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 logger.info(f"Generated SQL (Attempt {attempt+1}): {sql_query}")
                 
                 # Pre-Execution Safety Net: Auto-Fix common LLM mistakes
-                # Fix: Strip DISTINCT and ORDER BY from json_group_array/object (DuckDB limitation)
+                # Fix 1: Strip DISTINCT and ORDER BY from json_group_array/object (DuckDB limitation)
                 macro_pattern = r"(?i)(json_group_array|json_group_object)\s*\(\s*(?:DISTINCT\s+)?(.*?)(?:\s+ORDER\s+BY.*?)?\s*\)"
                 sql_query = re.sub(macro_pattern, r"\1(\2)", sql_query)
+                
+                # Fix 2: Auto-correct regexp_match to regexp_matches
+                sql_query = re.sub(r"(?i)regexp_match\s*\(", "regexp_matches(", sql_query)
                 
                 # 6. Safety Check on Generated SQL (Strict Regex)
                 if not re.match(r"(?i)^\s*(SELECT|WITH)\s", sql_query):
