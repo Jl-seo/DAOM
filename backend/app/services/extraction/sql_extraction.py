@@ -94,6 +94,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         6. DUCKDB SPECIFIC RULE: "json_group_array" and "json_group_object" are MACRO functions. You CANNOT use "DISTINCT", "FILTER", or "ORDER BY" inside them. 
            - WRONG: json_group_array(value ORDER BY value)
            - CORRECT: WITH ordered AS (SELECT * FROM raw_data ORDER BY value) SELECT json_group_array(value) FROM ordered
+           
+        MULTI-TABLE CORRELATION STRATEGY (CRITICAL FOR COMPLEX DOCUMENTS):
+        - Raw Excel data often contains fragmented tables, stacked vertically, or split with repeating headers.
+        - You MUST actively CROSS-REFERENCE and MERGE information from disconnected or fragmented sections if they map to the same target schema list.
+        - Use advanced SQL (e.g., CTEs, UNION ALL, Window Functions, or JOINs) to stitch related tables back together.
+        - DO NOT extract only the first visible table section if the document implies more data exists further down the raw dataset.
         """
         
         client = get_openai_client()
