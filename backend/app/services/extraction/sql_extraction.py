@@ -264,6 +264,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 
                 # STAGE 3: Strict Python Data Formatter
                 # Guarantee the output perfectly matches the requested schema to prevent UI crashes
+                # CRITICAL: _validate_and_format expects EVERY field to be {"value": ..., "confidence": ...}
+                #           Even table fields must be wrapped: {"value": [...], "confidence": 0.95}
                 if not result_df.empty:
                     # DuckDB returns single row for this type of query
                     row = result_df.iloc[0].to_dict()
@@ -280,15 +282,24 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                             
                             if field_type == "table":
                                 # Safely parse JSON array
+                                parsed_list = []
                                 try:
                                     if isinstance(raw_val, str):
                                         parsed = json.loads(raw_val)
-                                        raw_extracted[key] = parsed if isinstance(parsed, list) else []
-                                    else:
-                                        raw_extracted[key] = raw_val if isinstance(raw_val, list) else []
+                                        parsed_list = parsed if isinstance(parsed, list) else []
+                                    elif isinstance(raw_val, list):
+                                        parsed_list = raw_val
                                 except json.JSONDecodeError:
                                     logger.warning(f"Failed to parse table JSON for {key}: {raw_val}")
-                                    raw_extracted[key] = []
+                                
+                                # MUST wrap in {"value": [...], "confidence": ...} for _validate_and_format
+                                raw_extracted[key] = {
+                                    "value": parsed_list,
+                                    "confidence": conf,
+                                    "validation_status": "valid",
+                                    "bbox": None,
+                                    "page_number": 1
+                                }
                             else:
                                 # Standard scalar mapping
                                 raw_extracted[key] = {
@@ -302,7 +313,13 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                         else:
                             # 🛡️ STRICT FALLBACK: Inject empty schema if LLM missed it
                             if field_type == "table":
-                                raw_extracted[key] = []
+                                raw_extracted[key] = {
+                                    "value": [],
+                                    "confidence": 0.0,
+                                    "validation_status": "flagged",
+                                    "bbox": None,
+                                    "page_number": 1
+                                }
                             else:
                                 raw_extracted[key] = {
                                     "value": "",
@@ -317,7 +334,13 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                     logger.warning("DuckDB query returned empty Dataframe. Generating skeleton fallback.")
                     for f in model.fields:
                         if f.type == "table":
-                            raw_extracted[f.key] = []
+                            raw_extracted[f.key] = {
+                                "value": [],
+                                "confidence": 0.0,
+                                "validation_status": "flagged",
+                                "bbox": None,
+                                "page_number": 1
+                            }
                         else:
                             raw_extracted[f.key] = {
                                 "value": "",
