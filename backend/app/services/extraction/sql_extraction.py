@@ -19,11 +19,11 @@ async def _run_profiler(data_sample_csv: str, model: ExtractionModel) -> Dict[st
     deployment = get_current_model()
     
     # Just grab names and rules to give context
-    fields_context = [{"key": f.key, "type": f.type, "rules": f.rules} for f in model.fields]
+    fields_context = [{"key": f.key, "label": f.label, "type": f.type, "description": f.description} for f in model.fields]
     
     prompt = f"""
     You are a Data Profiler. Your job is to scan a chaotic Excel file (converted to CSV) and find where the actual data starts.
-    The CSV contains a special column `_sheet_name` indicating which Excel sheet the row came from.
+    The CSV contains columns: `row_id` (global row number), `_sheet_name` (Excel sheet), and `A`, `B`, `C`, `D`... (data columns).
     
     CSV Data Sample (First 15 rows of every active sheet):
     {data_sample_csv}
@@ -31,12 +31,16 @@ async def _run_profiler(data_sample_csv: str, model: ExtractionModel) -> Dict[st
     Target Fields to Extract:
     {json.dumps(fields_context, ensure_ascii=False, indent=2)}
     
-    Locate the target table headers (e.g. POL_CODE, POL_NAME).
+    YOUR TASKS:
+    1. Find the row where the REAL table headers are (e.g., a row containing "POL", "POD", "20DC", "Valid From", etc.)
+    2. Map each raw column letter (A, B, C...) to the header text found in that row.
+    
     Return a JSON object:
     {{
-        "target_sheet_name": "The exact string in _sheet_name where the table exists",
-        "header_row_id": 2 (The exact global `row_id` where the table header starts),
-        "reasoning": "Explain why you chose this sheet and header row_id"
+        "target_sheet_name": "The exact string in _sheet_name where the main table exists",
+        "header_row_id": 2,
+        "column_mapping": {{"A": "Version", "B": "Valid From", "C": "Valid To", "D": "POL", "E": "DEL", "F": "DEL CODE"}},
+        "reasoning": "Explain why you chose this sheet, header row, and column mapping"
     }}
     """
     
@@ -51,7 +55,7 @@ async def _run_profiler(data_sample_csv: str, model: ExtractionModel) -> Dict[st
         return json.loads(content)
     except Exception as e:
         logger.error(f"Profiler failed: {e}")
-        return {"target_sheet_name": None, "header_row_index": 0, "reasoning": "Profiler failed"}
+        return {"target_sheet_name": None, "header_row_id": 0, "column_mapping": {}, "reasoning": "Profiler failed"}
 
 async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[str, Any]:
     """
@@ -134,6 +138,15 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         logger.info(f"Data Profile (Stage 1): {data_profile}")
         profile_text = json.dumps(data_profile, ensure_ascii=False, indent=2)
         
+        # Extract column mapping for SQL Engineer
+        column_mapping = data_profile.get("column_mapping", {})
+        col_map_text = ""
+        if column_mapping:
+            col_map_text = "COLUMN LETTER TO HEADER MAPPING (from Profiler):\n"
+            for col_letter, header_name in column_mapping.items():
+                col_map_text += f"  - Column `{col_letter}` = \"{header_name}\"\n"
+            col_map_text += "USE these mappings to correctly assign columns to target fields.\n"
+        
         # 4. Target Fields Info
         fields_info = []
         for f in model.fields:
@@ -171,6 +184,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         {profile_text}
         USE this profile to write targeted WHERE clauses (e.g. `WHERE _sheet_name = 'X' AND row_id > Y`).
         
+        {col_map_text}
+        
         Your task is to write a single SELECT query that extracts data mapping to this exact JSON schema:
         {field_descriptions}
         {global_rules_text}
@@ -185,27 +200,26 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         6. DO NOT USE `IS NOT NULL` to filter data rows! Real-world Excel data has empty cells. If you do `WHERE col2 IS NOT NULL`, you will delete valid rows! Use ONLY `row_id > [header_row_id]` from the Data Profile to safely slice the table.
         7. The outermost query MUST NOT have a `FROM` clause. Structure it exactly like: `SELECT (scalar_subquery) AS field1, (scalar_subquery) AS field2;`. This guarantees exactly 1 row is returned.
         
-        REQUIRED FORMATTING BY DATATYPE (VERY IMPORTANT):
-        - For fields where `type: string`, `number`, or `date`: The SELECT alias MUST return a single primitive scalar value (string or number). DO NOT use `json_object` or arrays. (e.g., `SELECT (SELECT A FROM raw_data WHERE row_id = 0 LIMIT 1) AS remark`)
-        - For fields where `type: table`: The SELECT alias MUST return a JSON Array string. You MUST use `json_group_array(json_object(...))` inside a scalar subquery to aggregate the rows.
-          - CORRECT TABLE EXTRACTION: `(SELECT json_group_array(json_object('COL1', col1, 'COL2', col2)) FROM raw_data WHERE _sheet_name='Rates' AND row_id > 15) AS my_table_field`
+        REQUIRED FORMATTING BY DATATYPE:
+        - For fields where `type: string`, `number`, or `date`: Return a PLAIN scalar value (string or number). NO json_object wrapping. Example: `(SELECT A FROM raw_data WHERE row_id = 0 LIMIT 1) AS remark`
+        - For fields where `type: table`: Return a JSON Array using `json_group_array(json_object(...))`. Use FLAT key-value pairs only. DO NOT nest json_object inside json_object.
+          - CORRECT: `(SELECT json_group_array(json_object('POL_CODE', A, 'POL_NAME', B, '20DC', C)) FROM raw_data WHERE _sheet_name='Rates' AND row_id > 15) AS my_table`
+          - WRONG: `json_object('POL_CODE', json_object('value', A, ...))` ← NEVER DO THIS. Python handles formatting.
         
-        MANDATORY OUTPUT OBJECT WRAPPING (DAOM JSON SCHEMA):
-        - ALL table `json_object` properties MUST WRAP THEIR DATAPOINTS into exactly this shape so the frontend can display them: `json_object('value', actual_data, 'confidence', confidence_score_0_to_1, 'validation_status', 'valid', 'original_value', actual_data)`
-        - WRONG: `json_object('POL_CODE', POL_CODE)`
-        - CORRECT: `json_object('POL_CODE', json_object('value', POL_CODE, 'confidence', 0.95, 'validation_status', 'valid', 'original_value', POL_CODE))`
-        - Assign an appropriate `confidence_score` (0.0 to 1.0) directly in your SQL string based on how well the column maps to the requirement.
-        - If the extracted data is NULL, return NULL for `value` and `original_value`.
+        COLUMN MAPPING (CRITICAL):
+        - Carefully match each target field key to the CORRECT source column by examining the DATA SAMPLE values, not just column positions.
+        - For example, if the target asks for 'POD_NAME' (port name like 'AALBORG'), find the column containing port names, NOT dates.
+        - Cross-reference the Data Profile's header_row to identify real column meanings.
         
         DUCKDB SPECIFIC RULES:
-        1. `json_group_array` and `json_group_object` are MACRO functions. You CANNOT use "DISTINCT", "FILTER", or "ORDER BY" inside them. Use CTEs to order data first if needed.
-        2. "regexp_match" DOES NOT EXIST. Use "regexp_matches" or "regexp_extract".
-        3. SAFE TYPE CASTING: Use `TRY_CAST(value AS target_type)`.
+        1. `json_group_array` / `json_group_object` are MACRO functions. You CANNOT use DISTINCT, FILTER, or ORDER BY inside them. Use CTEs first.
+        2. `regexp_match` DOES NOT EXIST. Use `regexp_matches` or `regexp_extract`.
+        3. Use `TRY_CAST(value AS target_type)` for safe type conversion.
         
         OUTPUT FORMAT (JSON Object):
-        - "reasoning": A step-by-step brief explanation (in Korean) of how you analyzed the `raw_data` SAMPLE to find the real headers, how you mapped the columns, and your justification for the confidence scores.
+        - "reasoning": Brief explanation (in Korean) of column mapping logic and confidence justification.
         - "sql_query": The final executable DuckDB SQL string.
-        - "field_confidence": A key-value dictionary mapping EACH requested field key (e.g., "remark", "shipping_rates_extracted") to a float (0.0 - 1.0) indicating your overall confidence in mapping this specific field.
+        - "field_confidence": A key-value dictionary mapping EACH field key to a float (0.0 - 1.0).
         """
         
         client = get_openai_client()
@@ -292,9 +306,30 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                                 except json.JSONDecodeError:
                                     logger.warning(f"Failed to parse table JSON for {key}: {raw_val}")
                                 
+                                # DAOM-wrap each cell in the table rows
+                                # LLM returns flat: {"POL_CODE": "CNSHA", "20DC": 1000}
+                                # We need: {"POL_CODE": {"value": "CNSHA", "confidence": 0.95, ...}}
+                                daom_rows = []
+                                for row_obj in parsed_list:
+                                    if not isinstance(row_obj, dict):
+                                        continue
+                                    wrapped_row = {}
+                                    for cell_key, cell_val in row_obj.items():
+                                        # If already DAOM-wrapped (backwards compat), pass through
+                                        if isinstance(cell_val, dict) and "value" in cell_val:
+                                            wrapped_row[cell_key] = cell_val
+                                        else:
+                                            wrapped_row[cell_key] = {
+                                                "value": cell_val,
+                                                "confidence": conf,
+                                                "validation_status": "valid",
+                                                "original_value": str(cell_val) if cell_val is not None else None
+                                            }
+                                    daom_rows.append(wrapped_row)
+                                
                                 # MUST wrap in {"value": [...], "confidence": ...} for _validate_and_format
                                 raw_extracted[key] = {
-                                    "value": parsed_list,
+                                    "value": daom_rows,
                                     "confidence": conf,
                                     "validation_status": "valid",
                                     "bbox": None,
