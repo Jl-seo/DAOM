@@ -41,7 +41,8 @@ class ExtractionLog(BaseModel):
     token_usage: Optional[dict] = None  # {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}
     # Custom metadata (for Power Automate, external integrations)
     metadata: Optional[dict] = None  # User-defined passthrough data
-
+    barcode: Optional[str] = None
+    
     @field_validator('user_id', mode='before')
     @classmethod
     def set_user_id(cls, v):
@@ -105,6 +106,7 @@ def save_extraction_log(
         extracted_data=extracted_data,
         preview_data=preview_data,
         error=error,
+        barcode=barcode,
         job_id=job_id,
         created_at=existing_created_at if existing_created_at else now,
         updated_at=now,
