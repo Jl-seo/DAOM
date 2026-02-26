@@ -101,9 +101,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
            - WRONG: json_group_object('k1', v1, 'k2', v2)
            - CORRECT: json_object('k1', v1, 'k2', v2)
            
-        8. DUCKDB SPECIFIC RULE: "regexp_match" DOES NOT EXIST. You MUST use "regexp_matches(string, pattern)" for regex matching.
-           - WRONG: CASE WHEN regexp_match(col, 'pattern') THEN ...
-           - CORRECT: CASE WHEN regexp_matches(col, 'pattern') THEN ...
+        8. DUCKDB SPECIFIC RULE: "regexp_match" DOES NOT EXIST. 
+           - To check if a string matches a pattern (Returns Boolean), use "regexp_matches(string, pattern)".
+           - To EXTRACT a substring matching a pattern (Returns String), use "regexp_extract(string, pattern, group_index)".
+           - DO NOT use regexp_matches as a table function in the FROM clause. It is a scalar function.
+           - WRONG: SELECT * FROM regexp_matches(col, 'pattern')
+           - CORRECT: SELECT regexp_extract(col, 'pattern', 0) FROM raw_data
            
         MULTI-TABLE CORRELATION STRATEGY (CRITICAL FOR COMPLEX DOCUMENTS):
         - Raw Excel data often contains fragmented tables, stacked vertically, or split with repeating headers.
@@ -158,7 +161,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 result_df = con.execute(sql_query).df()
                 break # Success! Break out of retry loop
                 
-            except (duckdb.BinderException, duckdb.InvalidInputException, duckdb.ParserException) as de:
+            except (duckdb.BinderException, duckdb.InvalidInputException, duckdb.ParserException, duckdb.CatalogException) as de:
                 logger.warning(f"DuckDB Error on Attempt {attempt+1}: {de}")
                 if attempt < max_retries:
                     logger.info("Auto-healing: Passing error back to LLM for correction...")
@@ -166,10 +169,10 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                     The query failed with DuckDB Error: {de}
                     
                     HOW TO FIX COMMON DUCKDB ERRORS:
-                    - If "Macro json_group_object() does not support the supplied arguments": You probably passed more than 2 arguments. Use json_object('k1',v1,'k2',v2) for single rows, or exactly json_group_object(key_col, value_col) to aggregate rows.
-                    - If "Scalar Function with name regexp_match does not exist": Change it to regexp_matches(string, pattern).
-                    - If "json_group_array/object ... ORDER BY": Remove the ORDER BY inside the macro. Use a CTE to order data first, then select json_group_array(col) from the CTE.
-                    - If column not found: Double check the schema provided. Aliases mapping to target fields must be exact.
+                    - "Macro json_group_object() does not support...": You passed >2 arguments. Use json_object('k1',v1,'k2',v2) for single rows, or exactly json_group_object(key, val) to aggregate rows.
+                    - "Table Function with name regexp_matches does not exist": You used regexp_matches in the FROM clause like a table. WRONG. Use SELECT regexp_extract(col, 'pattern') FROM raw_data.
+                    - "json_group_array/object ... ORDER BY": Remove the ORDER BY inside the macro. Use a CTE to order data first.
+                    - Column not found: Double check the schema provided.
                     
                     Fix the SQL syntax and return the corrected SQL query in JSON format.
                     """
