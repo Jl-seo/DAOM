@@ -61,13 +61,20 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         # Load df into duckdb (implicitly available)
         con.execute("CREATE TABLE raw_data AS SELECT * FROM df")
         
-        # 3. Extract Schema Info
+        # 3. Extract Schema Info and Data Sample
         schema_df = con.execute("DESCRIBE raw_data").df()
         columns = schema_df['column_name'].tolist()
         types = schema_df['column_type'].tolist()
         schema_info = ", ".join([f"{c} ({t})" for c, t in zip(columns, types)])
         
+        # ROOT CAUSE FIX: Provide actual data sample because Excel headers might be A, B, C
+        data_sample_df = df.head(15)
+        # Convert all columns to string and truncate to prevent token bloat
+        data_sample_df = data_sample_df.fillna("").astype(str).map(lambda x: x[:100] + "..." if len(x) > 100 else x)
+        data_sample_csv = data_sample_df.to_csv(index=False)
+        
         logger.info(f"Loaded Schema: {schema_info}")
+        logger.debug(f"Data Sample:\n{data_sample_csv}")
         
         # 4. Target Fields Info
         fields_info = []
@@ -94,8 +101,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         system_prompt = f"""
         You are an expert Data Engineer writing standard SQL queries (DuckDB compatible) to extract structured data from an Excel file.
         
-        We have loaded the Excel file into a virtual DuckDB table named `raw_data` with the following schema:
+        We have loaded the Excel file into a virtual DuckDB table named `raw_data`. 
+        Here is the Database Schema:
         {schema_info}
+        
+        Here is a SAMPLE of the actual data inside `raw_data` (Look at this to find where headers actually are!):
+        {data_sample_csv}
         
         Your task is to write a single SELECT query that extracts data mapping to this exact JSON schema:
         {field_descriptions}
@@ -106,32 +117,29 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         1. Write ONLY a SELECT query targeting the `raw_data` table.
         2. DO NOT write DROP, DELETE, INSERT, or UPDATE.
         3. Aliases in your SELECT clause MUST exactly match the requested target 'key' name in English.
-        4. Use SQL functions (e.g., string concatenation, logic) if a field asks for derived data based on its 'rules'.
+        4. Use SQL functions if a field asks for derived data based on its 'rules'.
         
         REQUIRED FORMATTING BY DATATYPE (VERY IMPORTANT):
-        - For fields where `type: string`, `number`, or `date`: The SELECT alias MUST return a single primitive scalar value (string or number). DO NOT use `json_object` or arrays. (e.g., `SELECT (SELECT A FROM raw_data LIMIT 1) AS remark`)
+        - For fields where `type: string`, `number`, or `date`: The SELECT alias MUST return a single primitive scalar value (string or number). DO NOT use `json_object` or arrays. (e.g., `SELECT (SELECT A FROM raw_data WHERE A IS NOT NULL LIMIT 1) AS remark`)
         - For fields where `type: table`: The SELECT alias MUST return a JSON Array string. You MUST use `json_group_array(json_object(...))` inside a scalar subquery to aggregate the rows.
-          - CORRECT TABLE EXTRACTION: `(SELECT json_group_array(json_object('COL1', col1, 'COL2', col2)) FROM table_cte) AS my_table_field`
+          - CORRECT TABLE EXTRACTION: `(SELECT json_group_array(json_object('COL1', col1, 'COL2', col2)) FROM raw_data WHERE col1 IS NOT NULL) AS my_table_field`
         
         MANDATORY OUTPUT OBJECT WRAPPING (DAOM JSON SCHEMA):
-        - ALL table `json_object` properties MUST WRAP THEIR DATAPOINTS into exactly this shape so the frontend can display them: `json_object('value', actual_data, 'confidence', 1.0, 'validation_status', 'valid', 'original_value', actual_data)`
+        - ALL table `json_object` properties MUST WRAP THEIR DATAPOINTS into exactly this shape so the frontend can display them: `json_object('value', actual_data, 'confidence', confidence_score_0_to_1, 'validation_status', 'valid', 'original_value', actual_data)`
         - WRONG: `json_object('POL_CODE', POL_CODE)`
-        - CORRECT: `json_object('POL_CODE', json_object('value', POL_CODE, 'confidence', 1.0, 'validation_status', 'valid', 'original_value', POL_CODE))`
+        - CORRECT: `json_object('POL_CODE', json_object('value', POL_CODE, 'confidence', 0.95, 'validation_status', 'valid', 'original_value', POL_CODE))`
+        - Assign an appropriate `confidence_score` (0.0 to 1.0) directly in your SQL string based on how well the column maps to the requirement.
         - If the extracted data is NULL, return NULL for `value` and `original_value`.
         
         DUCKDB SPECIFIC RULES:
         1. `json_group_array` and `json_group_object` are MACRO functions. You CANNOT use "DISTINCT", "FILTER", or "ORDER BY" inside them. Use CTEs to order data first if needed.
-        2. "regexp_match" DOES NOT EXIST. To check matching, use "regexp_matches(string, pattern)". To extract, use "regexp_extract(string, pattern, group_index)".
-        3. SAFE TYPE CASTING: If you are casting a string from regex, you MUST use `TRY_CAST(value AS target_type)` to avoid crashing on empty strings.
+        2. "regexp_match" DOES NOT EXIST. Use "regexp_matches" or "regexp_extract".
+        3. SAFE TYPE CASTING: Use `TRY_CAST(value AS target_type)`.
         
-        MULTI-TABLE CORRELATION STRATEGY:
-        - Raw Excel data often contains fragmented tables or split chunks. Look at the `raw_data` schema and logically deduce which columns map to the requested fields (e.g., if a schema asks for POL, look for columns containing "POL", "Port of Loading", or port names).
-        - Use advanced SQL (e.g., CTEs, Window Functions, JOINs) to stitch related tables back together if the data requires a flat table output.
-        
-        OUTPUT FORMAT:
-        Return ONLY a JSON object containing two keys:
-        - "reasoning": A step-by-zstep brief explanation (in Korean) of how you analyzed the `raw_data` schema and mapped the columns to the requested fields, and why you used specific SQL logic.
+        OUTPUT FORMAT (JSON Object):
+        - "reasoning": A step-by-step brief explanation (in Korean) of how you analyzed the `raw_data` SAMPLE to find the real headers, how you mapped the columns, and your justification for the confidence scores.
         - "sql_query": The final executable DuckDB SQL string.
+        - "field_confidence": A key-value dictionary mapping EACH requested field key (e.g., "remark", "shipping_rates_extracted") to a float (0.0 - 1.0) indicating your overall confidence in mapping this specific field.
         """
         
         client = get_openai_client()
@@ -160,8 +168,10 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 response_json = json.loads(content)
                 sql_query = response_json.get("sql_query", "").strip()
                 reasoning = response_json.get("reasoning", "")
+                field_confidence = response_json.get("field_confidence", {})
                 logger.info(f"Generated SQL (Attempt {attempt+1}): {sql_query}")
                 logger.debug(f"LLM Reasoning: {reasoning}")
+                logger.debug(f"Field Confidence: {field_confidence}")
                 
                 # Pre-Execution Safety Net: Auto-Fix common LLM mistakes
                 # Fix 1: Strip DISTINCT and ORDER BY from json_group_array/object (DuckDB limitation)
@@ -223,6 +233,10 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         # Post-Processing: Collapse rows into a single hierarchical document mapping the model schema
         table_keys = {f.key for f in model.fields if f.type == 'table'}
         
+        # Determine fallback parsing confidence
+        if "field_confidence" not in locals():
+            field_confidence = {}
+            
         collapsed_result = {}
         for row in json_results:
             for k, v in row.items():
@@ -242,7 +256,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                             else:
                                 collapsed_result[k].append(parsed_v)
                         except json.JSONDecodeError:
-                            collapsed_result[k].append({"value": v, "confidence": 1.0, "validation_status": "valid"})
+                            collapsed_result[k].append({"value": v, "confidence": field_confidence.get(k, 1.0), "validation_status": "valid"})
                     elif isinstance(v, list):
                         collapsed_result[k].extend(v)
                     else:
@@ -256,7 +270,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                             collapsed_result[k] = {
                                 "value": v,
                                 "original_value": v,
-                                "confidence": 1.0,
+                                "confidence": field_confidence.get(k, 1.0),
                                 "validation_status": "valid",
                                 "bbox": None,
                                 "page_number": 1
