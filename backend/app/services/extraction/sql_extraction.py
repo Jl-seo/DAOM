@@ -35,8 +35,8 @@ async def _run_profiler(data_sample_csv: str, model: ExtractionModel) -> Dict[st
     Return a JSON object:
     {{
         "target_sheet_name": "The exact string in _sheet_name where the table exists",
-        "header_row_index": 2 (The row number where the table header starts, 0-indexed),
-        "reasoning": "Explain why you chose this sheet and header row"
+        "header_row_id": 2 (The exact global `row_id` where the table header starts),
+        "reasoning": "Explain why you chose this sheet and header row_id"
     }}
     """
     
@@ -91,6 +91,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             clean_cols.append(name)
             
         df.columns = clean_cols
+        
+        # ROOT CAUSE FIX 3: Inject an explicit global row_id so the LLM can deterministically slice data
+        df.insert(0, 'row_id', range(len(df)))
         
     except Exception as e:
         logger.error(f"Failed to load Excel with pandas: {e}")
@@ -166,7 +169,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         STAGE 1 DATA PROFILE (USE THIS AS YOUR GUIDE):
         Another AI has pre-scanned this data. Here is its assessment of where the actual target data lives:
         {profile_text}
-        USE this profile to write targeted WHERE clauses (e.g. `WHERE _sheet_name = 'X'`).
+        USE this profile to write targeted WHERE clauses (e.g. `WHERE _sheet_name = 'X' AND row_id > Y`).
         
         Your task is to write a single SELECT query that extracts data mapping to this exact JSON schema:
         {field_descriptions}
@@ -179,12 +182,13 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         3. Aliases in your SELECT clause MUST exactly match the requested target 'key' name in English.
         4. Use SQL functions if a field asks for derived data based on its 'rules'.
         5. DO NOT USE `LIMIT` for the table extraction logic (we need EVERY valid row from the 6000+ row file).
-        6. DO NOT use overly strict `WHERE` filtering (e.g. demanding `AND col2 IS NOT NULL AND col3 IS NOT NULL`) because real-world Excel data is sparse. If you drop rows just because one value is missing, we lose critical data. Only filter out obvious noise/header rows.
+        6. DO NOT USE `IS NOT NULL` to filter data rows! Real-world Excel data has empty cells. If you do `WHERE col2 IS NOT NULL`, you will delete valid rows! Use ONLY `row_id > [header_row_id]` from the Data Profile to safely slice the table.
+        7. The outermost query MUST NOT have a `FROM` clause. Structure it exactly like: `SELECT (scalar_subquery) AS field1, (scalar_subquery) AS field2;`. This guarantees exactly 1 row is returned.
         
         REQUIRED FORMATTING BY DATATYPE (VERY IMPORTANT):
-        - For fields where `type: string`, `number`, or `date`: The SELECT alias MUST return a single primitive scalar value (string or number). DO NOT use `json_object` or arrays. (e.g., `SELECT (SELECT A FROM raw_data WHERE A IS NOT NULL LIMIT 1) AS remark`)
+        - For fields where `type: string`, `number`, or `date`: The SELECT alias MUST return a single primitive scalar value (string or number). DO NOT use `json_object` or arrays. (e.g., `SELECT (SELECT A FROM raw_data WHERE row_id = 0 LIMIT 1) AS remark`)
         - For fields where `type: table`: The SELECT alias MUST return a JSON Array string. You MUST use `json_group_array(json_object(...))` inside a scalar subquery to aggregate the rows.
-          - CORRECT TABLE EXTRACTION: `(SELECT json_group_array(json_object('COL1', col1, 'COL2', col2)) FROM raw_data WHERE raw_data.col1 IS NOT NULL) AS my_table_field`
+          - CORRECT TABLE EXTRACTION: `(SELECT json_group_array(json_object('COL1', col1, 'COL2', col2)) FROM raw_data WHERE _sheet_name='Rates' AND row_id > 15) AS my_table_field`
         
         MANDATORY OUTPUT OBJECT WRAPPING (DAOM JSON SCHEMA):
         - ALL table `json_object` properties MUST WRAP THEIR DATAPOINTS into exactly this shape so the frontend can display them: `json_object('value', actual_data, 'confidence', confidence_score_0_to_1, 'validation_status', 'valid', 'original_value', actual_data)`
