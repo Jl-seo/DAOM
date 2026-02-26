@@ -217,19 +217,29 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                     if k not in collapsed_result:
                         collapsed_result[k] = []
                     
+                    EMPTY_VALUES = {None, "", "0", 0, "null", "NaN", "0.0", 0.0}
+                    def is_meaningful(item_val):
+                        if not isinstance(item_val, dict):
+                            return True
+                        return any(val not in EMPTY_VALUES for val in item_val.values())
+
                     if isinstance(v, str):
                         try:
                             parsed_v = json.loads(v)
                             if isinstance(parsed_v, list):
-                                collapsed_result[k].extend(parsed_v)
+                                filtered_list = [item for item in parsed_v if is_meaningful(item)]
+                                collapsed_result[k].extend(filtered_list)
                             else:
-                                collapsed_result[k].append(parsed_v)
+                                if is_meaningful(parsed_v):
+                                    collapsed_result[k].append(parsed_v)
                         except json.JSONDecodeError:
                             collapsed_result[k].append({"value": v})
                     elif isinstance(v, list):
-                        collapsed_result[k].extend(v)
+                        filtered_list = [item for item in v if is_meaningful(item)]
+                        collapsed_result[k].extend(filtered_list)
                     else:
-                        collapsed_result[k].append(v)
+                        if is_meaningful(v):
+                            collapsed_result[k].append(v)
                 
                 # Handle Text/Scalar Fields (Take first valid value)
                 else:
