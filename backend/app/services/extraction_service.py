@@ -56,6 +56,20 @@ class ExtractionService:
                 dummy_file = UploadFile(filename=filename, file=io.BytesIO(file_content))
                 sql_result = await run_sql_extraction(dummy_file, model)
                 
+                # Retrieve markdown for the frontend's "Parsed Text" tab
+                try:
+                    from app.services.extraction.excel_parser import ExcelParser
+                    ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else 'xlsx'
+                    if mime_type == "text/csv": ext = "csv"
+                    parsed_sheets = ExcelParser.from_bytes(file_content, ext)
+                    md_content = "\n\n".join([s.get("content", "") for s in parsed_sheets])
+                    sql_result["raw_content"] = md_content
+                    sql_result["pages"] = [{"page_number": 1, "width": 1000, "height": 1000}]
+                except Exception as ex:
+                    logger.warning(f"[Extraction] Could not parse Excel for frontend display: {ex}")
+                    sql_result["raw_content"] = "Error reading Excel for display."
+                    sql_result["pages"] = []
+
                 duration = (datetime.utcnow() - start_time).total_seconds()
                 if "_meta" not in sql_result:
                     sql_result["_meta"] = {}

@@ -300,15 +300,14 @@ class BetaPipeline(ExtractionPipeline):
         tasks = [process_chunk(chunk, idx) for idx, chunk in enumerate(chunks)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Merge results
-        merged_guide = {}
-        seen_rows = {}  # field_key -> Set[row_hash]
+        # Instead of simple Python dict merge, format valid chunks for the Phase 3 Aggregator LLM
+        valid_chunks: Dict[str, dict] = {}
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         any_truncated = False
         
-        for res in results:
+        for idx, res in enumerate(results):
             if isinstance(res, Exception):
-                logger.error(f"[BetaPipeline] Chunk gather exception: {res}")
+                logger.error(f"[BetaPipeline] Chunk {idx} gather exception: {res}")
                 continue
             
             if res.get("_truncated"):
@@ -319,8 +318,83 @@ class BetaPipeline(ExtractionPipeline):
             for k in total_usage:
                 total_usage[k] += usage.get(k, 0)
             
-            # Merge guide_extracted
-            for key, val in res.get("guide_extracted", {}).items():
+            # Save valid extraction for Aggregator
+            extracted_data = res.get("guide_extracted")
+            if extracted_data and isinstance(extracted_data, dict):
+                valid_chunks[f"chunk_{idx}"] = extracted_data
+
+        if not valid_chunks:
+            return {"guide_extracted": {}, "_token_usage": total_usage, "_truncated": any_truncated}
+
+        # If only 1 valid chunk returned, no need to aggregate
+        if len(valid_chunks) == 1:
+            logger.info("[BetaPipeline] Only 1 valid chunk returned. Skipping Aggregator.")
+            single_chunk_data = list(valid_chunks.values())[0]
+            return {
+                "guide_extracted": single_chunk_data,
+                "_token_usage": total_usage,
+                "_truncated": any_truncated
+            }
+
+        # If >1 chunks, run the Aggregator LLM (Phase 3)
+        agg_result = await self._run_aggregator(work_order, valid_chunks)
+        
+        # Accumulate Aggregator token usage
+        agg_usage = agg_result.get("_token_usage", {})
+        for k in total_usage:
+            total_usage[k] += agg_usage.get(k, 0)
+
+        return {
+            "guide_extracted": agg_result.get("guide_extracted", {}),
+            "_token_usage": total_usage,
+            "_truncated": any_truncated,
+            "logs": agg_result.get("logs", []) # Preserve the thought_process
+        }
+
+    async def _run_aggregator(self, work_order: dict, chunks_payload: Dict[str, dict]) -> dict:
+        """
+        Phase ③: Aggregator LLM execution.
+        Takes multiple chunked Engineer outputs and merges them using CoT, keeping refs intact.
+        Includes a robust pure-Python fallback if the LLM crashes or returns malformed data.
+        """
+        logger.info(f"[BetaPipeline] Aggregator: Merging {len(chunks_payload)} chunks.")
+        
+        system_prompt = RefinerEngine.construct_aggregator_prompt(work_order)
+        user_prompt = f"CHUNKED EXTRACTIONS TO MERGE:\n{json.dumps(chunks_payload, ensure_ascii=False, indent=2)}"
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            raw_result = await self.call_llm(messages, is_table_model=True)
+            
+            # Log the CoT thought process for debugging
+            thought_process = raw_result.get("thought_process", "No thought process provided.")
+            logger.info(f"[BetaPipeline] Aggregator Thought:\n{thought_process}")
+            
+            # Return final structure
+            return {
+                "guide_extracted": raw_result.get("guide_extracted", {}),
+                "_token_usage": raw_result.get("_token_usage", {}),
+                "logs": [{"step": "Aggregator Analysis", "message": thought_process}]
+            }
+            
+        except Exception as e:
+            logger.error(f"[BetaPipeline] Aggregator LLM Failed: {e}. Falling back to Python Dictionary Merge.")
+            return self._run_aggregator_python_fallback(chunks_payload)
+
+    def _run_aggregator_python_fallback(self, chunks_payload: Dict[str, dict]) -> dict:
+        """
+        Fail-Safe Fallback: Simple deterministic exact-merge logic.
+        Append rows and keep the first non-null common field.
+        """
+        merged_guide = {}
+        seen_rows = {}  # field_key -> Set[row_hash]
+        
+        for _chunk_id, guide_extracted in chunks_payload.items():
+            for key, val in guide_extracted.items():
                 if isinstance(val, list):
                     # Table field — append rows with dedup
                     if key not in merged_guide:
@@ -342,11 +416,11 @@ class BetaPipeline(ExtractionPipeline):
                         existing = merged_guide[key]
                         if isinstance(existing, dict) and existing.get("value") is None:
                             merged_guide[key] = val
-        
+                            
         return {
             "guide_extracted": merged_guide,
-            "_token_usage": total_usage,
-            "_truncated": any_truncated
+            "_token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "logs": [{"step": "Aggregator Analysis", "message": "FAILSAFE TRIGGERED. Used Python Deterministic Merge."}]
         }
 
     async def _run_engineer_per_table(self, work_order: dict, tagged_text: str, chunk_size: int, model: ExtractionModel = None) -> dict:
@@ -367,6 +441,7 @@ class BetaPipeline(ExtractionPipeline):
         merged_guide = {}
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         any_truncated = False
+        all_logs = []
         
         # We need to extract common fields once, and tables separately.
         # Create sub-work orders
@@ -412,6 +487,10 @@ class BetaPipeline(ExtractionPipeline):
             for k in total_usage:
                 total_usage[k] += usage.get(k, 0)
                 
+            # Accumulate logs from chunked Engineer/Aggregator
+            if "logs" in res:
+                all_logs.extend(res["logs"])
+                
             # Merge extracted data
             for key, val in res.get("guide_extracted", {}).items():
                  merged_guide[key] = val
@@ -419,7 +498,8 @@ class BetaPipeline(ExtractionPipeline):
         return {
             "guide_extracted": merged_guide,
             "_token_usage": total_usage,
-            "_truncated": any_truncated
+            "_truncated": any_truncated,
+            "logs": all_logs
         }
 
     @staticmethod

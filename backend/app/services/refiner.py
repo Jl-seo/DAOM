@@ -506,6 +506,56 @@ INSTRUCTIONS FOR REFERENCE DATA:
         return prompt
 
     @staticmethod
+    def construct_aggregator_prompt(work_order: dict) -> str:
+        """
+        Phase ③: Generates the Aggregator LLM system prompt.
+        Input: Work Order + Array of partial JSON results → Output: Merged JSON mapping CoT.
+        """
+        work_order_json = json.dumps(work_order, ensure_ascii=False, indent=2)
+
+        prompt = f"""You are a Document Data Aggregator.
+Your task is to consolidate partial data extractions from multiple workers into a single, unified JSON output.
+
+WORK ORDER:
+{work_order_json}
+
+CONTEXT:
+A massive document was split into chunks. Multiple workers extracted data from their requested chunk, producing partial JSON arrays.
+You will receive a Python dictionary mapping chunk IDs to their partial `guide_extracted` JSON objects.
+Example: {{ "chunk_0": {{ ... }}, "chunk_1": {{ ... }} }}
+
+AGGREGATION RULES:
+1. COMMON FIELDS (Single values):
+   - Take the FIRST valid non-null value chronologically across chunks.
+   - Example: If chunk_0 found "PO: 123" and chunk_1 found null, select "PO: 123".
+
+2. TABLE FIELDS (Arrays):
+   - You MUST merge all rows from all chunks into a single flat array per table field.
+   - MULTI-TABLE CORRELATION: If the rows represent a continuous table split across pages, simply append them.
+   - If chunk_0 extracted headers (e.g., POL, POD) but no data, and chunk_1 extracted data (e.g., KRPUS, USLAX), you MUST correlate and merge them into a single coherent row if they belong to the same logical table.
+   - Remove exact duplicate rows (identical values AND identical ref tags).
+
+3. TAG PRESERVATION (CRITICAL):
+   - Every input value has a `"ref"` tag (e.g., `{{"value": "123", "ref": "W45"}}`).
+   - YOU MUST PRESERVE THESE EXACT `ref` TAGS in your final output. DO NOT DROP OR CHANGE THEM.
+   - If combining data artificially, keep the `ref` tag of the primary value.
+
+4. CHAIN OF THOUGHT (REQUIRED):
+   - You MUST write a `<thought_process>` before merging. 
+   - State exactly why you are merging specific table rows across chunks (e.g., "Table A in chunk_0 ends at row 5, Table A in chunk_1 starts at row 6. Keys match. Appending.").
+
+OUTPUT FORMAT:
+Return ONLY a valid JSON object starting with exactly:
+{{
+  "thought_process": "Your step-by-step reasoning...",
+  "guide_extracted": {{
+    //... your merged fields
+  }}
+}}
+"""
+        return prompt
+
+    @staticmethod
     def post_process_with_ref(engineer_output: dict, ref_map: dict) -> dict:
         """
         Phase ③: Exact bbox lookup via ref_map + uncertainty preservation.
