@@ -88,31 +88,30 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         CRITICAL RULES:
         1. Write ONLY a SELECT query targeting the `raw_data` table.
         2. DO NOT write DROP, DELETE, INSERT, or UPDATE.
-        3. Aliases in your SELECT clause MUST exactly match the requested target field names.
+        3. Aliases in your SELECT clause MUST exactly match the requested target 'key' name in English. DO NOT use the 'label expected'.
         4. If a field asks for derived data, use SQL functions (e.g. string concatenation, logic) to fulfill it.
         5. Return ONLY a JSON object containing a `sql_query` string key. Do not explain.
-        6. DUCKDB SPECIFIC RULE: "json_group_array" and "json_group_object" are MACRO functions. You CANNOT use "DISTINCT", "FILTER", or "ORDER BY" inside them. 
+        
+        6. REQUIRED FORMATTING BY DATATYPE (VERY IMPORTANT):
+           - For fields where `type: string` or any scalar type: The SELECT alias MUST return a single primitive string or number. DO NOT use `json_object` or arrays. (e.g. `SELECT (SELECT A FROM raw_data LIMIT 1) AS remark`)
+           - For fields where `type: table`: The SELECT alias MUST return a JSON Array string. You MUST use `json_group_array(json_object(...))` inside a scalar subquery to aggregate the rows.
+             - CORRECT TABLE EXTRACTION: `(SELECT json_group_array(json_object('COL1', col1, 'COL2', col2)) FROM table_cte) AS my_table_field`
+           
+        7. DUCKDB SPECIFIC RULE: "json_group_array" and "json_group_object" are MACRO functions. You CANNOT use "DISTINCT", "FILTER", or "ORDER BY" inside them. 
            - WRONG: json_group_array(value ORDER BY value)
            - CORRECT: WITH ordered AS (SELECT * FROM raw_data ORDER BY value) SELECT json_group_array(value) FROM ordered
            
-        7. DUCKDB SPECIFIC RULE FOR JSON OBJECTS:
+        8. DUCKDB SPECIFIC RULE FOR JSON OBJECTS:
            - To create a JSON object for a SINGLE ROW, use "json_object('key1', val1, 'key2', val2)".
            - To Aggregate MULTIPLE ROWS into a single JSON object, use "json_group_object(key_col, value_col)". It MUST take EXACTLY TWO arguments.
-           - WRONG: json_group_object('k1', v1, 'k2', v2)
-           - CORRECT: json_object('k1', v1, 'k2', v2)
            
-        8. DUCKDB SPECIFIC RULE: "regexp_match" DOES NOT EXIST. 
+        9. DUCKDB SPECIFIC RULE: "regexp_match" DOES NOT EXIST. 
            - To check if a string matches a pattern (Returns Boolean), use "regexp_matches(string, pattern)".
            - To EXTRACT a substring matching a pattern (Returns String), use "regexp_extract(string, pattern, group_index)".
-           - DO NOT use regexp_matches as a table function in the FROM clause. It is a scalar function.
-           - WRONG: SELECT * FROM regexp_matches(col, 'pattern')
-           - CORRECT: SELECT regexp_extract(col, 'pattern', 0) FROM raw_data
            
-        9. DUCKDB SPECIFIC RULE: SAFE TYPE CASTING
+        10. DUCKDB SPECIFIC RULE: SAFE TYPE CASTING
            - If you are casting a string from `regexp_extract` to an INTEGER or FLOAT, you MUST use `TRY_CAST(value AS target_type)`.
            - DuckDB's `CAST()` crashes aggressively if the regex returns an empty string (''). `TRY_CAST()` safely returns NULL.
-           - WRONG: CAST(regexp_extract(col, 'pattern', 0) AS INT)
-           - CORRECT: TRY_CAST(regexp_extract(col, 'pattern', 0) AS INT)
            
         MULTI-TABLE CORRELATION STRATEGY (CRITICAL FOR COMPLEX DOCUMENTS):
         - Raw Excel data often contains fragmented tables, stacked vertically, or split with repeating headers.
@@ -202,6 +201,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             result_df = result_df.head(5000)
             
         json_results = result_df.to_dict(orient="records")
+        print("RAW JSON RESULTS FROM DUCKDB:")
+        print(json_results)
         
         # Post-Processing: Collapse rows into a single hierarchical document mapping the model schema
         table_keys = {f.key for f in model.fields if f.type == 'table'}
@@ -217,29 +218,19 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                     if k not in collapsed_result:
                         collapsed_result[k] = []
                     
-                    EMPTY_VALUES = {None, "", "0", 0, "null", "NaN", "0.0", 0.0}
-                    def is_meaningful(item_val):
-                        if not isinstance(item_val, dict):
-                            return True
-                        return any(val not in EMPTY_VALUES for val in item_val.values())
-
                     if isinstance(v, str):
                         try:
                             parsed_v = json.loads(v)
                             if isinstance(parsed_v, list):
-                                filtered_list = [item for item in parsed_v if is_meaningful(item)]
-                                collapsed_result[k].extend(filtered_list)
+                                collapsed_result[k].extend(parsed_v)
                             else:
-                                if is_meaningful(parsed_v):
-                                    collapsed_result[k].append(parsed_v)
+                                collapsed_result[k].append(parsed_v)
                         except json.JSONDecodeError:
                             collapsed_result[k].append({"value": v})
                     elif isinstance(v, list):
-                        filtered_list = [item for item in v if is_meaningful(item)]
-                        collapsed_result[k].extend(filtered_list)
+                        collapsed_result[k].extend(v)
                     else:
-                        if is_meaningful(v):
-                            collapsed_result[k].append(v)
+                        collapsed_result[k].append(v)
                 
                 # Handle Text/Scalar Fields (Take first valid value)
                 else:
