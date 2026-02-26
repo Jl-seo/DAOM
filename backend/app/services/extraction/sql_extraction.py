@@ -118,11 +118,13 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         2. DO NOT write DROP, DELETE, INSERT, or UPDATE.
         3. Aliases in your SELECT clause MUST exactly match the requested target 'key' name in English.
         4. Use SQL functions if a field asks for derived data based on its 'rules'.
+        5. DO NOT USE `LIMIT` for the table extraction logic (we need EVERY valid row from the 6000+ row file).
+        6. DO NOT use overly strict `WHERE` filtering (e.g. demanding `AND col2 IS NOT NULL AND col3 IS NOT NULL`) because real-world Excel data is sparse. If you drop rows just because one value is missing, we lose critical data. Only filter out obvious noise/header rows.
         
         REQUIRED FORMATTING BY DATATYPE (VERY IMPORTANT):
         - For fields where `type: string`, `number`, or `date`: The SELECT alias MUST return a single primitive scalar value (string or number). DO NOT use `json_object` or arrays. (e.g., `SELECT (SELECT A FROM raw_data WHERE A IS NOT NULL LIMIT 1) AS remark`)
         - For fields where `type: table`: The SELECT alias MUST return a JSON Array string. You MUST use `json_group_array(json_object(...))` inside a scalar subquery to aggregate the rows.
-          - CORRECT TABLE EXTRACTION: `(SELECT json_group_array(json_object('COL1', col1, 'COL2', col2)) FROM raw_data WHERE col1 IS NOT NULL) AS my_table_field`
+          - CORRECT TABLE EXTRACTION: `(SELECT json_group_array(json_object('COL1', col1, 'COL2', col2)) FROM raw_data WHERE raw_data.col1 IS NOT NULL) AS my_table_field`
         
         MANDATORY OUTPUT OBJECT WRAPPING (DAOM JSON SCHEMA):
         - ALL table `json_object` properties MUST WRAP THEIR DATAPOINTS into exactly this shape so the frontend can display them: `json_object('value', actual_data, 'confidence', confidence_score_0_to_1, 'validation_status', 'valid', 'original_value', actual_data)`
@@ -221,10 +223,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 # If it's a security/regex error or something else, don't blindly retry
                 raise e
         
-        # OOM Defense
-        if len(result_df) > 5000:
-            logger.warning("Result too large, limiting to 5000 rows.")
-            result_df = result_df.head(5000)
+        # OOM Defense removed: The frontend virtualization handles 10K+ rows efficiently now.
             
         json_results = result_df.to_dict(orient="records")
         print("RAW JSON RESULTS FROM DUCKDB:")
