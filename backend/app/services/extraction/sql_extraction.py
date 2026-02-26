@@ -129,8 +129,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 sql_query = re.sub(macro_pattern, r"\1(\2)", sql_query)
                 
                 # 6. Safety Check on Generated SQL (Strict Regex)
-                if not re.match(r"(?i)^\s*SELECT\s", sql_query):
-                    raise ValueError(f"Unsafe or Invalid Query generated (Must start with SELECT): {sql_query}")
+                if not re.match(r"(?i)^\s*(SELECT|WITH)\s", sql_query):
+                    raise ValueError(f"Unsafe or Invalid Query generated (Must start with SELECT or WITH): {sql_query}")
                     
                 if re.search(r"(?i)\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|REPLACE|TRUNCATE)\b", sql_query):
                     raise ValueError(f"Unsafe Query generated (Contains forbidden DML/DDL): {sql_query}")
@@ -158,12 +158,51 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             
         json_results = result_df.to_dict(orient="records")
         
-        # Wrap the result imitating what DAOM expects
-        # Multiple rows means multiple extractions or batch lines.
-        # Since standard payload is single result per document, if multiple we return a list inside a list or wrap it.
+        # Post-Processing: Collapse rows into a single hierarchical document mapping the model schema
+        table_keys = {f.key for f in model.fields if f.type == 'table'}
+        
+        collapsed_result = {}
+        for row in json_results:
+            for k, v in row.items():
+                if pd.isna(v) or v is None:
+                    continue
+                    
+                # Handle Table Fields (Aggregate arrays across rows)
+                if k in table_keys:
+                    if k not in collapsed_result:
+                        collapsed_result[k] = []
+                    
+                    if isinstance(v, str):
+                        try:
+                            parsed_v = json.loads(v)
+                            if isinstance(parsed_v, list):
+                                collapsed_result[k].extend(parsed_v)
+                            else:
+                                collapsed_result[k].append(parsed_v)
+                        except json.JSONDecodeError:
+                            collapsed_result[k].append({"value": v})
+                    elif isinstance(v, list):
+                        collapsed_result[k].extend(v)
+                    else:
+                        collapsed_result[k].append(v)
+                
+                # Handle Text/Scalar Fields (Take first valid value)
+                else:
+                    if k not in collapsed_result or collapsed_result[k] == "" or collapsed_result[k] is None:
+                        if v:
+                            collapsed_result[k] = v
+                            
+        # Ensure all model fields are present in the final payload
+        for f in model.fields:
+            if f.key not in collapsed_result:
+                collapsed_result[f.key] = [] if f.type == 'table' else ""
+        
+        # Wrap the single collapsed dictionary in a list as the DAOM standard pipeline expects 
+        # `guide_extracted` to be a list of results (even if it's length 1 for a single document)
+        final_payload = [collapsed_result]
         
         return {
-            "guide_extracted": json_results,
+            "guide_extracted": final_payload,
             "logs": [],
             "error": None
         }
