@@ -162,8 +162,19 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 logger.warning(f"DuckDB Error on Attempt {attempt+1}: {de}")
                 if attempt < max_retries:
                     logger.info("Auto-healing: Passing error back to LLM for correction...")
+                    error_guide = f"""
+                    The query failed with DuckDB Error: {de}
+                    
+                    HOW TO FIX COMMON DUCKDB ERRORS:
+                    - If "Macro json_group_object() does not support the supplied arguments": You probably passed more than 2 arguments. Use json_object('k1',v1,'k2',v2) for single rows, or exactly json_group_object(key_col, value_col) to aggregate rows.
+                    - If "Scalar Function with name regexp_match does not exist": Change it to regexp_matches(string, pattern).
+                    - If "json_group_array/object ... ORDER BY": Remove the ORDER BY inside the macro. Use a CTE to order data first, then select json_group_array(col) from the CTE.
+                    - If column not found: Double check the schema provided. Aliases mapping to target fields must be exact.
+                    
+                    Fix the SQL syntax and return the corrected SQL query in JSON format.
+                    """
                     messages.append({"role": "assistant", "content": content})
-                    messages.append({"role": "user", "content": f"The query failed with error: {de}\nFix the SQL syntax/macro usage and return the corrected SQL query in JSON format."})
+                    messages.append({"role": "user", "content": error_guide})
                 else:
                     raise Exception(f"SQL Execution Failed after {max_retries} retries. DuckDB Error: {de}")
             except Exception as e:
