@@ -13,6 +13,46 @@ from app.services.llm import get_openai_client, get_current_model
 
 logger = logging.getLogger(__name__)
 
+async def _run_profiler(data_sample_csv: str, model: ExtractionModel) -> Dict[str, Any]:
+    """Stage 1: Profile the data sample to find the correct sheet and header coordinates."""
+    client = get_openai_client()
+    deployment = get_current_model()
+    
+    # Just grab names and rules to give context
+    fields_context = [{"key": f.key, "type": f.type, "rules": f.rules} for f in model.fields]
+    
+    prompt = f"""
+    You are a Data Profiler. Your job is to scan a chaotic Excel file (converted to CSV) and find where the actual data starts.
+    The CSV contains a special column `_sheet_name` indicating which Excel sheet the row came from.
+    
+    CSV Data Sample (First 15 rows of every active sheet):
+    {data_sample_csv}
+    
+    Target Fields to Extract:
+    {json.dumps(fields_context, ensure_ascii=False, indent=2)}
+    
+    Locate the target table headers (e.g. POL_CODE, POL_NAME).
+    Return a JSON object:
+    {{
+        "target_sheet_name": "The exact string in _sheet_name where the table exists",
+        "header_row_index": 2 (The row number where the table header starts, 0-indexed),
+        "reasoning": "Explain why you chose this sheet and header row"
+    }}
+    """
+    
+    try:
+        res = await client.chat.completions.create(
+            model=deployment,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            temperature=0
+        )
+        content = res.choices[0].message.content
+        return json.loads(content)
+    except Exception as e:
+        logger.error(f"Profiler failed: {e}")
+        return {"target_sheet_name": None, "header_row_index": 0, "reasoning": "Profiler failed"}
+
 async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[str, Any]:
     """
     Beta Feature: Excel Text-to-SQL Extraction via DuckDB.
@@ -86,6 +126,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         logger.info(f"Loaded Schema: {schema_info}")
         logger.debug(f"Data Sample:\n{data_sample_csv}")
         
+        # 3.5 Stage 1: Data Profiling
+        data_profile = await _run_profiler(data_sample_csv, model)
+        logger.info(f"Data Profile (Stage 1): {data_profile}")
+        profile_text = json.dumps(data_profile, ensure_ascii=False, indent=2)
+        
         # 4. Target Fields Info
         fields_info = []
         for f in model.fields:
@@ -107,7 +152,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             ref_json = json.dumps(model.reference_data, ensure_ascii=False, indent=2)
             ref_data_text = f"\n\nReference Data (use to map codes/names if needed):\n{ref_json}"
 
-        # 5. Prompt LLM for SQL Query
+        # 5. Prompt LLM for SQL Query (Stage 2: SQL Engineer)
         system_prompt = f"""
         You are an expert Data Engineer writing standard SQL queries (DuckDB compatible) to extract structured data from an Excel file.
         
@@ -115,8 +160,13 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         Here is the Database Schema:
         {schema_info}
         
-        Here is a SAMPLE of the actual data inside `raw_data` (Look at this to find where headers actually are!):
+        Here is a SAMPLE of the actual data inside `raw_data`:
         {data_sample_csv}
+        
+        STAGE 1 DATA PROFILE (USE THIS AS YOUR GUIDE):
+        Another AI has pre-scanned this data. Here is its assessment of where the actual target data lives:
+        {profile_text}
+        USE this profile to write targeted WHERE clauses (e.g. `WHERE _sheet_name = 'X'`).
         
         Your task is to write a single SELECT query that extracts data mapping to this exact JSON schema:
         {field_descriptions}
@@ -166,6 +216,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         max_retries = 2
         sql_query = ""
         result_df = None
+        raw_extracted = {}
         
         for attempt in range(max_retries + 1):
             try:
@@ -206,6 +257,73 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 
                 # 7. Execute Query
                 result_df = con.execute(sql_query).df()
+                
+                # STAGE 3: Strict Python Data Formatter
+                # Guarantee the output perfectly matches the requested schema to prevent UI crashes
+                if not result_df.empty:
+                    # DuckDB returns single row for this type of query
+                    row = result_df.iloc[0].to_dict()
+                    
+                    for f in model.fields:
+                        key = f.key
+                        field_type = f.type
+                        
+                        # Apply Data Profiler's dynamic confidence or fallback to 0.8
+                        conf = field_confidence.get(key, 0.8)
+                        
+                        if key in row and pd.notna(row[key]):
+                            raw_val = row[key]
+                            
+                            if field_type == "table":
+                                # Safely parse JSON array
+                                try:
+                                    if isinstance(raw_val, str):
+                                        parsed = json.loads(raw_val)
+                                        raw_extracted[key] = parsed if isinstance(parsed, list) else []
+                                    else:
+                                        raw_extracted[key] = raw_val if isinstance(raw_val, list) else []
+                                except json.JSONDecodeError:
+                                    logger.warning(f"Failed to parse table JSON for {key}: {raw_val}")
+                                    raw_extracted[key] = []
+                            else:
+                                # Standard scalar mapping
+                                raw_extracted[key] = {
+                                    "value": str(raw_val),
+                                    "original_value": str(raw_val),
+                                    "confidence": conf,
+                                    "validation_status": "valid",
+                                    "bbox": None,
+                                    "page_number": 1
+                                }
+                        else:
+                            # 🛡️ STRICT FALLBACK: Inject empty schema if LLM missed it
+                            if field_type == "table":
+                                raw_extracted[key] = []
+                            else:
+                                raw_extracted[key] = {
+                                    "value": "",
+                                    "original_value": "",
+                                    "confidence": 0.0,
+                                    "validation_status": "flagged",
+                                    "bbox": None,
+                                    "page_number": 1
+                                }
+                else:
+                    # Entire query failed to return rows, build empty skeleton
+                    logger.warning("DuckDB query returned empty Dataframe. Generating skeleton fallback.")
+                    for f in model.fields:
+                        if f.type == "table":
+                            raw_extracted[f.key] = []
+                        else:
+                            raw_extracted[f.key] = {
+                                "value": "",
+                                "original_value": "",
+                                "confidence": 0.0,
+                                "validation_status": "flagged",
+                                "bbox": None,
+                                "page_number": 1
+                            }
+
                 break # Success! Break out of retry loop
                 
             except (RuntimeError, duckdb.Error, Exception) as de:
@@ -233,77 +351,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 # If it's a security/regex error or something else, don't blindly retry
                 raise e
         
-        # OOM Defense removed: The frontend virtualization handles 10K+ rows efficiently now.
-            
-        json_results = result_df.to_dict(orient="records")
-        print("RAW JSON RESULTS FROM DUCKDB:")
-        print(json_results)
-        
-        # Post-Processing: Collapse rows into a single hierarchical document mapping the model schema
-        table_keys = {f.key for f in model.fields if f.type == 'table'}
-        
-        # Determine fallback parsing confidence
-        if "field_confidence" not in locals():
-            field_confidence = {}
-            
-        collapsed_result = {}
-        for row in json_results:
-            for k, v in row.items():
-                if pd.isna(v) or v is None:
-                    continue
-                    
-                # Handle Table Fields (Aggregate arrays across rows)
-                if k in table_keys:
-                    if k not in collapsed_result:
-                        collapsed_result[k] = []
-                    
-                    if isinstance(v, str):
-                        try:
-                            parsed_v = json.loads(v)
-                            if isinstance(parsed_v, list):
-                                collapsed_result[k].extend(parsed_v)
-                            else:
-                                collapsed_result[k].append(parsed_v)
-                        except json.JSONDecodeError:
-                            collapsed_result[k].append({"value": v, "confidence": field_confidence.get(k, 1.0), "validation_status": "valid"})
-                    elif isinstance(v, list):
-                        collapsed_result[k].extend(v)
-                    else:
-                        collapsed_result[k].append(v)
-                
-                # Handle Text/Scalar Fields (Take first valid value)
-                else:
-                    if k not in collapsed_result or collapsed_result[k] == "" or collapsed_result[k] is None:
-                        if v:
-                            # Automatically wrap scalar string outputs into DAOM field dictionary
-                            collapsed_result[k] = {
-                                "value": v,
-                                "original_value": v,
-                                "confidence": field_confidence.get(k, 1.0),
-                                "validation_status": "valid",
-                                "bbox": None,
-                                "page_number": 1
-                            }
-                            
-        # Ensure all model fields are present in the final payload
-        for f in model.fields:
-            if f.key not in collapsed_result:
-                if f.type == 'table':
-                    collapsed_result[f.key] = [] 
-                else:
-                    collapsed_result[f.key] = {
-                        "value": "",
-                        "original_value": "",
-                        "confidence": 0.0,
-                        "validation_status": "valid"
-                    }
-        
         # Build Final Payload using the standard expected format
         if "reasoning" not in locals():
             reasoning = "DuckDB SQL Query executed successfully."
             
         final_payload = {
-            "guide_extracted": collapsed_result,
+            "guide_extracted": raw_extracted,
             "_beta_metadata": {
                 "parsed_content": f"DuckDB SQL Generation Mode.\n\n[LLM Reasoning]\n{reasoning}\n\n[SQL Executed]\n{sql_query}",
                 "ref_map": {}
