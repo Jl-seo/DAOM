@@ -62,7 +62,6 @@ def save_extraction_log(
     extracted_data: Optional[dict] = None,
     preview_data: Optional[dict] = None,
     error: Optional[str] = None,
-    barcode: Optional[str] = None,
     user_name: Optional[str] = None,
     user_email: Optional[str] = None,
     log_id: Optional[str] = None,
