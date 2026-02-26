@@ -86,10 +86,10 @@ class ExtractionService:
             except Exception as e:
                 import traceback
                 tb = traceback.format_exc()
-                logger.error(f"[Extraction] SQL extraction failed: {e}", exc_info=True)
-                return {"error": f"SQL extraction failed: {str(e)}\n\nTraceback:\n{tb}"}
-
-        # 1b. Vision Extraction Mode — skip OCR entirely
+                logger.error(f"[Extraction] SQL extraction failed after retries: {e}. Falling back to standard LLM extraction.", exc_info=True)
+                # DO NOT return error here. Fall through to the standard LLM extraction pipeline below!
+                logger.info("[Extraction] Fallback triggered: Routing Excel to standard Beta Pipeline.")
+                pass # Continue execution below        # 1b. Vision Extraction Mode — skip OCR entirely
         use_vision = model.beta_features.get("use_vision_extraction", False) if model.beta_features else False
         if use_vision:
             logger.info("[Extraction] Route: VISION MODE (OCR skipped)")
