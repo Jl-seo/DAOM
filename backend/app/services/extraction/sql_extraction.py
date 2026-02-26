@@ -95,7 +95,13 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
            - WRONG: json_group_array(value ORDER BY value)
            - CORRECT: WITH ordered AS (SELECT * FROM raw_data ORDER BY value) SELECT json_group_array(value) FROM ordered
            
-        9. DUCKDB SPECIFIC RULE: "regexp_match" DOES NOT EXIST. You MUST use "regexp_matches(string, pattern)" for regex matching.
+        7. DUCKDB SPECIFIC RULE FOR JSON OBJECTS:
+           - To create a JSON object for a SINGLE ROW, use "json_object('key1', val1, 'key2', val2)".
+           - To Aggregate MULTIPLE ROWS into a single JSON object, use "json_group_object(key_col, value_col)". It MUST take EXACTLY TWO arguments.
+           - WRONG: json_group_object('k1', v1, 'k2', v2)
+           - CORRECT: json_object('k1', v1, 'k2', v2)
+           
+        8. DUCKDB SPECIFIC RULE: "regexp_match" DOES NOT EXIST. You MUST use "regexp_matches(string, pattern)" for regex matching.
            - WRONG: CASE WHEN regexp_match(col, 'pattern') THEN ...
            - CORRECT: CASE WHEN regexp_matches(col, 'pattern') THEN ...
            
