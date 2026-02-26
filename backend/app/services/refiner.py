@@ -449,12 +449,6 @@ INSTRUCTIONS:
 5. Scan the document from START to END. Check every paragraph and every table row.
    Do NOT stop early. Footnotes, annotations, and small-print text are valid source data.
 
-MULTI-TABLE CORRELATION STRATEGY (CRITICAL FOR COMPLEX DOCUMENTS):
-- Documents often split related tables across multiple pages or separate them into summary vs. detail tables.
-- You MUST actively CROSS-REFERENCE and MERGE information from disconnected tables if they map to the same target schema list.
-- Example: If Table A has headers (POL, POD) and Table B on the next page has details (20ft, 40ft) for those routes, correlate them using common keys or visual proximity before emitting the final row.
-- DO NOT treat tables in isolation if the work order requires a unified, holistic output.
-
 DENORMALIZATION (Table fields only):
 - If the document has merged cells or hierarchical headers (one parent value
   spanning multiple child rows), REPEAT the parent value in EVERY child row.
