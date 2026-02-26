@@ -23,33 +23,35 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
     file_content = await file.read()
     await file.seek(0)
     
-    # 1. Load Excel into Pandas (Handle basic empty rows to find header)
+    # 1. Load Excel into Pandas (Handle multiple sheets & missing headers gracefully)
     try:
-        df = pd.read_excel(io.BytesIO(file_content))
-        df = df.dropna(how='all') # Remove entirely empty rows
+        # Read ALL sheets, explicitly turning off header guessing so they all align natively
+        excel_data = pd.read_excel(io.BytesIO(file_content), sheet_name=None, header=None)
         
-        # Clean column names aggressively to prevent ANY SQL Binder errors
-        # Convert spaces, special chars, brackets to underscores. Keep Korean, English, Numbers.
-        clean_cols = []
-        for col in df.columns:
-            if pd.isna(col) or 'Unnamed' in str(col):
-                clean_cols.append(str(col))
-                continue
-            
-            c = str(col).strip()
-            # Replace all non-alphanumeric/Korean characters with underscores
-            c = re.sub(r'[^a-zA-Z0-9가-힣_]', '_', c)
-            # Remove multiple consecutive underscores
-            c = re.sub(r'_+', '_', c)
-            c = c.strip('_')
-            
-            # If the column name becomes completely empty after stripping, give it a generic name
-            if not c:
-                c = f"col_{len(clean_cols)}"
+        combined_df = pd.DataFrame()
+        for sheet_name, sheet_df in excel_data.items():
+            sheet_df = sheet_df.dropna(how='all') # Remove entirely empty rows
+            if not sheet_df.empty:
+                sheet_df.insert(0, '_sheet_name', str(sheet_name))
+                combined_df = pd.concat([combined_df, sheet_df], ignore_index=True)
                 
-            clean_cols.append(c)
+        if combined_df.empty:
+            raise ValueError("All sheets are empty.")
+            
+        df = combined_df
+        
+        # Standardize column names (0 -> A, 1 -> B, ...)
+        clean_cols = ['_sheet_name']
+        for i in range(len(df.columns) - 1):
+            name = ""
+            n = i
+            while n >= 0:
+                name = chr(n % 26 + 65) + name
+                n = n // 26 - 1
+            clean_cols.append(name)
             
         df.columns = clean_cols
+        
     except Exception as e:
         logger.error(f"Failed to load Excel with pandas: {e}")
         raise ValueError(f"지원하지 않거나 손상된 엑셀 구조입니다. 파일 로딩 실패: {e}")
@@ -67,8 +69,16 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         types = schema_df['column_type'].tolist()
         schema_info = ", ".join([f"{c} ({t})" for c, t in zip(columns, types)])
         
-        # ROOT CAUSE FIX: Provide actual data sample because Excel headers might be A, B, C
-        data_sample_df = df.head(15)
+        # ROOT CAUSE FIX 2: Smart multi-sheet sampling (15 rows per sheet, up to 100 total max)
+        sample_dfs = []
+        # groupby preserves insertion order depending on sort=False, but duckdb data is row-bound anyway
+        for sheet_name, group in df.groupby('_sheet_name', sort=False):
+            sample_dfs.append(group.head(15))
+            
+        data_sample_df = pd.concat(sample_dfs)
+        if len(data_sample_df) > 100:
+            data_sample_df = data_sample_df.head(100)
+            
         # Convert all columns to string and truncate to prevent token bloat
         data_sample_df = data_sample_df.fillna("").astype(str).map(lambda x: x[:100] + "..." if len(x) > 100 else x)
         data_sample_csv = data_sample_df.to_csv(index=False)
