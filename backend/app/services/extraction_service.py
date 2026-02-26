@@ -64,10 +64,12 @@ class ExtractionService:
                     parsed_sheets = ExcelParser.from_bytes(file_content, ext)
                     md_content = "\n\n".join([s.get("content", "") for s in parsed_sheets])
                     sql_result["raw_content"] = md_content
+                    sql_result["_beta_parsed_content"] = md_content
                     sql_result["pages"] = [{"page_number": 1, "width": 1000, "height": 1000}]
                 except Exception as ex:
                     logger.warning(f"[Extraction] Could not parse Excel for frontend display: {ex}")
                     sql_result["raw_content"] = "Error reading Excel for display."
+                    sql_result["_beta_parsed_content"] = "Error reading Excel for display."
                     sql_result["pages"] = []
 
                 duration = (datetime.utcnow() - start_time).total_seconds()
