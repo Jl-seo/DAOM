@@ -242,9 +242,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             if f.key not in collapsed_result:
                 collapsed_result[f.key] = [] if f.type == 'table' else ""
         
-        # Wrap the single collapsed dictionary in a list as the DAOM standard pipeline expects 
-        # `guide_extracted` to be a list of results (even if it's length 1 for a single document)
-        final_payload = [collapsed_result]
+        # Do not wrap the dictionary in a list. The standard DAOM form pipeline expects a mapping of field -> value.
+        final_payload = collapsed_result
         
         return {
             "guide_extracted": final_payload,

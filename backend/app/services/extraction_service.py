@@ -72,6 +72,9 @@ class ExtractionService:
                     sql_result["_beta_parsed_content"] = "Error reading Excel for display."
                     sql_result["pages"] = []
 
+                # Format and validate to standardize `{value, confidence, bbox}` wrappers
+                sql_result = self._validate_and_format(sql_result, model, [])
+
                 duration = (datetime.utcnow() - start_time).total_seconds()
                 if "_meta" not in sql_result:
                     sql_result["_meta"] = {}

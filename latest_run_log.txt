@@ -1,0 +1,491 @@
+build-and-deploy-frontend	Set up job	﻿2026-02-25T10:05:52.6145248Z Current runner version: '2.331.0'
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6175603Z ##[group]Runner Image Provisioner
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6176839Z Hosted Compute Agent
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6177614Z Version: 20260123.484
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6178527Z Commit: 6bd6555ca37d84114959e1c76d2c01448ff61c5d
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6179488Z Build Date: 2026-01-23T19:41:17Z
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6180557Z Worker ID: ***1dec6880-2403-4819-92e3-0187c8edbe4d***
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6181574Z Azure Region: northcentralus
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6182410Z ##[endgroup]
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6184216Z ##[group]Operating System
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6185378Z Ubuntu
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6186206Z 24.04.3
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6186942Z LTS
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6187700Z ##[endgroup]
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6188451Z ##[group]Runner Image
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6189293Z Image: ubuntu-24.04
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6190094Z Version: 20260201.15.1
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6191488Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260201.15/images/ubuntu/Ubuntu2404-Readme.md
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6193548Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260201.15
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6194753Z ##[endgroup]
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6196727Z ##[group]GITHUB_TOKEN Permissions
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6199688Z Contents: read
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6200483Z Metadata: read
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6201266Z Packages: write
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6201990Z ##[endgroup]
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6204485Z Secret source: Actions
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6205867Z Prepare workflow directory
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6618661Z Prepare all required actions
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:52.6657495Z Getting action download info
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:53.2056424Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:53.3065918Z Download action repository 'docker/login-action@v3' (SHA:c94ce9fb468520275223c153574b00df6fe4bcc9)
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:53.8947427Z Download action repository 'docker/build-push-action@v5' (SHA:ca052bb54ab0790a636c9b5f226502c73d547a25)
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:54.3940411Z Download action repository 'azure/login@v1' (SHA:cb79c773a3cfa27f31f25eb3f677781210c9ce3d)
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:56.0944854Z Download action repository 'azure/cli@v2' (SHA:9f7ce6f37c31b777ec6c6b6d1dfe7db79f497956)
+build-and-deploy-frontend	Set up job	2026-02-25T10:05:56.5030993Z Complete job name: build-and-deploy-frontend
+build-and-deploy-frontend	Pre Azure Login	﻿2026-02-25T10:05:56.5672189Z ##[group]Run azure/login@v1
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5672904Z with:
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5675655Z   creds: ***
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5676006Z   enable-AzPSSession: false
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5676387Z   environment: azurecloud
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5676761Z   allow-no-subscriptions: false
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5677167Z   audience: api://AzureADTokenExchange
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5677590Z   auth-type: SERVICE_PRINCIPAL
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5678194Z env:
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5678591Z   REGISTRY: ***-h6d5e6fchsbyh0f2.azurecr.io
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5679032Z   IMAGE_NAME: frontend
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5679369Z   RESOURCE_GROUP: Dalle2
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5679731Z   CONTAINER_APP: daom-frontend
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.5680110Z ##[endgroup]
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.6548790Z Clearing azure cli accounts from the local cache.
+build-and-deploy-frontend	Pre Azure Login	2026-02-25T10:05:56.6549683Z [command]/usr/bin/az account clear
+build-and-deploy-frontend	Checkout repository	﻿2026-02-25T10:06:25.4081725Z ##[group]Run actions/checkout@v4
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4082179Z with:
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4082492Z   repository: Jl-seo/DAOM
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4082972Z   token: ***
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4083286Z   ssh-strict: true
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4083620Z   ssh-user: git
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4083954Z   persist-credentials: true
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4084377Z   clean: true
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4084750Z   sparse-checkout-cone-mode: true
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4085343Z   fetch-depth: 1
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4085678Z   fetch-tags: false
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4086014Z   show-progress: true
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4086356Z   lfs: false
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4086655Z   submodules: false
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4087002Z   set-safe-directory: true
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4087425Z env:
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4087799Z   REGISTRY: ***-h6d5e6fchsbyh0f2.azurecr.io
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4088525Z   IMAGE_NAME: frontend
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4088875Z   RESOURCE_GROUP: Dalle2
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4089259Z   CONTAINER_APP: daom-frontend
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.4089647Z ##[endgroup]
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5174157Z Syncing repository: Jl-seo/DAOM
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5176956Z ##[group]Getting Git version info
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5177819Z Working directory is '/home/runner/work/DAOM/DAOM'
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5178916Z [command]/usr/bin/git version
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5229058Z git version 2.52.0
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5255597Z ##[endgroup]
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5272247Z Temporarily overriding HOME='/home/runner/work/_temp/b347b4bd-13f2-4902-a5d0-ae5c592749ea' before making global git config changes
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5273645Z Adding repository directory to the temporary git global config as a safe directory
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5287991Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/DAOM/DAOM
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5330162Z Deleting the contents of '/home/runner/work/DAOM/DAOM'
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5334010Z ##[group]Initializing the repository
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5338875Z [command]/usr/bin/git init /home/runner/work/DAOM/DAOM
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5412282Z hint: Using 'master' as the name for the initial branch. This default branch name
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5413250Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5413920Z hint: to use in all of your new repositories, which will suppress this warning,
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5414647Z hint: call:
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5415198Z hint:
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5415617Z hint: 	git config --global init.defaultBranch <name>
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5416008Z hint:
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5416386Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5417188Z hint: 'development'. The just-created branch can be renamed via this command:
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5417882Z hint:
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5418280Z hint: 	git branch -m <name>
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5418740Z hint:
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5419368Z hint: Disable this message with "git config set advice.defaultBranchName false"
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5420347Z Initialized empty Git repository in /home/runner/work/DAOM/DAOM/.git/
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5429300Z [command]/usr/bin/git remote add origin https://github.com/Jl-seo/DAOM
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5466247Z ##[endgroup]
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5467109Z ##[group]Disabling automatic garbage collection
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5471532Z [command]/usr/bin/git config --local gc.auto 0
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5502563Z ##[endgroup]
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5503266Z ##[group]Setting up auth
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5510437Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5542649Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5893334Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.5929185Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.6170879Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.6206787Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.6452376Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.6492005Z ##[endgroup]
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.6492817Z ##[group]Fetching the repository
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:25.6501986Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +a38209a8c6bb086e4418d400e0d0fb8b476757fe:refs/remotes/origin/fix/extraction-issues
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0192140Z From https://github.com/Jl-seo/DAOM
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0193515Z  * [new ref]         a38209a8c6bb086e4418d400e0d0fb8b476757fe -> origin/fix/extraction-issues
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0231273Z ##[endgroup]
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0232097Z ##[group]Determining the checkout info
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0233896Z ##[endgroup]
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0240298Z [command]/usr/bin/git sparse-checkout disable
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0285136Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0314312Z ##[group]Checking out the ref
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0319910Z [command]/usr/bin/git checkout --progress --force -B fix/extraction-issues refs/remotes/origin/fix/extraction-issues
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0583565Z Switched to a new branch 'fix/extraction-issues'
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0585991Z branch 'fix/extraction-issues' set up to track 'origin/fix/extraction-issues'.
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0594825Z ##[endgroup]
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0642743Z [command]/usr/bin/git log -1 --format=%H
+build-and-deploy-frontend	Checkout repository	2026-02-25T10:06:26.0670287Z a38209a8c6bb086e4418d400e0d0fb8b476757fe
+build-and-deploy-frontend	Setup Environment	﻿2026-02-25T10:06:26.0830384Z ##[group]Run echo "SHORT_SHA=$(echo a38209a8c6bb086e4418d400e0d0fb8b476757fe | cut -c 1-7)" >> $GITHUB_OUTPUT
+build-and-deploy-frontend	Setup Environment	2026-02-25T10:06:26.0831353Z [36;1mecho "SHORT_SHA=$(echo a38209a8c6bb086e4418d400e0d0fb8b476757fe | cut -c 1-7)" >> $GITHUB_OUTPUT[0m
+build-and-deploy-frontend	Setup Environment	2026-02-25T10:06:26.0869462Z shell: /usr/bin/bash -e ***0***
+build-and-deploy-frontend	Setup Environment	2026-02-25T10:06:26.0869827Z env:
+build-and-deploy-frontend	Setup Environment	2026-02-25T10:06:26.0870166Z   REGISTRY: ***-h6d5e6fchsbyh0f2.azurecr.io
+build-and-deploy-frontend	Setup Environment	2026-02-25T10:06:26.0870525Z   IMAGE_NAME: frontend
+build-and-deploy-frontend	Setup Environment	2026-02-25T10:06:26.0870813Z   RESOURCE_GROUP: Dalle2
+build-and-deploy-frontend	Setup Environment	2026-02-25T10:06:26.0871116Z   CONTAINER_APP: daom-frontend
+build-and-deploy-frontend	Setup Environment	2026-02-25T10:06:26.0871422Z ##[endgroup]
+build-and-deploy-frontend	Log in to Azure Container Registry	﻿2026-02-25T10:06:26.1046556Z ##[group]Run docker/login-action@v3
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1046925Z with:
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1047251Z   registry: ***-h6d5e6fchsbyh0f2.azurecr.io
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1047625Z   username: ***
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1048057Z   password: ***
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1048329Z   logout: true
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1048587Z env:
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1048897Z   REGISTRY: ***-h6d5e6fchsbyh0f2.azurecr.io
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1049246Z   IMAGE_NAME: frontend
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1049531Z   RESOURCE_GROUP: Dalle2
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1049829Z   CONTAINER_APP: daom-frontend
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.1050135Z ##[endgroup]
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.4204342Z Logging into ***-h6d5e6fchsbyh0f2.azurecr.io...
+build-and-deploy-frontend	Log in to Azure Container Registry	2026-02-25T10:06:26.7218553Z Login Succeeded!
+build-and-deploy-frontend	Build and push Frontend image	﻿2026-02-25T10:06:26.7394603Z ##[group]Run docker/build-push-action@v5
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7395202Z with:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7395464Z   context: ./frontend
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7395745Z   push: true
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7396132Z   tags: ***-h6d5e6fchsbyh0f2.azurecr.io/frontend:test-a38209a
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7397050Z   build-args: VITE_API_BASE_URL=https://daom-backend.greenpebble-00aa1dc4.koreacentral.azurecontainerapps.io/api/v1
+build-and-deploy-frontend	Build and push Frontend image	VITE_AZURE_TENANT_ID=***
+build-and-deploy-frontend	Build and push Frontend image	
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7397760Z   load: false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7398021Z   no-cache: false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7398283Z   pull: false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7398663Z   github-token: ***
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7398936Z env:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7399230Z   REGISTRY: ***-h6d5e6fchsbyh0f2.azurecr.io
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7399574Z   IMAGE_NAME: frontend
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7399865Z   RESOURCE_GROUP: Dalle2
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7400159Z   CONTAINER_APP: daom-frontend
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.7400461Z ##[endgroup]
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9695912Z ##[group]GitHub Actions runtime token ACs
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9707504Z refs/heads/fix/extraction-issues: read/write
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9708862Z ##[endgroup]
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9710480Z ##[group]Docker info
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9749341Z [command]/usr/bin/docker version
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9966499Z Client: Docker Engine - Community
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9968400Z  Version:           28.0.4
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9968878Z  API version:       1.48
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9969314Z  Go version:        go1.23.7
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9969981Z  Git commit:        b8034c0
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9970449Z  Built:             Tue Mar 25 15:07:16 2025
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9971555Z  OS/Arch:           linux/amd64
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9972030Z  Context:           default
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9972217Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9972359Z Server: Docker Engine - Community
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9972669Z  Engine:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9972919Z   Version:          28.0.4
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9973240Z   API version:      1.48 (minimum version 1.24)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9993984Z   Go version:       go1.23.7
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9994593Z   Git commit:       6430e49
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9995269Z   Built:            Tue Mar 25 15:07:16 2025
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9995802Z   OS/Arch:          linux/amd64
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9996276Z   Experimental:     false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9996721Z  containerd:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9997144Z   Version:          v2.2.1
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9997691Z   GitCommit:        dea7da592f5d1d2b7755e3a161be07f43fad8f75
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9998266Z  runc:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9998624Z   Version:          1.3.4
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9999079Z   GitCommit:        v1.3.4-0-gd6d73eb8
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:26.9999604Z  docker-init:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.0000021Z   Version:          0.19.0
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.0000466Z   GitCommit:        de40ad0
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.0020201Z [command]/usr/bin/docker info
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4190326Z Client: Docker Engine - Community
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4192466Z  Version:    28.0.4
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4192897Z  Context:    default
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4193314Z  Debug Mode: false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4193732Z  Plugins:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4194122Z   buildx: Docker Buildx (Docker Inc.)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4194633Z     Version:  v0.31.1
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4195442Z     Path:     /usr/libexec/docker/cli-plugins/docker-buildx
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4196094Z   compose: Docker Compose (Docker Inc.)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4196614Z     Version:  v2.38.2
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4197143Z     Path:     /usr/libexec/docker/cli-plugins/docker-compose
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4197589Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4197760Z Server:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4198116Z  Containers: 0
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4198502Z   Running: 0
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4198913Z   Paused: 0
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4199273Z   Stopped: 0
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4199639Z  Images: 1
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4200017Z  Server Version: 28.0.4
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4200461Z  Storage Driver: overlay2
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4200921Z   Backing Filesystem: extfs
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4201365Z   Supports d_type: true
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4201763Z   Using metacopy: false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4202170Z   Native Overlay Diff: false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4203132Z   userxattr: false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4203528Z  Logging Driver: json-file
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4203976Z  Cgroup Driver: systemd
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4204403Z  Cgroup Version: 2
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4204801Z  Plugins:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4205751Z   Volume: local
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4206230Z   Network: bridge host ipvlan macvlan null overlay
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4207020Z   Log: awslogs fluentd gcplogs gelf journald json-file local splunk syslog
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4207705Z  Swarm: inactive
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4208144Z  Runtimes: runc io.containerd.runc.v2
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4208689Z  Default Runtime: runc
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4209134Z  Init Binary: docker-init
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4209702Z  containerd version: dea7da592f5d1d2b7755e3a161be07f43fad8f75
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4210327Z  runc version: v1.3.4-0-gd6d73eb8
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4210810Z  init version: de40ad0
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4211236Z  Security Options:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4211630Z   apparmor
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4212016Z   seccomp
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4212378Z    Profile: builtin
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4212764Z   cgroupns
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4213116Z  Kernel Version: 6.11.0-1018-azure
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4213625Z  Operating System: Ubuntu 24.04.3 LTS
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4214140Z  OSType: linux
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4214541Z  Architecture: x86_64
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4215295Z  CPUs: 4
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4215674Z  Total Memory: 15.62GiB
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4216110Z  Name: runnervmwffz4
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4216561Z  ID: 073c65d4-c458-42c9-935a-939d0489da0a
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4217095Z  Docker Root Dir: /var/lib/docker
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4217873Z  Debug Mode: false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4218288Z  Username: githubactions
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4218745Z  Experimental: false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4219171Z  Insecure Registries:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4224352Z   ::1/128
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4224648Z   127.0.0.0/8
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4225139Z  Live Restore Enabled: false
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4225350Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4225891Z ##[endgroup]
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4226367Z ##[group]Proxy configuration
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4226671Z No proxy configuration found
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.4227114Z ##[endgroup]
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.5232799Z ##[group]Buildx version
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.5259530Z [command]/usr/bin/docker buildx version
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.6129149Z github.com/docker/buildx v0.31.1 a2675950d46b2cb171b23c2015ca44fb88607531
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.6177314Z ##[endgroup]
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.6178041Z ##[group]Builder info
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7280882Z ***
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7281320Z   "nodes": [
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7281674Z     ***
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7282037Z       "name": "default",
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7282431Z       "endpoint": "default",
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7282810Z       "status": "running",
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7283184Z       "buildkit": "v0.20.2",
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7283757Z       "platforms": "linux/amd64,linux/amd64/v2,linux/amd64/v3,linux/386",
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7284375Z       "features": ***
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7285207Z         "Automatically load images to the Docker Engine image store": true,
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7285896Z         "Cache export": true,
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7286329Z         "Direct push": true,
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7286773Z         "Docker exporter": true,
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7287213Z         "Multi-platform build": true,
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7287683Z         "OCI exporter": true
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7288133Z       ***,
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7288483Z       "labels": ***
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7289079Z         "org.mobyproject.buildkit.worker.moby.host-gateway-ip": "172.17.0.1"
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7289732Z       ***
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7290068Z     ***
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7290402Z   ],
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7290752Z   "name": "default",
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7291154Z   "driver": "docker"
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7291534Z ***
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.7292345Z ##[endgroup]
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:27.8921593Z [command]/usr/bin/docker buildx build --build-arg VITE_API_BASE_URL=https://daom-backend.greenpebble-00aa1dc4.koreacentral.azurecontainerapps.io/api/v1 --build-arg VITE_AZURE_TENANT_ID=*** --iidfile /home/runner/work/_temp/docker-actions-toolkit-29AlIH/build-iidfile-956ad91fd9.txt --tag ***-h6d5e6fchsbyh0f2.azurecr.io/frontend:test-a38209a --metadata-file /home/runner/work/_temp/docker-actions-toolkit-29AlIH/build-metadata-ee39ff526d.json --push ./frontend
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.1776519Z #0 building with "default" instance using docker driver
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.1777064Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.1777282Z #1 [internal] load build definition from Dockerfile
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.1777823Z #1 transferring dockerfile: 780B done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.1778279Z #1 DONE 0.0s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.1778511Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.1778763Z #2 [auth] library/node:pull token for registry-1.docker.io
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.3335359Z #2 DONE 0.0s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.3335733Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.3336044Z #3 [auth] library/nginx:pull token for registry-1.docker.io
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.3336445Z #3 DONE 0.0s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.3336591Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.3336792Z #4 [internal] load metadata for docker.io/library/node:20-slim
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.5692043Z #4 DONE 0.5s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.5692301Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.5692539Z #5 [internal] load metadata for docker.io/library/nginx:alpine
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7248583Z #5 DONE 0.5s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7248897Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7249089Z #6 [internal] load .dockerignore
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7249653Z #6 transferring context: 101B done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7250145Z #6 DONE 0.0s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7250358Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7250534Z #7 [internal] load build context
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7251051Z #7 transferring context: 1.29MB 0.0s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7251988Z #7 DONE 0.0s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7252210Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7252902Z #8 [build 1/6] FROM docker.io/library/node:20-slim@sha256:d8a35d586fad3af7abb6fdb9ba972388395405f4d462da9e4a4ddcde67b5e0fb
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7254332Z #8 resolve docker.io/library/node:20-slim@sha256:d8a35d586fad3af7abb6fdb9ba972388395405f4d462da9e4a4ddcde67b5e0fb done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7255603Z #8 sha256:84a2afebaf4de2e8eb885634a69abd0087b79c947c53fa4f0481235d6dfadc6c 10.49MB / 28.24MB 0.1s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7256765Z #8 sha256:05988a666f72e9607315b845938dece280a7f80deebc985944c7330233b75e93 0B / 3.31kB 0.1s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7257833Z #8 sha256:a0655704972fcc45126ac8450b9a9f55556904429b00db4b3f7737fa2937f7a7 0B / 40.98MB 0.1s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7258723Z #8 sha256:d8a35d586fad3af7abb6fdb9ba972388395405f4d462da9e4a4ddcde67b5e0fb 6.49kB / 6.49kB done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7259802Z #8 sha256:7d49fead4dbde89ba791d165a904f76eec446a4c1143862f14325e6348a3486d 1.93kB / 1.93kB done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.7260577Z #8 sha256:b810c2b3e7cced317a4a3b7a02aaf60f86e92ec9d49a3db7fbe7d280944e0c70 6.88kB / 6.88kB done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.8252835Z #8 sha256:84a2afebaf4de2e8eb885634a69abd0087b79c947c53fa4f0481235d6dfadc6c 28.24MB / 28.24MB 0.2s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.8256020Z #8 sha256:05988a666f72e9607315b845938dece280a7f80deebc985944c7330233b75e93 3.31kB / 3.31kB 0.1s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.8257062Z #8 sha256:a0655704972fcc45126ac8450b9a9f55556904429b00db4b3f7737fa2937f7a7 28.10MB / 40.98MB 0.2s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.8257947Z #8 extracting sha256:84a2afebaf4de2e8eb885634a69abd0087b79c947c53fa4f0481235d6dfadc6c
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.8259101Z #8 sha256:2664cf4489e51990ef76f94201408a31e43d6a369473cecdf7f8b8a40aeb1c29 1.71MB / 1.71MB 0.2s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.8259847Z #8 sha256:c2b9c0e674a1fd2c4d4825d85568fd9a852f660171cafc4466a8de90e329413b 0B / 448B 0.2s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.9266212Z #8 sha256:a0655704972fcc45126ac8450b9a9f55556904429b00db4b3f7737fa2937f7a7 40.98MB / 40.98MB 0.3s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:28.9267529Z #8 sha256:c2b9c0e674a1fd2c4d4825d85568fd9a852f660171cafc4466a8de90e329413b 448B / 448B 0.2s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9082760Z #8 ...
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9083194Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9083846Z #9 [stage-1 1/3] FROM docker.io/library/nginx:alpine@sha256:1d13701a5f9f3fb01aaa88cef2344d65b6b5bf6b7d9fa4cf0dca557a8d7702ba
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9085360Z #9 resolve docker.io/library/nginx:alpine@sha256:1d13701a5f9f3fb01aaa88cef2344d65b6b5bf6b7d9fa4cf0dca557a8d7702ba 0.0s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9087077Z #9 sha256:c032460d1fd73978317479ba23c37bcb57d93156cab122eb3c54b8e4bdc292fa 2.50kB / 2.50kB done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9088091Z #9 sha256:1d13701a5f9f3fb01aaa88cef2344d65b6b5bf6b7d9fa4cf0dca557a8d7702ba 10.33kB / 10.33kB done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9089060Z #9 sha256:b76de378d57272a1dd9091a05dd548a3639dfb792ebdbf95d06704d2950afdea 11.65kB / 11.65kB done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9090141Z #9 sha256:589002ba0eaed121a1dbf42f6648f29e5be55d5c8a6ee0f8eaa0285cc21ac153 3.86MB / 3.86MB 0.2s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9091402Z #9 extracting sha256:589002ba0eaed121a1dbf42f6648f29e5be55d5c8a6ee0f8eaa0285cc21ac153 0.1s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9092576Z #9 sha256:3e2c181db1b0985ce357c7aaf48ac615f30f392cd15d5c5ba34c4faa1f4f39a2 626B / 626B 0.3s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9093752Z #9 sha256:6b7b6c7061b76cdb8601e18722d12ae3232f0ddcfa1d2983754abcc6ce0a8a83 954B / 954B 0.3s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9094886Z #9 sha256:399d0898a94e0084f81499a3e3c29824357118c7ce551648ea1dbab813884661 404B / 404B 0.4s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9096108Z #9 sha256:bca5d04786e112d958f100a66f8257b2aeefc14b64d81e405c3c44acff2fb000 1.86MB / 1.86MB 0.3s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9097194Z #9 extracting sha256:bca5d04786e112d958f100a66f8257b2aeefc14b64d81e405c3c44acff2fb000 0.1s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9098150Z #9 sha256:955a8478f9aceb66cbf2f579fa3c24e1af278d1fa3ffd3043d6260e21d2f7416 1.21kB / 1.21kB 0.4s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9099088Z #9 sha256:6d397a54a185dd0b6638d1a3934b81daef7a140741e12697377d6279066f7ca7 1.40kB / 1.40kB 0.4s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9100016Z #9 sha256:5e7756927bef33a266e1221356d5da8553139cb80bc5b1b3827010811d9ea268 20.24MB / 20.24MB 0.5s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9101458Z #9 extracting sha256:3e2c181db1b0985ce357c7aaf48ac615f30f392cd15d5c5ba34c4faa1f4f39a2 done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9102375Z #9 extracting sha256:6b7b6c7061b76cdb8601e18722d12ae3232f0ddcfa1d2983754abcc6ce0a8a83 done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9103409Z #9 extracting sha256:399d0898a94e0084f81499a3e3c29824357118c7ce551648ea1dbab813884661 done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9104415Z #9 extracting sha256:955a8478f9aceb66cbf2f579fa3c24e1af278d1fa3ffd3043d6260e21d2f7416 done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9105489Z #9 extracting sha256:6d397a54a185dd0b6638d1a3934b81daef7a140741e12697377d6279066f7ca7 done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9106325Z #9 extracting sha256:5e7756927bef33a266e1221356d5da8553139cb80bc5b1b3827010811d9ea268 0.4s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:29.9107045Z #9 DONE 1.3s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:30.0412182Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:30.0413334Z #8 [build 1/6] FROM docker.io/library/node:20-slim@sha256:d8a35d586fad3af7abb6fdb9ba972388395405f4d462da9e4a4ddcde67b5e0fb
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:30.0414504Z #8 extracting sha256:84a2afebaf4de2e8eb885634a69abd0087b79c947c53fa4f0481235d6dfadc6c 1.2s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:30.1975302Z #8 extracting sha256:05988a666f72e9607315b845938dece280a7f80deebc985944c7330233b75e93 done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:30.1976516Z #8 extracting sha256:a0655704972fcc45126ac8450b9a9f55556904429b00db4b3f7737fa2937f7a7 0.1s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.3094354Z #8 extracting sha256:a0655704972fcc45126ac8450b9a9f55556904429b00db4b3f7737fa2937f7a7 1.1s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.3095957Z #8 extracting sha256:2664cf4489e51990ef76f94201408a31e43d6a369473cecdf7f8b8a40aeb1c29 0.0s done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.5088497Z #8 extracting sha256:c2b9c0e674a1fd2c4d4825d85568fd9a852f660171cafc4466a8de90e329413b done
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.5089385Z #8 DONE 2.7s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.5089601Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.5089793Z #10 [build 2/6] WORKDIR /app
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.5090211Z #10 DONE 0.0s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.5090422Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.5090605Z #11 [build 3/6] COPY package*.json ./
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.5091076Z #11 DONE 0.0s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.5091307Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:31.5091471Z #12 [build 4/6] RUN npm install
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:33.7702193Z #12 2.412 npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:34.0116507Z #12 2.653 npm warn deprecated npmlog@5.0.1: This package is no longer supported.
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:34.1716594Z #12 2.813 npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:34.3074060Z #12 2.949 npm warn deprecated glob@7.2.3: Glob versions prior to v9 are no longer supported
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:34.6914323Z #12 3.333 npm warn deprecated gauge@3.0.2: This package is no longer supported.
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:34.8022131Z #12 3.444 npm warn deprecated are-we-there-yet@2.0.0: This package is no longer supported.
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:47.9520894Z #12 16.59 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:47.9522719Z #12 16.59 added 578 packages, and audited 579 packages in 16s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:47.9523249Z #12 16.59 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:47.9523625Z #12 16.59 102 packages are looking for funding
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1484765Z #12 16.59   run `npm fund` for details
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1485624Z #12 16.64 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1487647Z #12 16.64 29 vulnerabilities (2 moderate, 27 high)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1488424Z #12 16.64 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1488920Z #12 16.64 To address issues that do not require attention, run:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1489489Z #12 16.64   npm audit fix
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1489873Z #12 16.64 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1490343Z #12 16.64 Some issues need review, and may require choosing
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1490905Z #12 16.64 a different dependency.
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1491325Z #12 16.64 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1491669Z #12 16.64 Run `npm audit` for details.
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1492120Z #12 16.64 npm notice
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1492660Z #12 16.64 npm notice New major version of npm available! 10.8.2 -> 11.10.1
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1493876Z #12 16.64 npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.10.1
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1494626Z #12 16.64 npm notice To update run: npm install -g npm@11.10.1
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:48.1495376Z #12 16.64 npm notice
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:50.0165923Z #12 DONE 18.7s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:50.2083359Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:50.2084248Z #13 [build 5/6] COPY . .
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:50.2084735Z #13 DONE 0.0s
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:50.2085206Z 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:50.2085369Z #14 [build 6/6] RUN npm run build
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:50.2989006Z #14 0.241 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:50.2989524Z #14 0.241 > frontend@0.0.0 build
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:50.2990293Z #14 0.241 > tsc -b && vite build
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:06:50.2990757Z #14 0.241 
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:00.1592235Z #14 10.10 vite v7.3.0 building client environment for production...
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:00.4633663Z #14 10.41 transforming...
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.1716140Z #14 11.11 ✓ 122 modules transformed.
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2729798Z #14 11.12 ✗ Build failed in 990ms
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2730678Z #14 11.12 error during build:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2731348Z #14 11.12 [vite:css] [postcss] /app/src/index.css:179:2: Unknown word //
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2741131Z #14 11.12 file: /app/src/index.css:179:1
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2743229Z #14 11.12     at Input.error (/app/node_modules/postcss/lib/input.js:135:16)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2748957Z #14 11.12     at Parser.unknownWord (/app/node_modules/postcss/lib/parser.js:595:22)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2749988Z #14 11.12     at Parser.other (/app/node_modules/postcss/lib/parser.js:437:12)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2750801Z #14 11.12     at Parser.parse (/app/node_modules/postcss/lib/parser.js:472:16)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2751554Z #14 11.12     at parse (/app/node_modules/postcss/lib/parse.js:11:12)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2752361Z #14 11.12     at new LazyResult (/app/node_modules/postcss/lib/lazy-result.js:165:16)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2753231Z #14 11.12     at Processor.process (/app/node_modules/postcss/lib/processor.js:53:14)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2754226Z #14 11.12     at runPostCSS (file:///app/node_modules/vite/dist/node/chunks/config.js:30144:68)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2756349Z #14 11.12     at async compilePostCSS (file:///app/node_modules/vite/dist/node/chunks/config.js:30128:6)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2757414Z #14 11.12     at async compileCSS (file:///app/node_modules/vite/dist/node/chunks/config.js:30058:26)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.2758436Z #14 ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3080934Z ------
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3082557Z  > [build 6/6] RUN npm run build:
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3083429Z 11.12     at Input.error (/app/node_modules/postcss/lib/input.js:135:16)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3085461Z 11.12     at Parser.unknownWord (/app/node_modules/postcss/lib/parser.js:595:22)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3086363Z 11.12     at Parser.other (/app/node_modules/postcss/lib/parser.js:437:12)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3087472Z 11.12     at Parser.parse (/app/node_modules/postcss/lib/parser.js:472:16)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3088411Z 11.12     at parse (/app/node_modules/postcss/lib/parse.js:11:12)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3089859Z 11.12     at new LazyResult (/app/node_modules/postcss/lib/lazy-result.js:165:16)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3090963Z 11.12     at Processor.process (/app/node_modules/postcss/lib/processor.js:53:14)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3092236Z 11.12     at runPostCSS (file:///app/node_modules/vite/dist/node/chunks/config.js:30144:68)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3093264Z 11.12     at async compilePostCSS (file:///app/node_modules/vite/dist/node/chunks/config.js:30128:6)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3094430Z 11.12     at async compileCSS (file:///app/node_modules/vite/dist/node/chunks/config.js:30058:26)
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3095286Z ------
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3097968Z Dockerfile:19
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3098665Z --------------------
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3099172Z   17 |     # Increase memory limit for build process
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3099780Z   18 |     ENV NODE_OPTIONS="--max-old-space-size=4096"
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3100158Z   19 | >>> RUN npm run build
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3101042Z   20 |     
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3101355Z   21 |     # Production Stage
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3101729Z --------------------
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3102421Z ERROR: failed to build: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1
+build-and-deploy-frontend	Build and push Frontend image	2026-02-25T10:07:01.3216962Z ##[error]buildx failed with: ERROR: failed to build: failed to solve: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1
+build-and-deploy-frontend	Post Build and push Frontend image	﻿2026-02-25T10:07:01.3371999Z Post job cleanup.
+build-and-deploy-frontend	Post Build and push Frontend image	2026-02-25T10:07:01.5856005Z ##[group]Removing temp folder /home/runner/work/_temp/docker-actions-toolkit-29AlIH
+build-and-deploy-frontend	Post Build and push Frontend image	2026-02-25T10:07:01.5865417Z ##[endgroup]
+build-and-deploy-frontend	Post Build and push Frontend image	2026-02-25T10:07:01.5866136Z ##[group]Post cache
+build-and-deploy-frontend	Post Build and push Frontend image	2026-02-25T10:07:01.5866559Z State not set
+build-and-deploy-frontend	Post Build and push Frontend image	2026-02-25T10:07:01.5868742Z ##[endgroup]
+build-and-deploy-frontend	Post Log in to Azure Container Registry	﻿2026-02-25T10:07:01.6031401Z Post job cleanup.
+build-and-deploy-frontend	Post Log in to Azure Container Registry	2026-02-25T10:07:01.9122190Z ##[group]Logout from ***-h6d5e6fchsbyh0f2.azurecr.io
+build-and-deploy-frontend	Post Log in to Azure Container Registry	2026-02-25T10:07:01.9167816Z [command]/usr/bin/docker logout ***-h6d5e6fchsbyh0f2.azurecr.io
+build-and-deploy-frontend	Post Log in to Azure Container Registry	2026-02-25T10:07:01.9305574Z Removing login credentials for ***-h6d5e6fchsbyh0f2.azurecr.io
+build-and-deploy-frontend	Post Log in to Azure Container Registry	2026-02-25T10:07:01.9343632Z ##[endgroup]
+build-and-deploy-frontend	Post Log in to Azure Container Registry	2026-02-25T10:07:01.9344150Z ##[group]Post cache
+build-and-deploy-frontend	Post Log in to Azure Container Registry	2026-02-25T10:07:01.9345268Z State not set
+build-and-deploy-frontend	Post Log in to Azure Container Registry	2026-02-25T10:07:01.9345955Z ##[endgroup]
+build-and-deploy-frontend	Post Checkout repository	﻿2026-02-25T10:07:01.9499356Z Post job cleanup.
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0454042Z [command]/usr/bin/git version
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0496005Z git version 2.52.0
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0537680Z Temporarily overriding HOME='/home/runner/work/_temp/a2ce5c2f-885b-498f-a7ae-9bffdd9d7c64' before making global git config changes
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0538994Z Adding repository directory to the temporary git global config as a safe directory
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0543259Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/DAOM/DAOM
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0588482Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0622270Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0869322Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0892123Z http.https://github.com/.extraheader
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0904272Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.0936633Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.1180741Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+build-and-deploy-frontend	Post Checkout repository	2026-02-25T10:07:02.1216028Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+build-and-deploy-frontend	Post Azure Login	﻿2026-02-25T10:07:02.1581943Z Post job cleanup.
+build-and-deploy-frontend	Post Azure Login	2026-02-25T10:07:02.2343742Z Clearing azure cli accounts from the local cache.
+build-and-deploy-frontend	Post Azure Login	2026-02-25T10:07:02.2352742Z [command]/usr/bin/az account clear
+build-and-deploy-frontend	Complete job	﻿2026-02-25T10:07:02.6552420Z Cleaning up orphan processes
+build-and-deploy-frontend	Complete job	2026-02-25T10:07:02.7058944Z Terminate orphan process: pid (3028) (python3)
