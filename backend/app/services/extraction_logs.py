@@ -406,7 +406,7 @@ def get_log(log_id: str) -> Optional[ExtractionLog]:
         return None
 
     try:
-        query = "SELECT * FROM c WHERE c.id = @id"
+        query = "SELECT * FROM c WHERE c.id = @id AND (NOT IS_DEFINED(c.type) OR c.type = 'extraction_log')"
         items = list(container.query_items(
             query=query,
             parameters=[{"name": "@id", "value": log_id}],

@@ -106,7 +106,13 @@ async def run_extraction_with_metadata(
         )
         
         # 5. Handle Result
-        log = extraction_logs.get_log(job_id)
+        from app.services.extraction_jobs import get_job
+        job = get_job(job_id)
+        original_log_id = job.original_log_id if job else None
+        
+        log = None
+        if original_log_id:
+            log = extraction_logs.get_log(original_log_id)
         
         if result.get("error"):
              await update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
@@ -114,7 +120,7 @@ async def run_extraction_with_metadata(
                  extraction_logs.save_extraction_log(
                      model_id=log.model_id, user_id=log.user_id, filename=log.filename,
                      status=ExtractionStatus.ERROR.value, file_url=log.file_url,
-                     error=result["error"], log_id=job_id, tenant_id=log.tenant_id,
+                     error=result["error"], log_id=log.id, tenant_id=log.tenant_id,
                      metadata=metadata or log.metadata, user_name=log.user_name, user_email=log.user_email
                  )
         else:
@@ -131,23 +137,26 @@ async def run_extraction_with_metadata(
                      model_id=log.model_id, user_id=log.user_id, filename=log.filename,
                      status=ExtractionStatus.SUCCESS.value, file_url=log.file_url,
                      extracted_data=extracted, preview_data=result,
-                     log_id=job_id, tenant_id=log.tenant_id,
+                     log_id=log.id, tenant_id=log.tenant_id,
                      metadata=metadata or log.metadata, user_name=log.user_name, user_email=log.user_email,
                      token_usage=result.get("_token_usage")
                  )
 
     except Exception as e:
         logger.error(f"[Connector] Extraction failed for job {job_id}: {e}")
-        from app.services.extraction_jobs import update_job
+        from app.services.extraction_jobs import update_job, get_job
         await update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
-        log = extraction_logs.get_log(job_id)
-        if log:
-            extraction_logs.save_extraction_log(
-                model_id=log.model_id, user_id=log.user_id, filename=log.filename,
-                status=ExtractionStatus.ERROR.value, file_url=log.file_url,
-                error=str(e), log_id=job_id, tenant_id=log.tenant_id,
-                metadata=metadata or log.metadata, user_name=log.user_name, user_email=log.user_email
-            )
+        
+        job = get_job(job_id)
+        if job and job.original_log_id:
+            log = extraction_logs.get_log(job.original_log_id)
+            if log:
+                extraction_logs.save_extraction_log(
+                    model_id=log.model_id, user_id=log.user_id, filename=log.filename,
+                    status=ExtractionStatus.ERROR.value, file_url=log.file_url,
+                    error=str(e), log_id=log.id, tenant_id=log.tenant_id,
+                    metadata=metadata or log.metadata, user_name=log.user_name, user_email=log.user_email
+                )
 
 
 # ============================================
@@ -174,7 +183,7 @@ class QueryResultList(BaseModel):
 
 class PAFileItem(BaseModel):
     name: str
-    contentBytes: str  # Base64 encoded content
+    contentBytes: Any  # Base64 string or Power Automate structured dict {"$content": "..."}
 
 class PAUploadRequest(BaseModel):
     model_id: str
@@ -248,20 +257,27 @@ async def upload_document(
     import base64
     import re
     
-    # Power Automate sometimes passes dicts stringified like "{\"$content-type\":\"...\",\"$content\":\"base64str\"}"
-    b64_str = payload.file.contentBytes.strip()
+    # Power Automate array variables may pass the raw JSON File object natively.
+    raw_content = payload.file.contentBytes
+    b64_str = ""
+    
+    if isinstance(raw_content, dict):
+        b64_str = raw_content.get("$content", "")
+    elif isinstance(raw_content, str):
+        b64_str = raw_content.strip()
+        # Fallback for stringified json
+        if b64_str.startswith("{") and "$content" in b64_str:
+            try:
+                content_dict = json.loads(b64_str)
+                b64_str = content_dict.get("$content", b64_str)
+            except json.JSONDecodeError:
+                pass
+    else:
+        raise HTTPException(status_code=400, detail="contentBytes must be a string or object.")
     
     # DoS Prevention: Limit base64 length (approx 15MB)
     if len(b64_str) > 20_000_000:
         raise HTTPException(status_code=413, detail="File too large. Maximum supported size via JSON connector is 15MB.")
-    
-    # Extract just the base64 part if it's a JSON string from Power Automate
-    if b64_str.startswith("{") and "$content" in b64_str:
-        try:
-            content_dict = json.loads(b64_str)
-            b64_str = content_dict.get("$content", b64_str)
-        except json.JSONDecodeError:
-            pass
 
     # Clean data URL prefixes and whitespaces
     if "," in b64_str:
@@ -432,7 +448,22 @@ async def batch_upload_documents_json(
         try:
             # Decode base64 securely for Batch
             import re
-            b64_str = file_item.contentBytes.strip()
+            
+            raw_content = file_item.contentBytes
+            b64_str = ""
+            
+            if isinstance(raw_content, dict):
+                b64_str = raw_content.get("$content", "")
+            elif isinstance(raw_content, str):
+                b64_str = raw_content.strip()
+                if b64_str.startswith("{") and "$content" in b64_str:
+                    try:
+                        content_dict = json.loads(b64_str)
+                        b64_str = content_dict.get("$content", b64_str)
+                    except json.JSONDecodeError:
+                        pass
+            else:
+                raise ValueError("contentBytes must be a string or object.")
             
             # DoS Prevention: Limit base64 length (approx 15MB) per file
             if len(b64_str) > 20_000_000:
@@ -443,13 +474,6 @@ async def batch_upload_documents_json(
                     error="File too large. Maximum supported size via JSON connector is 15MB."
                 ))
                 continue
-            
-            if b64_str.startswith("{") and "$content" in b64_str:
-                try:
-                    content_dict = json.loads(b64_str)
-                    b64_str = content_dict.get("$content", b64_str)
-                except json.JSONDecodeError:
-                    pass
 
             if "," in b64_str:
                 b64_str = b64_str.split(",", 1)[1]
@@ -706,6 +730,7 @@ async def query_extraction_results(
         FROM c 
         WHERE c.tenant_id = @tenant_id 
           AND c.model_id = @model_id
+          AND (NOT IS_DEFINED(c.type) OR c.type = 'extraction_log')
     """
     parameters = [
         {"name": "@tenant_id", "value": current_user.tenant_id},
