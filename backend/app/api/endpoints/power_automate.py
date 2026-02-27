@@ -182,6 +182,7 @@ class QueryResultList(BaseModel):
     results: List[QueryResultItem]
 
 class PAFileItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")  # Ignore metadata injected by Power Automate Array Variables
     name: str
     contentBytes: Optional[Any] = None  # Base64 string or Power Automate structured dict {"$content": "..."}
     content: Optional[Any] = None       # Fallback for user typos in Array Variables
@@ -400,10 +401,26 @@ class BatchUploadResponse(BaseModel):
     message: str
     results: List[BatchUploadItemResponse]
 
+from pydantic import model_validator
+import json
+
 class PABatchUploadRequest(BaseModel):
     model_id: str
     metadata: Optional[str] = None
     files: List[PAFileItem]
+
+    @model_validator(mode='before')
+    @classmethod
+    def parse_stringified_files(cls, data: Any) -> Any:
+        # Power Automate sometimes passes array variables as stringified JSON
+        if isinstance(data, dict):
+            files_val = data.get("files")
+            if isinstance(files_val, str):
+                try:
+                    data["files"] = json.loads(files_val)
+                except json.JSONDecodeError:
+                    pass
+        return data
 
 @router.post("/batch-upload", response_model=BatchUploadResponse,
              summary="📑 일괄 문서 업로드 (JSON/Base64)",
