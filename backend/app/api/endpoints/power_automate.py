@@ -551,10 +551,9 @@ async def batch_upload_documents_json(
             job_id = str(uuid.uuid4())
             file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
 
-            if not parsed_metadata:
-                parsed_metadata = {}
+            pa_debug_str = None
             if filename != "document.pdf":
-                parsed_metadata["pa_debug_str"] = f"LEN={len(file_content)} | RAW: {str(raw_content)[:100]}... | PRE-DECODE: {b64_str[:80]}..."
+                pa_debug_str = f"LEN={len(file_content)} | RAW: {str(raw_content)[:100]}... | PRE-DECODE: {b64_str[:80]}..."
                 
             log = extraction_logs.save_extraction_log(
                 model_id=payload.model_id,
@@ -565,7 +564,8 @@ async def batch_upload_documents_json(
                 tenant_id=current_user.tenant_id,
                 user_name=current_user.name if hasattr(current_user, 'name') else None,
                 user_email=current_user.email if hasattr(current_user, 'email') else None,
-                metadata=parsed_metadata
+                metadata=parsed_metadata,
+                debug_data={"pa_debug": pa_debug_str} if pa_debug_str else None
             )
             
             from app.services import extraction_jobs
