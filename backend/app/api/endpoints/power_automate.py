@@ -4,7 +4,7 @@ Provides clean, well-documented endpoints for Power Automate integration
 """
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, UploadFile, File, Form, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any
 from app.core.auth import get_current_user, CurrentUser
 from app.core.enums import ExtractionStatus
