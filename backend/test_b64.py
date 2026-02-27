@@ -1,20 +1,26 @@
 import base64
 import re
 
-# Simulate a URL-safe Base64 string that got passed and stripped.
-# First, encode "Test PDF content"
-msg = b"Test PDF content"
-b64_normal = base64.b64encode(msg).decode('utf-8')
-b64_urlsafe = base64.urlsafe_b64encode(msg).decode('utf-8')
+# Simulate a slightly off-padding base64 string
+test_str = "JVBERi0xLjcKCjEK" + "==" # Too much padding
 
-print("Normal:", b64_normal)
-print("URL Safe:", b64_urlsafe)
+b64_str = re.sub(r'[^a-zA-Z0-9+/=]', '', test_str)
+print("Len before padding fix:", len(b64_str))
 
-# Current code logic
-stripped = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_urlsafe)
-print("Stripped:", stripped)
+padding_needed = len(b64_str) % 4
+if padding_needed:
+    b64_str += '=' * (4 - padding_needed)
+
+print("Len after padding fix:", len(b64_str))
 
 try:
-    print(base64.b64decode(stripped))
+    print("Validate=True")
+    base64.b64decode(b64_str, validate=True)
+except Exception as e:
+    print("Error:", e)
+    
+try:
+    print("Validate=False")
+    base64.b64decode(b64_str, validate=False)
 except Exception as e:
     print("Error:", e)
