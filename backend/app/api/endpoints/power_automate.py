@@ -488,8 +488,6 @@ async def batch_upload_documents_json(
             
             if isinstance(raw_content, dict):
                 b64_str = raw_content.get("$content", "")
-                import logging
-                logging.getLogger("uvicorn.error").error(f"PA Dict $content received. Type: {type(b64_str)}, Preview: {str(b64_str)[:100]}")
             elif isinstance(raw_content, str):
                 b64_str = raw_content.strip()
                 if b64_str.startswith("{") and "$content" in b64_str:
@@ -500,6 +498,10 @@ async def batch_upload_documents_json(
                         pass
             else:
                 raise ValueError("contentBytes must be a string or object.")
+                
+            # FIX: If Power Automate fallback expression intentionally injected an empty string (''), skip it
+            if not b64_str:
+                continue
             
             # DoS Prevention: Limit base64 length (approx 15MB) per file
             if len(b64_str) > 20_000_000:
@@ -523,32 +525,6 @@ async def batch_upload_documents_json(
                 b64_str += '=' * (4 - padding_needed)
                 
             file_content = base64.b64decode(b64_str, validate=True)
-            
-            # Defensive check & Auto-Unwrap: Did Power Automate send a wrapped JSON object instead of pure File Content?
-            # Sometimes array variables serialize `{"$content-type":"...", "$content":"base64"}` into a string,
-            # which then gets treated as the entire base64 string and decoded back into JSON bytes.
-            if file_content.startswith(b'{'):
-                try:
-                    inner_json = json.loads(file_content.decode('utf-8'))
-                    if "$content" in inner_json:
-                        # Auto-unwrap the inner base64 string
-                        inner_b64 = inner_json["$content"]
-                        inner_b64 = inner_b64.replace('-', '+').replace('_', '/')
-                        inner_b64 = re.sub(r'[^a-zA-Z0-9+/=]', '', inner_b64)
-                        pad = len(inner_b64) % 4
-                        if pad:
-                            inner_b64 += '=' * (4 - pad)
-                        file_content = base64.b64decode(inner_b64, validate=True)
-                    else:
-                        raise ValueError("No $content found in wrapped JSON")
-                except Exception as e:
-                    results.append(BatchUploadItemResponse(
-                        filename=filename,
-                        status="error",
-                        message="잘못된 파일 바이트",
-                        error="Power Automate sent JSON metadata instead of File Content."
-                    ))
-                    continue
                 
             job_id = str(uuid.uuid4())
             file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
