@@ -202,14 +202,17 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         
         REQUIRED FORMATTING BY DATATYPE:
         - For fields where `type: string`, `number`, or `date`: Return a PLAIN scalar value (string or number). NO json_object wrapping. Example: `(SELECT A FROM raw_data WHERE row_id = 0 LIMIT 1) AS remark`
-        - For fields where `type: table`: Return a JSON Array using `json_group_array(json_object(...))`. Use FLAT key-value pairs only. DO NOT nest json_object inside json_object.
-          - CORRECT: `(SELECT json_group_array(json_object('POL_CODE', A, 'POL_NAME', B, '20DC', C)) FROM raw_data WHERE _sheet_name='Rates' AND row_id > 15) AS my_table`
-          - WRONG: `json_object('POL_CODE', json_object('value', A, ...))` ← NEVER DO THIS. Python handles formatting.
+        - For fields where `type: table`: Return a JSON Array using `json_group_array(json_object(...))`. Use FLAT key-value pairs only.
+          - CRITICAL: The keys inside your `json_object` MUST EXACTLY MATCH the requested target schema properties (e.g., 'POL_CODE', 'POD_NAME'). DO NOT use the raw Excel header names as the keys.
+          - CORRECT: `(SELECT json_group_array(json_object('POL_CODE', A, 'POL_NAME', B, '20DC', C)) ...)`
+          - WRONG: `json_object('POL_CODE', json_object('value', A, ...))` ← NEVER DO THIS. Python handles DAOM formatting.
         
         COLUMN MAPPING (CRITICAL):
-        - Carefully match each target field key to the CORRECT source column by examining the DATA SAMPLE values, not just column positions.
-        - For example, if the target asks for 'POD_NAME' (port name like 'AALBORG'), find the column containing port names, NOT dates.
-        - Cross-reference the Data Profile's header_row to identify real column meanings.
+        - You must cross-reference the `COLUMN LETTER TO HEADER MAPPING` (from Stage 1) with the target schema.
+        - The `COLUMN LETTER TO HEADER MAPPING` tells you what raw data is in each column (e.g., Column B = "Valid From").
+        - Your job is to map those raw columns to the precise target fields requested by the schema (e.g., target schema asks for "validity_start", so you map Column B to "validity_start").
+        - NEVER output raw Excel headers like "Valid From" as JSON keys. ALWAYS use the requested schema keys.
+        - Pay attention to data semantics: If the target asks for 'POD_NAME' (port name like 'AALBORG'), find the column with actual names, NOT dates.
         
         DUCKDB SPECIFIC RULES:
         1. `json_group_array` / `json_group_object` are MACRO functions. You CANNOT use DISTINCT, FILTER, or ORDER BY inside them. Use CTEs first.
