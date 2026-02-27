@@ -524,15 +524,31 @@ async def batch_upload_documents_json(
                 
             file_content = base64.b64decode(b64_str, validate=True)
             
-            # Defensive check: Did Power Automate send metadata instead of file content?
-            if file_content.startswith(b'{') or file_content.startswith(b'['):
-                results.append(BatchUploadItemResponse(
-                    filename=filename,
-                    status="error",
-                    message="잘못된 파일 바이트",
-                    error="Power Automate sent JSON metadata instead of File Content. Please use the 'File Content' dynamic property, not the 'DriveItem' metadata object."
-                ))
-                continue
+            # Defensive check & Auto-Unwrap: Did Power Automate send a wrapped JSON object instead of pure File Content?
+            # Sometimes array variables serialize `{"$content-type":"...", "$content":"base64"}` into a string,
+            # which then gets treated as the entire base64 string and decoded back into JSON bytes.
+            if file_content.startswith(b'{'):
+                try:
+                    inner_json = json.loads(file_content.decode('utf-8'))
+                    if "$content" in inner_json:
+                        # Auto-unwrap the inner base64 string
+                        inner_b64 = inner_json["$content"]
+                        inner_b64 = inner_b64.replace('-', '+').replace('_', '/')
+                        inner_b64 = re.sub(r'[^a-zA-Z0-9+/=]', '', inner_b64)
+                        pad = len(inner_b64) % 4
+                        if pad:
+                            inner_b64 += '=' * (4 - pad)
+                        file_content = base64.b64decode(inner_b64, validate=True)
+                    else:
+                        raise ValueError("No $content found in wrapped JSON")
+                except Exception as e:
+                    results.append(BatchUploadItemResponse(
+                        filename=filename,
+                        status="error",
+                        message="잘못된 파일 바이트",
+                        error="Power Automate sent JSON metadata instead of File Content."
+                    ))
+                    continue
                 
             job_id = str(uuid.uuid4())
             file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
