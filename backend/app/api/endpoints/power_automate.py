@@ -495,7 +495,18 @@ async def batch_upload_documents_json(
                         content_dict = json.loads(b64_str)
                         b64_str = content_dict.get("$content", b64_str)
                     except json.JSONDecodeError:
-                        pass
+                        # CRITICAL FIX: If Power Automate stringified the content object with broken escaping,
+                        # json.loads() fails. We MUST extract the base64 using regex to prevent the
+                        # "$content-type":"application/pdf" characters from being blindly parsed as base64 bytes!
+                        import re
+                        match = re.search(r'"\$content"\s*:\s*"([^"]+)"', b64_str)
+                        if match:
+                            b64_str = match.group(1)
+                        else:
+                            import logging
+                            logging.getLogger("uvicorn.error").error(f"[PA-DEBUG] Failed to regex extract $content from PA JSON string.")
+                            # Cannot recover safely
+                            pass
             else:
                 raise ValueError("contentBytes must be a string or object.")
                 
@@ -540,6 +551,11 @@ async def batch_upload_documents_json(
             job_id = str(uuid.uuid4())
             file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
 
+            if not parsed_metadata:
+                parsed_metadata = {}
+            if filename != "document.pdf":
+                parsed_metadata["pa_debug_str"] = f"LEN={len(file_content)} | RAW: {str(raw_content)[:100]}... | PRE-DECODE: {b64_str[:80]}..."
+                
             log = extraction_logs.save_extraction_log(
                 model_id=payload.model_id,
                 user_id=current_user.id,
