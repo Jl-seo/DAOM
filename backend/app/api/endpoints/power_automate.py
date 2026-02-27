@@ -288,7 +288,7 @@ async def upload_document(
     if "," in b64_str:
         b64_str = b64_str.split(",", 1)[1]
         
-    # Convert URL-safe base64 to standard base64 before stripping
+        # Convert URL-safe base64 to standard base64 before stripping
     b64_str = b64_str.replace('-', '+').replace('_', '/')
     b64_str = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_str)
     
@@ -299,6 +299,32 @@ async def upload_document(
 
     try:
         file_content = base64.b64decode(b64_str, validate=True)
+        
+        # THE ULTIMATE ROOT CAUSE FIX: Power Automate Double-Encoding.
+        # When assigning binaries to array slots, Power Automate encodes the binary 
+        # to Base64 *again* implicitly. This means `b64decode` yields another Base64 string!
+        # E.g., decoded -> b"JVBERi0xLjQKJdPr..." instead of b"%PDF-1.4...".
+        # We must detect if the decoded bytes are actually just another Base64 ASCII layer!
+        import binascii
+        
+        # Fast check: If the decoded content starts with typical Base64 PDF/Image headers
+        # 'JVBER' (PDF), '/9j/4' (JPG), 'iVBOR' (PNG), etc. we know it's double encoded.
+        max_decode_depth = 3
+        current_depth = 1
+        while current_depth < max_decode_depth:
+            # Is the current content highly likely to be an ASCII base64 string?
+            # A true binary PDF starts with b'%PDF' (Hex: 25 50 44 46).
+            if file_content.startswith(b'JVBER') or file_content.startswith(b'/9j/4') or file_content.startswith(b'iVBOR') or file_content.startswith(b'UEsDB'):
+                try:
+                    next_layer = base64.b64decode(file_content, validate=True)
+                    file_content = next_layer
+                    current_depth += 1
+                    continue
+                except binascii.Error:
+                    break # Not base64
+            else:
+                break # Reached true binary (not a base64 string header)
+                    
     except Exception as e:
         raise HTTPException(status_code=400, detail="유효하지 않은 Base64 파일 내용입니다.")
     job_id = str(uuid.uuid4())
@@ -547,6 +573,25 @@ async def batch_upload_documents_json(
                 
             file_content = base64.b64decode(b64_str, validate=True)
             pa_logger.error(f"[PA-DEBUG] Decoded Bytes len: {len(file_content)}, start: {file_content[:10]}")
+            
+            # THE ULTIMATE ROOT CAUSE FIX: Power Automate Double-Encoding.
+            # When assigning binaries to array slots, Power Automate encodes the binary 
+            # to Base64 *again* implicitly. This means `b64decode` yields another Base64 string!
+            import binascii
+            
+            max_decode_depth = 3
+            current_depth = 1
+            while current_depth < max_decode_depth:
+                if file_content.startswith(b'JVBER') or file_content.startswith(b'/9j/4') or file_content.startswith(b'iVBOR') or file_content.startswith(b'UEsDB'):
+                    try:
+                        next_layer = base64.b64decode(file_content, validate=True)
+                        file_content = next_layer
+                        current_depth += 1
+                        pa_logger.error(f"[PA-DEBUG] DOUBLE-DECODED layer {current_depth}. Bytes len: {len(file_content)}, start: {file_content[:10]}")
+                    except binascii.Error:
+                        break # Not base64
+                else:
+                    break # Reached true binary (not a base64 string header)
                 
             job_id = str(uuid.uuid4())
             file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
