@@ -514,17 +514,28 @@ async def batch_upload_documents_json(
                 continue
 
             if "," in b64_str:
+                import logging
+                logging.getLogger("uvicorn.error").error(f"[PA-DEBUG] Data URI removed. Snippet: {b64_str[:50]}")
                 b64_str = b64_str.split(",", 1)[1]
+            
+            import logging
+            pa_logger = logging.getLogger("uvicorn.error")
+            pa_logger.error(f"[PA-DEBUG] Before Replace: len={len(b64_str)} snippet={b64_str[:50]} end={b64_str[-20:]}")
             
             # Convert URL-safe base64 to standard base64 before stripping
             b64_str = b64_str.replace('-', '+').replace('_', '/')
+            pa_logger.error(f"[PA-DEBUG] After Replace: len={len(b64_str)} snippet={b64_str[:50]}")
+            
             b64_str = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_str)
+            pa_logger.error(f"[PA-DEBUG] After Strip: len={len(b64_str)} snippet={b64_str[:50]}")
             
             padding_needed = len(b64_str) % 4
             if padding_needed:
                 b64_str += '=' * (4 - padding_needed)
+            pa_logger.error(f"[PA-DEBUG] After Padding: len={len(b64_str)}")
                 
             file_content = base64.b64decode(b64_str, validate=True)
+            pa_logger.error(f"[PA-DEBUG] Decoded Bytes len: {len(file_content)}, start: {file_content[:10]}")
                 
             job_id = str(uuid.uuid4())
             file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
