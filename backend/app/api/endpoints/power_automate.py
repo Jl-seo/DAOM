@@ -287,6 +287,9 @@ async def upload_document(
     # Clean data URL prefixes and whitespaces
     if "," in b64_str:
         b64_str = b64_str.split(",", 1)[1]
+        
+    # Convert URL-safe base64 to standard base64 before stripping
+    b64_str = b64_str.replace('-', '+').replace('_', '/')
     b64_str = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_str)
     
     # Pad if necessary
@@ -508,6 +511,9 @@ async def batch_upload_documents_json(
 
             if "," in b64_str:
                 b64_str = b64_str.split(",", 1)[1]
+            
+            # Convert URL-safe base64 to standard base64 before stripping
+            b64_str = b64_str.replace('-', '+').replace('_', '/')
             b64_str = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_str)
             
             padding_needed = len(b64_str) % 4
