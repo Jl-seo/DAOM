@@ -20,6 +20,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+def is_valid_binary_magic(data: bytes) -> bool:
+    """
+    Check if the byte array starts with a known valid file signature (Magic Bytes).
+    This guarantees we never accidentally corrupt a valid file by treating its content as Base64.
+    """
+    if len(data) < 4:
+        return False
+    # PDF
+    if data.startswith(b'%PDF'): return True
+    # JPEG
+    if data.startswith(b'\xff\xd8\xff'): return True
+    # PNG
+    if data.startswith(b'\x89PNG\r\n\x1a\n'): return True
+    # ZIP / Office OpenXML (XLSX, DOCX)
+    if data.startswith(b'PK\x03\x04'): return True
+    # Legacy Office (XLS, DOC)
+    if data.startswith(b'\xd0\xcf\x11\xe0'): return True
+    # TIFF
+    if data.startswith(b'II*\x00') or data.startswith(b'MM\x00*'): return True
+    return False
 
 # ============================================
 # Request/Response Models
@@ -301,29 +321,21 @@ async def upload_document(
         file_content = base64.b64decode(b64_str, validate=True)
         
         # THE ULTIMATE ROOT CAUSE FIX: Power Automate Double-Encoding.
-        # When assigning binaries to array slots, Power Automate encodes the binary 
-        # to Base64 *again* implicitly. This means `b64decode` yields another Base64 string!
-        # E.g., decoded -> b"JVBERi0xLjQKJdPr..." instead of b"%PDF-1.4...".
-        # We must detect if the decoded bytes are actually just another Base64 ASCII layer!
+        # Fallback: if the first decode did NOT yield a valid binary signature (like %PDF),
+        # but IT IS a base64 string that, when decoded AGAIN, yields a valid binary, accept it.
+        # This guarantees we NEVER accidentally corrupt standard valid binaries.
         import binascii
-        
-        # Fast check: If the decoded content starts with typical Base64 PDF/Image headers
-        # 'JVBER' (PDF), '/9j/4' (JPG), 'iVBOR' (PNG), etc. we know it's double encoded.
-        max_decode_depth = 3
-        current_depth = 1
-        while current_depth < max_decode_depth:
-            # Is the current content highly likely to be an ASCII base64 string?
-            # A true binary PDF starts with b'%PDF' (Hex: 25 50 44 46).
-            if file_content.startswith(b'JVBER') or file_content.startswith(b'/9j/4') or file_content.startswith(b'iVBOR') or file_content.startswith(b'UEsDB'):
+        if not is_valid_binary_magic(file_content):
+            current_decode = file_content
+            for _ in range(2):
                 try:
-                    next_layer = base64.b64decode(file_content, validate=True)
-                    file_content = next_layer
-                    current_depth += 1
-                    continue
+                    next_layer = base64.b64decode(current_decode, validate=True)
+                    if is_valid_binary_magic(next_layer):
+                        file_content = next_layer
+                        break
+                    current_decode = next_layer
                 except binascii.Error:
-                    break # Not base64
-            else:
-                break # Reached true binary (not a base64 string header)
+                    break
                     
     except Exception as e:
         raise HTTPException(status_code=400, detail="유효하지 않은 Base64 파일 내용입니다.")
@@ -575,23 +587,22 @@ async def batch_upload_documents_json(
             pa_logger.error(f"[PA-DEBUG] Decoded Bytes len: {len(file_content)}, start: {file_content[:10]}")
             
             # THE ULTIMATE ROOT CAUSE FIX: Power Automate Double-Encoding.
-            # When assigning binaries to array slots, Power Automate encodes the binary 
-            # to Base64 *again* implicitly. This means `b64decode` yields another Base64 string!
+            # Fallback: if the first decode did NOT yield a valid binary signature (like %PDF),
+            # but IT IS a base64 string that, when decoded AGAIN, yields a valid binary, accept it.
+            # This guarantees we NEVER accidentally corrupt standard valid binaries.
             import binascii
-            
-            max_decode_depth = 3
-            current_depth = 1
-            while current_depth < max_decode_depth:
-                if file_content.startswith(b'JVBER') or file_content.startswith(b'/9j/4') or file_content.startswith(b'iVBOR') or file_content.startswith(b'UEsDB'):
+            if not is_valid_binary_magic(file_content):
+                current_decode = file_content
+                for _ in range(2):
                     try:
-                        next_layer = base64.b64decode(file_content, validate=True)
-                        file_content = next_layer
-                        current_depth += 1
-                        pa_logger.error(f"[PA-DEBUG] DOUBLE-DECODED layer {current_depth}. Bytes len: {len(file_content)}, start: {file_content[:10]}")
+                        next_layer = base64.b64decode(current_decode, validate=True)
+                        if is_valid_binary_magic(next_layer):
+                            file_content = next_layer
+                            pa_logger.error(f"[PA-DEBUG] DOUBLE-DECODED successfully. Bytes len: {len(file_content)}, start: {file_content[:10]}")
+                            break
+                        current_decode = next_layer
                     except binascii.Error:
-                        break # Not base64
-                else:
-                    break # Reached true binary (not a base64 string header)
+                        break
                 
             job_id = str(uuid.uuid4())
             file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
