@@ -111,7 +111,13 @@ async def start_job_with_upload(
     upload_tasks = []
     filenames = []
 
-    for f in files:
+    # Filter out empty/null files sent by Power Automate's IF logic
+    valid_files = [f for f in files if f is not None and getattr(f, "filename", None) and getattr(f, "size", 1) > 0]
+    
+    if not valid_files:
+        raise HTTPException(status_code=400, detail="No valid files received. If using Power Automate, check your file array logic for null/empty items.")
+
+    for f in valid_files:
         filenames.append(f.filename)
         upload_tasks.append(upload_file_to_blob(f))
 

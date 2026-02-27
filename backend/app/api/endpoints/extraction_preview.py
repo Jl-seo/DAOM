@@ -323,13 +323,19 @@ async def start_batch_jobs(
     allowed_exts = ('.pdf', '.jpg', '.jpeg', '.png', '.tiff', '.tif', '.bmp', '.xlsx', '.xls', '.csv', '.docx')
     user_id = current_user.id if current_user else "unknown"
     
-    if len(files) > 20:
-        raise HTTPException(status_code=400, detail="Maximum 20 files allowed per batch request to prevent timeouts. Please upload in smaller chunks.")
-    
     from app.services.storage import upload_file_to_blob
     results = []
     
-    for file in files:
+    # Filter out empty/null files sent by Power Automate's IF logic
+    valid_files = [f for f in files if f is not None and getattr(f, "filename", None) and getattr(f, "size", 1) > 0]
+    
+    if not valid_files:
+        raise HTTPException(status_code=400, detail="No valid files received. If using Power Automate, check your file array logic for null/empty items.")
+        
+    if len(valid_files) > 20:
+        raise HTTPException(status_code=400, detail="Maximum 20 files allowed per batch request to prevent timeouts. Please upload in smaller chunks.")
+    
+    for file in valid_files:
         if not file.filename.lower().endswith(allowed_exts):
             results.append({"filename": file.filename, "error": f"Invalid extension"})
             continue
