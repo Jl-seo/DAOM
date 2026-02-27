@@ -185,7 +185,6 @@ class PAFileItem(BaseModel):
     model_config = ConfigDict(extra="ignore")  # Ignore metadata injected by Power Automate Array Variables
     name: str
     contentBytes: Optional[Any] = None  # Base64 string or Power Automate structured dict {"$content": "..."}
-    content: Optional[Any] = None       # Fallback for user typos in Array Variables
 
 class PAUploadRequest(BaseModel):
     model_id: str
@@ -260,11 +259,10 @@ async def upload_document(
     import re
     
     # Power Automate array variables may pass the raw JSON File object natively.
-    # Fallback to .content if user mistakenly used it instead of .contentBytes in their Flow array.
-    raw_content = payload.file.contentBytes if payload.file.contentBytes is not None else payload.file.content
+    raw_content = payload.file.contentBytes
     
     if raw_content is None:
-        raise HTTPException(status_code=400, detail="Missing file content. Please provide 'contentBytes' or 'content' in the array variable.")
+        raise HTTPException(status_code=400, detail="Missing file content. Please provide 'contentBytes'.")
 
     b64_str = ""
     
@@ -472,15 +470,14 @@ async def batch_upload_documents_json(
             # Decode base64 securely for Batch
             import re
             
-            # Fallback to .content if user mistakenly used it instead of .contentBytes in their Flow array.
-            raw_content = file_item.contentBytes if file_item.contentBytes is not None else file_item.content
+            raw_content = file_item.contentBytes
             
             if raw_content is None:
                 results.append(BatchUploadItemResponse(
                     filename=filename,
                     status="error",
                     message="Missing file content",
-                    error="Please provide 'contentBytes' or 'content' in the array variable."
+                    error="Please provide 'contentBytes'."
                 ))
                 continue
 
