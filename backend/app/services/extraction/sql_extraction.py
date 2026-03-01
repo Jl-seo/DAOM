@@ -85,23 +85,45 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     file_content = await file.read()
     await file.seek(0)
     
-    # 1. Load Excel into Pandas
+    # 1. Load Excel or CSV into Pandas
     try:
-        try:
-            excel_data = pd.read_excel(io.BytesIO(file_content), sheet_name=None, header=None, engine="calamine")
-        except ImportError:
-            excel_data = pd.read_excel(io.BytesIO(file_content), sheet_name=None, header=None, engine="openpyxl")
-        
-        combined_df = pd.DataFrame()
-        row_offset = 0
-        for sheet_name, sheet_df in excel_data.items():
-            sheet_df = sheet_df.dropna(how='all') 
-            if not sheet_df.empty:
-                sheet_df.insert(0, '_sheet_name', str(sheet_name))
-                # Add row_id before concat to preserve true row indexing per sheet or globally.
-                sheet_df.insert(0, 'row_id', range(row_offset, row_offset + len(sheet_df)))
-                row_offset += len(sheet_df)
-                combined_df = pd.concat([combined_df, sheet_df], ignore_index=True)
+        filename_lower = file.filename.lower()
+        if filename_lower.endswith('.csv') or file.content_type == 'text/csv':
+            content_str = None
+            for encoding in ["utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"]:
+                try:
+                    content_str = file_content.decode(encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if content_str is None:
+                raise ValueError("Failed to decode CSV file with supported encodings")
+                
+            # Read CSV perfectly aligned with Excel Parser behavior
+            import csv
+            reader = csv.reader(io.StringIO(content_str))
+            csv_rows = list(reader)
+            combined_df = pd.DataFrame(csv_rows)
+            combined_df = combined_df.dropna(how='all')
+            if not combined_df.empty:
+                combined_df.insert(0, '_sheet_name', 'Data')
+                combined_df.insert(0, 'row_id', range(0, len(combined_df)))
+        else:
+            try:
+                excel_data = pd.read_excel(io.BytesIO(file_content), sheet_name=None, header=None, engine="calamine")
+            except ImportError:
+                excel_data = pd.read_excel(io.BytesIO(file_content), sheet_name=None, header=None, engine="openpyxl")
+            
+            combined_df = pd.DataFrame()
+            row_offset = 0
+            for sheet_name, sheet_df in excel_data.items():
+                sheet_df = sheet_df.dropna(how='all') 
+                if not sheet_df.empty:
+                    sheet_df.insert(0, '_sheet_name', str(sheet_name))
+                    # Add row_id before concat to preserve true row indexing per sheet or globally.
+                    sheet_df.insert(0, 'row_id', range(row_offset, row_offset + len(sheet_df)))
+                    row_offset += len(sheet_df)
+                    combined_df = pd.concat([combined_df, sheet_df], ignore_index=True)
                 
         if combined_df.empty:
             raise ValueError("All sheets are empty.")
