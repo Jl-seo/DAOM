@@ -244,8 +244,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         # 1. Look up the expected schema for this table
         expected_sub_keys = []
         for f in model.fields:
-            if f.key == target_key and f.sub_fields:
-                expected_sub_keys = [sf.key for sf in f.sub_fields]
+            if f.key == target_key and getattr(f, 'sub_fields', None):
+                expected_sub_keys = [sf.key for sf in getattr(f, 'sub_fields')]
                 break
                 
         # Fallback if no schema is strictly defined or found
