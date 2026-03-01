@@ -342,7 +342,7 @@ OUTPUT: A JSON object with this structure:
       }}
     ],
     "integrity_rules": [
-      "Copy values exactly as written. No conversion/calculation/translation.",
+      "Copy values exactly as written, UNLESS explicitly instructed to calculate, transform, or translate by the user's field rule.",
       "Missing values must be null.",
       "Extract in original language. Do NOT translate unless field rule says so."
     ]

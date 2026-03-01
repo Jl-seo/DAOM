@@ -71,6 +71,7 @@ async def _run_schema_mapper(data_sample_csv: str, model: ExtractionModel) -> Di
     3. Output a precise Mapping JSON.
     
     CRITICAL RULES:
+    - **NO HALLUCINATED KEYS**: The keys inside `"tables"` and `"scalars"` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys (e.g., do not use "Table1", "RateTable", "Information"). If the schema key is `shipping_rates_extracted`, use EXACTLY that.
     - `"header_row_id"`: The exact `row_id` from the CSV where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
     - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here, ONLY the mapped column letter.
     - Reference Data limits do NOT apply to you. You do not do data conversion. Just supply the coordinates (the Column letter).
