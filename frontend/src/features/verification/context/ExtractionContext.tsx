@@ -251,24 +251,30 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
                         pollingRef.current = null
                     }
 
-                    // Force update status to ready
-                    setStatus(EXTRACTION_STATUS.PREVIEW_READY)
+                    // 1. First, set intermediate rendering state to let React paint the spinner
+                    setStatus((EXTRACTION_STATUS as any).RENDERING)
 
-                    // Update result and preview data
-                    setResult(effectiveResult)
-                    if (preview_data) {
-                        setPreviewData({
-                            ...preview_data,
-                            // Ensure model fields are populated
-                            model_fields: preview_data.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
-                        })
-                    } else if (res.data.preview_data) {
-                        setPreviewData(res.data.preview_data)
-                    }
+                    // 2. Wait a tick for the browser to paint the spinner before locking the main thread with massive data (e.g. 6000+ rows)
+                    setTimeout(() => {
+                        // Force update status to ready
+                        setStatus(EXTRACTION_STATUS.PREVIEW_READY)
 
-                    // Move to review step
-                    setActiveStep('review')
-                    toast.success('추출이 완료되었습니다')
+                        // Update result and preview data
+                        setResult(effectiveResult)
+                        if (preview_data) {
+                            setPreviewData({
+                                ...preview_data,
+                                // Ensure model fields are populated
+                                model_fields: preview_data.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
+                            })
+                        } else if (res.data.preview_data) {
+                            setPreviewData(res.data.preview_data)
+                        }
+
+                        // Move to review step
+                        setActiveStep('review')
+                        toast.success('추출이 완료되었습니다')
+                    }, 50)
                 } else if (jobStatus === EXTRACTION_STATUS.FAILED || jobStatus === EXTRACTION_STATUS.ERROR || jobError) {
                     if (pollingRef.current) {
                         clearInterval(pollingRef.current)

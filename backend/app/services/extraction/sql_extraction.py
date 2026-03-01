@@ -41,7 +41,8 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     - **NO HALLUCINATED KEYS**: The keys inside `"tables"` and `"scalars"` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys.
     - `"header_row_id"`: The exact `row_id` from the JSON where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
     - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here, ONLY the mapped column letter.
-    - Reference Data limits do NOT apply to you. You do not do data conversion. Just supply the coordinates (the Column letter).
+    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label. For example, if row 3 Column A says "VesselName" and Column B says "MSC ALICE", you MUST return `{"col": "B"}`.
+    - **SCALAR FALLBACK**: For scalars, also output `"exact_value"` containing the raw text you see in the cell, as a fallback backup.
     
     Return ONLY a JSON object with this EXACT structure:
     {{
@@ -56,7 +57,7 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
             }}
         }},
         "scalars": {{
-            "target_scalar_field_key": {{"sheet_name": "Sheet1", "row_id": 1, "col": "D"}}
+            "target_scalar_field_key": {{"sheet_name": "Sheet1", "row_id": 1, "col": "D", "exact_value": "BKG-1234"}}
         }},
         "reasoning": "Brief mapping logic justification."
     }}
@@ -173,31 +174,44 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         sheet = s_map.get("sheet_name")
         row_id = s_map.get("row_id")
         col = s_map.get("col")
+        exact_value = s_map.get("exact_value")
         
-        if not all([sheet, row_id is not None, col]):
-            continue
-            
-        try:
-            r_id = int(row_id)
-            val_df = df[(df["_sheet_name"] == sheet) & (df["row_id"] == r_id)]
-            if not val_df.empty and col in val_df.columns:
-                raw_val = val_df.iloc[0][col]
-                if pd.notna(raw_val):
-                    val = str(raw_val).strip()
-                    
-                    # Apply Reference Data Mapping
-                    if target_key in ref_data and val in ref_data[target_key]:
-                        val = ref_data[target_key][val]
-                        
-                    raw_extracted[target_key] = {
-                        "value": val,
-                        "original_value": str(raw_val),
-                        "confidence": 0.90,
-                        "validation_status": "valid",
-                        "page_number": 1
-                    }
-        except Exception as e:
-            logger.debug(f"Failed to extract scalar {target_key}: {e}")
+        # Fallback tracking
+        val = None
+        raw_val = None
+        
+        # 1. Try Coordinate-based pure Pandas lookup
+        if sheet and row_id is not None and col:
+            try:
+                r_id = int(row_id)
+                val_df = df[(df["_sheet_name"] == sheet) & (df["row_id"] == r_id)]
+                if not val_df.empty and col in val_df.columns:
+                    raw_val = val_df.iloc[0][col]
+                    if pd.notna(raw_val):
+                        val = str(raw_val).strip()
+            except Exception as e:
+                logger.debug(f"Failed to extract scalar {target_key} via coordinates: {e}")
+                
+        # 2. Fallback to Exact Value provided by LLM if Pandas lookup failed or was empty
+        if not val and exact_value and str(exact_value).strip():
+            logger.info(f"Using LLM exact_value fallback for {target_key} = {exact_value}")
+            val = str(exact_value).strip()
+            raw_val = val
+
+        # 3. Apply reference data and save
+        if val:
+            if target_key in ref_data and val in ref_data[target_key]:
+                val = ref_data[target_key][val]
+                
+            raw_extracted[target_key] = {
+                "value": val,
+                "original_value": str(raw_val),
+                "confidence": 0.90,
+                "validation_status": "valid",
+                "page_number": 1
+            }
+        else:
+            logger.debug(f"Skipping empty scalar {target_key}")
 
     # 3.2 Pandas Handoff: Map Tables using Bridge Rules
     tables_map = mapping_plan.get("tables", {})
@@ -226,14 +240,31 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         data_rows = sheet_df[sheet_df["row_id"] > h_id]
         
         extracted_table_rows = []
+        
+        # 1. Look up the expected schema for this table
+        expected_sub_keys = []
+        for f in model.fields:
+            if f.key == target_key and f.sub_fields:
+                expected_sub_keys = [sf.key for sf in f.sub_fields]
+                break
+                
+        # Fallback if no schema is strictly defined or found
+        if not expected_sub_keys:
+            expected_sub_keys = list(col_map.keys())
+
         for _, row in data_rows.iterrows():
-            row_is_empty = True
+            row_has_meaningful_data = False
             row_data = {}
-            for inner_key, excel_col in col_map.items():
-                if excel_col in row and pd.notna(row[excel_col]):
+            
+            # 2. Iterate over universally expected keys based on schema
+            for inner_key in expected_sub_keys:
+                excel_col = col_map.get(inner_key)
+                
+                # Check if we have mapped column and the cell has data
+                if excel_col and excel_col in row and pd.notna(row[excel_col]):
                     val = str(row[excel_col]).strip()
                     if val and val.lower() != "nan":
-                        row_is_empty = False
+                        row_has_meaningful_data = True
                         
                         # Apply Reference Data Mapping
                         if inner_key in ref_data and val in ref_data[inner_key]:
@@ -248,8 +279,24 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                             "validation_status": "valid",
                             "original_value": str(row[excel_col]).strip()
                         }
+                    else:
+                        # Empty but mapped string
+                        row_data[inner_key] = {
+                            "value": None,
+                            "confidence": 0.0,
+                            "validation_status": "flagged",
+                            "original_value": ""
+                        }
+                else:
+                    # Unmapped Column, or completely empty NaN cell
+                    row_data[inner_key] = {
+                        "value": None,
+                        "confidence": 0.0,
+                        "validation_status": "flagged",
+                        "original_value": None
+                    }
             
-            if not row_is_empty:
+            if row_has_meaningful_data:
                 extracted_table_rows.append(row_data)
                 
         raw_extracted[target_key] = {

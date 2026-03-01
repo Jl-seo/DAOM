@@ -6,6 +6,7 @@ export const EXTRACTION_STATUS = {
     UPLOADING: 'P200',
     ANALYZING: 'P300',
     REFINING: 'P400',
+    RENDERING: 'P450',
     PREVIEW_READY: 'P500',
 
     // Success states (S-Series)
@@ -26,6 +27,7 @@ export const STATUS_LABELS: Record<string, string> = {
     [EXTRACTION_STATUS.UPLOADING]: '업로드 중',
     [EXTRACTION_STATUS.ANALYZING]: '문서 분석 중',
     [EXTRACTION_STATUS.REFINING]: '데이터 정제 중',
+    [EXTRACTION_STATUS.RENDERING]: '화면 표시 중 (대용량 데이터 렌더링)',
     [EXTRACTION_STATUS.PREVIEW_READY]: '임시저장',
     [EXTRACTION_STATUS.SUCCESS]: '완료',
     [EXTRACTION_STATUS.CONFIRMED]: '확정 완료',
@@ -40,6 +42,7 @@ export const STATUS_COLORS: Record<string, string> = {
     [EXTRACTION_STATUS.UPLOADING]: 'text-chart-4',
     [EXTRACTION_STATUS.ANALYZING]: 'text-chart-4',
     [EXTRACTION_STATUS.REFINING]: 'text-chart-4',
+    [EXTRACTION_STATUS.RENDERING]: 'text-chart-4',
     [EXTRACTION_STATUS.PREVIEW_READY]: 'text-chart-1',
     [EXTRACTION_STATUS.SUCCESS]: 'text-chart-2',
     [EXTRACTION_STATUS.CONFIRMED]: 'text-chart-2',
@@ -55,6 +58,7 @@ export const STATUS_PROGRESS: Record<string, number> = {
     [EXTRACTION_STATUS.UPLOADING]: 15,
     [EXTRACTION_STATUS.ANALYZING]: 40,
     [EXTRACTION_STATUS.REFINING]: 75,
+    [EXTRACTION_STATUS.RENDERING]: 90,
     [EXTRACTION_STATUS.PREVIEW_READY]: 95,
     [EXTRACTION_STATUS.SUCCESS]: 100,
     [EXTRACTION_STATUS.CONFIRMED]: 100,
@@ -70,6 +74,7 @@ export const STATUS_STEP: Record<string, { current: number; total: number; label
     [EXTRACTION_STATUS.UPLOADING]: { current: 1, total: 4, label: '파일 업로드' },
     [EXTRACTION_STATUS.ANALYZING]: { current: 2, total: 4, label: 'OCR 문서 분석' },
     [EXTRACTION_STATUS.REFINING]: { current: 3, total: 4, label: 'AI 데이터 정제' },
+    [EXTRACTION_STATUS.RENDERING]: { current: 3, total: 4, label: 'UI 렌더링 중' },
     [EXTRACTION_STATUS.PREVIEW_READY]: { current: 4, total: 4, label: '검토 대기' },
     [EXTRACTION_STATUS.SUCCESS]: { current: 4, total: 4, label: '완료' },
     [EXTRACTION_STATUS.CONFIRMED]: { current: 4, total: 4, label: '확정' },
@@ -115,11 +120,12 @@ export const isProcessingStatus = (status: string): boolean => {
         EXTRACTION_STATUS.UPLOADING,
         EXTRACTION_STATUS.ANALYZING,
         EXTRACTION_STATUS.REFINING,
+        EXTRACTION_STATUS.RENDERING,
         'pending',
         'processing',
         'analyzing',
         'syncing',
-        'P100', 'P200', 'P300', 'P400'
+        'P100', 'P200', 'P300', 'P400', 'P450'
     ].includes(status as any)
 }
 

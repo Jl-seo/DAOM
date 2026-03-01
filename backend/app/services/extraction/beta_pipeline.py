@@ -66,7 +66,7 @@ class BetaPipeline(ExtractionPipeline):
         
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
         SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else 50_000
-        TEXT_CHUNK_SIZE = 150_000 if is_excel else 25_000
+        TEXT_CHUNK_SIZE = 150_000 if is_excel else 12_000
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
             logger.info("[BetaPipeline] Route: Single-Shot Engineer")
@@ -532,25 +532,27 @@ class BetaPipeline(ExtractionPipeline):
             elif not line.strip().startswith("|"):
                 active_header = None
             
-            line_len = len(line) + 1  # +1 for newline
+            # Since we split by \n, we must add it back to accurately track length and content
+            line_with_newline = line + "\n"
+            line_len = len(line_with_newline)
             
             if current_len + line_len > chunk_size and current_chunk:
                 # Flush current chunk
-                chunks.append("\n".join(current_chunk))
+                chunks.append("".join(current_chunk))
                 current_chunk = []
                 current_len = 0
                 
                 # If inside a table, inject header
                 if active_header:
-                    current_chunk.append(active_header[0])  # header row
-                    current_chunk.append(active_header[1])  # separator
+                    current_chunk.append(active_header[0] + "\n")  # header row
+                    current_chunk.append(active_header[1] + "\n")  # separator
                     current_len += len(active_header[0]) + len(active_header[1]) + 2
             
-            current_chunk.append(line)
+            current_chunk.append(line_with_newline)
             current_len += line_len
         
         if current_chunk:
-            chunks.append("\n".join(current_chunk))
+            chunks.append("".join(current_chunk))
         
         return chunks
 
