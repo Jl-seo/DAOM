@@ -44,6 +44,11 @@ class ExcelParser:
         reader = csv.reader(io.StringIO(content_str))
         rows = list(reader)
         
+        # Limit to 1500 rows to protect LLM context windows and UI rendering
+        if len(rows) > 1500:
+            logger.warning(f"CSV has {len(rows)} rows. Truncating Markdown representation to 1500 rows.")
+            rows = rows[:1500]
+            
         md_content = cls._rows_to_markdown(rows, sheet_name="Data")
         return [{"sheet_name": "Data", "content": md_content}] if md_content else []
 
@@ -60,6 +65,12 @@ class ExcelParser:
         
         for sheet_name in excel_file.sheet_names:
             df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
+            
+            # Limit to 1500 rows per sheet to protect LLM context windows and UI rendering
+            if len(df) > 1500:
+                logger.warning(f"Sheet {sheet_name} has {len(df)} rows. Truncating Markdown representation to 1500 rows.")
+                df = df.head(1500)
+                
             rows = df.fillna("").astype(str).values.tolist()
             if not rows:
                 continue

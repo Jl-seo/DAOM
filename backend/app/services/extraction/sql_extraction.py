@@ -33,21 +33,19 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     {json.dumps(fields_context, ensure_ascii=False, indent=2)}
     
     YOUR TASKS:
-    1. For scalar fields (type 'string', 'number', 'date', etc): Extract the actual value directly from the markdown. You must apply any business rules specified in the schema.
-    2. For table fields (type 'table', 'list', 'array'): YOU MUST NOT EXTRACT THE DATA. Instead, output a precise Mapping bridge rule so python Pandas can extract it.
+    1. Identify tables and scalars. Fields of type 'table', 'list', 'array' expect a list of objects. Fields of type 'string', 'number' are usually scalars but might be within a table if they map to repeating rows. Look at the description/rules to find the expected keys inside the table objects.
+    2. Find the REAL headers for the table(s) in the Excel grid to map the columns properly.
+    3. Output a precise Mapping JSON.
     
-    CRITICAL RULES FOR "tables_mapping":
-    - **NO HALLUCINATED KEYS**: The keys inside `"tables_mapping"` MUST exactly match the `key` strings of table fields from the "Target Extraction Schema" above.
-    - `"header_row_id"`: The exact `row_id` where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
-    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants for the object inside the list) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here.
+    CRITICAL RULES:
+    - **NO HALLUCINATED KEYS**: The keys inside `"tables"` and `"scalars"` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys.
+    - `"header_row_id"`: The exact `row_id` from the JSON where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
+    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here, ONLY the mapped column letter.
+    - Reference Data limits do NOT apply to you. You do not do data conversion. Just supply the coordinates (the Column letter).
     
     Return ONLY a JSON object with this EXACT structure:
     {{
-        "extracted_scalars": {{
-            "target_scalar_field_key": "Directly extracted string or number here",
-            "another_scalar_field": "Extracted value"
-        }},
-        "tables_mapping": {{
+        "tables": {{
             "target_table_field_key": {{
                 "sheet_name": "Sheet1",
                 "header_row_id": 5,
@@ -57,7 +55,10 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
                 }}
             }}
         }},
-        "reasoning": "Brief logic justification."
+        "scalars": {{
+            "target_scalar_field_key": {{"sheet_name": "Sheet1", "row_id": 1, "col": "D"}}
+        }},
+        "reasoning": "Brief mapping logic justification."
     }}
     """
     
@@ -72,7 +73,7 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
         return json.loads(content)
     except Exception as e:
         logger.error(f"Schema Mapper failed: {e}")
-        return {"extracted_scalars": {}, "tables_mapping": {}, "reasoning": f"Mapper failed: {e}"}
+        return {"scalars": {}, "tables": {}, "reasoning": f"Mapper failed: {e}"}
 
 async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_content: str = "") -> Dict[str, Any]:
     """
@@ -141,15 +142,43 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     ref_data = model.reference_data or {}
     
     # 3.1 LLM Handoff: Process Natively Extracted Scalars
-    extracted_scalars = mapping_plan.get("scalars_extracted", mapping_plan.get("extracted_scalars", {}))
-    for schema_key, scalar_value in extracted_scalars.items():
-        # Only inject if it's a requested field
-        schema_field = next((f for f in model.fields if f.key == schema_key), None)
-        if schema_field:
-            raw_extracted[schema_key] = {"value": scalar_value, "confidence": 0.95, "validation_status": "valid"}
+    scalars_mapping = mapping_plan.get("scalars", {})
+    if not isinstance(scalars_mapping, dict):
+        logger.warning(f"LLM returned invalid scalars schema type: {type(scalars_mapping)}. Defaulting to empty dict.")
+        scalars_mapping = {}
+        
+    for target_key, s_map in scalars_mapping.items():
+        sheet = s_map.get("sheet_name")
+        row_id = s_map.get("row_id")
+        col = s_map.get("col")
+        
+        if not all([sheet, row_id is not None, col]):
+            continue
+            
+        try:
+            r_id = int(row_id)
+            val_df = df[(df["_sheet_name"] == sheet) & (df["row_id"] == r_id)]
+            if not val_df.empty and col in val_df.columns:
+                raw_val = val_df.iloc[0][col]
+                if pd.notna(raw_val):
+                    val = str(raw_val).strip()
+                    
+                    # Apply Reference Data Mapping
+                    if target_key in ref_data and val in ref_data[target_key]:
+                        val = ref_data[target_key][val]
+                        
+                    raw_extracted[target_key] = {
+                        "value": val,
+                        "original_value": str(raw_val),
+                        "confidence": 0.90,
+                        "validation_status": "valid",
+                        "page_number": 1
+                    }
+        except Exception as e:
+            logger.debug(f"Failed to extract scalar {target_key}: {e}")
 
     # 3.2 Pandas Handoff: Map Tables using Bridge Rules
-    tables_map = mapping_plan.get("tables_mapping", mapping_plan.get("tables", {}))
+    tables_map = mapping_plan.get("tables", {})
     if not isinstance(tables_map, dict):
         logger.warning(f"LLM returned invalid tables schema type: {type(tables_map)}. Defaulting to empty dict.")
         tables_map = {}
@@ -220,7 +249,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     final_payload = {
         "guide_extracted": raw_extracted,
         "_beta_metadata": {
-            "parsed_content": f"Python Engine Mode.\n\n[LLM Mapping Reasoning]\n{reasoning}\n\n[Mapped Object Count]\nTables = {len(tables_map)}, Scalars = {len(scalars_map)}",
+            "parsed_content": f"Python Engine Mode.\n\n[LLM Mapping Reasoning]\n{reasoning}\n\n[Mapped Object Count]\nTables = {len(tables_map)}, Scalars = {len(scalars_mapping)}",
             "ref_map": {}
         }
     }
