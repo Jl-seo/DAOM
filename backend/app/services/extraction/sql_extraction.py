@@ -10,33 +10,6 @@ from app.services.llm import get_openai_client, get_current_model
 
 logger = logging.getLogger(__name__)
 
-def _df_to_markdown(df: pd.DataFrame) -> str:
-    """
-    Converts the entire DataFrame into a Markdown string for the LLM.
-    Limit to 3000 rows per sheet to prevent 128k token context explosion,
-    but large enough to satisfy the user's 'no sampling' requirement.
-    """
-    md_lines = []
-    data_cols = [c for c in df.columns if c not in ['_sheet_name', 'row_id']]
-    
-    for sheet_name, group in df.groupby('_sheet_name', sort=False):
-        group_data = group.dropna(subset=data_cols, how='all')
-        if group_data.empty: continue
-        
-        md_lines.append(f"### Sheet: {sheet_name}")
-        cols = ['row_id'] + data_cols
-        md_lines.append("| " + " | ".join(cols) + " |")
-        md_lines.append("|" + "|".join(["---"] * len(cols)) + "|")
-        
-        # 3000 max rows per sheet (avoids 128k token crash, but covers 99.9% of structure)
-        for _, row in group_data.head(3000).iterrows():
-            row_str = []
-            for c in cols:
-                val = str(row[c]).replace('\n', ' ').strip() if pd.notna(row[c]) else ""
-                row_str.append(val)
-            md_lines.append("| " + " | ".join(row_str) + " |")
-            
-    return "\n".join(md_lines)
 
 async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict[str, Any]:
     """
@@ -101,7 +74,7 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
         logger.error(f"Schema Mapper failed: {e}")
         return {"extracted_scalars": {}, "tables_mapping": {}, "reasoning": f"Mapper failed: {e}"}
 
-async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[str, Any]:
+async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_content: str = "") -> Dict[str, Any]:
     """
     Two-Track Excel Extraction (Python Engine Mode, replaces DuckDB SQL logic).
     Uses LLM for lightweight schema mapping and Heavyweight Pandas for execution.
@@ -150,8 +123,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         logger.error(f"Failed to load Excel with pandas: {e}")
         raise ValueError(f"지원하지 않거나 손상된 엑셀 구조입니다. 파일 로딩 실패: {e}")
 
-    # 2. Convert FULL target data to Markdown instead of sampling
-    md_content = _df_to_markdown(df)
+    # 2. Use the provided Markdown content from ExcelParser
+    if not md_content:
+        # Fallback if md_content is empty
+        logger.warning("md_content is empty, this shouldn't happen in native mode.")
+        md_content = "Empty Excel Content"
     
     # 3. Request Schema Mapping & Scalar Extraction from LLM
     mapping_plan = await _run_schema_mapper(md_content, model)

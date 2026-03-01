@@ -54,22 +54,25 @@ class ExtractionService:
                 from app.services.extraction.sql_extraction import run_sql_extraction
                 from fastapi import UploadFile
                 import io
-                dummy_file = UploadFile(filename=filename, file=io.BytesIO(file_content))
-                sql_result = await run_sql_extraction(dummy_file, model)
                 
-                # Retrieve markdown for the frontend's "Parsed Text" tab
+                # Retrieve markdown for the frontend's "Parsed Text" tab AND for LLM Schema Mapping
+                md_content = ""
                 try:
                     from app.services.extraction.excel_parser import ExcelParser
                     ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else 'xlsx'
                     if mime_type == "text/csv": ext = "csv"
                     parsed_sheets = ExcelParser.from_bytes(file_content, ext)
                     md_content = "\n\n".join([s.get("content", "") for s in parsed_sheets])
-                    sql_result["raw_content"] = md_content
-                    sql_result["_beta_parsed_content"] = md_content
-                    sql_result["pages"] = [{"page_number": 1, "width": 1000, "height": 1000}]
                 except Exception as ex:
                     logger.warning(f"[Extraction] Could not parse Excel for frontend display: {ex}")
-                    sql_result["raw_content"] = "Error reading Excel for display."
+                    md_content = "Error reading Excel for display."
+
+                dummy_file = UploadFile(filename=filename, file=io.BytesIO(file_content))
+                sql_result = await run_sql_extraction(dummy_file, model, md_content)
+                
+                sql_result["raw_content"] = md_content
+                sql_result["_beta_parsed_content"] = md_content
+                sql_result["pages"] = [{"page_number": 1, "width": 1000, "height": 1000}]
 
                 # Format and validate to standardize `{value, confidence, bbox}` wrappers
                 sql_result = self._validate_and_format(sql_result, model, [])
