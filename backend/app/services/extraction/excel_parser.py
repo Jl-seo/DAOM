@@ -43,13 +43,31 @@ class ExcelParser:
         import csv
         reader = csv.reader(io.StringIO(content_str))
         rows = list(reader)
-        
-        # Limit to 1500 rows to protect LLM context windows and UI rendering
-        if len(rows) > 1500:
-            logger.warning(f"CSV has {len(rows)} rows. Truncating Markdown representation to 1500 rows.")
-            rows = rows[:1500]
+        if not rows:
+            return []
             
-        md_content = cls._rows_to_markdown(rows, sheet_name="Data")
+        df = pd.DataFrame(rows)
+        # Drop completely empty rows
+        df = df.dropna(how='all')
+        
+        df.insert(0, 'row_id', range(0, len(df)))
+        
+        # Standardize column names (A, B, C...)
+        clean_cols = ['row_id']
+        for i in range(len(df.columns) - 1):
+            name = ""
+            n = i
+            while n >= 0:
+                name = chr(n % 26 + 65) + name
+                n = n // 26 - 1
+            clean_cols.append(name)
+        df.columns = clean_cols
+        
+        if len(df) > 1500:
+            logger.warning(f"CSV has {len(df)} rows. Truncating Markdown representation to 1500 rows.")
+            df = df.head(1500)
+            
+        md_content = cls._df_to_markdown(df, sheet_name="Data")
         return [{"sheet_name": "Data", "content": md_content}] if md_content else []
 
     @classmethod
@@ -62,94 +80,61 @@ class ExcelParser:
             excel_file = pd.ExcelFile(io.BytesIO(file_bytes), engine="openpyxl")
             
         markdown_sections = []
+        row_offset = 0
         
         for sheet_name in excel_file.sheet_names:
             df = pd.read_excel(excel_file, sheet_name=sheet_name, header=None)
+            
+            # Drop completely empty rows
+            df = df.dropna(how='all')
+            if df.empty:
+                continue
+                
+            # Add row_id to match Pandas global tracking
+            df.insert(0, 'row_id', range(row_offset, row_offset + len(df)))
+            row_offset += len(df)
+            
+            # Standardize column names (A, B, C...)
+            clean_cols = ['row_id']
+            for i in range(len(df.columns) - 1):
+                name = ""
+                n = i
+                while n >= 0:
+                    name = chr(n % 26 + 65) + name
+                    n = n // 26 - 1
+                clean_cols.append(name)
+            df.columns = clean_cols
             
             # Limit to 1500 rows per sheet to protect LLM context windows and UI rendering
             if len(df) > 1500:
                 logger.warning(f"Sheet {sheet_name} has {len(df)} rows. Truncating Markdown representation to 1500 rows.")
                 df = df.head(1500)
                 
-            rows = df.fillna("").astype(str).values.tolist()
-            if not rows:
-                continue
-                
-            md_table = cls._rows_to_markdown(rows, sheet_name)
+            md_table = cls._df_to_markdown(df, sheet_name)
             if md_table:
                 markdown_sections.append({"sheet_name": sheet_name, "content": md_table})
                 
         return markdown_sections
 
     @classmethod
-    def _rows_to_markdown(cls, rows: List[List[str]], sheet_name: str) -> str:
+    def _df_to_markdown(cls, df: pd.DataFrame, sheet_name: str) -> str:
         """
-        Convert a 2D array of rows to a valid Markdown table string.
-        Handles dynamic Excel structures (sparse rows, varying lengths).
+        Convert a standardized DataFrame (with row_id and A,B,C cols) to Markdown.
+        We do NOT drop empty columns here to perfectly preserve coordinate alignment for the LLM.
         """
-        if not rows:
+        if df.empty:
             return ""
             
-        # 1. Clean data: strip whitespace and resolve newlines
-        cleaned_rows = []
-        for row in rows:
-             new_row = [cell.strip().replace("\n", " ") for cell in row]
-             
-             # Remove trailing empty cells from row (compacting)
-             while new_row and not new_row[-1]:
-                 new_row.pop()
-                 
-             if new_row:
-                 cleaned_rows.append(new_row)
-
-        if not cleaned_rows:
-            return ""
-
-        # 2. Determine MAXIMUM column width across ALL non-empty rows
-        max_cols = max(len(row) for row in cleaned_rows)
-
-        # 3. Prune Entirely Empty Columns
-        empty_cols = set()
-        for col_idx in range(max_cols):
-            all_empty = True
-            for row in cleaned_rows:
-                if col_idx < len(row) and row[col_idx]:
-                    all_empty = False
-                    break
-            if all_empty:
-                empty_cols.add(col_idx)
-
-        optimized_rows = []
-        for row in cleaned_rows:
-            # Pad the row to max_cols before pruning empty columns
-            padded_row = row + [""] * (max_cols - len(row))
-            filtered_row = [cell for idx, cell in enumerate(padded_row) if idx not in empty_cols]
-            
-            # REMOVED: Aggressive token saving.
-            # We MUST preserve trailing empty cells to maintain a perfect 2D grid structure.
-            # Otherwise, the LLM loses column alignment on sparse rows.
-            
-            # Check if row is entirely empty after pruning
-            if any(cell.strip() for cell in filtered_row):
-                optimized_rows.append(filtered_row)
-
-        if not optimized_rows:
-             return ""
-
-        # Determine the True max columns after pruning and stripping
-        max_final_cols = max(len(row) for row in optimized_rows)
-        
-        # 4. Build Markdown
         md_lines = [f"### Sheet: {sheet_name}"]
+        cols = list(df.columns)
+        md_lines.append("| " + " | ".join(cols) + " |")
+        md_lines.append("|" + "|".join(["---"] * len(cols)) + "|")
         
-        # We don't force a user-row to be the header, as it might be sparse.
-        # Create a generic header to establish the max grid width for the LLM.
-        generic_header = ["C" + str(i+1) for i in range(max_final_cols)]
-        md_lines.append("| " + " | ".join(generic_header) + " |")
-        md_lines.append("|" + "|".join(["---"] * max_final_cols) + "|")
-        
-        # Build Body with Ragged Rows (saving massive tokens on sparse rows)
-        for row in optimized_rows:
-            md_lines.append("| " + " | ".join(row) + " |")
+        for _, row in df.iterrows():
+            row_str = []
+            for c in cols:
+                val = str(row[c]).replace('\n', ' ').strip() if pd.notna(row[c]) else ""
+                row_str.append(val)
+            md_lines.append("| " + " | ".join(row_str) + " |")
             
         return "\n".join(md_lines)
