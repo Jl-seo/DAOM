@@ -276,7 +276,6 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         }
     }
     
-    import json
     with open("/tmp/excel_debug.json", "w", encoding="utf-8") as f:
         json.dump({
             "mapping_plan": mapping_plan,
