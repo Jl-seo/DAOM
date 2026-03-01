@@ -10,45 +10,39 @@ from app.services.llm import get_openai_client, get_current_model
 
 logger = logging.getLogger(__name__)
 
-def _get_smart_excel_samples(df: pd.DataFrame) -> str:
+def _df_to_markdown(df: pd.DataFrame) -> str:
     """
-    Samples top 15 rows + top 10 most 'dense' rows per sheet so deeply buried headers are caught.
+    Converts the entire DataFrame into a Markdown string for the LLM.
+    Limit to 3000 rows per sheet to prevent 128k token context explosion,
+    but large enough to satisfy the user's 'no sampling' requirement.
     """
-    sample_dfs = []
-    # Drop rows that are entirely empty across all data columns
+    md_lines = []
     data_cols = [c for c in df.columns if c not in ['_sheet_name', 'row_id']]
     
     for sheet_name, group in df.groupby('_sheet_name', sort=False):
         group_data = group.dropna(subset=data_cols, how='all')
+        if group_data.empty: continue
         
-        # 1. Top 15 rows
-        top_rows = group.head(15)
+        md_lines.append(f"### Sheet: {sheet_name}")
+        cols = ['row_id'] + data_cols
+        md_lines.append("| " + " | ".join(cols) + " |")
+        md_lines.append("|" + "|".join(["---"] * len(cols)) + "|")
         
-        # 2. Find dense rows (most non-null values) that are NOT in top 15
-        remaining = group_data.iloc[15:]
-        if not remaining.empty:
-            dense_counts = remaining[data_cols].notna().sum(axis=1)
-            # Get indices of top 10 densest rows
-            dense_idx = dense_counts.nlargest(10).index
-            dense_rows = remaining.loc[dense_idx].sort_index()
-            combined = pd.concat([top_rows, dense_rows]).drop_duplicates(subset=['row_id']).sort_index()
-        else:
-            combined = top_rows
+        # 3000 max rows per sheet (avoids 128k token crash, but covers 99.9% of structure)
+        for _, row in group_data.head(3000).iterrows():
+            row_str = []
+            for c in cols:
+                val = str(row[c]).replace('\n', ' ').strip() if pd.notna(row[c]) else ""
+                row_str.append(val)
+            md_lines.append("| " + " | ".join(row_str) + " |")
             
-        sample_dfs.append(combined)
-        
-    data_sample_df = pd.concat(sample_dfs) if sample_dfs else pd.DataFrame()
-    if len(data_sample_df) > 150:
-        data_sample_df = data_sample_df.head(150)
-        
-    data_sample_df = data_sample_df.fillna("").astype(str).map(lambda x: x[:100] + "..." if len(x) > 100 else x)
-    return json.dumps(data_sample_df.to_dict(orient='records'), ensure_ascii=False, indent=2)
+    return "\n".join(md_lines)
 
-async def _run_schema_mapper(data_sample_json: str, model: ExtractionModel) -> Dict[str, Any]:
+async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict[str, Any]:
     """
-    Phase 1: LLM Schema Mapper
-    The LLM visually inspects the sample json (which has density-based rows) 
-    and outputs a mapping JSON indicating where each target field is located.
+    Phase 1: LLM Schema Mapper & Scalar Extractor
+    The LLM inspects the FULL markdown text of the Excel file.
+    It extracts Scalar values directly, and outputs Mapping JSON for Tables.
     """
     client = get_openai_client()
     deployment = get_current_model()
@@ -56,43 +50,41 @@ async def _run_schema_mapper(data_sample_json: str, model: ExtractionModel) -> D
     fields_context = [{"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules} for f in model.fields]
     
     prompt = f"""
-    You are an expert Data Mapper interpreting Excel structures. Your job is to scan an Excel file sample (converted to a JSON array of rows) and output a Mapping JSON.
-    The JSON contains keys: `row_id` (global row number), `_sheet_name` (Excel sheet), and `A`, `B`, `C`, `D`... (data columns).
+    You are an expert Data Extractor interpreting Excel files. You are given the FULL Excel content as a Markdown table.
+    The table contains columns: `row_id` (global row number), and `A`, `B`, `C`, `D`... (representing Excel columns).
     
-    JSON Data Sample (Top & Dense Rows only):
-    {data_sample_json}
+    Data Content (Markdown):
+    {markdown_text}
     
     Target Extraction Schema & Business Rules:
     {json.dumps(fields_context, ensure_ascii=False, indent=2)}
     
     YOUR TASKS:
-    1. Identify tables and scalars. Fields of type 'table', 'list', 'array' expect a list of objects. Fields of type 'string', 'number' are usually scalars but might be within a table if they map to repeating rows. Look at the description/rules to find the expected keys inside the table objects.
-    2. Find the REAL headers for the table(s) in the Excel grid to map the columns properly.
-    3. Output a precise Mapping JSON.
+    1. For scalar fields (type 'string', 'number', 'date', etc): Extract the actual value directly from the markdown. You must apply any business rules specified in the schema.
+    2. For table fields (type 'table', 'list', 'array'): YOU MUST NOT EXTRACT THE DATA. Instead, output a precise Mapping bridge rule so python Pandas can extract it.
     
-    CRITICAL RULES:
-    - **NO HALLUCINATED KEYS**: The keys inside `"tables"` and `"scalars"` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys (e.g., do not use "Table1", "RateTable", "Information"). If the schema key is `shipping_rates_extracted`, use EXACTLY that.
-    - `"header_row_id"`: The exact `row_id` from the JSON where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
-    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here, ONLY the mapped column letter.
-    - Reference Data limits do NOT apply to you. You do not do data conversion. Just supply the coordinates (the Column letter).
+    CRITICAL RULES FOR "tables_mapping":
+    - **NO HALLUCINATED KEYS**: The keys inside `"tables_mapping"` MUST exactly match the `key` strings of table fields from the "Target Extraction Schema" above.
+    - `"header_row_id"`: The exact `row_id` where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
+    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants for the object inside the list) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here.
     
     Return ONLY a JSON object with this EXACT structure:
     {{
-        "tables": {{
+        "extracted_scalars": {{
+            "target_scalar_field_key": "Directly extracted string or number here",
+            "another_scalar_field": "Extracted value"
+        }},
+        "tables_mapping": {{
             "target_table_field_key": {{
                 "sheet_name": "Sheet1",
                 "header_row_id": 5,
                 "columns_mapping": {{
                     "POL": "B",
-                    "POD": "C",
-                    "20DC": "D"
+                    "POD": "C"
                 }}
             }}
         }},
-        "scalars": {{
-            "target_scalar_field_key": {{"sheet_name": "Sheet1", "row_id": 1, "col": "D"}}
-        }},
-        "reasoning": "Brief mapping logic justification."
+        "reasoning": "Brief logic justification."
     }}
     """
     
@@ -107,7 +99,7 @@ async def _run_schema_mapper(data_sample_json: str, model: ExtractionModel) -> D
         return json.loads(content)
     except Exception as e:
         logger.error(f"Schema Mapper failed: {e}")
-        return {"tables": {}, "scalars": {}, "reasoning": f"Mapper failed: {e}"}
+        return {"extracted_scalars": {}, "tables_mapping": {}, "reasoning": f"Mapper failed: {e}"}
 
 async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[str, Any]:
     """
@@ -158,13 +150,13 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         logger.error(f"Failed to load Excel with pandas: {e}")
         raise ValueError(f"지원하지 않거나 손상된 엑셀 구조입니다. 파일 로딩 실패: {e}")
 
-    # 2. Smart Sampling and LLM Mapping (JSON Format to prevent column shifting)
-    data_sample_json = _get_smart_excel_samples(df)
-    logger.debug(f"Data Sample for LLM (Length: {len(data_sample_json)})\n{data_sample_json[:500]}")
+    # 2. Convert FULL target data to Markdown instead of sampling
+    md_content = _df_to_markdown(df)
     
-    mapping_schema = await _run_schema_mapper(data_sample_json, model)
-    reasoning = mapping_schema.get("reasoning", "")
-    logger.info(f"LLM Mapping Schema Reasoning: {reasoning}")
+    # 3. Request Schema Mapping & Scalar Extraction from LLM
+    mapping_plan = await _run_schema_mapper(md_content, model)
+    reasoning = mapping_plan.get("reasoning", "")
+    logger.info(f"Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")
     
     # 3. Pure Python Extraction Engine
     raw_extracted = {}
@@ -172,14 +164,22 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
     # Pre-build reference lookup dictionaries by field key
     ref_data = model.reference_data or {}
     
-    # 3.1 Extract Tables
-    tables_map = mapping_schema.get("tables", {})
+    # 3.1 LLM Handoff: Process Natively Extracted Scalars
+    extracted_scalars = mapping_plan.get("scalars_extracted", mapping_plan.get("extracted_scalars", {}))
+    for schema_key, scalar_value in extracted_scalars.items():
+        # Only inject if it's a requested field
+        schema_field = next((f for f in model.fields if f.key == schema_key), None)
+        if schema_field:
+            raw_extracted[schema_key] = {"value": scalar_value, "confidence": 0.95, "validation_status": "valid"}
+
+    # 3.2 Pandas Handoff: Map Tables using Bridge Rules
+    tables_map = mapping_plan.get("tables_mapping", mapping_plan.get("tables", {}))
     if not isinstance(tables_map, dict):
         logger.warning(f"LLM returned invalid tables schema type: {type(tables_map)}. Defaulting to empty dict.")
         tables_map = {}
         
     for target_key, t_map in tables_map.items():
-        sheet = t_map.get("sheet_name")
+        sheet = t_map.get("sheet_name", "Sheet1")
         header_row_id = t_map.get("header_row_id", 0)
         col_map = t_map.get("columns_mapping", {})
         
@@ -189,8 +189,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         
         sheet_df = df[df["_sheet_name"] == sheet]
         if sheet_df.empty:
-            raw_extracted[target_key] = {"value": [], "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
-            continue
+            sheet_df = df # Fallback
             
         try:
             h_id = int(header_row_id)
@@ -206,16 +205,16 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             for inner_key, excel_col in col_map.items():
                 if excel_col in row and pd.notna(row[excel_col]):
                     val = str(row[excel_col]).strip()
-                    if val:
+                    if val and val.lower() != "nan":
                         row_is_empty = False
+                        
                         # Apply Reference Data Mapping
                         if inner_key in ref_data and val in ref_data[inner_key]:
                             val = ref_data[inner_key][val]
                         elif target_key in ref_data and val in ref_data[target_key]:  # Nested fallback
                             val = ref_data[target_key][val]
                             
-                        # _validate_and_format in service expects cells to be either raw values or DAOM dicts
-                        # It iterates over cells. In DuckDB we wrapped cells. Here we wrap cells as well.
+                        # Wrap cells for validation formatting
                         row_data[inner_key] = {
                             "value": val,
                             "confidence": 0.95,
@@ -232,42 +231,6 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             "validation_status": "valid" if extracted_table_rows else "flagged",
             "page_number": 1
         }
-
-    # 3.2 Extract Scalars
-    scalars_map = mapping_schema.get("scalars", {})
-    if not isinstance(scalars_map, dict):
-        logger.warning(f"LLM returned invalid scalars schema type: {type(scalars_map)}. Defaulting to empty dict.")
-        scalars_map = {}
-        
-    for target_key, s_map in scalars_map.items():
-        sheet = s_map.get("sheet_name")
-        row_id = s_map.get("row_id")
-        col = s_map.get("col")
-        
-        if not all([sheet, row_id is not None, col]):
-            continue
-            
-        try:
-            r_id = int(row_id)
-            val_df = df[(df["_sheet_name"] == sheet) & (df["row_id"] == r_id)]
-            if not val_df.empty and col in val_df.columns:
-                raw_val = val_df.iloc[0][col]
-                if pd.notna(raw_val):
-                    val = str(raw_val).strip()
-                    
-                    # Apply Reference Data Mapping
-                    if target_key in ref_data and val in ref_data[target_key]:
-                        val = ref_data[target_key][val]
-                        
-                    raw_extracted[target_key] = {
-                        "value": val,
-                        "original_value": str(raw_val),
-                        "confidence": 0.90,
-                        "validation_status": "valid",
-                        "page_number": 1
-                    }
-        except Exception as e:
-            logger.debug(f"Failed to extract scalar {target_key}: {e}")
 
     # 4. Fill entirely missing fields with empty schemas
     for f in model.fields:
