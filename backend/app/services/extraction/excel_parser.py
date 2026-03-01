@@ -120,19 +120,28 @@ class ExcelParser:
     def _df_to_markdown(cls, df: pd.DataFrame, sheet_name: str) -> str:
         """
         Convert a standardized DataFrame (with row_id and A,B,C cols) to Markdown.
-        We do NOT drop empty columns here to perfectly preserve coordinate alignment for the LLM.
+        Drops empty columns to save LLM tokens, but retains the original Excel column 
+        letters (e.g., A, C, F) in the header to ensure flawless LLM coordinate mapping.
         """
         if df.empty:
             return ""
             
         md_lines = [f"### Sheet: {sheet_name}"]
-        cols = list(df.columns)
-        md_lines.append("| " + " | ".join(cols) + " |")
-        md_lines.append("|" + "|".join(["---"] * len(cols)) + "|")
+        
+        # 1. Drop entirely empty columns (excluding row_id) to save massive tokens
+        data_cols = [c for c in df.columns if c != 'row_id']
+        df_data = df[data_cols].replace('', pd.NA) # treat empty strings as NA for dropping
+        df_data = df_data.dropna(axis=1, how='all')
+        
+        # Reconstruct the optimized column list
+        optimized_cols = ['row_id'] + list(df_data.columns)
+        
+        md_lines.append("| " + " | ".join(optimized_cols) + " |")
+        md_lines.append("|" + "|".join(["---"] * len(optimized_cols)) + "|")
         
         for _, row in df.iterrows():
             row_str = []
-            for c in cols:
+            for c in optimized_cols:
                 val = str(row[c]).replace('\n', ' ').strip() if pd.notna(row[c]) else ""
                 row_str.append(val)
             md_lines.append("| " + " | ".join(row_str) + " |")
