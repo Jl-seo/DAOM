@@ -114,12 +114,12 @@ class ExcelParser:
             padded_row = row + [""] * (max_cols - len(row))
             filtered_row = [cell for idx, cell in enumerate(padded_row) if idx not in empty_cols]
             
-            # AGGRESSIVE TOKEN SAVING: Strip trailing empty cells from this specific row.
-            # We preserve leading empty cells to maintain column alignment index.
-            while filtered_row and not filtered_row[-1].strip():
-                filtered_row.pop()
-                
-            if filtered_row: # Only keep row if it has actual data
+            # REMOVED: Aggressive token saving.
+            # We MUST preserve trailing empty cells to maintain a perfect 2D grid structure.
+            # Otherwise, the LLM loses column alignment on sparse rows.
+            
+            # Check if row is entirely empty after pruning
+            if any(cell.strip() for cell in filtered_row):
                 optimized_rows.append(filtered_row)
 
         if not optimized_rows:
