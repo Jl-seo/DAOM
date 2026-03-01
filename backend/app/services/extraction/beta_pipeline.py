@@ -66,7 +66,8 @@ class BetaPipeline(ExtractionPipeline):
         
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
         SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else 50_000
-        TEXT_CHUNK_SIZE = 150_000 if is_excel else 12_000
+        # We lowered PDF chunk limit to 4000 to prevent a single chunk's massive JSON table output from hitting the 4096 completion limit
+        TEXT_CHUNK_SIZE = 150_000 if is_excel else 4_000
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
             logger.info("[BetaPipeline] Route: Single-Shot Engineer")
@@ -353,37 +354,12 @@ class BetaPipeline(ExtractionPipeline):
 
     async def _run_aggregator(self, work_order: dict, chunks_payload: Dict[str, dict]) -> dict:
         """
-        Phase ③: Aggregator LLM execution.
-        Takes multiple chunked Engineer outputs and merges them using CoT, keeping refs intact.
-        Includes a robust pure-Python fallback if the LLM crashes or returns malformed data.
+        Phase ③: Aggregator.
+        Takes multiple chunked Engineer outputs and merges them using Python, keeping refs intact.
+        Bypasses LLM aggregation completely to prevent massive table truncation due to completion token limits.
         """
-        logger.info(f"[BetaPipeline] Aggregator: Merging {len(chunks_payload)} chunks.")
-        
-        system_prompt = RefinerEngine.construct_aggregator_prompt(work_order)
-        user_prompt = f"CHUNKED EXTRACTIONS TO MERGE:\n{json.dumps(chunks_payload, ensure_ascii=False, indent=2)}"
-        
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
-        
-        try:
-            raw_result = await self.call_llm(messages, is_table_model=True)
-            
-            # Log the CoT thought process for debugging
-            thought_process = raw_result.get("thought_process", "No thought process provided.")
-            logger.info(f"[BetaPipeline] Aggregator Thought:\n{thought_process}")
-            
-            # Return final structure
-            return {
-                "guide_extracted": raw_result.get("guide_extracted", {}),
-                "_token_usage": raw_result.get("_token_usage", {}),
-                "logs": [{"step": "Aggregator Analysis", "message": thought_process}]
-            }
-            
-        except Exception as e:
-            logger.error(f"[BetaPipeline] Aggregator LLM Failed: {e}. Falling back to Python Dictionary Merge.")
-            return self._run_aggregator_python_fallback(chunks_payload)
+        logger.info(f"[BetaPipeline] Aggregator: Deterministically merging {len(chunks_payload)} chunks in Python.")
+        return self._run_aggregator_python_fallback(chunks_payload)
 
     def _run_aggregator_python_fallback(self, chunks_payload: Dict[str, dict]) -> dict:
         """
