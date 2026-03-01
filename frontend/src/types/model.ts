@@ -67,7 +67,6 @@ export interface BetaFeatures {
     use_virtual_excel_ocr?: boolean
     use_vision_extraction?: boolean
     use_dex_validation?: boolean
-    use_sql_extraction?: boolean
 }
 
 /**
@@ -79,8 +78,7 @@ export function getBetaFeatures(model: Model | undefined): BetaFeatures {
         use_optimized_prompt: model?.beta_features?.use_optimized_prompt ?? false,
         use_virtual_excel_ocr: model?.beta_features?.use_virtual_excel_ocr ?? false,
         use_vision_extraction: model?.beta_features?.use_vision_extraction ?? false,
-        use_dex_validation: model?.beta_features?.use_dex_validation ?? false,
-        use_sql_extraction: model?.beta_features?.use_sql_extraction ?? false
+        use_dex_validation: model?.beta_features?.use_dex_validation ?? false
     }
 }
 

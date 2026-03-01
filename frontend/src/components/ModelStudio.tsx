@@ -612,50 +612,6 @@ export function ModelStudio() {
                                         </div>
                                     )}
 
-                                    {/* 엑셀 데이터 가상 DB(DuckDB) 쿼리 추출 */}
-                                    {editingModel.is_active && (
-                                        <div className="mt-4 p-3 bg-muted/20 border border-border rounded-lg shadow-sm">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <div className="flex items-center gap-2">
-                                                        <label className="block text-xs font-semibold text-foreground">
-                                                            📊 가상 DB 쿼리 추출 (DuckDB) <span className="text-[10px] font-normal text-muted-foreground px-1 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded">Beta</span>
-                                                        </label>
-                                                    </div>
-                                                    <p className="text-[10px] text-muted-foreground mt-0.5 max-w-[300px]">
-                                                        LLM이 엑셀 원본 데이터를 직접 읽지 않고 SQL 쿼리를 작성하여 가상 DB에서 초고속으로 구조화된 데이터를 추출합니다. (엑셀 전용)
-                                                    </p>
-                                                </div>
-                                                <button
-                                                    type="button"
-                                                    id="toggle-sql-extraction"
-                                                    disabled={!isEditing}
-                                                    onClick={() => setEditingModel({
-                                                        ...editingModel,
-                                                        beta_features: {
-                                                            ...editingModel.beta_features,
-                                                            use_sql_extraction: !editingModel.beta_features?.use_sql_extraction
-                                                        }
-                                                    })}
-                                                    className={clsx(
-                                                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                                                        editingModel.beta_features?.use_sql_extraction
-                                                            ? "bg-blue-600"
-                                                            : "bg-muted-foreground/30",
-                                                        !isEditing && "opacity-50 cursor-not-allowed"
-                                                    )}
-                                                >
-                                                    <span
-                                                        className={clsx(
-                                                            "inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm",
-                                                            editingModel.beta_features?.use_sql_extraction ? "translate-x-6" : "translate-x-1"
-                                                        )}
-                                                    />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-
                                     {/* 모델 활성화/비활성화 토글 */}
                                     <div className="mt-4 pt-4 border-t border-border">
                                         <div className="flex items-center justify-between">

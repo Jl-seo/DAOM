@@ -286,4 +286,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         }
     }
     
+    import json
+    with open("/tmp/excel_debug.json", "w", encoding="utf-8") as f:
+        json.dump({
+            "mapping_schema": mapping_schema,
+            "raw_extracted": raw_extracted,
+            "file_columns": list(df.columns) if 'df' in locals() else []
+        }, f, ensure_ascii=False, indent=2)
+
     return final_payload

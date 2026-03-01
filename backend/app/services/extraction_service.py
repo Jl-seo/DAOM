@@ -44,11 +44,12 @@ class ExtractionService:
             logger.error(f"[Extraction] Model not found: {e}")
             return {"error": f"Model {model_id} not found"}
 
-        # 1a. SQL Extraction Mode (DuckDB)
-        use_sql = model.beta_features.get("use_sql_extraction", False) if model.beta_features else False
+        # 1a. Native Python Engine Mode (For Excel files when Beta Mode is ON)
+        use_beta = model.beta_features.get("use_optimized_prompt", False) if model.beta_features else False
         is_excel = mime_type in ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "text/csv"] or filename.lower().endswith(('.xlsx', '.xls', '.csv'))
-        if use_sql and is_excel:
-            logger.info("[Extraction] Route: SQL EXTRACTION MODE (DuckDB)")
+        
+        if use_beta and is_excel:
+            logger.info("[Extraction] Route: NATIVE PYTHON ENGINE (Two-Track activated by Beta Mode)")
             try:
                 from app.services.extraction.sql_extraction import run_sql_extraction
                 from fastapi import UploadFile
@@ -69,8 +70,6 @@ class ExtractionService:
                 except Exception as ex:
                     logger.warning(f"[Extraction] Could not parse Excel for frontend display: {ex}")
                     sql_result["raw_content"] = "Error reading Excel for display."
-                    sql_result["_beta_parsed_content"] = "Error reading Excel for display."
-                    sql_result["pages"] = []
 
                 # Format and validate to standardize `{value, confidence, bbox}` wrappers
                 sql_result = self._validate_and_format(sql_result, model, [])
@@ -83,16 +82,20 @@ class ExtractionService:
                     "filename": filename,
                     "model_name": model.name,
                     "timestamp": start_time.isoformat(),
-                    "pipeline_mode": "sql-extraction"
+                    "pipeline_mode": "python-excel-engine"
                 })
+                
+                if barcode:
+                    sql_result = self._apply_dex_validation(sql_result, model, barcode)
+                
                 return sql_result
             except Exception as e:
                 import traceback
-                tb = traceback.format_exc()
-                logger.error(f"[Extraction] SQL extraction failed after retries: {e}. Falling back to standard LLM extraction.", exc_info=True)
-                # DO NOT return error here. Fall through to the standard LLM extraction pipeline below!
-                logger.info("[Extraction] Fallback triggered: Routing Excel to standard Beta Pipeline.")
-                pass # Continue execution below        # 1b. Vision Extraction Mode — skip OCR entirely
+                logger.error(f"[Extraction] Native Python Engine failed: {e}\n{traceback.format_exc()}. Falling back to Legacy Excel Parser.")
+                # We intentionally pass here to let it hit the `is_excel` fallback block below (which converts to Markdown and sends to standard pipeline)
+                pass
+                
+        # 1b. Vision Extraction Mode — skip OCR entirely
         use_vision = model.beta_features.get("use_vision_extraction", False) if model.beta_features else False
         if use_vision:
             logger.info("[Extraction] Route: VISION MODE (OCR skipped)")
