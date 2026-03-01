@@ -23,6 +23,7 @@ OFFLOADABLE_PREVIEW_FIELDS = [
     "_beta_parsed_content",
     "_beta_ref_map",
     "raw_tables",
+    "guide_extracted",
 ]
 
 
@@ -61,6 +62,17 @@ async def hydrate_preview_data(preview_data: Optional[Dict[str, Any]]) -> Option
                     logger.debug(f"[Hydration] Restored {field_key} from blob")
             except Exception as e:
                 logger.error(f"[Hydration] Failed to hydrate {field_key} from blob ({field_val.get('blob_path')}): {e}")
+
+    # 3. Handle sub_documents which is a list containing the offloaded dict
+    sub_docs = preview_data.get("sub_documents")
+    if isinstance(sub_docs, list) and len(sub_docs) == 1 and sub_docs[0].get("source") == "blob_storage":
+        try:
+            hydrated_sub = await load_json_from_blob(sub_docs[0]["blob_path"])
+            if hydrated_sub is not None:
+                preview_data["sub_documents"] = hydrated_sub
+                logger.debug(f"[Hydration] Restored sub_documents from blob")
+        except Exception as e:
+            logger.error(f"[Hydration] Failed to hydrate sub_documents from blob ({sub_docs[0].get('blob_path')}): {e}")
 
     return preview_data
 

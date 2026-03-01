@@ -272,7 +272,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
     # 4. Fill entirely missing fields with empty schemas
     for f in model.fields:
         if f.key not in raw_extracted:
-            if f.type == "table":
+            if f.type in ("table", "list", "array", "object"):
                 raw_extracted[f.key] = {"value": [], "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
             else:
                 raw_extracted[f.key] = {"value": "", "original_value": "", "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
