@@ -66,8 +66,8 @@ class BetaPipeline(ExtractionPipeline):
         
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
         SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else 50_000
-        # We lowered PDF chunk limit to 4000 to prevent a single chunk's massive JSON table output from hitting the 4096 completion limit
-        TEXT_CHUNK_SIZE = 150_000 if is_excel else 4_000
+        # Increased PDF chunk limit to 15,000 to maintain single-table context, since config supports 32,768 output tokens.
+        TEXT_CHUNK_SIZE = 150_000 if is_excel else 15_000
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
             logger.info("[BetaPipeline] Route: Single-Shot Engineer")
