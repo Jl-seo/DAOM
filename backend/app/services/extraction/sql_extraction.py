@@ -42,12 +42,12 @@ def _get_smart_excel_samples(df: pd.DataFrame) -> str:
         data_sample_df = data_sample_df.head(150)
         
     data_sample_df = data_sample_df.fillna("").astype(str).map(lambda x: x[:100] + "..." if len(x) > 100 else x)
-    return data_sample_df.to_csv(index=False)
+    return json.dumps(data_sample_df.to_dict(orient='records'), ensure_ascii=False, indent=2)
 
-async def _run_schema_mapper(data_sample_csv: str, model: ExtractionModel) -> Dict[str, Any]:
+async def _run_schema_mapper(data_sample_json: str, model: ExtractionModel) -> Dict[str, Any]:
     """
     Phase 1: LLM Schema Mapper
-    The LLM visually inspects the sample csv (which has density-based rows) 
+    The LLM visually inspects the sample json (which has density-based rows) 
     and outputs a mapping JSON indicating where each target field is located.
     """
     client = get_openai_client()
@@ -56,11 +56,11 @@ async def _run_schema_mapper(data_sample_csv: str, model: ExtractionModel) -> Di
     fields_context = [{"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules} for f in model.fields]
     
     prompt = f"""
-    You are an expert Data Mapper interpreting Excel structures. Your job is to scan an Excel file sample (converted to CSV) and output a Mapping JSON.
-    The CSV contains columns: `row_id` (global row number), `_sheet_name` (Excel sheet), and `A`, `B`, `C`, `D`... (data columns).
+    You are an expert Data Mapper interpreting Excel structures. Your job is to scan an Excel file sample (converted to a JSON array of rows) and output a Mapping JSON.
+    The JSON contains keys: `row_id` (global row number), `_sheet_name` (Excel sheet), and `A`, `B`, `C`, `D`... (data columns).
     
-    CSV Data Sample (Top & Dense Rows only):
-    {data_sample_csv}
+    JSON Data Sample (Top & Dense Rows only):
+    {data_sample_json}
     
     Target Extraction Schema & Business Rules:
     {json.dumps(fields_context, ensure_ascii=False, indent=2)}
@@ -72,7 +72,7 @@ async def _run_schema_mapper(data_sample_csv: str, model: ExtractionModel) -> Di
     
     CRITICAL RULES:
     - **NO HALLUCINATED KEYS**: The keys inside `"tables"` and `"scalars"` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys (e.g., do not use "Table1", "RateTable", "Information"). If the schema key is `shipping_rates_extracted`, use EXACTLY that.
-    - `"header_row_id"`: The exact `row_id` from the CSV where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
+    - `"header_row_id"`: The exact `row_id` from the JSON where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
     - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here, ONLY the mapped column letter.
     - Reference Data limits do NOT apply to you. You do not do data conversion. Just supply the coordinates (the Column letter).
     
@@ -158,11 +158,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
         logger.error(f"Failed to load Excel with pandas: {e}")
         raise ValueError(f"지원하지 않거나 손상된 엑셀 구조입니다. 파일 로딩 실패: {e}")
 
-    # 2. Smart Sampling and LLM Mapping
-    data_sample_csv = _get_smart_excel_samples(df)
-    logger.debug(f"Data Sample for LLM (Length: {len(data_sample_csv)})\n{data_sample_csv[:500]}")
+    # 2. Smart Sampling and LLM Mapping (JSON Format to prevent column shifting)
+    data_sample_json = _get_smart_excel_samples(df)
+    logger.debug(f"Data Sample for LLM (Length: {len(data_sample_json)})\n{data_sample_json[:500]}")
     
-    mapping_schema = await _run_schema_mapper(data_sample_csv, model)
+    mapping_schema = await _run_schema_mapper(data_sample_json, model)
     reasoning = mapping_schema.get("reasoning", "")
     logger.info(f"LLM Mapping Schema Reasoning: {reasoning}")
     
