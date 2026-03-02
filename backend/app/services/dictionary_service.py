@@ -83,7 +83,7 @@ class DictionaryService:
         """
         Upload Excel/CSV to AI Search.
         Dynamically creates index fields from the Excel column headers.
-        No fixed schema — any columns work.
+        Non-ASCII column names (Korean, etc.) are mapped to safe field names.
         """
         if not self._initialized:
             return {"error": "Dictionary service not configured", "count": 0}
@@ -100,26 +100,33 @@ class DictionaryService:
         if df.empty:
             return {"error": "빈 파일입니다", "count": 0}
 
-        # 2. Sanitize column names (AI Search field names: alphanumeric + underscore)
-        col_mapping = {}
-        for col in df.columns:
-            safe_col = str(col).strip().replace(" ", "_").replace("-", "_").replace(".", "_")
-            # Remove any non-alphanumeric/underscore chars
-            safe_col = "".join(c for c in safe_col if c.isalnum() or c == "_")
-            if not safe_col or safe_col[0].isdigit():
-                safe_col = f"col_{safe_col}"
-            col_mapping[col] = safe_col
+        # 2. Create safe field names (Azure AI Search: ASCII letters, digits, underscore only)
+        col_mapping = {}  # original_name -> safe_name
+        safe_columns = []
+        for i, col in enumerate(df.columns):
+            original = str(col).strip()
+            # Try to make a safe name from ASCII chars
+            safe = "".join(c for c in original.replace(" ", "_").replace("-", "_") if c.isascii() and (c.isalnum() or c == "_"))
+            if not safe or safe[0].isdigit():
+                safe = f"field_{i}"
+            # Avoid duplicates
+            base = safe
+            counter = 2
+            while safe in safe_columns:
+                safe = f"{base}_{counter}"
+                counter += 1
+            col_mapping[original] = safe
+            safe_columns.append(safe)
 
-        df = df.rename(columns=col_mapping)
-        columns = list(df.columns)
+        df.columns = safe_columns
 
         # 3. Create/update index with dynamic fields
         index_name = _get_index_name(category)
         fields = [
             SimpleField(name="id", type=SearchFieldDataType.String, key=True),
+            SimpleField(name="doc_type", type=SearchFieldDataType.String, filterable=True),
         ]
-        for col in columns:
-            # Make all fields searchable strings
+        for col in safe_columns:
             fields.append(
                 SearchableField(name=col, type=SearchFieldDataType.String)
             )
@@ -127,19 +134,32 @@ class DictionaryService:
         try:
             index = SearchIndex(name=index_name, fields=fields)
             self._index_client.create_or_update_index(index)
-            logger.info(f"[DictionaryService] Index '{index_name}' created/updated with fields: {columns}")
+            logger.info(f"[DictionaryService] Index '{index_name}' created/updated with {len(safe_columns)} fields")
         except Exception as e:
             return {"error": f"인덱스 생성 실패: {e}", "count": 0}
 
-        # 4. Upload documents
+        # 4. Upload metadata document (original column names mapping)
+        client = self._search_client(category)
+        meta_doc = {
+            "id": "__meta__",
+            "doc_type": "meta",
+        }
+        # Store original names in the first field slots
+        for orig, safe in col_mapping.items():
+            meta_doc[safe] = orig  # safe field stores original column name
+        try:
+            client.upload_documents(documents=[meta_doc])
+        except Exception as e:
+            logger.warning(f"[DictionaryService] Meta document upload failed: {e}")
+
+        # 5. Upload data documents
         documents = []
         for idx, row in df.iterrows():
-            # Generate unique ID from row content
             row_str = "|".join(str(v) for v in row.values)
             doc_id = hashlib.md5(f"{category}_{idx}_{row_str}".encode()).hexdigest()
 
-            doc = {"id": doc_id}
-            for col in columns:
+            doc = {"id": doc_id, "doc_type": "data"}
+            for col in safe_columns:
                 val = row.get(col)
                 doc[col] = str(val).strip() if pd.notna(val) else ""
             documents.append(doc)
@@ -147,7 +167,6 @@ class DictionaryService:
         if not documents:
             return {"error": "유효한 행이 없습니다", "count": 0}
 
-        client = self._search_client(category)
         total = 0
         batch_size = 1000
         for i in range(0, len(documents), batch_size):
@@ -158,8 +177,13 @@ class DictionaryService:
             except Exception as e:
                 logger.error(f"[DictionaryService] Upload batch {i} failed: {e}")
 
-        logger.info(f"[DictionaryService] Uploaded {total}/{len(documents)} items to '{category}' (fields: {columns})")
-        return {"count": total, "category": category, "fields": columns}
+        logger.info(f"[DictionaryService] Uploaded {total}/{len(documents)} items to '{category}'")
+        return {
+            "count": total,
+            "category": category,
+            "fields": list(col_mapping.keys()),  # original names
+            "field_mapping": col_mapping  # original -> safe
+        }
 
     async def search(self, query: str, category: Optional[str] = None, top_k: int = 5) -> List[DictionaryMatch]:
         """Search dictionary entries by keyword."""
@@ -177,7 +201,11 @@ class DictionaryService:
 
         try:
             client = self._search_client(category)
-            search_results = client.search(search_text=query, top=top_k, include_total_count=True)
+            filter_expr = "doc_type eq 'data'"
+            search_results = client.search(
+                search_text=query, filter=filter_expr,
+                top=top_k, include_total_count=True
+            )
             matches = []
             for r in search_results:
                 # Use first two non-id fields as code/name for display

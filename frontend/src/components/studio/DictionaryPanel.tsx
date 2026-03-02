@@ -146,6 +146,19 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
 
     return (
         <div className="space-y-4">
+            {/* Usage Guide */}
+            <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100 dark:bg-blue-900/10 dark:border-blue-800">
+                <h3 className="text-xs font-semibold mb-1.5 text-blue-800 dark:text-blue-300 flex items-center gap-1.5">
+                    <BookOpen className="w-3.5 h-3.5" />
+                    딕셔너리 사용법
+                </h3>
+                <ol className="text-[11px] text-blue-700/80 dark:text-blue-400/70 space-y-0.5 list-decimal list-inside">
+                    <li><b>딕셔너리 추가</b> — 카테고리명 입력 후 엑셀/CSV 업로드 (어떤 컬럼이든 OK)</li>
+                    <li><b>✅ 체크박스 활성화</b> — 이 모델에서 사용할 딕셔너리 선택</li>
+                    <li><b>자동 매칭</b> — 추출 실행 시 텍스트 값을 딕셔너리에서 검색하여 코드 자동 매핑</li>
+                </ol>
+            </div>
+
             {/* Registered Dictionaries */}
             <div>
                 <div className="flex items-center justify-between mb-2">
