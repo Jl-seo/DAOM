@@ -307,11 +307,35 @@ class BetaPipeline(ExtractionPipeline):
         ref_data = (model.reference_data if model else None) or None
         system_prompt = RefinerEngine.construct_engineer_prompt(work_order, reference_data=ref_data)
         
+        # Build context preamble for subsequent chunks:
+        # 1) First ~500 chars of the document (titles, headers, section context)
+        # 2) Expected field keys from work order
+        wo_inner = work_order.get("work_order", work_order)
+        field_keys = []
+        for cf in wo_inner.get("common_fields", []):
+            field_keys.append(cf.get("key", ""))
+        for tf in wo_inner.get("table_fields", []):
+            field_keys.append(tf.get("key", ""))
+        field_keys = [k for k in field_keys if k]
+        
+        doc_context = tagged_text[:500].rstrip()
+        context_preamble = (
+            f"DOCUMENT CONTEXT (from earlier pages):\n{doc_context}\n...\n\n"
+            f"EXPECTED FIELD KEYS: {', '.join(field_keys)}\n\n"
+        )
+        
         async def process_chunk(chunk_text: str, chunk_idx: int) -> dict:
+            # First chunk has full context; subsequent chunks get preamble
+            if chunk_idx > 0:
+                prefix = context_preamble
+            else:
+                prefix = ""
+            
             user_prompt = (
+                f"{prefix}"
                 f"DOCUMENT DATA (Tagged Layout Format — Chunk {chunk_idx + 1}/{len(chunks)}):\n"
                 f"{chunk_text}\n\n"
-                f"Extract all fields from this section. Return valid JSON."
+                f"Extract all fields from this section. Return valid JSON with guide_extracted wrapper."
             )
             messages = [
                 {"role": "system", "content": system_prompt},
