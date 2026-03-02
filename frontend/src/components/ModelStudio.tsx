@@ -65,6 +65,7 @@ export interface ExtractionModel {
     excel_columns?: ExcelExportColumn[];
     reference_data?: Record<string, unknown>;  // Phase 1: 참고 데이터
     dictionaries?: string[];  // Dictionary categories for auto-normalization
+    transform_rules?: any[];  // Row expansion rules
 }
 
 export function ModelStudio() {

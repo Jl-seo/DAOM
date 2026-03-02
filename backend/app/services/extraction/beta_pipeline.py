@@ -106,7 +106,19 @@ class BetaPipeline(ExtractionPipeline):
             except Exception as e:
                 logger.warning(f"[BetaPipeline] Dictionary normalization skipped: {e}")
         
-        # --- 4b. Extract unmapped_critical_info → other_data ---
+        # --- 4b. Transform Rules (Row Expansion) ---
+        if model.transform_rules:
+            try:
+                from app.services.extraction.transform_engine import TransformEngine
+                guide_data = final_guide.get("guide_extracted", {})
+                final_guide["guide_extracted"] = TransformEngine.apply(
+                    guide_data, model.transform_rules
+                )
+                logger.info(f"[BetaPipeline] Transform rules applied: {len(model.transform_rules)} rules")
+            except Exception as e:
+                logger.warning(f"[BetaPipeline] Transform rules skipped: {e}")
+        
+        # --- 4c. Extract unmapped_critical_info → other_data ---
         other_data = []
         processed_guide = final_guide.get("guide_extracted", {})
         unmapped = processed_guide.pop("unmapped_critical_info", None)

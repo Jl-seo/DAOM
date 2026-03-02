@@ -57,6 +57,18 @@ export interface Model {
     excel_columns?: ExcelExportColumn[]
     beta_features?: BetaFeatures
     dictionaries?: string[]  // Dictionary categories for auto-normalization (e.g., ["port", "charge"])
+    transform_rules?: TransformRule[]  // Row expansion rules (e.g., group code → individual ports)
+}
+
+export interface TransformRule {
+    name: string
+    target_field: string
+    match_field: string
+    match_value: string
+    expand_field: string
+    expand_values: string[]
+    expand_codes?: string[]
+    code_field?: string
 }
 
 /**

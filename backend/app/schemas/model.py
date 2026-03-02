@@ -70,6 +70,8 @@ class ExtractionModel(BaseModel):
     excel_columns: Optional[List[ExcelExportColumn]] = None
     # Dictionary categories for auto-normalization (e.g., ["port", "charge"])
     dictionaries: Optional[List[str]] = None
+    # Transform rules for row expansion (e.g., group code → individual ports)
+    transform_rules: Optional[List[Dict[str, Any]]] = None
 
 class ExtractionModelCreate(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -91,4 +93,6 @@ class ExtractionModelCreate(BaseModel):
     excel_columns: Optional[List[ExcelExportColumn]] = None
     # Dictionary categories for auto-normalization (e.g., ["port", "charge"])
     dictionaries: Optional[List[str]] = None
+    # Transform rules for row expansion (e.g., group code → individual ports)
+    transform_rules: Optional[List[Dict[str, Any]]] = None
 
