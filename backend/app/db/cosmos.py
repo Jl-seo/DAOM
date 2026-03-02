@@ -19,6 +19,7 @@ AUDIT_CONTAINER = "audit_logs"
 USERS_CONTAINER = "users"
 GROUPS_CONTAINER = "groups"
 MENUS_CONTAINER = "menus"
+PROMPTS_CONTAINER = "prompts"
 
 # Singleton client instance
 _client: Optional[CosmosClient] = None
@@ -174,6 +175,7 @@ async def init_cosmos():
         await _init_container(_database, GROUPS_CONTAINER, "/tenant_id")
         await _init_container(_database, MENUS_CONTAINER, "/id")
         await _init_container(_database, CONFIG_CONTAINER, "/id")
+        await _init_container(_database, PROMPTS_CONTAINER, "/id")
 
         logger.info("[Cosmos] Initialization complete (async)")
 

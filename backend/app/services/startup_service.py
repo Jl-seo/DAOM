@@ -86,7 +86,7 @@ async def run_startup_tasks(tenant_id: str = "default", current_user_email: str 
     logger.info(f"Running startup tasks for tenant {tenant_id}...")
 
     # Initialize LLM settings from DB
-    initialize_llm_settings()
+    await initialize_llm_settings()
 
     # Seed menus
     await menu_service.seed_menus(tenant_id)

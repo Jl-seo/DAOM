@@ -135,7 +135,7 @@ async def create_group(
             created_by=created_by,
             created_at=datetime.utcnow().isoformat()
         )
-        container.create_item(body=group.to_dict())
+        await container.create_item(body=group.to_dict())
         logger.info(f"Created group: {name}")
         return group
     except Exception as e:
@@ -155,14 +155,14 @@ async def update_group(
         return None
 
     try:
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
             parameters=[
                 {"name": "@id", "value": group_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if not items:
             return None
@@ -173,7 +173,7 @@ async def update_group(
         if description is not None:
             group_data["description"] = description
 
-        container.upsert_item(body=group_data)
+        await container.upsert_item(body=group_data)
         logger.info(f"Updated group: {group_data['name']}")
         return Group.from_dict(group_data)
 
@@ -189,11 +189,11 @@ async def get_group_by_id(group_id: str) -> Optional[Group]:
         return None
 
     try:
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": group_id}],
             enable_cross_partition_query=True
-        ))
+        )]
         return Group.from_dict(items[0]) if items else None
     except Exception as e:
         logger.error(f"Error getting group: {e}")
@@ -207,15 +207,24 @@ async def get_groups_by_tenant(tenant_id: str) -> list[Group]:
         return []
 
     try:
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.tenant_id = @tenant_id",
             parameters=[{"name": "@tenant_id", "value": tenant_id}],
             enable_cross_partition_query=True
-        ))
+        )]
         return [Group.from_dict(item) for item in items]
     except Exception as e:
         logger.error(f"Error getting groups: {e}")
         return []
+
+
+async def get_user_groups(user_id: str, tenant_id: str) -> list[Group]:
+    """Get all groups that a user belongs to (as a member)"""
+    all_groups = await get_groups_by_tenant(tenant_id)
+    return [
+        g for g in all_groups
+        if any(m.id == user_id for m in g.members if isinstance(m, GroupMember))
+    ]
 
 
 async def add_member_to_group(
@@ -231,14 +240,14 @@ async def add_member_to_group(
         return False
 
     try:
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
             parameters=[
                 {"name": "@id", "value": group_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if not items:
             return False
@@ -254,7 +263,7 @@ async def add_member_to_group(
                 "displayName": display_name
             })
             group_data["members"] = members
-            container.upsert_item(body=group_data)
+            await container.upsert_item(body=group_data)
             logger.info(f"Added {member_type} {member_id} to group {group_id}")
 
         return True
@@ -271,14 +280,14 @@ async def remove_member_from_group(group_id: str, member_id: str, tenant_id: str
         return False
 
     try:
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
             parameters=[
                 {"name": "@id", "value": group_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if not items:
             return False
@@ -286,7 +295,7 @@ async def remove_member_from_group(group_id: str, member_id: str, tenant_id: str
         group_data = items[0]
         members = group_data.get("members", [])
         group_data["members"] = [m for m in members if m.get("id") != member_id]
-        container.upsert_item(body=group_data)
+        await container.upsert_item(body=group_data)
         logger.info(f"Removed member {member_id} from group {group_id}")
         return True
 
@@ -308,14 +317,14 @@ async def set_group_permissions(
         return False
 
     try:
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
             parameters=[
                 {"name": "@id", "value": group_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if not items:
             return False
@@ -326,7 +335,7 @@ async def set_group_permissions(
             "models": model_permissions or [],
             "menus": menu_permissions or []
         }
-        container.upsert_item(body=group_data)
+        await container.upsert_item(body=group_data)
         logger.info(f"Updated permissions for group {group_id}")
         return True
 
@@ -342,7 +351,7 @@ async def delete_group(group_id: str, tenant_id: str) -> bool:
         return False
 
     try:
-        container.delete_item(item=group_id, partition_key=tenant_id)
+        await container.delete_item(item=group_id, partition_key=tenant_id)
         logger.info(f"Deleted group {group_id}")
         return True
     except Exception as e:

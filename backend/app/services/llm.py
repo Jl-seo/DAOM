@@ -25,14 +25,14 @@ MODEL_MAX_COMPLETION_TOKENS = 16384
 # Singleton client — reuse across all calls
 _openai_client: Optional[AsyncAzureOpenAI] = None
 
-def initialize_llm_settings():
+async def initialize_llm_settings():
     """서버 시작 시 DB에서 설정 로드"""
     global _current_model
     try:
         container = get_config_container()
         if container:
             try:
-                item = container.read_item(item=LLM_CONFIG_ID, partition_key=LLM_CONFIG_ID)
+                item = await container.read_item(item=LLM_CONFIG_ID, partition_key=LLM_CONFIG_ID)
                 saved_model = item.get("model_name")
                 if saved_model:
                     _current_model = saved_model
@@ -43,7 +43,7 @@ def initialize_llm_settings():
     except Exception as e:
         logger.warning(f"[LLM] Failed to initialize settings: {e}")
 
-def set_llm_model(model_name: str):
+async def set_llm_model(model_name: str):
     """어드민에서 LLM 모델 변경 (DB 저장)"""
     global _current_model
     global _openai_client
@@ -56,7 +56,7 @@ def set_llm_model(model_name: str):
     try:
         container = get_config_container()
         if container:
-            container.upsert_item({
+            await container.upsert_item({
                 "id": LLM_CONFIG_ID,
                 "model_name": model_name,
                 "updated_at": "now"

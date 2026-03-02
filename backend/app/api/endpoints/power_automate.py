@@ -895,8 +895,8 @@ async def query_extraction_results(
         )
 
         pager = query_iterable.by_page(continuation_token=safe_token)
-        page = next(pager)
-        raw_items = list(page)
+        page = await pager.__anext__()
+        raw_items = [item async for item in page]
         next_chunk_token = pager.continuation_token
     except StopIteration:
         raw_items = []

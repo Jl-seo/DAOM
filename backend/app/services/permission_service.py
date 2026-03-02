@@ -76,11 +76,11 @@ async def can_access_model(user: User, model_id: str) -> bool:
         return False
 
     try:
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": model_id}],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if not items:
             return False
@@ -128,11 +128,11 @@ async def set_model_permissions(
         return False
 
     try:
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": model_id}],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if not items:
             return False
@@ -144,7 +144,7 @@ async def set_model_permissions(
             "groups": groups or [],
             "public": public
         }
-        container.upsert_item(body=model)
+        await container.upsert_item(body=model)
         logger.info(f"Updated permissions for model {model_id}")
         return True
 
@@ -160,11 +160,11 @@ async def get_model_permissions(model_id: str) -> Optional[ModelPermissions]:
         return None
 
     try:
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT c.permissions FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": model_id}],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if not items:
             return None
@@ -188,10 +188,10 @@ async def get_accessible_models(user: User) -> list[str]:
         # Bootstrap admin or superAdmin can access all models
         is_admin = check_initial_admin(user.email) or await is_super_admin_by_group(user.id, user.tenant_id)
         if is_admin:
-            items = list(container.query_items(
+            items = [item async for item in container.query_items(
                 query="SELECT c.id FROM c",
                 enable_cross_partition_query=True
-            ))
+            )]
             return [item["id"] for item in items]
 
         # Get user's groups
@@ -199,7 +199,7 @@ async def get_accessible_models(user: User) -> list[str]:
         user_group_ids = [g.id for g in user_groups]
 
         # Query models user can access
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="""
                 SELECT c.id FROM c 
                 WHERE c.permissions.public = true
@@ -208,18 +208,18 @@ async def get_accessible_models(user: User) -> list[str]:
             """,
             parameters=[{"name": "@user_id", "value": user.id}],
             enable_cross_partition_query=True
-        ))
+        )]
 
         accessible = [item["id"] for item in items]
 
         # Also check group access (separate query for simplicity)
         if user_group_ids:
             for group_id in user_group_ids:
-                group_items = list(container.query_items(
+                group_items = [item async for item in container.query_items(
                     query="SELECT c.id FROM c WHERE ARRAY_CONTAINS(c.permissions.groups, @group_id)",
                     parameters=[{"name": "@group_id", "value": group_id}],
                     enable_cross_partition_query=True
-                ))
+                )]
                 accessible.extend([item["id"] for item in group_items])
 
         return list(set(accessible))  # Remove duplicates

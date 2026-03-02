@@ -56,14 +56,14 @@ class SiteConfig(BaseModel):
     # AI Prompt Settings
     comparisonSystemPrompt: Optional[str] = None  # Custom system prompt for image comparison
 
-def load_config() -> dict:
+async def load_config() -> dict:
     """Load site config from Cosmos DB"""
     container = get_config_container()
     if not container:
         return {}
 
     try:
-        item = container.read_item(item=SITE_CONFIG_ID, partition_key=SITE_CONFIG_ID)
+        item = await container.read_item(item=SITE_CONFIG_ID, partition_key=SITE_CONFIG_ID)
         # Remove Cosmos metadata
         item.pop('id', None)
         item.pop('_rid', None)
@@ -75,7 +75,7 @@ def load_config() -> dict:
     except Exception:
         return {}
 
-def save_config(config: dict):
+async def save_config(config: dict):
     """Save site config to Cosmos DB"""
     container = get_config_container()
     if not container:
@@ -83,7 +83,7 @@ def save_config(config: dict):
 
     try:
         doc = {"id": SITE_CONFIG_ID, **config}
-        container.upsert_item(doc)
+        await container.upsert_item(doc)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save config: {str(e)}")
 

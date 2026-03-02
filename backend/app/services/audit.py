@@ -131,7 +131,7 @@ async def log_action(
         )
 
         # Insert into Cosmos DB
-        container.create_item(body=entry.to_dict())
+        await container.create_item(body=entry.to_dict())
         logger.info(f"Audit: {user.email} {action} {resource_type}/{resource_id}")
 
         return entry.id
@@ -141,7 +141,7 @@ async def log_action(
         return None
 
 
-def get_audit_logs(
+async def get_audit_logs(
     user_id: Optional[str] = None,
     tenant_id: Optional[str] = None,
     resource_type: Optional[str] = None,
@@ -208,11 +208,11 @@ def get_audit_logs(
             OFFSET {offset} LIMIT {limit}
         """
 
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=True
-        ))
+        )]
 
         return items
 
@@ -221,7 +221,7 @@ def get_audit_logs(
         return []
 
 
-def log_extraction_action(
+async def log_extraction_action(
     job: Any,  # ExtractionJob
     action: str,
     status: str = "SUCCESS",
@@ -266,7 +266,7 @@ def log_extraction_action(
             user_agent="DaomBackend/ExtractionService"
         )
 
-        container.create_item(body=entry.to_dict())
+        await container.create_item(body=entry.to_dict())
 
         # Log token usage if present
         if token_usage:

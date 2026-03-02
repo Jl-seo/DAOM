@@ -33,7 +33,7 @@ async def get_llm_settings():
 @router.put("/llm")
 async def update_llm_model(request: UpdateLLMModelRequest):
     """LLM 모델 변경"""
-    set_llm_model(request.model_name)
+    await set_llm_model(request.model_name)
     return {
         "success": True,
         "message": f"Model changed to {request.model_name}",
