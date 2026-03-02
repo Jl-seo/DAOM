@@ -78,7 +78,7 @@ async def search_dictionary(
     return {
         "query": q,
         "matches": [
-            {"code": m.code, "name": m.name, "category": m.category, "score": m.score}
+            {"code": m.code, "name": m.name, "category": m.category, "score": m.score, **m.extra}
             for m in matches
         ]
     }

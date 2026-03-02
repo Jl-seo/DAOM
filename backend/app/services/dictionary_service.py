@@ -1,10 +1,11 @@
 """
-Dictionary Service — Azure AI Search via Foundry Connection
-Manages dictionary indexes (port, charge, etc.) using Azure AI Search.
-Search credentials are resolved from Foundry project connections or env vars as fallback.
+Dictionary Service — Azure AI Search
+Manages dictionary indexes for auto-normalization.
+Dynamically indexes any Excel columns — no fixed schema required.
 """
 import logging
 import io
+import hashlib
 from typing import List, Optional
 
 import pandas as pd
@@ -22,158 +23,131 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Single unified index — all dictionary categories share one index
-DICTIONARY_INDEX_NAME = "daom-dictionary"
-
 
 class DictionaryMatch:
     """Result of a dictionary search."""
-    def __init__(self, code: str, name: str, category: str, score: float):
+    def __init__(self, code: str, name: str, category: str, score: float, extra: dict = None):
         self.code = code
         self.name = name
         self.category = category
         self.score = score
+        self.extra = extra or {}
 
 
-def _resolve_search_credentials() -> tuple:
-    """
-    Resolve Azure AI Search endpoint and key.
-    Priority: env vars > Foundry project connection discovery.
-    """
-    # 1. Direct env vars (explicit override)
-    if settings.AZURE_SEARCH_ENDPOINT and settings.AZURE_SEARCH_KEY:
-        logger.info("[DictionaryService] Using explicit AZURE_SEARCH_ENDPOINT/KEY from env.")
-        return settings.AZURE_SEARCH_ENDPOINT, settings.AZURE_SEARCH_KEY
-
-    # 2. Try to discover from Foundry project connections
-    if settings.AZURE_AIPROJECT_ENDPOINT:
-        try:
-            from azure.ai.projects import AIProjectClient
-            from azure.identity import DefaultAzureCredential
-
-            client = AIProjectClient(
-                endpoint=settings.AZURE_AIPROJECT_ENDPOINT,
-                credential=DefaultAzureCredential()
-            )
-            # List connections and find AI Search type
-            connections = client.connections.list()
-            for conn in connections:
-                # Azure AI Search connections have type "CognitiveSearch" or "AzureAISearch"
-                conn_type = getattr(conn, "connection_type", "") or ""
-                if "search" in conn_type.lower() or "cognitive" in conn_type.lower():
-                    # Get connection details with credentials
-                    full_conn = client.connections.get(connection_name=conn.name, include_credentials=True)
-                    endpoint = getattr(full_conn, "endpoint_url", "") or getattr(full_conn, "target", "")
-                    key = getattr(full_conn, "key", "") or ""
-                    if endpoint:
-                        logger.info(f"[DictionaryService] Discovered AI Search from Foundry connection: {conn.name}")
-                        return endpoint, key
-        except Exception as e:
-            logger.warning(f"[DictionaryService] Foundry connection discovery failed: {e}")
-
-    return "", ""
+def _get_index_name(category: str) -> str:
+    """Each category gets its own index: daom-dict-{category}"""
+    safe = category.lower().replace(" ", "-").replace("_", "-")
+    return f"daom-dict-{safe}"
 
 
 class DictionaryService:
     """
     Manages dictionary data in Azure AI Search.
-    Uses a single index with 'category' field to support multiple dictionary types.
+    Each category becomes a separate index with dynamically-created fields
+    based on the uploaded Excel columns.
     """
 
     def __init__(self):
-        self._search_endpoint, self._search_key = _resolve_search_credentials()
-        self._initialized = False
+        endpoint = settings.AZURE_SEARCH_ENDPOINT
+        key = settings.AZURE_SEARCH_KEY
 
-        if not self._search_endpoint:
-            logger.warning("[DictionaryService] Azure Search not configured. Dictionary features disabled.")
+        self._initialized = False
+        if not endpoint or not key:
+            logger.warning("[DictionaryService] AZURE_SEARCH_ENDPOINT/KEY not set. Dictionary features disabled.")
             return
 
         try:
+            self._endpoint = endpoint
+            self._key = key
             self._index_client = SearchIndexClient(
-                endpoint=self._search_endpoint,
-                credential=AzureKeyCredential(self._search_key)
+                endpoint=endpoint,
+                credential=AzureKeyCredential(key)
             )
             self._initialized = True
-            logger.info(f"[DictionaryService] Initialized with endpoint: {self._search_endpoint}")
+            logger.info(f"[DictionaryService] Connected to {endpoint}")
         except Exception as e:
-            logger.error(f"[DictionaryService] Failed to initialize: {e}")
+            logger.error(f"[DictionaryService] Init failed: {e}")
 
     @property
     def is_available(self) -> bool:
         return self._initialized
 
-    async def ensure_index(self):
-        """Create the unified dictionary index if it doesn't exist."""
-        if not self._initialized:
-            return
-
-        try:
-            self._index_client.get_index(DICTIONARY_INDEX_NAME)
-        except Exception:
-            logger.info(f"[DictionaryService] Creating index '{DICTIONARY_INDEX_NAME}'...")
-            index = SearchIndex(
-                name=DICTIONARY_INDEX_NAME,
-                fields=[
-                    SimpleField(name="id", type=SearchFieldDataType.String, key=True),
-                    SimpleField(name="category", type=SearchFieldDataType.String, filterable=True, facetable=True),
-                    SimpleField(name="code", type=SearchFieldDataType.String, filterable=True),
-                    SearchableField(name="name", type=SearchFieldDataType.String),
-                    SearchableField(name="aliases", type=SearchFieldDataType.String),
-                    SimpleField(name="country", type=SearchFieldDataType.String, filterable=True),
-                    SimpleField(name="region", type=SearchFieldDataType.String, filterable=True),
-                    SimpleField(name="extra", type=SearchFieldDataType.String),
-                ]
-            )
-            self._index_client.create_or_update_index(index)
-            logger.info(f"[DictionaryService] Index created.")
-
-    def _get_search_client(self) -> SearchClient:
+    def _search_client(self, category: str) -> SearchClient:
         return SearchClient(
-            endpoint=self._search_endpoint,
-            index_name=DICTIONARY_INDEX_NAME,
-            credential=AzureKeyCredential(self._search_key)
+            endpoint=self._endpoint,
+            index_name=_get_index_name(category),
+            credential=AzureKeyCredential(self._key)
         )
 
     async def upload_from_excel(self, file_bytes: bytes, category: str, filename: str = "") -> dict:
-        """Parse Excel/CSV and upsert into the search index."""
+        """
+        Upload Excel/CSV to AI Search.
+        Dynamically creates index fields from the Excel column headers.
+        No fixed schema — any columns work.
+        """
         if not self._initialized:
             return {"error": "Dictionary service not configured", "count": 0}
 
-        await self.ensure_index()
-
+        # 1. Parse Excel
         try:
             if filename.endswith(".csv"):
                 df = pd.read_csv(io.BytesIO(file_bytes))
             else:
                 df = pd.read_excel(io.BytesIO(file_bytes))
         except Exception as e:
-            return {"error": f"Failed to parse file: {e}", "count": 0}
+            return {"error": f"파일 파싱 실패: {e}", "count": 0}
 
-        required = {"code", "name"}
-        if not required.issubset(set(df.columns)):
-            return {"error": f"Missing required columns: {required - set(df.columns)}", "count": 0}
+        if df.empty:
+            return {"error": "빈 파일입니다", "count": 0}
 
+        # 2. Sanitize column names (AI Search field names: alphanumeric + underscore)
+        col_mapping = {}
+        for col in df.columns:
+            safe_col = str(col).strip().replace(" ", "_").replace("-", "_").replace(".", "_")
+            # Remove any non-alphanumeric/underscore chars
+            safe_col = "".join(c for c in safe_col if c.isalnum() or c == "_")
+            if not safe_col or safe_col[0].isdigit():
+                safe_col = f"col_{safe_col}"
+            col_mapping[col] = safe_col
+
+        df = df.rename(columns=col_mapping)
+        columns = list(df.columns)
+
+        # 3. Create/update index with dynamic fields
+        index_name = _get_index_name(category)
+        fields = [
+            SimpleField(name="id", type=SearchFieldDataType.String, key=True),
+        ]
+        for col in columns:
+            # Make all fields searchable strings
+            fields.append(
+                SearchableField(name=col, type=SearchFieldDataType.String)
+            )
+
+        try:
+            index = SearchIndex(name=index_name, fields=fields)
+            self._index_client.create_or_update_index(index)
+            logger.info(f"[DictionaryService] Index '{index_name}' created/updated with fields: {columns}")
+        except Exception as e:
+            return {"error": f"인덱스 생성 실패: {e}", "count": 0}
+
+        # 4. Upload documents
         documents = []
-        for _, row in df.iterrows():
-            code = str(row["code"]).strip()
-            name = str(row["name"]).strip()
-            aliases = str(row.get("aliases", "")).strip()
-            doc = {
-                "id": f"{category}_{code}",
-                "category": category,
-                "code": code,
-                "name": name,
-                "aliases": aliases,
-                "country": str(row.get("country", "")).strip(),
-                "region": str(row.get("region", "")).strip(),
-                "extra": str(row.get("extra", "")).strip(),
-            }
+        for idx, row in df.iterrows():
+            # Generate unique ID from row content
+            row_str = "|".join(str(v) for v in row.values)
+            doc_id = hashlib.md5(f"{category}_{idx}_{row_str}".encode()).hexdigest()
+
+            doc = {"id": doc_id}
+            for col in columns:
+                val = row.get(col)
+                doc[col] = str(val).strip() if pd.notna(val) else ""
             documents.append(doc)
 
         if not documents:
-            return {"error": "No valid rows found", "count": 0}
+            return {"error": "유효한 행이 없습니다", "count": 0}
 
-        client = self._get_search_client()
+        client = self._search_client(category)
         total = 0
         batch_size = 1000
         for i in range(0, len(documents), batch_size):
@@ -184,81 +158,75 @@ class DictionaryService:
             except Exception as e:
                 logger.error(f"[DictionaryService] Upload batch {i} failed: {e}")
 
-        logger.info(f"[DictionaryService] Uploaded {total}/{len(documents)} items to '{category}'")
-        return {"count": total, "category": category}
+        logger.info(f"[DictionaryService] Uploaded {total}/{len(documents)} items to '{category}' (fields: {columns})")
+        return {"count": total, "category": category, "fields": columns}
 
-    async def search(self, query: str, category: Optional[str] = None, top_k: int = 3) -> List[DictionaryMatch]:
-        """Search the dictionary index with keyword + category filter."""
+    async def search(self, query: str, category: Optional[str] = None, top_k: int = 5) -> List[DictionaryMatch]:
+        """Search dictionary entries by keyword."""
         if not self._initialized or not query or len(query.strip()) < 2:
             return []
 
-        client = self._get_search_client()
-        filter_expr = f"category eq '{category}'" if category else None
+        if not category:
+            # Search all category indexes
+            results = []
+            for cat_info in await self.list_categories():
+                results.extend(await self.search(query, cat_info["category"], top_k))
+            # Sort by score, take top_k
+            results.sort(key=lambda m: m.score, reverse=True)
+            return results[:top_k]
 
         try:
-            results = client.search(
-                search_text=query, filter=filter_expr,
-                top=top_k, include_total_count=True
-            )
-            return [
-                DictionaryMatch(
-                    code=r.get("code", ""), name=r.get("name", ""),
-                    category=r.get("category", ""), score=r.get("@search.score", 0.0)
-                ) for r in results
-            ]
+            client = self._search_client(category)
+            search_results = client.search(search_text=query, top=top_k, include_total_count=True)
+            matches = []
+            for r in search_results:
+                # Use first two non-id fields as code/name for display
+                fields = {k: v for k, v in r.items() if k not in ("id", "@search.score", "@search.reranker_score")}
+                field_keys = list(fields.keys())
+                code = fields.get(field_keys[0], "") if field_keys else ""
+                name = fields.get(field_keys[1], "") if len(field_keys) > 1 else code
+                matches.append(DictionaryMatch(
+                    code=str(code), name=str(name),
+                    category=category, score=r.get("@search.score", 0.0),
+                    extra=fields
+                ))
+            return matches
         except Exception as e:
-            logger.error(f"[DictionaryService] Search failed: {e}")
+            logger.error(f"[DictionaryService] Search failed for '{category}': {e}")
             return []
-
-    async def add_alias(self, category: str, code: str, new_alias: str):
-        """Auto-learning: add a new alias to an existing dictionary entry."""
-        if not self._initialized:
-            return
-        client = self._get_search_client()
-        doc_id = f"{category}_{code}"
-        try:
-            existing = client.get_document(key=doc_id)
-            current_aliases = existing.get("aliases", "")
-            alias_list = [a.strip() for a in current_aliases.split(",") if a.strip()]
-            if new_alias not in alias_list:
-                alias_list.append(new_alias)
-                existing["aliases"] = ", ".join(alias_list)
-                client.upload_documents(documents=[existing])
-                logger.info(f"[DictionaryService] Added alias '{new_alias}' to {doc_id}")
-        except Exception as e:
-            logger.error(f"[DictionaryService] add_alias failed: {e}")
 
     async def list_categories(self) -> List[dict]:
-        """List all registered dictionary categories with item counts."""
+        """List all dictionary categories by listing indexes prefixed with 'daom-dict-'."""
         if not self._initialized:
             return []
-        client = self._get_search_client()
         try:
-            results = client.search(search_text="*", facets=["category"], top=0)
-            facets = results.get_facets()
-            return [
-                {"category": f["value"], "count": f["count"]}
-                for f in facets.get("category", [])
-            ]
+            indexes = self._index_client.list_indexes()
+            categories = []
+            for idx in indexes:
+                if idx.name.startswith("daom-dict-"):
+                    cat_name = idx.name.replace("daom-dict-", "")
+                    # Get document count
+                    try:
+                        client = self._search_client(cat_name)
+                        results = client.search(search_text="*", top=0, include_total_count=True)
+                        count = results.get_count() or 0
+                    except Exception:
+                        count = 0
+                    categories.append({"category": cat_name, "count": count})
+            return categories
         except Exception as e:
             logger.error(f"[DictionaryService] list_categories failed: {e}")
             return []
 
     async def delete_category(self, category: str) -> int:
-        """Delete all entries for a given category."""
+        """Delete a dictionary category (drops the index)."""
         if not self._initialized:
             return 0
-        client = self._get_search_client()
+        index_name = _get_index_name(category)
         try:
-            results = client.search(
-                search_text="*", filter=f"category eq '{category}'",
-                top=5000, select=["id"]
-            )
-            ids = [{"id": r["id"]} for r in results]
-            if ids:
-                client.delete_documents(documents=ids)
-            logger.info(f"[DictionaryService] Deleted {len(ids)} items from '{category}'")
-            return len(ids)
+            self._index_client.delete_index(index_name)
+            logger.info(f"[DictionaryService] Deleted index '{index_name}'")
+            return 1
         except Exception as e:
             logger.error(f"[DictionaryService] delete_category failed: {e}")
             return 0
