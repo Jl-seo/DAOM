@@ -425,9 +425,10 @@ async def call_llm_single(
     # mode instead and rely on the prompt for schema enforcement.
     is_table_model = False
     if model_info:
-        if getattr(model_info, 'data_structure', None) == 'table':
-            is_table_model = True
-        elif hasattr(model_info, 'fields') and model_info.fields:
+        # DEPRECATED: data_structure manual selector removed
+        # if getattr(model_info, 'data_structure', None) == 'table':
+        #     is_table_model = True
+        if hasattr(model_info, 'fields') and model_info.fields:
             is_table_model = any(
                 getattr(f, 'type', '') == 'table' for f in model_info.fields
             )

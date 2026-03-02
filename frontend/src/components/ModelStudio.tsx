@@ -246,8 +246,8 @@ export function ModelStudio() {
                                     />
                                 )}
 
-                                {/* DEX Settings Panel (Below the fields table) */}
-                                {(!editingModel.model_type || editingModel.model_type === 'extraction') && (
+                                {/* DEX Settings Panel — only visible when barcode feature is enabled */}
+                                {(!editingModel.model_type || editingModel.model_type === 'extraction') && editingModel.beta_features?.use_dex_validation && (
                                     <DexSettingsPanel
                                         fields={editingModel.fields || []}
                                         onChange={(fields) => {
@@ -383,7 +383,7 @@ export function ModelStudio() {
                                     </>
                                 )}
 
-                                {/* Data Structure */}
+                                {/* Data Structure — DEPRECATED: auto-detected from field types
                                 <Card icon={RefreshCw} title="데이터 구조">
                                     <DataStructureSelector
                                         value={editingModel.data_structure || 'data'}
@@ -391,6 +391,7 @@ export function ModelStudio() {
                                         disabled={!isEditing}
                                     />
                                 </Card>
+                                */}
 
                                 {/* Reference Data (Phase 1) */}
                                 <Card icon={Database} title="참고 데이터 (Reference Data)">

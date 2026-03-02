@@ -53,7 +53,9 @@ def normalize_llm_response(llm_json: Dict[str, Any], model_info) -> Dict[str, An
 
     # Get expected field keys from model
     expected_keys = {f.key for f in model_info.fields} if hasattr(model_info, 'fields') else set()
-    is_table = getattr(model_info, 'data_structure', 'data') == 'table'
+    # DEPRECATED: data_structure manual selector removed — detect table from field types only
+    # is_table = getattr(model_info, 'data_structure', 'data') == 'table'
+    is_table = False  # Table detection now handled by field type inspection downstream
 
     # Log raw structure for diagnostics
     top_keys = list(llm_json.keys()) if isinstance(llm_json, dict) else ["(array)"]

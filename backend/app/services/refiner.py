@@ -95,9 +95,9 @@ INSTRUCTIONS FOR REFERENCE DATA:
                 prompt += f"  Refinement Rule: {field.rules}\n"
             prompt += f"  Type: {field.type}\n"
 
-        # 4. Output Formatting — branched by data_structure for token efficiency
-        data_structure = get_attr(model, 'data_structure', 'data')
-        is_table = data_structure == 'table' or any(
+        # 4. Output Formatting — detect table from field types (data_structure manual selector deprecated)
+        # data_structure = get_attr(model, 'data_structure', 'data')  # DEPRECATED
+        is_table = any(
             getattr(f, 'type', '') in TABLE_FIELD_TYPES for f in fields
         )
 
@@ -263,7 +263,7 @@ Do NOT translate unless the field rule explicitly mentions translation.
         description = get_attr(model, "description", None)
         global_rules = get_attr(model, "global_rules", None)
         reference_data = get_attr(model, "reference_data", None)
-        data_structure = get_attr(model, "data_structure", "data")
+        # data_structure = get_attr(model, "data_structure", "data")  # DEPRECATED
         fields = model.fields
 
         TABLE_FIELD_TYPES = ('list', 'table', 'array')
@@ -308,7 +308,7 @@ that an extraction engineer will follow to extract data from a document.
 
 MODEL: {name}
 DOMAIN: {description or 'General Document'}
-DATA STRUCTURE: {data_structure}
+DATA STRUCTURE: auto (table fields detected from schema)
 {type_guidance}
 
 MODEL SCHEMA:
