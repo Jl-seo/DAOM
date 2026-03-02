@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
     Plus, Trash2, Save, ArrowLeft, Wand2,
-    LayoutTemplate, RefreshCw, Edit, Sliders, Database, BookOpen
+    LayoutTemplate, Edit, Sliders, Database, BookOpen
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
@@ -11,7 +11,7 @@ import { useModels } from '../hooks/useModels'
 import type { Model, Field } from '../types/model'
 import { Card } from '@/components/ui/icon-card'
 import { Button } from '@/components/ui/button'
-import { DataStructureSelector } from './studio/DataStructureSelector'
+// import { DataStructureSelector } from './studio/DataStructureSelector' // DEPRECATED: auto-detected from field types
 import { DexSettingsPanel } from './studio/DexSettingsPanel'
 import { FieldEditorTable } from './studio/FieldEditorTable'
 import { TransformationRulesEditor } from './studio/TransformationRulesEditor'
