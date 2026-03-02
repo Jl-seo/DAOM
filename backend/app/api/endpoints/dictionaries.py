@@ -20,8 +20,7 @@ async def list_categories(current_user: CurrentUser = Depends(get_current_user))
     """List all registered dictionary categories with item counts."""
     service = get_dictionary_service()
     if not service.is_available:
-        # Graceful fallback — panel shows empty state instead of error
-        return {"categories": [], "_service_status": "not_configured"}
+        raise HTTPException(status_code=503, detail="Dictionary service not configured.")
 
     categories = await service.list_categories()
     return {"categories": categories}
