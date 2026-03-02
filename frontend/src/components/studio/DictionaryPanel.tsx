@@ -132,13 +132,24 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
     const handleAddCategory = () => {
         const name = newCategoryName.trim().toLowerCase()
         if (!name) return
-        if (modelDictionaries.includes(name)) {
+        if (categories.some(c => c.category === name)) {
             toast.error('이미 등록된 카테고리입니다')
             return
         }
-        setShowAddForm(false)
-        setNewCategoryName('')
-        handleFileSelect(name)
+        // Keep form visible — open file dialog, close form only after upload succeeds
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = '.xlsx,.xls,.csv'
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0]
+            if (file) {
+                await handleUpload(name, file)
+                setShowAddForm(false)
+                setNewCategoryName('')
+            }
+            // If user cancelled file dialog, form stays open
+        }
+        input.click()
     }
 
     const toggleCategory = (category: string) => {
