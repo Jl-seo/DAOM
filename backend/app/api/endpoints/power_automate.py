@@ -137,7 +137,7 @@ async def run_extraction_with_metadata(
         if result.get("error"):
              await update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
              if log:
-                 extraction_logs.save_extraction_log(
+                 await extraction_logs.save_extraction_log(
                      model_id=log.model_id, user_id=log.user_id, filename=log.filename,
                      status=ExtractionStatus.ERROR.value, file_url=log.file_url,
                      error=result["error"], log_id=log.id, tenant_id=log.tenant_id,
@@ -153,7 +153,7 @@ async def run_extraction_with_metadata(
                 extracted_data=extracted
             )
              if log:
-                 extraction_logs.save_extraction_log(
+                 await extraction_logs.save_extraction_log(
                      model_id=log.model_id, user_id=log.user_id, filename=log.filename,
                      status=ExtractionStatus.SUCCESS.value, file_url=log.file_url,
                      extracted_data=extracted, preview_data=result,
@@ -171,7 +171,7 @@ async def run_extraction_with_metadata(
         if job and job.original_log_id:
             log = extraction_logs.get_log(job.original_log_id)
             if log:
-                extraction_logs.save_extraction_log(
+                await extraction_logs.save_extraction_log(
                     model_id=log.model_id, user_id=log.user_id, filename=log.filename,
                     status=ExtractionStatus.ERROR.value, file_url=log.file_url,
                     error=str(e), log_id=log.id, tenant_id=log.tenant_id,
@@ -348,7 +348,7 @@ async def upload_document(
         raise HTTPException(status_code=500, detail="File upload failed")
 
     # Create initial log entry with metadata
-    log = extraction_logs.save_extraction_log(
+    log = await extraction_logs.save_extraction_log(
         model_id=payload.model_id,
         user_id=current_user.id,
         filename=filename,
@@ -362,7 +362,7 @@ async def upload_document(
 
     # Create extraction job so frontend doesn't throw 404
     from app.services import extraction_jobs
-    job = extraction_jobs.create_job(
+    job = await extraction_jobs.create_job(
         model_id=payload.model_id,
         user_id=current_user.id,
         user_name=current_user.name if hasattr(current_user, 'name') else None,
@@ -377,7 +377,7 @@ async def upload_document(
 
     # Update log with proper job_id
     if log:
-        extraction_logs.save_extraction_log(
+        await extraction_logs.save_extraction_log(
             model_id=payload.model_id,
             user_id=current_user.id,
             filename=filename,
@@ -611,7 +611,7 @@ async def batch_upload_documents_json(
             if filename != "document.pdf":
                 pa_debug_str = f"LEN={len(file_content)} | RAW: {str(raw_content)[:100]}... | PRE-DECODE: {b64_str[:80]}..."
                 
-            log = extraction_logs.save_extraction_log(
+            log = await extraction_logs.save_extraction_log(
                 model_id=payload.model_id,
                 user_id=current_user.id,
                 filename=filename,
@@ -625,7 +625,7 @@ async def batch_upload_documents_json(
             )
             
             from app.services import extraction_jobs
-            job = extraction_jobs.create_job(
+            job = await extraction_jobs.create_job(
                 model_id=payload.model_id,
                 user_id=current_user.id,
                 user_name=current_user.name if hasattr(current_user, 'name') else None,
@@ -639,7 +639,7 @@ async def batch_upload_documents_json(
             )
 
             if log:
-                extraction_logs.save_extraction_log(
+                await extraction_logs.save_extraction_log(
                     model_id=payload.model_id,
                     user_id=current_user.id,
                     filename=filename,
@@ -746,7 +746,7 @@ async def get_extraction_result(
     model_name = None
     try:
         from app.services.models import get_model_by_id
-        model = get_model_by_id(log.model_id)
+        model = await get_model_by_id(log.model_id)
         if model:
             model_name = model.name
     except Exception:
@@ -1007,7 +1007,7 @@ async def cancel_extraction(
         raise HTTPException(status_code=400, detail="Cannot cancel completed job")
 
     # Update status to cancelled
-    extraction_logs.save_extraction_log(
+    await extraction_logs.save_extraction_log(
         model_id=log.model_id,
         user_id=log.user_id,
         filename=log.filename,

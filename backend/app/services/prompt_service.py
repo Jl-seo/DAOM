@@ -175,11 +175,11 @@ async def get_prompt(key: str, tenant_id: str = "default") -> Optional[dict]:
     container = _get_container()
     if container:
         try:
-            items = list(container.query_items(
+            items = [item async for item in container.query_items(
                 query="SELECT * FROM c WHERE c.id = @id",
                 parameters=[{"name": "@id", "value": key}],
                 enable_cross_partition_query=True
-            ))
+            )]
             if items:
                 result = items[0]
                 _prompt_cache[cache_key] = result
@@ -228,10 +228,10 @@ async def get_all_prompts(tenant_id: str = "default") -> list:
     container = _get_container()
     if container:
         try:
-            items = list(container.query_items(
+            items = [item async for item in container.query_items(
                 query="SELECT * FROM c",
                 enable_cross_partition_query=True
-            ))
+            )]
             for item in items:
                 key = item.get("id")
                 if key:
@@ -271,7 +271,7 @@ async def save_prompt(
             "updated_at": datetime.utcnow().isoformat(),
             "updated_by": updated_by
         }
-        container.upsert_item(body=doc)
+        await container.upsert_item(body=doc)
 
         # Invalidate cache
         cache_key = f"{tenant_id}:{key}"
@@ -293,7 +293,7 @@ async def reset_prompt(key: str, tenant_id: str = "default") -> bool:
         return False
 
     try:
-        container.delete_item(item=key, partition_key=key)
+        await container.delete_item(item=key, partition_key=key)
 
         # Invalidate cache
         cache_key = f"{tenant_id}:{key}"

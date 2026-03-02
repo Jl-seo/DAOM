@@ -1,11 +1,11 @@
 """
-Azure Cosmos DB Client for DAOM
+Azure Cosmos DB Async Client for DAOM
 
-Provides database and container access for:
-- DocumentModels: Extraction models and correction rules
-- ExtractedData: Extraction results and logs
+Uses azure.cosmos.aio (async SDK) to prevent blocking the FastAPI event loop.
+Container proxies are initialized once at startup and cached globally.
 """
-from azure.cosmos import CosmosClient, PartitionKey
+from azure.cosmos.aio import CosmosClient
+from azure.cosmos import PartitionKey
 from app.core.config import settings
 from typing import Optional
 import logging
@@ -27,74 +27,21 @@ _containers: dict = {}
 
 
 def get_cosmos_client() -> Optional[CosmosClient]:
-    """Get or create Cosmos DB client singleton"""
-    global _client
-
-    if _client is not None:
-        return _client
-
-    if not settings.COSMOS_ENDPOINT or not settings.COSMOS_KEY:
-        logger.warning("[Cosmos] No credentials configured, using local JSON fallback")
-        return None
-
-    try:
-        _client = CosmosClient(
-            url=settings.COSMOS_ENDPOINT,
-            credential=settings.COSMOS_KEY
-        )
-        logger.info(f"[Cosmos] Connected to {settings.COSMOS_ENDPOINT}")
-        return _client
-    except Exception as e:
-        logger.error(f"[Cosmos] Connection failed: {e}")
-        return None
+    """Get Cosmos DB async client singleton (created during init_cosmos)"""
+    return _client
 
 
 def get_database():
-    """Get or create DAOM database"""
-    global _database
-
-    if _database is not None:
-        return _database
-
-    client = get_cosmos_client()
-    if not client:
-        return None
-
-    try:
-        _database = client.create_database_if_not_exists(id=settings.COSMOS_DATABASE)
-        logger.info(f"[Cosmos] Database '{settings.COSMOS_DATABASE}' ready")
-        return _database
-    except Exception as e:
-        logger.error(f"[Cosmos] Database creation failed: {e}")
-        return None
+    """Get cached database proxy"""
+    return _database
 
 
 def get_container(container_name: str, partition_key_path: str = "/id", indexing_policy: dict = None):
-    """Get or create a container by name with optional indexing policy"""
-    global _containers
-
-    if container_name in _containers:
-        return _containers[container_name]
-
-    database = get_database()
-    if not database:
-        return None
-
-    try:
-        kwargs = {
-            "id": container_name,
-            "partition_key": PartitionKey(path=partition_key_path),
-        }
-        if indexing_policy:
-            kwargs["indexing_policy"] = indexing_policy
-
-        container = database.create_container_if_not_exists(**kwargs)
-        _containers[container_name] = container
-        logger.info(f"[Cosmos] Container '{container_name}' ready")
-        return container
-    except Exception as e:
-        logger.error(f"[Cosmos] Container '{container_name}' creation failed: {e}")
-        return None
+    """Get a cached container proxy by name.
+    Containers are pre-initialized during init_cosmos().
+    If the container hasn't been initialized yet, returns None.
+    """
+    return _containers.get(container_name)
 
 
 # ─── Indexing Policies ────────────────────────────────────────
@@ -147,46 +94,103 @@ _AUDIT_INDEX_POLICY = {
 }
 
 
+async def _init_container(database, name: str, partition_key_path: str = "/id", indexing_policy: dict = None):
+    """Initialize a single container and cache it."""
+    global _containers
+    try:
+        kwargs = {
+            "id": name,
+            "partition_key": PartitionKey(path=partition_key_path),
+        }
+        if indexing_policy:
+            kwargs["indexing_policy"] = indexing_policy
+
+        container = await database.create_container_if_not_exists(**kwargs)
+        _containers[name] = container
+        logger.info(f"[Cosmos] Container '{name}' ready (async)")
+        return container
+    except Exception as e:
+        logger.error(f"[Cosmos] Container '{name}' creation failed: {e}")
+        return None
+
+
 def get_models_container():
-    """Get or create DocumentModels container"""
-    return get_container(MODELS_CONTAINER, "/id")
+    """Get cached DocumentModels container"""
+    return _containers.get(MODELS_CONTAINER)
 
 
 def get_extractions_container():
-    """Get or create ExtractedData container with composite indexes"""
-    return get_container(EXTRACTIONS_CONTAINER, "/model_id", _EXTRACTIONS_INDEX_POLICY)
+    """Get cached ExtractedData container"""
+    return _containers.get(EXTRACTIONS_CONTAINER)
 
 
 def get_audit_container():
-    """Get or create audit_logs container with composite indexes"""
-    return get_container(AUDIT_CONTAINER, "/user_id", _AUDIT_INDEX_POLICY)
+    """Get cached audit_logs container"""
+    return _containers.get(AUDIT_CONTAINER)
 
 
 def get_users_container():
-    """Get or create users container"""
-    return get_container(USERS_CONTAINER, "/tenant_id")
+    """Get cached users container"""
+    return _containers.get(USERS_CONTAINER)
 
 
 def get_groups_container():
-    """Get or create groups container"""
-    return get_container(GROUPS_CONTAINER, "/tenant_id")
-
-
-def init_cosmos():
-    """Initialize Cosmos DB connection and containers"""
-    logger.info("[Cosmos] Initializing...")
-    get_models_container()
-    get_extractions_container()
-    get_audit_container()
-    get_users_container()
-    get_groups_container()
-    get_config_container()
-    logger.info("[Cosmos] Initialization complete")
+    """Get cached groups container"""
+    return _containers.get(GROUPS_CONTAINER)
 
 
 CONFIG_CONTAINER = "system_config"
 
 def get_config_container():
-    """Get or create system_config container"""
-    return get_container(CONFIG_CONTAINER, "/id")
+    """Get cached system_config container"""
+    return _containers.get(CONFIG_CONTAINER)
 
+
+async def init_cosmos():
+    """Initialize Cosmos DB async connection and all containers"""
+    global _client, _database
+
+    logger.info("[Cosmos] Initializing (async)...")
+
+    if not settings.COSMOS_ENDPOINT or not settings.COSMOS_KEY:
+        logger.warning("[Cosmos] No credentials configured, using local JSON fallback")
+        return
+
+    try:
+        _client = CosmosClient(
+            url=settings.COSMOS_ENDPOINT,
+            credential=settings.COSMOS_KEY
+        )
+        logger.info(f"[Cosmos] Async client created for {settings.COSMOS_ENDPOINT}")
+
+        _database = await _client.create_database_if_not_exists(id=settings.COSMOS_DATABASE)
+        logger.info(f"[Cosmos] Database '{settings.COSMOS_DATABASE}' ready")
+
+        # Pre-initialize all containers
+        await _init_container(_database, MODELS_CONTAINER, "/id")
+        await _init_container(_database, EXTRACTIONS_CONTAINER, "/model_id", _EXTRACTIONS_INDEX_POLICY)
+        await _init_container(_database, AUDIT_CONTAINER, "/user_id", _AUDIT_INDEX_POLICY)
+        await _init_container(_database, USERS_CONTAINER, "/tenant_id")
+        await _init_container(_database, GROUPS_CONTAINER, "/tenant_id")
+        await _init_container(_database, MENUS_CONTAINER, "/id")
+        await _init_container(_database, CONFIG_CONTAINER, "/id")
+
+        logger.info("[Cosmos] Initialization complete (async)")
+
+    except Exception as e:
+        logger.error(f"[Cosmos] Async initialization failed: {e}")
+        _client = None
+        _database = None
+
+
+async def close_cosmos():
+    """Close the async Cosmos client (call during shutdown)"""
+    global _client
+    if _client:
+        try:
+            await _client.close()
+            logger.info("[Cosmos] Async client closed")
+        except Exception as e:
+            logger.warning(f"[Cosmos] Error closing client: {e}")
+        finally:
+            _client = None

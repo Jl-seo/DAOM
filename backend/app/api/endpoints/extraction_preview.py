@@ -65,7 +65,7 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         await extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
 
         # 2. Load Model to determine pipeline type
-        model = get_model_by_id(model_id)
+        model = await get_model_by_id(model_id)
         if not model:
             await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=f"Model {model_id} not found")
             return
@@ -123,9 +123,9 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
                 preview_data=preview_data,
             )
             
-            job = extraction_jobs.get_job(job_id)
+            job = await extraction_jobs.get_job(job_id)
             if job and getattr(job, "original_log_id", None):
-                extraction_logs.update_log_status(
+                await extraction_logs.update_log_status(
                     log_id=str(job.original_log_id),
                     status=ExtractionStatus.PREVIEW_READY.value,
                     preview_data=preview_data
@@ -148,10 +148,10 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
             error_msg = f"Failed to download file: {str(e)}"
             logger.error(f"[Background] {error_msg}")
             
-            job = extraction_jobs.get_job(job_id)
+            job = await extraction_jobs.get_job(job_id)
             await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=error_msg)
             if job and getattr(job, "original_log_id", None):
-                extraction_logs.update_log_status(
+                await extraction_logs.update_log_status(
                     log_id=str(job.original_log_id),
                     status=ExtractionStatus.ERROR.value,
                     error=error_msg
@@ -173,11 +173,11 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         )
         
         # 5. Handle Result
-        job = extraction_jobs.get_job(job_id)
+        job = await extraction_jobs.get_job(job_id)
         if result.get("error"):
              await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
              if job and getattr(job, "original_log_id", None):
-                 extraction_logs.update_log_status(
+                 await extraction_logs.update_log_status(
                      log_id=str(job.original_log_id),
                      status=ExtractionStatus.ERROR.value,
                      error=result["error"]
@@ -189,7 +189,7 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
                 preview_data=result
             )
              if job and getattr(job, "original_log_id", None):
-                 extraction_logs.update_log_status(
+                 await extraction_logs.update_log_status(
                      log_id=str(job.original_log_id),
                      status=ExtractionStatus.PREVIEW_READY.value,
                      preview_data=result
@@ -203,10 +203,10 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
         traceback.print_exc()
         # Update job with error status
         try:
-            job = extraction_jobs.get_job(job_id)
+            job = await extraction_jobs.get_job(job_id)
             await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
             if job and getattr(job, "original_log_id", None):
-                extraction_logs.update_log_status(
+                await extraction_logs.update_log_status(
                     log_id=str(job.original_log_id),
                     status=ExtractionStatus.ERROR.value,
                     error=str(e)
@@ -262,7 +262,7 @@ async def start_job_with_upload(
 
     # Logs might need schema update too, but for now specific log fields are flexible or we use extracted_data
     # We won't break log schema yet, just store primary candidate in legacy field if needed
-    log = extraction_logs.save_extraction_log(
+    log = await extraction_logs.save_extraction_log(
         model_id=model_id,
         user_id=user_id,
         user_name=current_user.name if current_user else None,
@@ -277,7 +277,7 @@ async def start_job_with_upload(
     log_id = log.id if log else None
 
     # 3. Create Job linked to Log
-    job = extraction_jobs.create_job(
+    job = await extraction_jobs.create_job(
         model_id=model_id,
         user_id=user_id,
         filename=file.filename,
@@ -344,7 +344,7 @@ async def start_batch_jobs(
             file_url = await upload_file_to_blob(file)
             
             # Create Log
-            log = extraction_logs.save_extraction_log(
+            log = await extraction_logs.save_extraction_log(
                 model_id=model_id,
                 user_id=user_id,
                 user_name=current_user.name if current_user else None,
@@ -357,7 +357,7 @@ async def start_batch_jobs(
             log_id = log.id if log else None
             
             # Create Job
-            job = extraction_jobs.create_job(
+            job = await extraction_jobs.create_job(
                 model_id=model_id,
                 user_id=user_id,
                 filename=file.filename,
@@ -416,7 +416,7 @@ async def dex_validate(
 
         # Step 1: Mock LIS Lookup based on Barcode ID
         # In a real scenario, this would be `requests.get('https://gclabs.lis/api/patient?barcode=...')`
-        def mock_lis_lookup(barcode: str) -> str:
+        async def mock_lis_lookup(barcode: str) -> str:
             # Deterministic mock based on the last digit of the barcode
             last_char = barcode[-1] if barcode else "0"
             mock_db = {
@@ -497,7 +497,7 @@ async def start_extraction(
     user_id = current_user.id if current_user else "unknown"
 
     # 1. Create Log first (status=P100 pending)
-    log = extraction_logs.save_extraction_log(
+    log = await extraction_logs.save_extraction_log(
         model_id=request.model_id,
         user_id=user_id,
         user_name=current_user.name if current_user else None,
@@ -510,7 +510,7 @@ async def start_extraction(
     log_id = log.id if log else None
 
     # 2. Create Job with reference to Log
-    job = extraction_jobs.create_job(
+    job = await extraction_jobs.create_job(
         model_id=request.model_id,
         user_id=user_id,
         filename=request.filename,
@@ -542,7 +542,7 @@ async def get_log_by_id(
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Get a single extraction log by ID (for deep-linking) — hydrates from Blob"""
-    log = extraction_logs.get_log(log_id)
+    log = await extraction_logs.get_log(log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Extraction log not found")
 
@@ -570,12 +570,12 @@ async def get_log_by_id(
 
 
 @router.get("/log/{log_id}/job")
-def get_latest_job_for_log(
+async def get_latest_job_for_log(
     log_id: str,
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Get the most recent job associated with a log"""
-    job = extraction_jobs.get_latest_job_by_log_id(log_id)
+    job = await extraction_jobs.get_latest_job_by_log_id(log_id)
     if not job:
         raise HTTPException(status_code=404, detail="No active job found for this log")
 
@@ -593,7 +593,7 @@ async def get_job_status(
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Get job status for polling — hydrates large data from Blob Storage"""
-    job = extraction_jobs.get_job(job_id)
+    job = await extraction_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -628,14 +628,14 @@ async def delete_extraction_job(
 ):
     """Delete a job"""
     # Optional: check ownership if not admin
-    job = extraction_jobs.get_job(job_id)
+    job = await extraction_jobs.get_job(job_id)
     if not job:
          raise HTTPException(status_code=404, detail="Job not found")
 
     if job.user_id != current_user.id and not await is_admin(current_user):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    success = extraction_jobs.delete_job(job_id)
+    success = await extraction_jobs.delete_job(job_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to delete job")
 
@@ -648,7 +648,7 @@ async def cancel_extraction_job(
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Cancel a running job"""
-    job = extraction_jobs.get_job(job_id)
+    job = await extraction_jobs.get_job(job_id)
     if not job:
          raise HTTPException(status_code=404, detail="Job not found")
 
@@ -669,7 +669,7 @@ async def confirm_job(
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Confirm and save extraction job"""
-    job = extraction_jobs.get_job(job_id)
+    job = await extraction_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -713,7 +713,7 @@ async def confirm_job(
                         # Additional sub-docs get new IDs
                         target_log_id = job.original_log_id if idx == 0 and job.original_log_id else None
 
-                        log = extraction_logs.save_extraction_log(
+                        log = await extraction_logs.save_extraction_log(
                             model_id=job.model_id,
                             user_id=user_id,
                             user_name=(current_user.name if current_user and current_user.name else job.user_name or "Unknown"),
@@ -738,7 +738,7 @@ async def confirm_job(
         else:
             # Legacy/Single Doc mode
             logger.info(f"[ConfirmJob] Saving legacy single doc format")
-            extraction_logs.save_extraction_log(
+            await extraction_logs.save_extraction_log(
                 model_id=job.model_id,
                 user_id=user_id,
                 user_name=(current_user.name if current_user and current_user.name else job.user_name or "Unknown"),
@@ -764,7 +764,7 @@ async def confirm_job(
     # --- WEBHOOK CALL ---
     webhook_result = None
     try:
-        model = get_model_by_id(job.model_id)
+        model = await get_model_by_id(job.model_id)
         if model and getattr(model, 'webhook_url', None):
             import httpx
             webhook_payload = {
@@ -805,10 +805,10 @@ async def get_jobs(
 ):
     """Get jobs for current user or model"""
     if model_id:
-        jobs = extraction_jobs.get_jobs_by_model(model_id, limit)
+        jobs = await extraction_jobs.get_jobs_by_model(model_id, limit)
     else:
         user_id = current_user.id if current_user else "unknown"
-        jobs = extraction_jobs.get_jobs_by_user(user_id, limit)
+        jobs = await extraction_jobs.get_jobs_by_user(user_id, limit)
 
     return [
         {
@@ -834,7 +834,7 @@ async def retry_extraction(
     Updates the existing log status to processing and re-runs extraction.
     """
     # 1. Get original log
-    log = extraction_logs.get_log(log_id)
+    log = await extraction_logs.get_log(log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Extraction log not found")
 
@@ -842,7 +842,7 @@ async def retry_extraction(
         raise HTTPException(status_code=400, detail="Original file URL not found in log")
 
     # 2. Check model existence
-    model = get_model_by_id(log.model_id)
+    model = await get_model_by_id(log.model_id)
     if not model:
          raise HTTPException(status_code=404, detail=f"Model {log.model_id} not found")
 
@@ -852,7 +852,7 @@ async def retry_extraction(
     logger.info(f"[Retry] Recovered candidate_file_urls from log: {len(candidate_file_urls)} files")
 
     # 4. Create new job with reference to original log
-    job = extraction_jobs.create_job(
+    job = await extraction_jobs.create_job(
         model_id=log.model_id,
         user_id=current_user.id if current_user else "unknown",
         filename=log.filename,
@@ -864,7 +864,7 @@ async def retry_extraction(
     )
 
     # 5. Update original log status to pending AND update job_id
-    extraction_logs.save_extraction_log(
+    await extraction_logs.save_extraction_log(
         model_id=log.model_id,
         user_id=current_user.id if current_user else log.user_id,
         user_name=current_user.name if current_user else log.user_name,
@@ -924,7 +924,7 @@ async def save_extraction(
         user_id = current_user.id if current_user else 'unknown'
 
         # Save to extraction logs
-        log = extraction_logs.save_extraction_log(
+        log = await extraction_logs.save_extraction_log(
             model_id=request.model_id,
             user_id=user_id,
             user_name=current_user.name if current_user else "Unknown",
@@ -951,7 +951,7 @@ async def save_extraction(
         # Save error log
         try:
             user_id = current_user.id if current_user else 'unknown'
-            extraction_logs.save_extraction_log(
+            await extraction_logs.save_extraction_log(
                 model_id=request.model_id,
                 user_id=user_id,
                 user_name=current_user.name if current_user else "Unknown",
@@ -1046,10 +1046,10 @@ async def get_preview_with_guide(
         from app.core.config import settings
 
         # Get model definition
-        model = get_model_by_id(request.model_id)
+        model = await get_model_by_id(request.model_id)
         if not model:
             # Log model not found error
-            extraction_logs.save_extraction_log(
+            await extraction_logs.save_extraction_log(
                 model_id=request.model_id,
                 user_id=user_id,
                 filename=filename,
@@ -1157,7 +1157,7 @@ IMPORTANT:
 
         # Save error log for any failure
         try:
-            extraction_logs.save_extraction_log(
+            await extraction_logs.save_extraction_log(
                 model_id=request.model_id,
                 user_id=user_id,
                 filename=filename,
@@ -1252,7 +1252,7 @@ async def refine_extraction(
     """
     try:
         # 1. Get Model to determine strategy
-        model = get_model_by_id(request.model_id)
+        model = await get_model_by_id(request.model_id)
         # Default to layout if model not found or no strategy
         azure_model = getattr(model, "azure_model_id", settings.OCR_DEFAULT_MODEL) if model else settings.OCR_DEFAULT_MODEL
 
@@ -1296,7 +1296,7 @@ Return ONLY valid JSON, no markdown.
         # Save extraction log
         user_id = current_user.id if current_user else 'unknown'
 
-        extraction_logs.save_extraction_log(
+        await extraction_logs.save_extraction_log(
             model_id=request.model_id,
             user_id=user_id,
             user_name=current_user.name if current_user else "Unknown",
@@ -1322,7 +1322,7 @@ Return ONLY valid JSON, no markdown.
         try:
             user_id = current_user.id if current_user else 'unknown'
 
-            extraction_logs.save_extraction_log(
+            await extraction_logs.save_extraction_log(
                 model_id=request.model_id,
                 user_id=user_id,
                 user_name=current_user.name if current_user else "Unknown",
@@ -1348,7 +1348,7 @@ async def get_extraction_logs_by_model(
     Get extraction logs for a specific model
     """
     if await is_admin(current_user):
-        logs = extraction_logs.get_logs_by_model(model_id=model_id, limit=limit)
+        logs = await extraction_logs.get_logs_by_model(model_id=model_id, limit=limit)
     else:
         # Non-admin: only their own logs for this model
         logs = extraction_logs.get_logs_by_user(user_id=current_user.id, limit=limit)
@@ -1397,7 +1397,7 @@ async def bulk_delete_logs(
     if not await is_admin(current_user):
         # Non-admin: verify they own all logs
         for log_id in log_ids:
-            log = extraction_logs.get_log(log_id)
+            log = await extraction_logs.get_log(log_id)
             if not log or log.user_id != current_user.id:
                 raise HTTPException(
                     status_code=403,

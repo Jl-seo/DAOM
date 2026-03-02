@@ -38,7 +38,7 @@ async def create_model(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user)
 ):
-    models = load_models()
+    models = await load_models()
     new_model = ExtractionModel(
         id=str(uuid.uuid4()),
         **model_in.model_dump()
@@ -59,8 +59,8 @@ async def create_model(
     return new_model
 
 @router.get("/{model_id}", response_model=ExtractionModel, dependencies=[Depends(verify_model_access)])
-def get_model(model_id: str):
-    model = get_model_by_id(model_id)
+async def get_model(model_id: str):
+    model = await get_model_by_id(model_id)
     if not model:
         raise HTTPException(status_code=404, detail="Model not found")
     return model
@@ -73,7 +73,7 @@ async def update_model(
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """모델 업데이트"""
-    models = load_models()
+    models = await load_models()
     for i, m in enumerate(models):
         if m.id == model_id:
             # Preserve existing fields if not explicitly overridden by model_in
@@ -112,7 +112,7 @@ async def delete_model(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user)
 ):
-    models = load_models()
+    models = await load_models()
     for i, m in enumerate(models):
         if m.id == model_id:
             # Soft delete

@@ -28,14 +28,14 @@ async def seed_system_admin_group(tenant_id: str, current_user_email: str = None
 
     try:
         # Check if System Admins group exists for this tenant
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
             parameters=[
                 {"name": "@id", "value": SYSTEM_ADMIN_GROUP_ID},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if items:
             group_data = items[0]
@@ -56,7 +56,7 @@ async def seed_system_admin_group(tenant_id: str, current_user_email: str = None
                 "created_by": "system",
                 "created_at": datetime.utcnow().isoformat()
             }
-            container.create_item(body=group_data)
+            await container.create_item(body=group_data)
             logger.info(f"Created System Admins group for tenant {tenant_id}")
 
         # If current user's email is in INITIAL_ADMIN_EMAILS, add them
@@ -72,7 +72,7 @@ async def seed_system_admin_group(tenant_id: str, current_user_email: str = None
                     "displayName": current_user_name or current_user_email
                 })
                 group_data["members"] = members
-                container.upsert_item(body=group_data)
+                await container.upsert_item(body=group_data)
                 logger.info(f"Added {current_user_email} to System Admins group")
 
         return True
@@ -108,12 +108,12 @@ async def seed_default_models(tenant_id: str):
 
     try:
         # Check if any models exist
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.tenant_id = @tenant_id",
             parameters=[{"name": "@tenant_id", "value": tenant_id}],
             enable_cross_partition_query=True,
             max_item_count=1
-        ))
+        )]
 
         if items:
             return  # Models already exist
@@ -159,7 +159,7 @@ async def seed_default_models(tenant_id: str):
             ]
         }
 
-        container.upsert_item(body=invoice_model)
+        await container.upsert_item(body=invoice_model)
         logger.info(f"Seeded default 'Invoice' model for tenant {tenant_id}")
 
     except Exception as e:

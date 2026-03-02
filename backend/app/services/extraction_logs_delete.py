@@ -8,7 +8,7 @@ from app.services.extraction_logs import get_log
 
 logger = logging.getLogger(__name__)
 
-def delete_logs(log_ids: List[str]) -> int:
+async def delete_logs(log_ids: List[str]) -> int:
     """Delete multiple extraction logs by IDs"""
     container = get_extractions_container()
 
@@ -19,9 +19,9 @@ def delete_logs(log_ids: List[str]) -> int:
     for log_id in log_ids:
         try:
             # Get the log first to get the partition key (model_id)
-            log = get_log(log_id)
+            log = await get_log(log_id)
             if log:
-                container.delete_item(item=log_id, partition_key=log.model_id)
+                await container.delete_item(item=log_id, partition_key=log.model_id)
                 deleted_count += 1
                 logger.info(f"[ExtractionLogs] Deleted log {log_id}")
         except Exception as e:

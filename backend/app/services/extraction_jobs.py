@@ -42,7 +42,7 @@ class ExtractionJob(BaseModel):
     tenant_id: Optional[str] = None  # Tenant ID for multi-tenancy
 
 
-def create_job(
+async def create_job(
     model_id: str,
     user_id: str,
     filename: str,
@@ -87,7 +87,7 @@ def create_job(
     container = get_extractions_container()
     if container:
         try:
-            container.create_item(body={
+            await container.create_item(body={
                 **job.model_dump(),
                 "type": "extraction_job"
             })
@@ -97,7 +97,7 @@ def create_job(
     return job
 
 
-def get_job(job_id: str) -> Optional[ExtractionJob]:
+async def get_job(job_id: str) -> Optional[ExtractionJob]:
     """Get job by ID"""
     container = get_extractions_container()
     if not container:
@@ -105,11 +105,11 @@ def get_job(job_id: str) -> Optional[ExtractionJob]:
 
     try:
         query = "SELECT * FROM c WHERE c.id = @job_id AND c.type = 'extraction_job'"
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=[{"name": "@job_id", "value": job_id}],
             enable_cross_partition_query=True
-        ))
+        )]
         if items:
             return ExtractionJob(**items[0])
     except Exception as e:
@@ -145,11 +145,11 @@ async def update_job(
         # Get existing job
         # logger.info(f"[ExtractionJobs] update_job({job_id}): step 1 — querying job")
         query = f"SELECT * FROM c WHERE c.id = @job_id AND c.type = '{ExtractionType.JOB.value}'"
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=[{"name": "@job_id", "value": job_id}],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if not items:
             _last_update_error = f"step1: job {job_id} not found in Cosmos (type={ExtractionType.JOB.value})"
@@ -286,7 +286,7 @@ async def update_job(
 
         # Upsert
         try:
-            container.upsert_item(body=job_data)
+            await container.upsert_item(body=job_data)
         except Exception as upsert_err:
             # Fallback for 413 if offloading failed or wasn't enough
             err_str = str(upsert_err)
@@ -297,7 +297,7 @@ async def update_job(
                 job_data["extracted_data"] = None
                 job_data["debug_data"] = None
                 job_data["error"] = f"CRITICAL: Result too large even after offloading. {str(upsert_err)}" + (job_data.get("error") or "")
-                container.upsert_item(body=job_data)
+                await container.upsert_item(body=job_data)
             else:
                 raise upsert_err
 
@@ -316,7 +316,7 @@ async def update_job(
             try:
                 from app.services import extraction_logs
                 log_id_to_update = job.original_log_id or job.log_id
-                extraction_logs.update_log_status(
+                await extraction_logs.update_log_status(
                     log_id_to_update,
                     status=status,
                     preview_data=preview_data,
@@ -337,7 +337,7 @@ async def update_job(
     return None
 
 
-def get_jobs_by_model(model_id: str, limit: int = 50) -> List[ExtractionJob]:
+async def get_jobs_by_model(model_id: str, limit: int = 50) -> List[ExtractionJob]:
     """Get all jobs for a model"""
     container = get_extractions_container()
     if not container:
@@ -351,14 +351,14 @@ def get_jobs_by_model(model_id: str, limit: int = 50) -> List[ExtractionJob]:
             ORDER BY c.created_at DESC
             OFFSET 0 LIMIT @limit
         """
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=[
                 {"name": "@model_id", "value": model_id},
                 {"name": "@limit", "value": limit}
             ],
             enable_cross_partition_query=True
-        ))
+        )]
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
         logger.error(f"[ExtractionJobs] Failed to get jobs: {e}")
@@ -366,7 +366,7 @@ def get_jobs_by_model(model_id: str, limit: int = 50) -> List[ExtractionJob]:
     return []
 
 
-def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 50) -> List[ExtractionJob]:
+async def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 50) -> List[ExtractionJob]:
     """Get jobs for a specific model and user"""
     container = get_extractions_container()
     if not container:
@@ -381,7 +381,7 @@ def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 50) -> 
             ORDER BY c.created_at DESC
             OFFSET 0 LIMIT @limit
         """
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=[
                 {"name": "@model_id", "value": model_id},
@@ -389,7 +389,7 @@ def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 50) -> 
                 {"name": "@limit", "value": limit}
             ],
             enable_cross_partition_query=True
-        ))
+        )]
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
         logger.error(f"[ExtractionJobs] Failed to get model user jobs: {e}")
@@ -397,7 +397,7 @@ def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 50) -> 
     return []
 
 
-def get_jobs_by_user(user_id: str, limit: int = 50, tenant_id: Optional[str] = None) -> List[ExtractionJob]:
+async def get_jobs_by_user(user_id: str, limit: int = 50, tenant_id: Optional[str] = None) -> List[ExtractionJob]:
     """Get all jobs for a user, enforcing tenant isolation"""
     container = get_extractions_container()
     if not container:
@@ -420,11 +420,11 @@ def get_jobs_by_user(user_id: str, limit: int = 50, tenant_id: Optional[str] = N
 
         query += " ORDER BY c.created_at DESC OFFSET 0 LIMIT @limit"
 
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=True
-        ))
+        )]
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
         logger.error(f"[ExtractionJobs] Failed to get user jobs: {e}")
@@ -432,7 +432,7 @@ def get_jobs_by_user(user_id: str, limit: int = 50, tenant_id: Optional[str] = N
     return []
 
 
-def get_latest_job_by_log_id(log_id: str) -> Optional[ExtractionJob]:
+async def get_latest_job_by_log_id(log_id: str) -> Optional[ExtractionJob]:
     """Get the most recent job associated with a log via original_log_id"""
     container = get_extractions_container()
     if not container:
@@ -445,11 +445,11 @@ def get_latest_job_by_log_id(log_id: str) -> Optional[ExtractionJob]:
             AND c.type = 'extraction_job'
             ORDER BY c.created_at DESC
         """
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=[{"name": "@log_id", "value": log_id}],
             enable_cross_partition_query=True
-        ))
+        )]
         if items:
             return ExtractionJob(**items[0])
     except Exception as e:
@@ -458,7 +458,7 @@ def get_latest_job_by_log_id(log_id: str) -> Optional[ExtractionJob]:
     return None
 
 
-def delete_job(job_id: str) -> bool:
+async def delete_job(job_id: str) -> bool:
     """Delete a job or log permanently by ID"""
     container = get_extractions_container()
     if not container:
@@ -468,11 +468,11 @@ def delete_job(job_id: str) -> bool:
         # Find item by ID to get partition key (model_id)
         # We query without type restriction to handle both Jobs and Logs
         query = "SELECT * FROM c WHERE c.id = @id"
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=[{"name": "@id", "value": job_id}],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if not items:
             return False
@@ -487,7 +487,7 @@ def delete_job(job_id: str) -> bool:
              logger.info(f"[ExtractionJobs] Item {job_id} has no model_id partition key.")
              return False
 
-        container.delete_item(item=job_id, partition_key=partition_key)
+        await container.delete_item(item=job_id, partition_key=partition_key)
         return True
     except Exception as e:
         logger.error(f"[ExtractionJobs] Failed to delete item {job_id}: {e}")
@@ -506,7 +506,7 @@ async def cancel_job(job_id: str) -> Optional[ExtractionJob]:
         from app.services import extraction_logs
         log_id_to_update = job.original_log_id or job.log_id
         try:
-            extraction_logs.update_log_status(
+            await extraction_logs.update_log_status(
                 log_id_to_update,
                 status=ExtractionStatus.CANCELLED.value
             )

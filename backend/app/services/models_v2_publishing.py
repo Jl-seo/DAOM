@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-def get_active_models_v2(tenant_id: Optional[str] = None) -> List[VersionedExtractionModel]:
+async def get_active_models_v2(tenant_id: Optional[str] = None) -> List[VersionedExtractionModel]:
     """
     Get all models that are either explicitly PUBLISHED or legacy (no status).
     Performs Lazy Migration on the fly.
@@ -34,11 +34,11 @@ def get_active_models_v2(tenant_id: Optional[str] = None) -> List[VersionedExtra
             # but we can add placeholders. Let's stick to the current schema.
             pass
 
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=True
-        ))
+        )]
 
         v2_models = []
         for item in items:
@@ -55,11 +55,11 @@ def get_active_models_v2(tenant_id: Optional[str] = None) -> List[VersionedExtra
         return []
 
 
-def create_draft_v2(parent_model_id: str) -> Optional[VersionedExtractionModel]:
+async def create_draft_v2(parent_model_id: str) -> Optional[VersionedExtractionModel]:
     """
     Creates a new DRAFT clone of an existing model.
     """
-    parent_model = get_model_by_id(parent_model_id)
+    parent_model = await get_model_by_id(parent_model_id)
     if not parent_model:
         return None
 
@@ -94,15 +94,15 @@ def create_draft_v2(parent_model_id: str) -> Optional[VersionedExtractionModel]:
     # OR we can just use the cosmos container directly here. Let's use it directly to keep it clean.
     container = get_models_container()
     if container:
-        container.upsert_item(new_draft.model_dump())
+        await container.upsert_item(new_draft.model_dump())
         logger.info(f"[ModelsV2] Created DRAFT {new_draft.id} from {parent_model_id}")
         return new_draft
     return None
 
 
-def get_model_v2(model_id: str) -> Optional[VersionedExtractionModel]:
+async def get_model_v2(model_id: str) -> Optional[VersionedExtractionModel]:
     """Get a model as V2 schema, filling in legacy gaps dynamically"""
-    legacy_model = get_model_by_id(model_id)
+    legacy_model = await get_model_by_id(model_id)
     if not legacy_model:
         return None
         
@@ -114,7 +114,7 @@ def get_model_v2(model_id: str) -> Optional[VersionedExtractionModel]:
     return VersionedExtractionModel(**m_dict)
 
 
-def publish_model_v2(draft_model_id: str, changelog: str) -> Optional[VersionedExtractionModel]:
+async def publish_model_v2(draft_model_id: str, changelog: str) -> Optional[VersionedExtractionModel]:
     """
     Promote a DRAFT to PUBLISHED. 
     If it has a parent_model_id, that parent gets ARCHIVED.
@@ -133,7 +133,7 @@ def publish_model_v2(draft_model_id: str, changelog: str) -> Optional[VersionedE
         if parent:
             parent_dict = parent.model_dump()
             parent_dict["status"] = "ARCHIVED"
-            container.upsert_item(parent_dict)
+            await container.upsert_item(parent_dict)
             logger.info(f"[ModelsV2] Archived parent model {parent.id}")
 
     # Generate published version (remove -draft suffix)
@@ -147,7 +147,7 @@ def publish_model_v2(draft_model_id: str, changelog: str) -> Optional[VersionedE
     draft_dict["changelog"] = changelog
     draft_dict["updated_at"] = _now()
 
-    container.upsert_item(draft_dict)
+    await container.upsert_item(draft_dict)
     logger.info(f"[ModelsV2] Published model {draft_model_id}")
     
     return VersionedExtractionModel(**draft_dict)

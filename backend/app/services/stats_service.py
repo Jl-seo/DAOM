@@ -9,7 +9,7 @@ from app.core.enums import ExtractionStatus
 
 logger = logging.getLogger(__name__)
 
-def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
+async def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
     """
     Get aggregated statistics for the dashboard
     """
@@ -18,8 +18,8 @@ def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
         # Note: In a production scenario with millions of logs,
         # this should be replaced with a proper Cosmos DB aggregate query
         # or a dedicated analytics store.
-        logs = extraction_logs.get_all_logs(limit=1000)
-        all_models = models.load_models()
+        logs = await extraction_logs.get_all_logs(limit=1000)
+        all_models = await models.load_models()
         model_map = {m.id: m.name for m in all_models}
 
         # Initialize counters

@@ -48,7 +48,7 @@ class ExtractionLog(BaseModel):
         return v or "unknown"
 
 
-def save_extraction_log(
+async def save_extraction_log(
     model_id: str,
     user_id: str,
     filename: str,
@@ -82,7 +82,7 @@ def save_extraction_log(
     existing_created_at = None
     if log_id:
         try:
-            existing = get_log(log_id)
+            existing = await get_log(log_id)
             if existing:
                 existing_created_at = existing.created_at
         except Exception:
@@ -179,28 +179,11 @@ def save_extraction_log(
             
             return target_dict
 
-        # Use an asyncio event loop workaround if we are inside a sync function but need to call async Blob storage
+        # Blob offloading — now fully async, no threading workaround needed
         if payload_size > THRESHOLD_BYTES:
-            try:
-                loop = asyncio.get_running_loop()
-                # Run as async task if loop exists. Since save_extraction_log is synchronous,
-                # use threading to run the new loop safely without nest_asyncio.
-                result_container = []
-                def _run_in_thread():
-                    res = asyncio.run(_offload_data_if_needed(log_dict, log.id))
-                    result_container.append(res)
-                
-                import threading
-                t = threading.Thread(target=_run_in_thread)
-                t.start()
-                t.join()
-                if result_container:
-                    log_dict = result_container[0]
-            except RuntimeError:
-                # No loop running, straight asyncio.run
-                log_dict = asyncio.run(_offload_data_if_needed(log_dict, log.id))
+            log_dict = await _offload_data_if_needed(log_dict, log.id)
 
-        container.upsert_item(log_dict)
+        await container.upsert_item(log_dict)
         logger.info(f"[ExtractionLogs] Saved log {log.id} (Overwrite: {bool(log_id)}) for user {user_id}, model {model_id}, llm={llm_model}")
 
         # Log to Audit System
@@ -262,7 +245,7 @@ def save_extraction_log(
                     "ip_address": "system",
                     "user_agent": "DaomBackend/ExtractionLogs"
                  }
-                 audit_container.create_item(body=audit_entry)
+                 await audit_container.create_item(body=audit_entry)
         except Exception as audit_e:
             logger.error(f"[ExtractionLogs] Audit log failed: {audit_e}")
 
@@ -273,7 +256,7 @@ def save_extraction_log(
 
 
 
-def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
+async def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
     """Get extraction logs for a specific model, enforcing tenant isolation"""
     container = get_extractions_container()
 
@@ -301,18 +284,18 @@ def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] =
 
         query += " ORDER BY c.created_at DESC"
 
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=False
-        ))
+        )]
         return [ExtractionLog(**item) for item in items]
     except Exception as e:
         logger.error(f"[ExtractionLogs] Query failed: {e}")
         return []
 
 
-def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
+async def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
     """Get all recent extraction logs, enforcing tenant isolation"""
     container = get_extractions_container()
 
@@ -336,18 +319,18 @@ def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> List[Extr
 
         query += " ORDER BY c.created_at DESC"
 
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=True
-        ))
+        )]
         return [ExtractionLog(**item) for item in items]
     except Exception as e:
         logger.error(f"[ExtractionLogs] Query failed: {e}")
         return []
 
 
-def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
+async def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
     """Get extraction logs for a specific user, enforcing tenant isolation"""
     container = get_extractions_container()
 
@@ -372,18 +355,18 @@ def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[str] = 
 
         query += " ORDER BY c.created_at DESC"
 
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
             enable_cross_partition_query=True
-        ))
+        )]
         return [ExtractionLog(**item) for item in items]
     except Exception as e:
         logger.error(f"[ExtractionLogs] Query failed: {e}")
         return []
 
 
-def get_log_by_id(log_id: str, model_id: str) -> Optional[ExtractionLog]:
+async def get_log_by_id(log_id: str, model_id: str) -> Optional[ExtractionLog]:
     """Get a single log by ID"""
     container = get_extractions_container()
 
@@ -391,14 +374,14 @@ def get_log_by_id(log_id: str, model_id: str) -> Optional[ExtractionLog]:
         return None
 
     try:
-        item = container.read_item(item=log_id, partition_key=model_id)
+        item = await container.read_item(item=log_id, partition_key=model_id)
         return ExtractionLog(**item)
     except Exception as e:
         logger.warning(f"[ExtractionLogs] get_log_by_model({log_id}) failed: {e}")
         return None
 
 
-def get_log(log_id: str) -> Optional[ExtractionLog]:
+async def get_log(log_id: str) -> Optional[ExtractionLog]:
     """Get log by ID via query (useful when partition key is unknown)"""
     container = get_extractions_container()
 
@@ -407,11 +390,11 @@ def get_log(log_id: str) -> Optional[ExtractionLog]:
 
     try:
         query = "SELECT * FROM c WHERE c.id = @id AND (NOT IS_DEFINED(c.type) OR c.type = 'extraction_log')"
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query=query,
             parameters=[{"name": "@id", "value": log_id}],
             enable_cross_partition_query=True
-        ))
+        )]
         if items:
             return ExtractionLog(**items[0])
         return None
@@ -420,7 +403,7 @@ def get_log(log_id: str) -> Optional[ExtractionLog]:
         return None
 
 
-def update_log_status(
+async def update_log_status(
     log_id: str,
     status: str,
     preview_data: Optional[dict] = None,
@@ -437,7 +420,7 @@ def update_log_status(
 
     try:
         # Get existing log
-        log = get_log(log_id)
+        log = await get_log(log_id)
         if not log:
             logger.warning(f"[ExtractionLogs] Log {log_id} not found for status update")
             return False
@@ -536,26 +519,11 @@ def update_log_status(
             
             return target_dict
 
-        # Attempt to run Blob Upload
+        # Blob offloading — now fully async, no threading workaround needed
         if payload_size > THRESHOLD_BYTES:
-            try:
-                loop = asyncio.get_running_loop()
-                # Already in an event loop. Spawn a thread to block and run the new loop safely.
-                result_container = []
-                def _run_in_thread():
-                    res = asyncio.run(_offload_data_if_needed(log_dict, log.id))
-                    result_container.append(res)
-                
-                t = threading.Thread(target=_run_in_thread)
-                t.start()
-                t.join()
-                if result_container:
-                    log_dict = result_container[0]
-            except RuntimeError:
-                # No event loop is running
-                log_dict = asyncio.run(_offload_data_if_needed(log_dict, log.id))
+            log_dict = await _offload_data_if_needed(log_dict, log.id)
 
-        container.upsert_item(log_dict)
+        await container.upsert_item(log_dict)
         logger.info(f"[ExtractionLogs] Updated log {log_id} status to {status}")
         return True
     except Exception as e:
@@ -563,7 +531,7 @@ def update_log_status(
         return False
 
 
-def delete_logs(log_ids: List[str]) -> int:
+async def delete_logs(log_ids: List[str]) -> int:
     """Delete multiple extraction logs by IDs"""
     container = get_extractions_container()
 
@@ -574,9 +542,9 @@ def delete_logs(log_ids: List[str]) -> int:
     for log_id in log_ids:
         try:
             # Get the log first to get the partition key (model_id)
-            log = get_log(log_id)
+            log = await get_log(log_id)
             if log:
-                container.delete_item(item=log_id, partition_key=log.model_id)
+                await container.delete_item(item=log_id, partition_key=log.model_id)
                 deleted_count += 1
                 logger.info(f"[ExtractionLogs] Deleted log {log_id}")
         except Exception as e:

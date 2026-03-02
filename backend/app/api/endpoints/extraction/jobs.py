@@ -132,7 +132,7 @@ async def start_job_with_upload(
     primary_filename = filenames[0]
 
     # Create extraction log
-    log = extraction_logs.save_extraction_log(
+    log = await extraction_logs.save_extraction_log(
         model_id=model_id,
         user_id=current_user.id if current_user else "unknown",
         user_name=current_user.name if current_user else None,
@@ -146,7 +146,7 @@ async def start_job_with_upload(
     )
 
     # Create extraction job linked to log
-    job = extraction_jobs.create_job(
+    job = await extraction_jobs.create_job(
         model_id=model_id,
         user_id=current_user.id if current_user else "unknown",
         user_name=current_user.name if current_user else None,
@@ -161,7 +161,7 @@ async def start_job_with_upload(
 
     # Update log to reference job
     if log:
-        extraction_logs.save_extraction_log(
+        await extraction_logs.save_extraction_log(
             model_id=model_id,
             user_id=current_user.id if current_user else "unknown",
             user_name=current_user.name if current_user else None,
@@ -196,12 +196,12 @@ async def start_job_with_upload(
 
 
 @router.get("/log/{log_id}/job")
-def get_latest_job_for_log(
+async def get_latest_job_for_log(
     log_id: str,
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Get the most recent job associated with a log"""
-    job = extraction_jobs.get_latest_job_by_log_id(log_id)
+    job = await extraction_jobs.get_latest_job_by_log_id(log_id)
     if not job:
         raise HTTPException(status_code=404, detail="No active job found for this log")
 
@@ -219,7 +219,7 @@ async def get_job_status(
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Get job status for polling — hydrates offloaded data from Blob Storage"""
-    job = extraction_jobs.get_job(job_id)
+    job = await extraction_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -245,12 +245,12 @@ async def get_job_status(
 
 
 @router.delete("/job/{job_id}")
-def delete_extraction_job(
+async def delete_extraction_job(
     job_id: str,
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Delete a job"""
-    success = extraction_jobs.delete_job(job_id)
+    success = await extraction_jobs.delete_job(job_id)
     if not success:
         raise HTTPException(status_code=404, detail="Job not found or delete failed")
     return {"status": "deleted"}
@@ -289,19 +289,19 @@ async def get_jobs(
         has_permission = await check_model_permission(current_user, model_id, "Admin")
 
         if has_permission:
-            jobs = extraction_jobs.get_jobs_by_model(model_id, limit=limit)
+            jobs = await extraction_jobs.get_jobs_by_model(model_id, limit=limit)
         else:
             # Fallback to mine if no permission for team view
-            jobs = extraction_jobs.get_jobs_by_model_and_user(model_id, current_user.id, limit=limit)
+            jobs = await extraction_jobs.get_jobs_by_model_and_user(model_id, current_user.id, limit=limit)
 
     # 2. Mine View (My jobs in specific model)
     elif model_id:
-        jobs = extraction_jobs.get_jobs_by_model_and_user(model_id, current_user.id, limit=limit)
+        jobs = await extraction_jobs.get_jobs_by_model_and_user(model_id, current_user.id, limit=limit)
 
     # 3. Global My View (All my jobs across models)
     else:
         tenant_id = current_user.tenant_id if current_user else None
-        jobs = extraction_jobs.get_jobs_by_user(
+        jobs = await extraction_jobs.get_jobs_by_user(
             current_user.id if current_user else "unknown",
             limit=limit,
             tenant_id=tenant_id
@@ -340,7 +340,7 @@ async def retry_extraction(
     For comparison models, preserves candidate_file_urls from the original job.
     """
     # 1. Get original log
-    log = extraction_logs.get_log(log_id)
+    log = await extraction_logs.get_log(log_id)
     if not log:
         raise HTTPException(status_code=404, detail="Extraction log not found")
 
@@ -348,12 +348,12 @@ async def retry_extraction(
         raise HTTPException(status_code=400, detail="Original file URL not found in log")
 
     # 2. Check model existence
-    model = get_model_by_id(log.model_id)
+    model = await get_model_by_id(log.model_id)
     if not model:
          raise HTTPException(status_code=404, detail=f"Model {log.model_id} not found")
 
     # 3. Get previous job to recover candidate_file_urls (for comparison models)
-    previous_job = extraction_jobs.get_latest_job_by_log_id(log_id)
+    previous_job = await extraction_jobs.get_latest_job_by_log_id(log_id)
     candidate_file_urls = None
     candidate_file_url = None
     if previous_job:
@@ -362,7 +362,7 @@ async def retry_extraction(
         logger.info(f"[Retry] Recovered candidate_file_urls from previous job: {len(candidate_file_urls) if candidate_file_urls else 0} files")
 
     # 4. Create new job with reference to original log AND preserved candidate files
-    job = extraction_jobs.create_job(
+    job = await extraction_jobs.create_job(
         model_id=log.model_id,
         user_id=current_user.id if current_user else "unknown",
         filename=log.filename,
@@ -374,7 +374,7 @@ async def retry_extraction(
     )
 
     # 5. Update original log status to pending AND update job_id
-    extraction_logs.save_extraction_log(
+    await extraction_logs.save_extraction_log(
         model_id=log.model_id,
         user_id=current_user.id if current_user else log.user_id,
         user_name=current_user.name if current_user else log.user_name,

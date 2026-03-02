@@ -14,7 +14,7 @@ try:
     from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
     from app.core.config import settings
     from app.api.api import api_router
-    from app.db.cosmos import init_cosmos
+    from app.db.cosmos import init_cosmos, close_cosmos
     from app.services import startup_service
     from app.core.rate_limit import setup_rate_limiting
 
@@ -59,7 +59,7 @@ try:
     async def startup_event():
         """Initialize connections and seed data on startup"""
         try:
-            init_cosmos()
+            await init_cosmos()
             # Run startup tasks (seed menus, create System Admins group, etc.)
             # OPTIMIZATION: Run in background to prevent Container App Startup Probe timeout
             import asyncio
@@ -68,6 +68,11 @@ try:
             logging.error(f"CRITICAL: Startup failed: {e}")
             # Do not raise exception to keep container running for debugging
             # Forced redeploy trigger: 2026-01-06 08:30
+
+    @app.on_event("shutdown")
+    async def shutdown_event():
+        """Close async connections on shutdown"""
+        await close_cosmos()
 
     @app.get("/")
     def root():

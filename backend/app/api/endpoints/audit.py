@@ -34,7 +34,7 @@ class AuditLogsListResponse(BaseModel):
 
 
 @router.get("/", response_model=AuditLogsListResponse)
-def list_audit_logs(
+async def list_audit_logs(
     user: CurrentUser = Depends(require_admin),
     user_id: Optional[str] = Query(None, description="Filter by user ID"),
     resource_type: Optional[str] = Query(None, description="Filter by resource type"),
@@ -59,7 +59,7 @@ def list_audit_logs(
     target_model_ids = None
     if not is_super_admin(user):
         # Model Admin: Filter logs by accessible groups
-        all_models = models.load_models()
+        all_models = await models.load_models()
         user_groups = set(user.groups or [])
 
         # Find models where allowedGroups intersects with user's groups

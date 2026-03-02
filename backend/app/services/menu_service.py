@@ -53,11 +53,11 @@ async def seed_menus(tenant_id: str) -> bool:
 
     try:
         # Check if menus exist
-        existing = list(container.query_items(
+        existing = [item async for item in container.query_items(
             query="SELECT c.id FROM c WHERE c.tenant_id = @tenant_id",
             parameters=[{"name": "@tenant_id", "value": tenant_id}],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if len(existing) > 0:
             return True  # Already seeded
@@ -68,7 +68,7 @@ async def seed_menus(tenant_id: str) -> bool:
                 **menu_data,
                 "tenant_id": tenant_id
             }
-            container.create_item(body=menu_doc)
+            await container.create_item(body=menu_doc)
 
         logger.info(f"Seeded {len(DEFAULT_MENUS)} menus for tenant {tenant_id}")
         return True
@@ -92,11 +92,11 @@ async def get_all_menus(tenant_id: str) -> list[Menu]:
         # Seed if needed
         await seed_menus(tenant_id)
 
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.tenant_id = @tenant_id ORDER BY c.order",
             parameters=[{"name": "@tenant_id", "value": tenant_id}],
             enable_cross_partition_query=True
-        ))
+        )]
         return [Menu.from_dict(item) for item in items]
 
     except Exception as e:
@@ -151,7 +151,7 @@ async def create_menu(
             parent=parent
         )
         doc = {**menu.to_dict(), "tenant_id": tenant_id}
-        container.create_item(body=doc)
+        await container.create_item(body=doc)
         return menu
 
     except Exception as e:
@@ -166,14 +166,14 @@ async def update_menu(menu_id: str, tenant_id: str, name: str = None, icon: str 
         return False
 
     try:
-        items = list(container.query_items(
+        items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id AND c.tenant_id = @tenant_id",
             parameters=[
                 {"name": "@id", "value": menu_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
             enable_cross_partition_query=True
-        ))
+        )]
 
         if not items:
             return False
@@ -186,7 +186,7 @@ async def update_menu(menu_id: str, tenant_id: str, name: str = None, icon: str 
         if order is not None:
             doc["order"] = order
 
-        container.upsert_item(body=doc)
+        await container.upsert_item(body=doc)
         return True
 
     except Exception as e:

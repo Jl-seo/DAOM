@@ -1,5 +1,5 @@
 """
-Models Service - Manages extraction models in Azure Cosmos DB
+Models Service - Manages extraction models in Azure Cosmos DB (Async)
 
 Falls back to local JSON file if Cosmos DB is not configured.
 """
@@ -36,7 +36,7 @@ def _save_models_to_json(models: List[ExtractionModel]):
         json.dump([model.model_dump() for model in models], f, indent=2)
 
 
-def load_models() -> List[ExtractionModel]:
+async def load_models() -> List[ExtractionModel]:
     """Load all models from Cosmos DB or JSON fallback"""
     container = get_models_container()
 
@@ -45,7 +45,7 @@ def load_models() -> List[ExtractionModel]:
         return _load_models_from_json()
 
     try:
-        items = list(container.read_all_items())
+        items = [item async for item in container.read_all_items()]
         logger.info(f"[Models] Loaded {len(items)} models from Cosmos DB")
         return [ExtractionModel(**item) for item in items]
     except Exception as e:
@@ -53,7 +53,7 @@ def load_models() -> List[ExtractionModel]:
         return _load_models_from_json()
 
 
-def save_model(model: ExtractionModel) -> ExtractionModel:
+async def save_model(model: ExtractionModel) -> ExtractionModel:
     """Save or update a model in Cosmos DB"""
     container = get_models_container()
 
@@ -70,7 +70,7 @@ def save_model(model: ExtractionModel) -> ExtractionModel:
 
     try:
         model_dict = model.model_dump()
-        container.upsert_item(model_dict)
+        await container.upsert_item(model_dict)
         logger.info(f"[Models] Saved model {model.id} to Cosmos DB")
         return model
     except Exception as e:
@@ -78,7 +78,7 @@ def save_model(model: ExtractionModel) -> ExtractionModel:
         raise e
 
 
-def create_model(model_data: ExtractionModelCreate) -> ExtractionModel:
+async def create_model(model_data: ExtractionModelCreate) -> ExtractionModel:
     """Create a new model"""
     model = ExtractionModel(
         id=str(uuid.uuid4()),
@@ -86,12 +86,12 @@ def create_model(model_data: ExtractionModelCreate) -> ExtractionModel:
         created_at=datetime.utcnow().isoformat(),
         updated_at=datetime.utcnow().isoformat()
     )
-    return save_model(model)
+    return await save_model(model)
 
 
-def update_model(model_id: str, model_data: dict) -> Optional[ExtractionModel]:
+async def update_model(model_id: str, model_data: dict) -> Optional[ExtractionModel]:
     """Update an existing model"""
-    existing = get_model_by_id(model_id)
+    existing = await get_model_by_id(model_id)
     if not existing:
         return None
 
@@ -100,10 +100,10 @@ def update_model(model_id: str, model_data: dict) -> Optional[ExtractionModel]:
     updated_dict["updated_at"] = datetime.utcnow().isoformat()
 
     model = ExtractionModel(**updated_dict)
-    return save_model(model)
+    return await save_model(model)
 
 
-def get_model_by_id(model_id: str) -> Optional[ExtractionModel]:
+async def get_model_by_id(model_id: str) -> Optional[ExtractionModel]:
     """Get a single model by ID"""
     container = get_models_container()
 
@@ -115,14 +115,14 @@ def get_model_by_id(model_id: str) -> Optional[ExtractionModel]:
         return None
 
     try:
-        item = container.read_item(item=model_id, partition_key=model_id)
+        item = await container.read_item(item=model_id, partition_key=model_id)
         return ExtractionModel(**item)
     except Exception as e:
         logger.warning(f"[Models] get_model_by_id({model_id}) failed: {e}")
         return None
 
 
-def delete_model(model_id: str) -> bool:
+async def delete_model(model_id: str) -> bool:
     """Delete a model by ID"""
     container = get_models_container()
 
@@ -136,7 +136,7 @@ def delete_model(model_id: str) -> bool:
         return False
 
     try:
-        container.delete_item(item=model_id, partition_key=model_id)
+        await container.delete_item(item=model_id, partition_key=model_id)
         logger.info(f"[Models] Deleted model {model_id}")
         return True
     except Exception as e:
@@ -145,7 +145,7 @@ def delete_model(model_id: str) -> bool:
 
 
 # Legacy function for backward compatibility
-def save_models(models: List[ExtractionModel]):
+async def save_models(models: List[ExtractionModel]):
     """Bulk save models (for migration)"""
     for model in models:
-        save_model(model)
+        await save_model(model)

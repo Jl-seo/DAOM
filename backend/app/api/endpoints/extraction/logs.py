@@ -27,7 +27,7 @@ async def get_extraction_logs_by_model(
     """
     # Fix IDOR: Enforce tenant isolation
     tenant_id = current_user.tenant_id if current_user else None
-    logs = extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
+    logs = await extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
 
     # Enterprise Hardening: Audit bulk data access for exfiltration detection
     await log_action(
@@ -57,9 +57,9 @@ async def get_all_extraction_logs(
     tenant_id = current_user.tenant_id if current_user else None
 
     if model_id:
-        logs = extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
+        logs = await extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
     else:
-        logs = extraction_logs.get_all_logs(limit=limit, tenant_id=tenant_id)
+        logs = await extraction_logs.get_all_logs(limit=limit, tenant_id=tenant_id)
 
     # Enterprise Hardening: Audit bulk data access for exfiltration detection
     await log_action(
@@ -93,10 +93,10 @@ async def get_extraction_log(
     """
     Get a single extraction log with full data (hydrated from Blob)
     """
-    log = extraction_logs.get_log_by_id(log_id, model_id)
+    log = await extraction_logs.get_log_by_id(log_id, model_id)
     if not log:
         # Try without model_id just in case (fallback)
-        log = extraction_logs.get_log(log_id)
+        log = await extraction_logs.get_log(log_id)
         if not log:
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Log not found")

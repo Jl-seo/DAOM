@@ -39,7 +39,7 @@ class ExtractionService:
 
         # 1. Get Model
         try:
-            model = get_model_by_id(model_id)
+            model = await get_model_by_id(model_id)
         except Exception as e:
             logger.error(f"[Extraction] Model not found: {e}")
             return {"error": f"Model {model_id} not found"}
