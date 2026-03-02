@@ -65,9 +65,11 @@ class BetaPipeline(ExtractionPipeline):
         is_excel = ocr_data.get("_is_direct_markdown", False)
         
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
-        SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else 50_000
-        # Increased PDF chunk limit to 15,000 to maintain single-table context, since config supports 32,768 output tokens.
         TEXT_CHUNK_SIZE = 150_000 if is_excel else 15_000
+        # SINGLE_SHOT_CHAR_LIMIT must equal TEXT_CHUNK_SIZE for PDF to ensure proper chunking.
+        # Previously 50,000 for PDF, which caused 15K-50K documents to bypass chunking and
+        # trigger LLM lazy completion (outputting only ~20 rows of large tables).
+        SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else TEXT_CHUNK_SIZE
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
             logger.info("[BetaPipeline] Route: Single-Shot Engineer")
@@ -325,17 +327,13 @@ class BetaPipeline(ExtractionPipeline):
                 valid_chunks[f"chunk_{idx}"] = extracted_data
 
         if not valid_chunks:
+            logger.warning(f"[BetaPipeline] All {len(results)} chunks returned empty results. No data extracted.")
             return {"guide_extracted": {}, "_token_usage": total_usage, "_truncated": any_truncated}
 
-        # If only 1 valid chunk returned, no need to aggregate
-        if len(valid_chunks) == 1:
-            logger.info("[BetaPipeline] Only 1 valid chunk returned. Skipping Aggregator.")
-            single_chunk_data = list(valid_chunks.values())[0]
-            return {
-                "guide_extracted": single_chunk_data,
-                "_token_usage": total_usage,
-                "_truncated": any_truncated
-            }
+        # Always run the Aggregator to safely merge list fields via append.
+        # Previously, len(valid_chunks)==1 bypassed aggregation, silently dropping
+        # data from other chunks that failed or returned empty.
+        logger.info(f"[BetaPipeline] Aggregating {len(valid_chunks)} valid chunks (out of {len(results)} total).")
 
         # If >1 chunks, run the Aggregator LLM (Phase 3)
         agg_result = await self._run_aggregator(work_order, valid_chunks)
@@ -1048,15 +1046,24 @@ class BetaPipeline(ExtractionPipeline):
             }
         
         content = response.choices[0].message.content
+        finish_reason = getattr(response.choices[0], "finish_reason", "stop")
+        
         try:
             result = json.loads(content)
         except json.JSONDecodeError as e:
-            logger.error(f"[BetaPipeline] JSON Decode Error: {e}. Content-Length: {len(content)}")
+            logger.error(f"[BetaPipeline] JSON Decode Error: {e}. Content-Length: {len(content)}, finish_reason: {finish_reason}")
             result = {
                 "guide_extracted": {}, 
                 "error": f"LLM Output Malformed: {str(e)}", 
                 "_raw_llm_content": content
             }
+        
+        # Detect LLM output truncation: if finish_reason is 'length', the output
+        # was cut off by max_completion_tokens. Flag it so the pipeline can fall back
+        # to chunked extraction or per-table extraction.
+        if finish_reason == "length":
+            logger.warning(f"[BetaPipeline] LLM output truncated (finish_reason='length'). Setting _truncated=True.")
+            result["_truncated"] = True
         
         usage = response.usage
         if usage:
