@@ -21,3 +21,7 @@ api_router.include_router(comparison.router, prefix="/comparison", tags=["compar
 
 # Power Automate Custom Connector
 api_router.include_router(power_automate.router, prefix="/connectors", tags=["Power Automate Connector"])
+
+# Dictionary Engine
+from app.api.endpoints import dictionaries
+api_router.include_router(dictionaries.router, prefix="/dictionaries", tags=["dictionaries"])

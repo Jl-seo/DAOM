@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     AZURE_STORAGE_CONNECTION_STRING: str = ""
     AZURE_CONTAINER_NAME: str = "documents"
 
+    # Azure AI Search (for Dictionary Engine)
+    AZURE_SEARCH_ENDPOINT: str = ""
+    AZURE_SEARCH_KEY: str = ""
+
     # Azure Cosmos DB
     COSMOS_ENDPOINT: str = ""
     COSMOS_KEY: str = ""

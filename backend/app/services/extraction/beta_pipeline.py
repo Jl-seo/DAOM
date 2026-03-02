@@ -93,6 +93,19 @@ class BetaPipeline(ExtractionPipeline):
             engineer_output, ref_map
         )
         
+        # --- 4a. Dictionary Auto-Normalization ---
+        if model.dictionaries:
+            try:
+                from app.services.extraction.index_engine import IndexEngine
+                index_engine = IndexEngine()
+                guide_data = final_guide.get("guide_extracted", {})
+                final_guide["guide_extracted"] = await index_engine.normalize(
+                    guide_data, model.dictionaries
+                )
+                logger.info(f"[BetaPipeline] Dictionary normalization applied for categories: {model.dictionaries}")
+            except Exception as e:
+                logger.warning(f"[BetaPipeline] Dictionary normalization skipped: {e}")
+        
         # --- 4b. Extract unmapped_critical_info → other_data ---
         other_data = []
         processed_guide = final_guide.get("guide_extracted", {})

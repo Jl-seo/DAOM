@@ -56,6 +56,7 @@ export interface Model {
     comparison_settings?: ComparisonSettings
     excel_columns?: ExcelExportColumn[]
     beta_features?: BetaFeatures
+    dictionaries?: string[]  // Dictionary categories for auto-normalization (e.g., ["port", "charge"])
 }
 
 /**

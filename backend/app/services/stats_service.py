@@ -44,7 +44,8 @@ def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
                 "filename": log.filename,
                 "status": log.status,
                 "timestamp": log.created_at,
-                "user": log.user_name or log.user_email or "Unknown"
+                "user": log.user_name or log.user_email or "Unknown",
+                "token_usage": log.token_usage
             }
             for log in logs[:5]
         ]

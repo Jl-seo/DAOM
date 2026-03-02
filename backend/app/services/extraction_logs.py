@@ -219,9 +219,9 @@ def save_extraction_log(
 
             audit_action = AuditAction.CREATE if not log_id else AuditAction.UPDATE
             if status == ExtractionStatus.ERROR.value:
-                audit_action = "ERROR"
+                audit_action = AuditAction.ERROR
             elif status == "P100":
-                audit_action = "START_EXTRACTION"
+                audit_action = AuditAction.START_EXTRACTION
             elif status == ExtractionStatus.SUCCESS.value:
                 audit_action = AuditAction.EXTRACT
 
@@ -426,7 +426,8 @@ def update_log_status(
     preview_data: Optional[dict] = None,
     extracted_data: Optional[dict] = None,
     debug_data: Optional[dict] = None,
-    error: Optional[str] = None
+    error: Optional[str] = None,
+    token_usage: Optional[dict] = None  # NEW: explicit token_usage override
 ) -> bool:
     """Update just the status (and optionally data) of an existing log"""
     container = get_extractions_container()
@@ -465,6 +466,14 @@ def update_log_status(
 
         if debug_data:
             log_dict["debug_data"] = debug_data
+
+        # --- TOKEN USAGE PROPAGATION ---
+        # Priority: explicit token_usage > preview_data._token_usage > existing
+        resolved_token_usage = token_usage
+        if not resolved_token_usage and preview_data and isinstance(preview_data, dict):
+            resolved_token_usage = preview_data.get("_token_usage")
+        if resolved_token_usage:
+            log_dict["token_usage"] = resolved_token_usage
 
         # --- BLOB OFFLOADING LOGIC FOR LOG STATUS UPDATE ---
         from app.services.storage import save_json_as_blob

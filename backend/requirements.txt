@@ -67,6 +67,8 @@ opencv-python-headless
 numpy
 Pillow
 scikit-image
+azure-ai-projects
+azure-search-documents
 azure-ai-vision-imageanalysis
 pandas
 

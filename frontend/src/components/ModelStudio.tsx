@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
     Plus, Trash2, Save, ArrowLeft, Wand2,
-    LayoutTemplate, RefreshCw, Edit, Sliders, Database
+    LayoutTemplate, RefreshCw, Edit, Sliders, Database, BookOpen
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
@@ -19,6 +19,7 @@ import { SampleAnalysisPanel } from './studio/SampleAnalysisPanel'
 import { ComparisonSettingsPanel } from './studio/ComparisonSettingsPanel'
 import { ExcelColumnEditor } from './studio/ExcelColumnEditor'
 import { ReferenceDataEditor } from './studio/ReferenceDataEditor'
+import { DictionaryPanel } from './studio/DictionaryPanel'
 
 export interface ComparisonSettings {
     confidence_threshold: number; // 0.85
@@ -63,6 +64,7 @@ export interface ExtractionModel {
     comparison_settings?: ComparisonSettings;
     excel_columns?: ExcelExportColumn[];
     reference_data?: Record<string, unknown>;  // Phase 1: 참고 데이터
+    dictionaries?: string[];  // Dictionary categories for auto-normalization
 }
 
 export function ModelStudio() {
@@ -394,6 +396,15 @@ export function ModelStudio() {
                                     <ReferenceDataEditor
                                         value={editingModel.reference_data}
                                         onChange={(data) => setEditingModel({ ...editingModel, reference_data: data })}
+                                        disabled={!isEditing}
+                                    />
+                                </Card>
+
+                                {/* Dictionary Engine */}
+                                <Card icon={BookOpen} title="딕셔너리 (Dictionary Engine)">
+                                    <DictionaryPanel
+                                        modelDictionaries={editingModel.dictionaries || []}
+                                        onDictionariesChange={(dicts) => setEditingModel({ ...editingModel, dictionaries: dicts })}
                                         disabled={!isEditing}
                                     />
                                 </Card>

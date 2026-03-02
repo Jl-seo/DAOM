@@ -25,10 +25,11 @@ class AuditLogEntry:
     user_id: str
     user_email: str
     tenant_id: str
-    action: str          # CREATE, READ, UPDATE, DELETE
+    action: str          # CREATE, READ, UPDATE, DELETE, START_EXTRACTION, etc.
     resource_type: str   # model, document, extraction, template
     resource_id: str
     status: str = "SUCCESS"  # SUCCESS, FAILURE
+    user_name: Optional[str] = None  # Display name of the user
     changes: Optional[dict] = None  # {field: {old, new}}
     metadata: Optional[dict] = None # Browser, OS, etc
     details: Optional[dict] = None
@@ -52,6 +53,13 @@ class AuditAction:
     LOGOUT = "LOGOUT"
     EXPORT = "EXPORT"
     EXTRACT = "EXTRACT"
+    # Extraction lifecycle
+    START_EXTRACTION = "START_EXTRACTION"
+    ERROR = "ERROR"
+    # Model lifecycle
+    CREATE_MODEL = "CREATE_MODEL"
+    UPDATE_MODEL = "UPDATE_MODEL"
+    DELETE_MODEL = "DELETE_MODEL"
 
 
 class AuditResource:

@@ -68,6 +68,8 @@ class ExtractionModel(BaseModel):
     # Comparison-specific settings
     comparison_settings: Optional[ComparisonSettings] = None
     excel_columns: Optional[List[ExcelExportColumn]] = None
+    # Dictionary categories for auto-normalization (e.g., ["port", "charge"])
+    dictionaries: Optional[List[str]] = None
 
 class ExtractionModelCreate(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -87,4 +89,6 @@ class ExtractionModelCreate(BaseModel):
     # Comparison-specific settings
     comparison_settings: Optional[ComparisonSettings] = None
     excel_columns: Optional[List[ExcelExportColumn]] = None
+    # Dictionary categories for auto-normalization (e.g., ["port", "charge"])
+    dictionaries: Optional[List[str]] = None
 

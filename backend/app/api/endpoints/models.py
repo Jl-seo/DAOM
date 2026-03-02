@@ -1,10 +1,13 @@
-import uuid
-import logging
-from typing import List
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
 from app.schemas.model import ExtractionModel, ExtractionModelCreate
 from app.services.models import load_models, save_models, get_model_by_id
 from app.core.permissions import require_admin, verify_model_admin, verify_model_access
+from app.services.audit import log_action, AuditAction, AuditResource
+from app.core.auth import get_current_user, CurrentUser
+
+import uuid
+import logging
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,11 @@ async def list_models(current_user: CurrentUser = Depends(get_current_user)):
     return [m for m in all_models if m.id in accessible_ids]
 
 @router.post("/", response_model=ExtractionModel, dependencies=[Depends(require_admin)])
-def create_model(model_in: ExtractionModelCreate):
+async def create_model(
+    model_in: ExtractionModelCreate,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+):
     models = load_models()
     new_model = ExtractionModel(
         id=str(uuid.uuid4()),
@@ -38,6 +45,17 @@ def create_model(model_in: ExtractionModelCreate):
     )
     models.append(new_model)
     save_models(models)
+
+    # Audit: Model creation
+    await log_action(
+        user=current_user,
+        action=AuditAction.CREATE_MODEL,
+        resource_type=AuditResource.MODEL,
+        resource_id=new_model.id,
+        details={"model_name": new_model.name, "field_count": len(new_model.fields)},
+        request=request
+    )
+
     return new_model
 
 @router.get("/{model_id}", response_model=ExtractionModel, dependencies=[Depends(verify_model_access)])
@@ -48,7 +66,12 @@ def get_model(model_id: str):
     return model
 
 @router.put("/{model_id}", response_model=ExtractionModel, dependencies=[Depends(verify_model_admin)])
-def update_model(model_id: str, model_in: ExtractionModelCreate):
+async def update_model(
+    model_id: str,
+    model_in: ExtractionModelCreate,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+):
     """모델 업데이트"""
     models = load_models()
     for i, m in enumerate(models):
@@ -69,11 +92,26 @@ def update_model(model_id: str, model_in: ExtractionModelCreate):
             )
             models[i] = updated_model
             save_models(models)
+
+            # Audit: Model update
+            await log_action(
+                user=current_user,
+                action=AuditAction.UPDATE_MODEL,
+                resource_type=AuditResource.MODEL,
+                resource_id=model_id,
+                details={"model_name": updated_model.name},
+                request=request
+            )
+
             return updated_model
     raise HTTPException(status_code=404, detail="Model not found")
 
 @router.delete("/{model_id}", dependencies=[Depends(verify_model_admin)])
-def delete_model(model_id: str):
+async def delete_model(
+    model_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+):
     models = load_models()
     for i, m in enumerate(models):
         if m.id == model_id:
@@ -81,6 +119,17 @@ def delete_model(model_id: str):
             updated_model = m.model_copy(update={"is_active": False})
             models[i] = updated_model
             save_models(models)
+
+            # Audit: Model deletion (soft delete)
+            await log_action(
+                user=current_user,
+                action=AuditAction.DELETE_MODEL,
+                resource_type=AuditResource.MODEL,
+                resource_id=model_id,
+                details={"model_name": m.name},
+                request=request
+            )
+
             return {"message": "Model deactivated"}
 
     raise HTTPException(status_code=404, detail="Model not found")
