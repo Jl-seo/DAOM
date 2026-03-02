@@ -94,9 +94,11 @@ class ExtractionService:
                 return sql_result
             except Exception as e:
                 import traceback
-                logger.error(f"[Extraction] Native Python Engine failed: {e}\n{traceback.format_exc()}. Falling back to Legacy Excel Parser.")
-                # We intentionally pass here to let it hit the `is_excel` fallback block below (which converts to Markdown and sends to standard pipeline)
-                pass
+                tb = traceback.format_exc()
+                logger.error(f"[Extraction] Native Python Engine CRASHED: {e}\n{tb}")
+                # We intentionally DO NOT pass to fallback here. The fallback LLM pipeline
+                # will just truncate 6000 rows to 19 rows. It's better to fail fast and show the error.
+                return {"error": f"Native Python Excel Engine Failed: {str(e)}\n\nTraceback:\n{tb}"}
                 
         # 1b. Vision Extraction Mode — skip OCR entirely
         use_vision = model.beta_features.get("use_vision_extraction", False) if model.beta_features else False
