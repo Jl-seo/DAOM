@@ -359,6 +359,12 @@ CRITICAL PRECISION & RULE PRESERVATION:
 - You MUST explicitly copy the user's custom "rules" into the "rules" array of each field/column. Loss of rule details causes catastrophic extraction failures.
 - If the schema has a rich description, the "instruction" must be detailed enough to capture all edge cases mentioned.
 
+CRITICAL TABLE SUB-COLUMN EXTRACTION:
+- For any field classified as "table_fields" (type: list, table, array), YOU MUST READ the user's description to accurately determine what columns are required.
+- Users often write sub-columns inside the description (e.g., "Extract POL, POD, Rate, and 20DC columns").
+- YOU MUST create a distinct sub-key in the "columns" object for EVERY column mentioned by the user. DO NOT use generic keys like "col1".
+- If the description says "POL Name, Rate Basis, 40HQ", your columns object MUST have keys: "pol_name", "rate_basis", "40hq", etc., alongside detailed instructions for each.
+
 ZERO TOLERANCE — FIELD COVERAGE:
 - You MUST generate exactly one instruction entry for EVERY field in the schema.
 - Input schema has {len(fields)} fields → output MUST have exactly {len(fields)} entries
