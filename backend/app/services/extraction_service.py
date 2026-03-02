@@ -44,12 +44,12 @@ class ExtractionService:
             logger.error(f"[Extraction] Model not found: {e}")
             return {"error": f"Model {model_id} not found"}
 
-        # 1a. Native Python Engine Mode (For Excel files when Beta Mode is ON)
+        # 1a. Native Python Engine Mode (For Excel files unconditionally)
         use_beta = model.beta_features.get("use_optimized_prompt", False) if model.beta_features else False
         is_excel = mime_type in ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "text/csv"] or filename.lower().endswith(('.xlsx', '.xls', '.csv'))
         
-        if use_beta and is_excel:
-            logger.info("[Extraction] Route: NATIVE PYTHON ENGINE (Two-Track activated by Beta Mode)")
+        if is_excel:
+            logger.info("[Extraction] Route: NATIVE PYTHON ENGINE (Two-Track Architecture)")
             try:
                 from app.services.extraction.sql_extraction import run_sql_extraction
                 from fastapi import UploadFile
@@ -615,9 +615,11 @@ If a field is not found, return null.
             if key in raw_data:
                 result[key] = raw_data[key]
         
-        # Pass token usage
+        # Pass token usage & logs
         if "_token_usage" in raw_data:
             result["_token_usage"] = raw_data["_token_usage"]
+        if "logs" in raw_data:
+            result["logs"] = raw_data["logs"]
             
         # Error propagation
         if "error" in raw_data:

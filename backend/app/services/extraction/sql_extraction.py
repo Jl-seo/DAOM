@@ -71,7 +71,17 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
             temperature=0
         )
         content = res.choices[0].message.content
-        return json.loads(content)
+        result_json = json.loads(content)
+        
+        token_usage = {}
+        if res.usage:
+            token_usage = {
+                "prompt_tokens": res.usage.prompt_tokens,
+                "completion_tokens": res.usage.completion_tokens,
+                "total_tokens": res.usage.total_tokens
+            }
+        result_json["_token_usage"] = token_usage
+        return result_json
     except Exception as e:
         logger.error(f"Schema Mapper failed: {e}")
         return {"scalars": {}, "tables": {}, "reasoning": f"Mapper failed: {e}"}
@@ -156,6 +166,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     # 3. Request Schema Mapping & Scalar Extraction from LLM
     mapping_plan = await _run_schema_mapper(md_content, model)
     reasoning = mapping_plan.get("reasoning", "")
+    token_usage = mapping_plan.pop("_token_usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
     logger.info(f"Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")
     
     # 3. Pure Python Extraction Engine
@@ -317,6 +328,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     # 5. Build Final Payload
     final_payload = {
         "guide_extracted": raw_extracted,
+        "_token_usage": token_usage,
+        "logs": [
+            {"step": "Mapper Reasoning", "message": reasoning},
+            {"step": "Python Engine Exec", "message": f"Tables extracted: {len(tables_map)}, Scalars extracted: {len(scalars_mapping)}"}
+        ],
         "_beta_metadata": {
             "parsed_content": f"Python Engine Mode.\n\n[LLM Mapping Reasoning]\n{reasoning}\n\n[Mapped Object Count]\nTables = {len(tables_map)}, Scalars = {len(scalars_mapping)}",
             "ref_map": {}
