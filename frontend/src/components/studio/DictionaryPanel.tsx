@@ -6,8 +6,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Upload, Search, Trash2, Plus, BookOpen, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
-
-const API_BASE = import.meta.env.VITE_API_URL || ''
+import { apiClient } from '@/lib/api'
 
 interface DictionaryCategory {
     category: string
@@ -40,11 +39,8 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
     const fetchCategories = useCallback(async () => {
         try {
             setLoading(true)
-            const res = await fetch(`${API_BASE}/api/v1/dictionaries/categories`)
-            if (res.ok) {
-                const data = await res.json()
-                setCategories(data.categories || [])
-            }
+            const res = await apiClient.get('/dictionaries/categories')
+            setCategories(res.data.categories || [])
         } catch {
             // Service not configured — silently ignore
         } finally {
@@ -63,17 +59,9 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
             formData.append('file', file)
             formData.append('category', category)
 
-            const res = await fetch(`${API_BASE}/api/v1/dictionaries/upload`, {
-                method: 'POST',
-                body: formData,
-            })
+            const res = await apiClient.post('/dictionaries/upload', formData)
+            const data = res.data
 
-            if (!res.ok) {
-                const err = await res.json()
-                throw new Error(err.detail || 'Upload failed')
-            }
-
-            const data = await res.json()
             toast.success(`${data.count}건 업로드 완료 (${category})`)
 
             // Auto-add to model dictionaries if not already
@@ -83,7 +71,8 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
 
             await fetchCategories()
         } catch (e: any) {
-            toast.error(e.message || 'Upload failed')
+            const message = e.response?.data?.detail || e.message || 'Upload failed'
+            toast.error(message)
         } finally {
             setUploading(false)
         }
@@ -103,13 +92,10 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
     const handleSearch = async () => {
         if (!searchQuery.trim()) return
         try {
-            const params = new URLSearchParams({ q: searchQuery, top_k: '5' })
-            if (searchCategory) params.set('category', searchCategory)
-            const res = await fetch(`${API_BASE}/api/v1/dictionaries/search?${params}`)
-            if (res.ok) {
-                const data = await res.json()
-                setSearchResults(data.matches || [])
-            }
+            const params: Record<string, string> = { q: searchQuery, top_k: '5' }
+            if (searchCategory) params.category = searchCategory
+            const res = await apiClient.get('/dictionaries/search', { params })
+            setSearchResults(res.data.matches || [])
         } catch {
             toast.error('검색 실패')
         }
@@ -118,12 +104,10 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
     const handleDeleteCategory = async (category: string) => {
         if (!confirm(`'${category}' 딕셔너리를 삭제하시겠습니까?`)) return
         try {
-            const res = await fetch(`${API_BASE}/api/v1/dictionaries/${category}`, { method: 'DELETE' })
-            if (res.ok) {
-                toast.success(`${category} 삭제됨`)
-                onDictionariesChange(modelDictionaries.filter(d => d !== category))
-                await fetchCategories()
-            }
+            await apiClient.delete(`/dictionaries/${category}`)
+            toast.success(`${category} 삭제됨`)
+            onDictionariesChange(modelDictionaries.filter(d => d !== category))
+            await fetchCategories()
         } catch {
             toast.error('삭제 실패')
         }

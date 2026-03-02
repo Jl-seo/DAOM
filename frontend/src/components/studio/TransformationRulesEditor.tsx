@@ -57,7 +57,7 @@ export function TransformationRulesEditor({ model, onUpdate }: TransformationRul
 
     // Get table fields from model
     const tableFields = model.fields
-        .filter(f => f.type === 'table')
+        .filter(f => f.type === 'array' as any)
         .map(f => f.key)
     const allFieldKeys = model.fields.map(f => f.key)
 
