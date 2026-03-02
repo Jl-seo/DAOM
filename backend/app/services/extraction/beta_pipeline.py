@@ -319,9 +319,15 @@ class BetaPipeline(ExtractionPipeline):
             ]
             async with self.semaphore:
                 try:
-                    return await self.call_llm(messages, is_table_model=True)
+                    result = await self.call_llm(messages, is_table_model=True)
+                    # Validate result structure
+                    if not isinstance(result, dict):
+                        logger.error(f"[BetaPipeline] Chunk {chunk_idx}: call_llm returned {type(result).__name__}, expected dict")
+                        return {"guide_extracted": {}, "error": f"Unexpected LLM result type: {type(result).__name__}"}
+                    return result
                 except Exception as e:
-                    logger.error(f"[BetaPipeline] Engineer Chunk {chunk_idx} failed: {e}")
+                    import traceback
+                    logger.error(f"[BetaPipeline] Engineer Chunk {chunk_idx} CRASHED: {e}\n{traceback.format_exc()}")
                     return {"guide_extracted": {}, "error": str(e)}
         
         # Parallel execution
@@ -332,11 +338,17 @@ class BetaPipeline(ExtractionPipeline):
         valid_chunks: Dict[str, dict] = {}
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         any_truncated = False
+        failed_chunks = []
         
         for idx, res in enumerate(results):
             if isinstance(res, Exception):
                 logger.error(f"[BetaPipeline] Chunk {idx} gather exception: {res}")
+                failed_chunks.append(idx)
                 continue
+            
+            if res.get("error"):
+                logger.warning(f"[BetaPipeline] Chunk {idx} returned error: {res['error']}")
+                failed_chunks.append(idx)
             
             if res.get("_truncated"):
                 any_truncated = True
@@ -351,6 +363,9 @@ class BetaPipeline(ExtractionPipeline):
             if extracted_data and isinstance(extracted_data, dict):
                 valid_chunks[f"chunk_{idx}"] = extracted_data
 
+        if failed_chunks:
+            logger.warning(f"[BetaPipeline] {len(failed_chunks)}/{len(results)} chunks FAILED: indices {failed_chunks}")
+        
         if not valid_chunks:
             logger.warning(f"[BetaPipeline] All {len(results)} chunks returned empty results. No data extracted.")
             return {"guide_extracted": {}, "_token_usage": total_usage, "_truncated": any_truncated}
@@ -386,16 +401,18 @@ class BetaPipeline(ExtractionPipeline):
 
     def _run_aggregator_python_fallback(self, chunks_payload: Dict[str, dict]) -> dict:
         """
-        Fail-Safe Fallback: Simple deterministic exact-merge logic.
-        Append rows and keep the first non-null common field.
+        Deterministic merge: append rows in chunk order, dedup, tag source.
         """
         merged_guide = {}
         seen_rows = {}  # field_key -> Set[row_hash]
         
-        for _chunk_id, guide_extracted in chunks_payload.items():
+        for chunk_id, guide_extracted in chunks_payload.items():
+            # Extract chunk index from chunk_id (e.g. "chunk_2" -> 2)
+            chunk_idx = int(chunk_id.split("_")[1]) if "_" in chunk_id else 0
+            
             for key, val in guide_extracted.items():
                 if isinstance(val, list):
-                    # Table field — append rows with dedup
+                    # Table field — append rows with dedup, tag source chunk
                     if key not in merged_guide:
                         merged_guide[key] = []
                         seen_rows[key] = set()
@@ -403,9 +420,12 @@ class BetaPipeline(ExtractionPipeline):
                     for row in val:
                         if not isinstance(row, dict):
                             continue
-                        row_hash = json.dumps(row, sort_keys=True, ensure_ascii=False)
+                        # Create hash WITHOUT _source_chunk for dedup
+                        row_clean = {k: v for k, v in row.items() if not k.startswith("_source")}
+                        row_hash = json.dumps(row_clean, sort_keys=True, ensure_ascii=False)
                         if row_hash not in seen_rows[key]:
                             seen_rows[key].add(row_hash)
+                            row["_source_chunk"] = chunk_idx
                             merged_guide[key].append(row)
                 else:
                     # Common field — first-non-null: keep first real value
@@ -415,11 +435,14 @@ class BetaPipeline(ExtractionPipeline):
                         existing = merged_guide[key]
                         if isinstance(existing, dict) and existing.get("value") is None:
                             merged_guide[key] = val
+        
+        total_rows = sum(len(v) for v in merged_guide.values() if isinstance(v, list))
+        logger.info(f"[Aggregator] Merged {len(chunks_payload)} chunks → {len(merged_guide)} fields, {total_rows} total rows")
                             
         return {
             "guide_extracted": merged_guide,
             "_token_usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "logs": [{"step": "Aggregator Analysis", "message": "FAILSAFE TRIGGERED. Used Python Deterministic Merge."}]
+            "logs": [{"step": "Aggregator", "message": f"Python merge: {len(chunks_payload)} chunks, {total_rows} rows"}]
         }
 
     async def _run_engineer_per_table(self, work_order: dict, tagged_text: str, chunk_size: int, model: ExtractionModel = None) -> dict:
@@ -1082,6 +1105,21 @@ class BetaPipeline(ExtractionPipeline):
                 "error": f"LLM Output Malformed: {str(e)}", 
                 "_raw_llm_content": content
             }
+        
+        # Normalize: LLM sometimes returns a list instead of dict
+        if isinstance(result, list):
+            logger.warning(f"[BetaPipeline] LLM returned list ({len(result)} items) instead of dict. Wrapping first item.")
+            if result and isinstance(result[0], dict):
+                result = {"guide_extracted": result[0]}
+            else:
+                result = {"guide_extracted": {}, "error": "LLM returned array instead of object"}
+        
+        # Ensure guide_extracted key exists
+        if isinstance(result, dict) and "guide_extracted" not in result:
+            # LLM might return flat {field: value} without wrapper — wrap it
+            if any(k not in ("_token_usage", "_truncated", "error", "_raw_llm_content") for k in result.keys()):
+                logger.info(f"[BetaPipeline] LLM returned flat dict without guide_extracted wrapper. Wrapping.")
+                result = {"guide_extracted": result}
         
         # Detect LLM output truncation: if finish_reason is 'length', the output
         # was cut off by max_completion_tokens. Flag it so the pipeline can fall back
