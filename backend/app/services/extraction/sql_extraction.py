@@ -41,7 +41,7 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     - **NO HALLUCINATED KEYS**: The keys inside `"tables"` and `"scalars"` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys.
     - `"header_row_id"`: The exact `row_id` from the JSON where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
     - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here, ONLY the mapped column letter.
-    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label. For example, if row 3 Column A says "VesselName" and Column B says "MSC ALICE", you MUST return `{"col": "B"}`.
+    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label. For example, if row 3 Column A says "VesselName" and Column B says "MSC ALICE", you MUST return `{{"col": "B"}}`.
     - **SCALAR FALLBACK**: For scalars, also output `"exact_value"` containing the raw text you see in the cell, as a fallback backup.
     
     Return ONLY a JSON object with this EXACT structure:
