@@ -18,7 +18,7 @@ from app.core.auth import get_current_user, CurrentUser
 @router.get("/", response_model=List[ExtractionModel])
 async def list_models(current_user: CurrentUser = Depends(get_current_user)):
     # 1. Load active models
-    all_models = [m for m in load_models() if getattr(m, "is_active", True)]
+    all_models = [m for m in await load_models() if getattr(m, "is_active", True)]
 
     # 2. Check permissions
     from app.core.auth import is_super_admin
@@ -44,7 +44,7 @@ async def create_model(
         **model_in.model_dump()
     )
     models.append(new_model)
-    save_models(models)
+    await save_models(models)
 
     # Audit: Model creation
     await log_action(
@@ -91,7 +91,7 @@ async def update_model(
                 **updated_dict
             )
             models[i] = updated_model
-            save_models(models)
+            await save_models(models)
 
             # Audit: Model update
             await log_action(
@@ -118,7 +118,7 @@ async def delete_model(
             # Soft delete
             updated_model = m.model_copy(update={"is_active": False})
             models[i] = updated_model
-            save_models(models)
+            await save_models(models)
 
             # Audit: Model deletion (soft delete)
             await log_action(

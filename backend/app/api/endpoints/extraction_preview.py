@@ -1351,7 +1351,7 @@ async def get_extraction_logs_by_model(
         logs = await extraction_logs.get_logs_by_model(model_id=model_id, limit=limit)
     else:
         # Non-admin: only their own logs for this model
-        logs = extraction_logs.get_logs_by_user(user_id=current_user.id, limit=limit)
+        logs = await extraction_logs.get_logs_by_user(user_id=current_user.id, limit=limit)
         logs = [log for log in logs if log.model_id == model_id]
     return [log.model_dump() for log in logs]
 
@@ -1370,9 +1370,9 @@ async def get_all_extraction_logs(
 
     # Admin can see all logs, regular users see only their logs
     if await is_admin(current_user):
-        logs = extraction_logs.get_all_logs(limit=limit)
+        logs = await extraction_logs.get_all_logs(limit=limit)
     else:
-        logs = extraction_logs.get_logs_by_user(user_id=user_oid, limit=limit)
+        logs = await extraction_logs.get_logs_by_user(user_id=user_oid, limit=limit)
 
     # Filter by model_id if provided
     if model_id:
@@ -1404,7 +1404,7 @@ async def bulk_delete_logs(
                     detail=f"You don't have permission to delete log {log_id}"
                 )
 
-    deleted_count = extraction_logs.delete_logs(log_ids)
+    deleted_count = await extraction_logs.delete_logs(log_ids)
 
     return {
         "success": True,

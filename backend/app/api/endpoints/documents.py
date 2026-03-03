@@ -39,7 +39,7 @@ async def analyze_document(request: AnalysisRequest):
         # 2. Analyze with LLM
         model_info = None
         if request.model_id:
-            model_info = get_model_by_id(request.model_id)
+            model_info = await get_model_by_id(request.model_id)
 
         structured_data = await analyze_document_content(
             ocr_result=ocr_result,
@@ -49,7 +49,7 @@ async def analyze_document(request: AnalysisRequest):
 
         # 3. Save extraction log to Cosmos DB
         if request.model_id:
-            save_extraction_log(
+            await save_extraction_log(
                 model_id=request.model_id,
                 filename=filename,
                 file_url=request.file_url,
@@ -65,7 +65,7 @@ async def analyze_document(request: AnalysisRequest):
     except Exception as e:
         # Save error log
         if request.model_id:
-            save_extraction_log(
+            await save_extraction_log(
                 model_id=request.model_id,
                 filename=filename,
                 file_url=request.file_url,
@@ -87,8 +87,8 @@ async def get_extraction_logs(
 ):
     """Get extraction logs, optionally filtered by model"""
     if model_id:
-        logs = get_logs_by_model(model_id, limit)
+        logs = await get_logs_by_model(model_id, limit)
     else:
-        logs = get_all_logs(limit)
+        logs = await get_all_logs(limit)
 
     return {"logs": [log.model_dump() for log in logs]}

@@ -75,12 +75,12 @@ async def get_all_extraction_logs(
 
 
 @router.delete("/logs/bulk")
-def delete_logs_bulk(
+async def delete_logs_bulk(
     log_ids: List[str],
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Delete multiple extraction logs"""
-    deleted_count = extraction_logs.delete_logs(log_ids)
+    deleted_count = await extraction_logs.delete_logs(log_ids)
     return {"deleted_count": deleted_count}
 
 

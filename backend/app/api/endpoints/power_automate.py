@@ -127,12 +127,12 @@ async def run_extraction_with_metadata(
         
         # 5. Handle Result
         from app.services.extraction_jobs import get_job
-        job = get_job(job_id)
+        job = await get_job(job_id)
         original_log_id = job.original_log_id if job else None
         
         log = None
         if original_log_id:
-            log = extraction_logs.get_log(original_log_id)
+            log = await extraction_logs.get_log(original_log_id)
         
         if result.get("error"):
              await update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
@@ -167,9 +167,9 @@ async def run_extraction_with_metadata(
         from app.services.extraction_jobs import update_job, get_job
         await update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
         
-        job = get_job(job_id)
+        job = await get_job(job_id)
         if job and job.original_log_id:
-            log = extraction_logs.get_log(job.original_log_id)
+            log = await extraction_logs.get_log(job.original_log_id)
             if log:
                 await extraction_logs.save_extraction_log(
                     model_id=log.model_id, user_id=log.user_id, filename=log.filename,
@@ -715,7 +715,7 @@ async def get_extraction_result(
     - 처리 중: 202 + 현재 상태
     - 실패 시: 200 + error 필드
     """
-    log = extraction_logs.get_log(job_id)
+    log = await extraction_logs.get_log(job_id)
 
     if not log:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -965,7 +965,7 @@ async def list_available_models(
     접근 가능한 모델 목록 반환.
     Super Admin은 모든 모델, 일반 사용자는 권한 있는 모델만 표시됩니다.
     """
-    all_models = [m for m in load_models() if getattr(m, "is_active", True)]
+    all_models = [m for m in await load_models() if getattr(m, "is_active", True)]
 
     # Filter by permission
     if await is_super_admin(current_user):
@@ -998,7 +998,7 @@ async def cancel_extraction(
     진행 중인 작업 취소.
     이미 완료된 작업은 취소할 수 없습니다.
     """
-    log = extraction_logs.get_log(job_id)
+    log = await extraction_logs.get_log(job_id)
 
     if not log:
         raise HTTPException(status_code=404, detail="Job not found")
