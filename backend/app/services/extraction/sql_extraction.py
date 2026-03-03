@@ -22,10 +22,41 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     
     fields_context = [{"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules, "sub_fields": f.sub_fields} for f in model.fields]
     
-    # Truncate markdown_text to prevent context overload and save tokens
+    # Smart Truncation: Preserve the first N rows of *every* sheet found in the markdown
+    # instead of just blindly cutting the top 200 lines, which destroys multi-sheet visibility.
     lines = markdown_text.split("\n")
     if len(lines) > 200:
-        markdown_text = "\n".join(lines[:200]) + "\n... [TRUNCATED - EXCEL CONTENT TOO LARGE, MAPPING BY HEADERS ONLY]"
+        sheets_data = []
+        current_sheet_lines = []
+        
+        for line in lines:
+            if line.startswith("### Sheet:"):
+                if current_sheet_lines:
+                    sheets_data.append(current_sheet_lines)
+                current_sheet_lines = [line]
+            else:
+                if current_sheet_lines is not None:
+                    current_sheet_lines.append(line)
+        if current_sheet_lines:
+            sheets_data.append(current_sheet_lines)
+            
+        # Maximum allowed lines across all headers to prevent token explosion
+        # We try to keep it around 500 lines total, BUT we guarantee AT LEAST 50 rows per sheet.
+        MAX_TOTAL_LINES = 500
+        num_sheets = len(sheets_data)
+        
+        # Calculate fair share, but ALWAYS guarantee at least 50 rows, up to 150 rows.
+        # This means if there are 20 sheets, total lines might be 1000, which is acceptable 
+        # compared to missing headers.
+        lines_per_sheet = max(50, min(150, MAX_TOTAL_LINES // max(1, num_sheets)))
+        
+        truncated_markdown = []
+        for sheet_lines in sheets_data:
+            truncated_markdown.extend(sheet_lines[:lines_per_sheet])
+            if len(sheet_lines) > lines_per_sheet:
+                truncated_markdown.append(f"... [TRUNCATED - {len(sheet_lines) - lines_per_sheet} MORE ROWS HIDDEN]")
+                
+        markdown_text = "\n".join(truncated_markdown)
     
     prompt = f"""
     You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a Markdown table (first 1500 rows).

@@ -521,6 +521,46 @@ async def update_log_status(
 
         await container.upsert_item(log_dict)
         logger.info(f"[ExtractionLogs] Updated log {log_id} status to {status}")
+
+        # --- AUDIT LOG PROPAGATION ---
+        try:
+            from app.db.cosmos import get_audit_container
+            from app.services.audit import AuditAction, AuditResource
+            
+            audit_container = get_audit_container()
+            if audit_container:
+                audit_action = None
+                if status == ExtractionStatus.SUCCESS.value or status == ExtractionStatus.PREVIEW_READY.value:
+                    audit_action = AuditAction.EXTRACT
+                elif status == ExtractionStatus.ERROR.value:
+                    audit_action = AuditAction.ERROR
+
+                if audit_action:
+                    audit_entry = {
+                        "id": str(uuid.uuid4()),
+                        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                        "user_id": log.user_id or "unknown",
+                        "user_email": log.user_email or "system@daom.ai",
+                        "tenant_id": log.tenant_id or "default",
+                        "action": audit_action,
+                        "resource_type": AuditResource.EXTRACTION,
+                        "resource_id": log.id,
+                        "status": "SUCCESS" if status != "error" else "FAILURE",
+                        "details": {
+                            "model_id": log.model_id,
+                            "filename": log.filename,
+                            "job_id": log.job_id,
+                            "error": error,
+                            "llm_model": log.llm_model,
+                            "token_usage": resolved_token_usage
+                        },
+                        "ip_address": "system",
+                        "user_agent": "DaomBackend/ExtractionLogsUpdate"
+                    }
+                    await audit_container.create_item(body=audit_entry)
+        except Exception as audit_e:
+            logger.error(f"[ExtractionLogs] Audit log failed during update: {audit_e}")
+
         return True
     except Exception as e:
         logger.error(f"[ExtractionLogs] Update status failed: {e}")

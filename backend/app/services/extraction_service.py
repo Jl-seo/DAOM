@@ -613,6 +613,11 @@ If a field is not found, return null.
                         p_w, p_h = page_dims[page_number]
                     normalized_bbox = normalize_bbox(bbox, p_w, p_h)
             
+            # Filter out invalid or zero-area bounding boxes
+            if normalized_bbox and len(normalized_bbox) == 4:
+                nx1, ny1, nx2, ny2 = normalized_bbox
+                if (nx2 - nx1) <= 0 or (ny2 - ny1) <= 0 or (nx1 == 0 and ny1 == 0 and nx2 == 0 and ny2 == 0):
+                    normalized_bbox = None
 
             # Type Validation & JSON Parsing for Complex Fields
             validation_status = "valid"
@@ -629,9 +634,19 @@ If a field is not found, return null.
                             # Recursively apply normalize_bbox to any nested 'bbox' coordinates
                             def _recursive_normalize_bbox(data, pg_w, pg_h):
                                 if isinstance(data, dict):
-                                    for k, v in data.items():
+                                    for k, v in list(data.items()):
                                         if k == "bbox" and isinstance(v, list):
-                                            data[k] = normalize_bbox(v, pg_w, pg_h)
+                                            norm_box = normalize_bbox(v, pg_w, pg_h)
+                                            if norm_box and len(norm_box) == 4:
+                                                nx1, ny1, nx2, ny2 = norm_box
+                                                if (nx2 - nx1) <= 0 or (ny2 - ny1) <= 0 or (nx1 == 0 and ny1 == 0 and nx2 == 0 and ny2 == 0):
+                                                    norm_box = None
+                                            
+                                            if norm_box:
+                                                data[k] = norm_box
+                                            else:
+                                                del data[k] # remove invalid bbox
+
                                         elif isinstance(v, (dict, list)):
                                             _recursive_normalize_bbox(v, pg_w, pg_h)
                                 elif isinstance(data, list):
