@@ -6,13 +6,15 @@ from app.services.dictionary_service import get_dictionary_service
 logger = logging.getLogger(__name__)
 
 class RuleEngine:
-    async def apply_dictionary_normalization(self, raw_result: Dict[str, Any], dictionaries: List[str]) -> Dict[str, Any]:
+    async def apply_dictionary_normalization(self, raw_result: Dict[str, Any], dictionaries: List[str], fields: List[Any] = None) -> Dict[str, Any]:
         """
-        Step 2: Normalizes raw extracted texts using active dictionary categories.
-        Converts {"pol": "Busan"} -> {"pol": {"raw_value": "Busan", "normalized_code": "KRPUS", "dict_score": 0.98}}
-        Only wraps fields if a dictionary is active and a match is found.
+        Step 2: Normalizes raw extracted texts using active dictionary categories mapped at the field-level.
+        Only wraps fields if a dictionary is mapped in the field schema and a match is found.
         """
-        if not dictionaries:
+        # If no fields schema is provided, we no longer do global search to prevent false positives.
+        if not fields:
+            # Note: For backward compatibility with tests/legacy, if you want global search you could check dictionaries. 
+            # But Enterprise spec says 1:1 mapping only.
             return raw_result
 
         guide_extracted = raw_result.get("guide_extracted", {})
@@ -24,32 +26,43 @@ class RuleEngine:
             logger.warning("[RuleEngine] DictionaryService unavailable. Skipping normalization.")
             return raw_result
 
-        # Helper to recursively normalize
-        # If we know mapping between field and dictionary, it would be exact, 
-        # but for now we search all active dictionaries for any string value that looks like it needs mapping.
-        # Actually, if we just search all active dictionaries for string field values, it might be slow for every single text string.
-        # Instead, we will wrap *all* simple fields into the new dict structure, 
-        # and attempt to query dictionaries if the string length is reasonable.
-        # A more robust enterprise approach: only fields that have a specific mapping rule, but user wants it to be 'magic' or based on active dictionaries.
-        # Let's search all dictionaries in parallel for top-level fields for now.
+        # Build a lookup map of field_key -> dictionary_category
+        # Handle both top-level fields and sub_fields
+        field_dict_map = {}
+        for f in fields:
+            key = getattr(f, "key", None)
+            dict_cat = getattr(f, "dictionary", None)
+            if key and dict_cat:
+                field_dict_map[key] = dict_cat
+            
+            # Check for sub_fields in tables
+            sub_fields = getattr(f, "sub_fields", None)
+            if sub_fields and isinstance(sub_fields, list):
+                for sub in sub_fields:
+                    sub_key = sub.get("key")
+                    sub_dict = sub.get("dictionary")
+                    if sub_key and sub_dict:
+                        field_dict_map[f"{key}.{sub_key}"] = sub_dict
 
-        async def _normalize_value(val: str) -> Dict[str, Any]:
+        if not field_dict_map:
+            # Early exit if no fields have dictionary mapping
+            return raw_result
+
+        async def _normalize_value(val: str, target_dictionary: str) -> Dict[str, Any]:
             if not isinstance(val, str) or len(val.strip()) < 2:
                 return {"raw_value": val, "normalized_code": None, "dict_score": 0.0}
             
             best_match = None
             best_score = 0.0
 
-            # Search across all active dictionary categories for this model
-            for cat in dictionaries:
-                try:
-                    matches = await dict_service.search(query=val, category=cat, top_k=1)
-                    if matches and matches[0].score > best_score:
-                        best_match = matches[0]
-                        best_score = matches[0].score
-                except Exception as e:
-                    logger.error(f"[RuleEngine] Dictionary search failed for val='{val}' in cat='{cat}': {e}")
-                    pass
+            try:
+                matches = await dict_service.search(query=val, category=target_dictionary, top_k=1)
+                if matches and matches[0].score > best_score:
+                    best_match = matches[0]
+                    best_score = matches[0].score
+            except Exception as e:
+                logger.error(f"[RuleEngine] Dictionary search failed for val='{val}' in cat='{target_dictionary}': {e}")
+                pass
             
             if best_match and best_score > 0.5: # arbitrary threshold for now
                 return {
@@ -60,35 +73,36 @@ class RuleEngine:
                 }
             
             return {"raw_value": val, "normalized_code": None, "dict_score": 0.0}
-        
-        async def _process_item(item):
-            # item is {"value": "...", "confidence": ...}
-            if isinstance(item, dict) and "value" in item:
-                val = item["value"]
-                if isinstance(val, str):
-                    norm = await _normalize_value(val)
-                    item["raw_value"] = norm["raw_value"]
-                    item["normalized_code"] = norm["normalized_code"]
-                    item["dict_score"] = norm["dict_score"]
-                elif isinstance(val, list):
-                    # For array/table fields
-                    for row in val:
-                        if isinstance(row, dict):
-                            for k, v in row.items():
-                                if isinstance(v, str):
-                                    norm = await _normalize_value(v)
-                                    # Inside array, we might not wrap everything to avoid bloat, but let's be consistent or just add normalized_code_k
-                                    # Let's wrap it inside the dictionary row.
-                                    row[k] = {
-                                        "raw_value": v,
-                                        "normalized_code": norm["normalized_code"],
-                                        "dict_score": norm["dict_score"]
-                                    }
-            return item
 
         # Apply to all top-level fields
         for key, item in guide_extracted.items():
-            guide_extracted[key] = await _process_item(item)
+            if isinstance(item, dict) and "value" in item:
+                val = item["value"]
+                
+                # Top level string
+                if isinstance(val, str):
+                    dict_cat = field_dict_map.get(key)
+                    if dict_cat:
+                        norm = await _normalize_value(val, dict_cat)
+                        item["raw_value"] = norm["raw_value"]
+                        item["normalized_code"] = norm["normalized_code"]
+                        item["dict_score"] = norm["dict_score"]
+                
+                # Table / Array
+                elif isinstance(val, list):
+                    for row in val:
+                        if isinstance(row, dict):
+                            for sub_key, sub_val in row.items():
+                                if isinstance(sub_val, str):
+                                    # composite key for lookup: parentKey.subKey
+                                    sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}")
+                                    if sub_dict_cat:
+                                        norm = await _normalize_value(sub_val, sub_dict_cat)
+                                        row[sub_key] = {
+                                            "raw_value": sub_val,
+                                            "normalized_code": norm["normalized_code"],
+                                            "dict_score": norm["dict_score"]
+                                        }
 
         raw_result["guide_extracted"] = guide_extracted
         return raw_result

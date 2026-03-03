@@ -346,6 +346,7 @@ export function ModelStudio() {
                                     <Card icon={LayoutTemplate} title="추출 필드">
                                         <FieldEditorTable
                                             fields={editingModel.fields || []}
+                                            modelDictionaries={editingModel.dictionaries || []}
                                             onChange={(fields) => setEditingModel({ ...editingModel, fields })}
                                             disabled={!isEditing}
                                         />

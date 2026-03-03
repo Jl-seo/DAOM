@@ -23,6 +23,7 @@ import { clsx } from 'clsx'
 
 interface FieldEditorTableProps {
     fields: Field[]
+    modelDictionaries: string[]  // <--- NEW: Passed from ModelStudio
     onChange: (fields: Field[]) => void
     disabled?: boolean
 }
@@ -31,12 +32,13 @@ interface SortableRowProps {
     field: Field
     index: number
     id: string
+    modelDictionaries: string[]
     updateField: (index: number, key: keyof Field, value: string) => void
     removeField: (index: number) => void
     disabled: boolean
 }
 
-function SortableRow({ field, index, id, updateField, removeField, disabled }: SortableRowProps) {
+function SortableRow({ field, index, id, modelDictionaries, updateField, removeField, disabled }: SortableRowProps) {
     const {
         attributes,
         listeners,
@@ -94,16 +96,32 @@ function SortableRow({ field, index, id, updateField, removeField, disabled }: S
                 />
             </td>
             <td className="py-2 pl-2 align-top">
-                <div className="flex items-center gap-1">
+                <div className="flex flex-col gap-1.5">
                     <select
                         value={field.type}
                         onChange={(e) => updateField(index, 'type', e.target.value)}
                         disabled={disabled}
                         className="text-xs font-medium text-muted-foreground bg-transparent outline-none cursor-pointer hover:text-primary w-full disabled:cursor-not-allowed disabled:opacity-60"
+                        title="필드 타입"
                     >
                         {FIELD_TYPES.map(type => (
                             <option key={type.value} value={type.value}>
                                 {type.label}
+                            </option>
+                        ))}
+                    </select>
+
+                    <select
+                        value={field.dictionary || ''}
+                        onChange={(e) => updateField(index, 'dictionary', e.target.value)}
+                        disabled={disabled}
+                        className="text-[10px] text-blue-600/80 dark:text-blue-400/80 bg-transparent outline-none cursor-pointer hover:text-blue-700 w-full disabled:cursor-not-allowed disabled:opacity-60 border-t border-border/30 pt-1"
+                        title="정규화 딕셔너리 연결"
+                    >
+                        <option value="">딕셔너리 매핑 안함</option>
+                        {modelDictionaries.map(dict => (
+                            <option key={dict} value={dict}>
+                                📖 {dict}
                             </option>
                         ))}
                     </select>
@@ -133,7 +151,7 @@ function SortableRow({ field, index, id, updateField, removeField, disabled }: S
     )
 }
 
-export function FieldEditorTable({ fields, onChange, disabled = false }: FieldEditorTableProps) {
+export function FieldEditorTable({ fields, modelDictionaries, onChange, disabled = false }: FieldEditorTableProps) {
     // STABLE IDs: Use a ref-based counter so IDs never change when field content is edited.
     // This prevents React from unmounting/remounting rows on every keystroke.
     const idCounterRef = useRef(0)
@@ -222,6 +240,7 @@ export function FieldEditorTable({ fields, onChange, disabled = false }: FieldEd
                                     id={ids[idx]}
                                     field={field}
                                     index={idx}
+                                    modelDictionaries={modelDictionaries}
                                     updateField={updateField}
                                     removeField={removeField}
                                     disabled={disabled}

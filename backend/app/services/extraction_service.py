@@ -160,7 +160,8 @@ class ExtractionService:
 
                 # Rule Engine Hook (Normalization & Validation)
                 if model.dictionaries:
-                    final_result = await rule_engine.apply_dictionary_normalization(final_result, model.dictionaries)
+                    # Pass fields definition for O(1) field-level mapping
+                    final_result = await rule_engine.apply_dictionary_normalization(final_result, model.dictionaries, model.fields)
                 if model.reference_data:
                     final_result = rule_engine.apply_validation_rules(final_result, model.reference_data)
 
@@ -246,7 +247,8 @@ class ExtractionService:
 
         # Rule Engine Hook (Normalization & Validation)
         if model.dictionaries:
-            final_result = await rule_engine.apply_dictionary_normalization(final_result, model.dictionaries)
+            # Pass fields definition for O(1) field-level mapping
+            final_result = await rule_engine.apply_dictionary_normalization(final_result, model.dictionaries, model.fields)
         if model.reference_data:
             final_result = rule_engine.apply_validation_rules(final_result, model.reference_data)
 

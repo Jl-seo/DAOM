@@ -11,6 +11,7 @@ export interface Field {
     rules: string
     type: FieldType
     is_dex_target?: boolean
+    dictionary?: string // Field-level dictionary mapping category (e.g., "port", "charge")
 }
 
 export interface ComparisonSettings {

@@ -16,7 +16,8 @@ class FieldDefinition(BaseModel):
     rules: Optional[str] = None  # 출력 보정/형태 정의 (자연어)
     type: str = "string"
     is_dex_target: Optional[bool] = False # DEX 바코드 검증 타겟 여부
-    sub_fields: Optional[List[Dict[str, str]]] = None # 하위 컬러 정의 (e.g. [{"key": "pol", "label": "POL"}])
+    dictionary: Optional[str] = None # Field-level dictionary mapping category (e.g., "port", "charge")
+    sub_fields: Optional[List[Dict[str, Any]]] = None # 하위 컬러 정의 (e.g. [{"key": "pol", "label": "POL", "dictionary": "port"}])
 
 class ComparisonSettings(BaseModel):
     """비교 설정 (comparison 모델 전용)"""

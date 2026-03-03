@@ -368,7 +368,25 @@ function ResizableNestedTable({
         setLocalData(prev => {
             const newData = [...prev]
             if (newData[index] != null && typeof newData[index] === 'object') {
-                newData[index] = { ...newData[index], [key]: value }
+                const existingCellData = newData[index][key]
+                if (existingCellData && typeof existingCellData === 'object' && ('raw_value' in existingCellData || 'confidence' in existingCellData)) {
+                    // Update the wrapper, explicitly clearing AI normalization since user manually edited it
+                    newData[index] = {
+                        ...newData[index],
+                        [key]: {
+                            ...existingCellData,
+                            raw_value: value,
+                            value: value, // for legacy fallback
+                            normalized_code: null,
+                            dict_score: null,
+                            validation_status: null,
+                            validation_msg: null
+                        }
+                    }
+                } else {
+                    // Simple string field
+                    newData[index] = { ...newData[index], [key]: value }
+                }
             }
             return newData
         })
@@ -1015,8 +1033,16 @@ export function ExtractionPreview({
                                                                         rawData={rawData}
                                                                         dexValidation={dexValidation?.target_field_key === field.key ? dexValidation : undefined}
                                                                         onChange={(newValue) => updateGuideField(field.key,
-                                                                            rawData && typeof rawData === 'object' && 'confidence' in rawData
-                                                                                ? { ...rawData, value: newValue }
+                                                                            rawData && typeof rawData === 'object' && ('confidence' in rawData || 'raw_value' in rawData)
+                                                                                ? {
+                                                                                    ...rawData,
+                                                                                    value: newValue,
+                                                                                    raw_value: newValue,
+                                                                                    normalized_code: null,
+                                                                                    dict_score: null,
+                                                                                    validation_status: null,
+                                                                                    validation_msg: null
+                                                                                }
                                                                                 : newValue
                                                                         )}
                                                                     />

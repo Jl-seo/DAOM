@@ -39,10 +39,18 @@ async def test_engine():
     print("--- RAW DATA ---")
     print(json.dumps(raw_data, indent=2))
     
+    # Mock Field Schema Mapping
+    mock_fields = [
+        type('MockField', (object,), {"key": "pol", "dictionary": "port"}),
+        type('MockField', (object,), {"key": "pod", "dictionary": "port"}),
+        type('MockField', (object,), {"key": "unknown_field"}),
+    ]
+
     # Apply normalization with "port" dictionary active
     normalized_data = await rule_engine.apply_dictionary_normalization(
         raw_result=raw_data, 
-        dictionaries=["port"]
+        dictionaries=["port"],
+        fields=mock_fields
     )
     
     print("\n--- AFTER NORMALIZATION ---")

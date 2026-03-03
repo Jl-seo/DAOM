@@ -3,7 +3,7 @@
  * Upload Excel/CSV dictionaries, search, manage categories.
  */
 import { useState, useEffect, useCallback } from 'react'
-import { Upload, Search, Trash2, Plus, BookOpen, Loader2 } from 'lucide-react'
+import { Upload, Search, Trash2, Plus, BookOpen, Loader2, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api'
@@ -144,19 +144,56 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
         }
     }
 
+    const handleDownloadTemplate = () => {
+        const csvContent = "\uFEFF표준코드(Code),표시명(Name),동의어1(Alias1),동의어2(Alias2)\nKRPUS,부산항,Busan,Pusan\nAEJEA,제벨알리,Jebel Ali,JEA\nNLRTM,로테르담,Rotterdam,RTM"
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', 'synonym_dictionary_template.csv')
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        URL.revokeObjectURL(url)
+    }
+
     return (
         <div className="space-y-4">
             {/* Usage Guide */}
             <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100 dark:bg-blue-900/10 dark:border-blue-800">
-                <h3 className="text-xs font-semibold mb-1.5 text-blue-800 dark:text-blue-300 flex items-center gap-1.5">
-                    <BookOpen className="w-3.5 h-3.5" />
-                    딕셔너리 사용법
-                </h3>
-                <ol className="text-[11px] text-blue-700/80 dark:text-blue-400/70 space-y-0.5 list-decimal list-inside">
-                    <li><b>딕셔너리 추가</b> — 카테고리명 입력 후 엑셀/CSV 업로드 (어떤 컬럼이든 OK)</li>
-                    <li><b>✅ 체크박스 활성화</b> — 이 모델에서 사용할 딕셔너리 선택</li>
-                    <li><b>자동 매칭</b> — 추출 실행 시 텍스트 값을 딕셔너리에서 검색하여 코드 자동 매핑</li>
-                </ol>
+                <div className="flex items-start justify-between mb-2">
+                    <h3 className="text-xs font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1.5 mt-1">
+                        <BookOpen className="w-3.5 h-3.5" />
+                        동의어 사전(Synonym Dictionary) 연동 가이드
+                    </h3>
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] px-2 bg-white dark:bg-black/20 hover:bg-blue-50 dark:hover:bg-blue-900/40 border-blue-200 dark:border-blue-800"
+                        onClick={handleDownloadTemplate}
+                    >
+                        <Download className="w-3 h-3 mr-1" /> 템플릿 다운로드
+                    </Button>
+                </div>
+
+                <div className="text-[11px] text-blue-700/80 dark:text-blue-400/80 space-y-1.5">
+                    <p>추출된 다양한 유사 텍스트를 하나의 <b className="font-semibold">표준 코드</b>로 통일(정규화)할 때 사용합니다.</p>
+
+                    <div className="bg-white/60 dark:bg-black/20 p-2 rounded border border-blue-100/50 dark:border-blue-800/50 mt-2">
+                        <p className="font-semibold text-blue-900 dark:text-blue-200 mb-1 flex items-center gap-1">
+                            ⚠️ 엑셀/CSV 데이터 작성 규칙 <span className="text-xs font-normal text-blue-600/70 dark:text-blue-400/60">(열 순서가 매우 중요합니다!)</span>
+                        </p>
+                        <ul className="list-none space-y-0.5 ml-1">
+                            <li><span className="inline-block w-4 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300 text-center rounded mr-1">1</span><b>1열 (필수):</b> 정규화된 <b>표준 코드</b> <span className="text-muted-foreground">(예: KRPUS)</span></li>
+                            <li><span className="inline-block w-4 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300 text-center rounded mr-1">2</span><b>2열 (필수):</b> 표기 명칭 <span className="text-muted-foreground">(예: 부산항)</span></li>
+                            <li><span className="inline-block w-4 bg-muted text-muted-foreground text-center rounded mr-1">3</span><b>3열 이후 (선택):</b> 각종 유사어 나열 <span className="text-muted-foreground">(예: Busan, Pusan)</span></li>
+                        </ul>
+                    </div>
+
+                    <p className="text-[10px] mt-2 text-blue-600/60 dark:text-blue-400/50 pt-1 border-t border-blue-100 dark:border-blue-800/50">
+                        * 유효한 조합인지 검사하는 <b>마스터 데이터</b>(예: 특정 선사 & 특정 포트 필터링)는 우측 <b>'참조 데이터'</b> 탭을 이용해주세요.
+                    </p>
+                </div>
             </div>
 
             {/* Registered Dictionaries */}
