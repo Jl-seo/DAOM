@@ -34,7 +34,6 @@ async def seed_system_admin_group(tenant_id: str, current_user_email: str = None
                 {"name": "@id", "value": SYSTEM_ADMIN_GROUP_ID},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
-            enable_cross_partition_query=True
         )]
 
         if items:
@@ -111,7 +110,6 @@ async def seed_default_models(tenant_id: str):
         items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.tenant_id = @tenant_id",
             parameters=[{"name": "@tenant_id", "value": tenant_id}],
-            enable_cross_partition_query=True,
             max_item_count=1
         )]
 

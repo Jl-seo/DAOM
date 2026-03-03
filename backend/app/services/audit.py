@@ -211,7 +211,6 @@ async def get_audit_logs(
         items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
-            enable_cross_partition_query=True
         )]
 
         return items

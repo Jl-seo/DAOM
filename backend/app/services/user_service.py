@@ -68,7 +68,6 @@ async def get_or_create_user(current_user: CurrentUser) -> User:
         items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": current_user.id}],
-            enable_cross_partition_query=True
         )]
 
         if items:
@@ -109,7 +108,6 @@ async def get_user_by_id(user_id: str) -> Optional[User]:
         items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": user_id}],
-            enable_cross_partition_query=True
         )]
         return User.from_dict(items[0]) if items else None
     except Exception as e:
@@ -134,7 +132,6 @@ async def get_users_by_tenant(tenant_id: str, search_term: str = None) -> list[U
         items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
-            enable_cross_partition_query=True
         )]
         return [User.from_dict(item) for item in items]
     except Exception as e:
@@ -159,7 +156,6 @@ async def get_all_users(search_term: str = None) -> list[User]:
         items = [item async for item in container.query_items(
             query=query,
             parameters=parameters if parameters else None,
-            enable_cross_partition_query=True
         )]
         return [User.from_dict(item) for item in items]
     except Exception as e:
@@ -183,7 +179,6 @@ async def update_user_role(user_id: str, new_role: str, tenant_id: str) -> bool:
                 {"name": "@id", "value": user_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
-            enable_cross_partition_query=True
         )]
 
         if not items:
@@ -213,7 +208,6 @@ async def add_user_to_group(user_id: str, group_id: str, tenant_id: str) -> bool
                 {"name": "@id", "value": user_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
-            enable_cross_partition_query=True
         )]
 
         if not items:
@@ -243,7 +237,6 @@ async def get_user_by_email(email: str, tenant_id: str) -> Optional[User]:
                 {"name": "@email", "value": email.lower()},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
-            enable_cross_partition_query=True
         )]
         return User.from_dict(items[0]) if items else None
     except Exception as e:
@@ -264,7 +257,6 @@ async def update_user_groups(user_id: str, group_ids: list[str], tenant_id: str)
                 {"name": "@id", "value": user_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
-            enable_cross_partition_query=True
         )]
 
         if not items:

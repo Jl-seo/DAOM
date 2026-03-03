@@ -161,7 +161,6 @@ async def update_group(
                 {"name": "@id", "value": group_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
-            enable_cross_partition_query=True
         )]
 
         if not items:
@@ -192,7 +191,6 @@ async def get_group_by_id(group_id: str) -> Optional[Group]:
         items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": group_id}],
-            enable_cross_partition_query=True
         )]
         return Group.from_dict(items[0]) if items else None
     except Exception as e:
@@ -210,7 +208,6 @@ async def get_groups_by_tenant(tenant_id: str) -> list[Group]:
         items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.tenant_id = @tenant_id",
             parameters=[{"name": "@tenant_id", "value": tenant_id}],
-            enable_cross_partition_query=True
         )]
         return [Group.from_dict(item) for item in items]
     except Exception as e:
@@ -246,7 +243,6 @@ async def add_member_to_group(
                 {"name": "@id", "value": group_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
-            enable_cross_partition_query=True
         )]
 
         if not items:
@@ -286,7 +282,6 @@ async def remove_member_from_group(group_id: str, member_id: str, tenant_id: str
                 {"name": "@id", "value": group_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
-            enable_cross_partition_query=True
         )]
 
         if not items:
@@ -323,7 +318,6 @@ async def set_group_permissions(
                 {"name": "@id", "value": group_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
-            enable_cross_partition_query=True
         )]
 
         if not items:

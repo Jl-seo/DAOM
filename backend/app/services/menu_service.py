@@ -56,7 +56,6 @@ async def seed_menus(tenant_id: str) -> bool:
         existing = [item async for item in container.query_items(
             query="SELECT c.id FROM c WHERE c.tenant_id = @tenant_id",
             parameters=[{"name": "@tenant_id", "value": tenant_id}],
-            enable_cross_partition_query=True
         )]
 
         if len(existing) > 0:
@@ -95,7 +94,6 @@ async def get_all_menus(tenant_id: str) -> list[Menu]:
         items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.tenant_id = @tenant_id ORDER BY c.order",
             parameters=[{"name": "@tenant_id", "value": tenant_id}],
-            enable_cross_partition_query=True
         )]
         return [Menu.from_dict(item) for item in items]
 
@@ -172,7 +170,6 @@ async def update_menu(menu_id: str, tenant_id: str, name: str = None, icon: str 
                 {"name": "@id", "value": menu_id},
                 {"name": "@tenant_id", "value": tenant_id}
             ],
-            enable_cross_partition_query=True
         )]
 
         if not items:

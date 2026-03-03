@@ -178,7 +178,6 @@ async def get_prompt(key: str, tenant_id: str = "default") -> Optional[dict]:
             items = [item async for item in container.query_items(
                 query="SELECT * FROM c WHERE c.id = @id",
                 parameters=[{"name": "@id", "value": key}],
-                enable_cross_partition_query=True
             )]
             if items:
                 result = items[0]
@@ -230,7 +229,6 @@ async def get_all_prompts(tenant_id: str = "default") -> list:
         try:
             items = [item async for item in container.query_items(
                 query="SELECT * FROM c",
-                enable_cross_partition_query=True
             )]
             for item in items:
                 key = item.get("id")

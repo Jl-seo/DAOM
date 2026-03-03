@@ -37,7 +37,6 @@ async def get_active_models_v2(tenant_id: Optional[str] = None) -> List[Versione
         items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
-            enable_cross_partition_query=True
         )]
 
         v2_models = []

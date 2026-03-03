@@ -79,7 +79,6 @@ async def can_access_model(user: User, model_id: str) -> bool:
         items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": model_id}],
-            enable_cross_partition_query=True
         )]
 
         if not items:
@@ -131,7 +130,6 @@ async def set_model_permissions(
         items = [item async for item in container.query_items(
             query="SELECT * FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": model_id}],
-            enable_cross_partition_query=True
         )]
 
         if not items:
@@ -163,7 +161,6 @@ async def get_model_permissions(model_id: str) -> Optional[ModelPermissions]:
         items = [item async for item in container.query_items(
             query="SELECT c.permissions FROM c WHERE c.id = @id",
             parameters=[{"name": "@id", "value": model_id}],
-            enable_cross_partition_query=True
         )]
 
         if not items:
@@ -190,7 +187,6 @@ async def get_accessible_models(user: User) -> list[str]:
         if is_admin:
             items = [item async for item in container.query_items(
                 query="SELECT c.id FROM c",
-                enable_cross_partition_query=True
             )]
             return [item["id"] for item in items]
 
@@ -207,7 +203,6 @@ async def get_accessible_models(user: User) -> list[str]:
                    OR ARRAY_CONTAINS(c.permissions.users, @user_id)
             """,
             parameters=[{"name": "@user_id", "value": user.id}],
-            enable_cross_partition_query=True
         )]
 
         accessible = [item["id"] for item in items]
@@ -218,7 +213,6 @@ async def get_accessible_models(user: User) -> list[str]:
                 group_items = [item async for item in container.query_items(
                     query="SELECT c.id FROM c WHERE ARRAY_CONTAINS(c.permissions.groups, @group_id)",
                     parameters=[{"name": "@group_id", "value": group_id}],
-                    enable_cross_partition_query=True
                 )]
                 accessible.extend([item["id"] for item in group_items])
 

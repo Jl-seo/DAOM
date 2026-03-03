@@ -108,7 +108,6 @@ async def get_job(job_id: str) -> Optional[ExtractionJob]:
         items = [item async for item in container.query_items(
             query=query,
             parameters=[{"name": "@job_id", "value": job_id}],
-            enable_cross_partition_query=True
         )]
         if items:
             return ExtractionJob(**items[0])
@@ -148,7 +147,6 @@ async def update_job(
         items = [item async for item in container.query_items(
             query=query,
             parameters=[{"name": "@job_id", "value": job_id}],
-            enable_cross_partition_query=True
         )]
 
         if not items:
@@ -357,7 +355,6 @@ async def get_jobs_by_model(model_id: str, limit: int = 50) -> List[ExtractionJo
                 {"name": "@model_id", "value": model_id},
                 {"name": "@limit", "value": limit}
             ],
-            enable_cross_partition_query=True
         )]
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
@@ -388,7 +385,6 @@ async def get_jobs_by_model_and_user(model_id: str, user_id: str, limit: int = 5
                 {"name": "@user_id", "value": user_id},
                 {"name": "@limit", "value": limit}
             ],
-            enable_cross_partition_query=True
         )]
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
@@ -423,7 +419,6 @@ async def get_jobs_by_user(user_id: str, limit: int = 50, tenant_id: Optional[st
         items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
-            enable_cross_partition_query=True
         )]
         return [ExtractionJob(**item) for item in items]
     except Exception as e:
@@ -448,7 +443,6 @@ async def get_latest_job_by_log_id(log_id: str) -> Optional[ExtractionJob]:
         items = [item async for item in container.query_items(
             query=query,
             parameters=[{"name": "@log_id", "value": log_id}],
-            enable_cross_partition_query=True
         )]
         if items:
             return ExtractionJob(**items[0])
@@ -471,7 +465,6 @@ async def delete_job(job_id: str) -> bool:
         items = [item async for item in container.query_items(
             query=query,
             parameters=[{"name": "@id", "value": job_id}],
-            enable_cross_partition_query=True
         )]
 
         if not items:
