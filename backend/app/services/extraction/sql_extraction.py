@@ -44,7 +44,8 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     
     CRITICAL RULES:
     - **NO HALLUCINATED KEYS**: The keys `field_key` and `sub_field_key` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys.
-    - `"first_data_row_id"`: The exact `row_id` from the JSON where the ACTUAL DATA records begin. If headers span multiple rows (e.g. row 0 is main header, row 1 is sub-header), you MUST output `first_data_row_id: 2`. The Python engine will slice data starting strictly from `row_id >= first_data_row_id`.
+    - `"first_data_row_id"`: The exact `row_id` from the JSON where the ACTUAL DATA records begin. This is extremely important! 
+      **WARNING: Excel tables often have 2-3 rows of multi-line titles, merge-cells, or sub-headers (e.g. Row 0="Delivery", Row 1="Origin MOT"). You MUST output the row_id of the VERY FIRST ROW that contains actual values/records, completely skipping ALL header rows. If you are unsure, err on the side of a higher row_id (e.g., 2, 3, or 4).** The Python engine will slice data starting strictly from `row_id >= first_data_row_id`.
     - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants, specified in `sub_fields`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here, ONLY the mapped column letter.
     - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label. For example, if row 3 Column A says "VesselName" and Column B says "MSC ALICE", you MUST return `{{"col": "B"}}`.
     - **SCALAR FALLBACK**: For scalars, also output `"exact_value"` containing the raw text you see in the cell, as a fallback backup.
@@ -306,6 +307,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         except (ValueError, TypeError):
             h_id = 1
             
+        logger.info(f"[{target_key}] Slicing sheet '{sheet}': using `row_id >= {h_id}`")
         data_rows = sheet_df[sheet_df["row_id"] >= h_id]
         
         extracted_table_rows = []
