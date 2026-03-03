@@ -24,11 +24,11 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     
     # Truncate markdown_text to prevent context overload and save tokens
     lines = markdown_text.split("\n")
-    if len(lines) > 50:
-        markdown_text = "\n".join(lines[:50]) + "\n... [TRUNCATED - EXCEL CONTENT TOO LARGE, MAPPING BY HEADERS ONLY]"
+    if len(lines) > 200:
+        markdown_text = "\n".join(lines[:200]) + "\n... [TRUNCATED - EXCEL CONTENT TOO LARGE, MAPPING BY HEADERS ONLY]"
     
     prompt = f"""
-    You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a Markdown table (first 50 rows).
+    You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a Markdown table (first 1500 rows).
     The table contains columns: `row_id` (global row number), and `A`, `B`, `C`, `D`... (representing Excel columns).
     
     Data Content (Markdown):
@@ -38,18 +38,20 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     {json.dumps(fields_context, ensure_ascii=False, indent=2)}
     
     YOUR TASKS:
-    1. Identify tables and scalars. Fields of type 'table', 'list', 'array' expect a list of objects. Fields of type 'string', 'number' are usually scalars but might be within a table if they map to repeating rows. Look at the description/rules/sub_fields to find the expected keys inside the table objects.
+    1. Identify tables and scalars based on the Target Schema.
     2. Find the REAL headers for the table(s) in the Excel grid to map the columns properly.
-    3. Output a precise Mapping JSON array format.
+    3. Output a precise Mapping JSON.
     
     CRITICAL RULES:
-    - **NO HALLUCINATED KEYS**: The keys `field_key` and `sub_field_key` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys.
-    - `"first_data_row_id"`: The exact `row_id` from the JSON where the ACTUAL DATA records begin. This is extremely important! 
-      **WARNING: Excel tables often have 2-3 rows of multi-line titles, merge-cells, or sub-headers (e.g. Row 0="Delivery", Row 1="Origin MOT"). You MUST output the row_id of the VERY FIRST ROW that contains actual values/records, completely skipping ALL header rows. If you are unsure, err on the side of a higher row_id (e.g., 2, 3, or 4).** The Python engine will slice data starting strictly from `row_id >= first_data_row_id`.
-    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants, specified in `sub_fields`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). 
-      **SUPER CRITICAL SEMANTIC INFERENCE RULE: DO NOT rely only on exact text matching! You are an intelligent AI. If the Excel header says "Client" but the schema says `customer_name`, or the header says "No" and the data inside looks like `sc_number`, YOU MUST MAKE THE SEMANTIC CONNECTION and map it. Use the provided schema descriptions, rules, and the actual data samples in the rows below the header to deduce the true meaning of each column. Map every required field if logically possible.** Do NOT use literal text headers here, ONLY the mapped column letter.
-    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label. For example, if row 3 Column A says "VesselName" and Column B says "MSC ALICE", you MUST return `{{"col": "B"}}`.
-    - **SCALAR FALLBACK**: For scalars, also output `"exact_value"` containing the raw text you see in the cell, as a fallback backup.
+    - **NO HALLUCINATED KEYS**: The `field_key` and `sub_field_key` MUST exactly match the `key` strings from the Target Schema.
+    - `"header_row_id"`: The exact `row_id` where the actual column headers (titles) are located (e.g., the row containing "POL", "Description", "Amount").
+    - `"first_data_row_id"`: The exact `row_id` where the ACTUAL DATA RECORDS begin, which MUST be GREATER THAN the `header_row_id`. Do NOT point this to the header row.
+    - `"columns_mapping"`: Map EXPECTED TARGET KEYS to EXCEL COLUMN LETTERS ("A", "B", "C"...). 
+      **SUPER CRITICAL SEMANTIC INFERENCE RULE**: 
+      1. NEVER blindly map columns sequentially just because they exist! 
+      2. You MUST extract the exact text of the Excel header into `excel_header_name`. 
+      3. If a schema field does not exist in the Excel table, DO NOT INCLUDE IT in the mapping array. Skip it. For example, if the schema asks for `sc_number` but the Excel table headers only have `Receipt`, `POL`, `POD`, `Delivery`, then DO NOT map `sc_number` to `Receipt`. Just omit `sc_number` entirely!
+    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label.
     """
     
     response_schema = {
@@ -68,6 +70,7 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
                             "properties": {
                                 "field_key": {"type": "string"},
                                 "sheet_name": {"type": "string"},
+                                "header_row_id": {"type": "integer"},
                                 "first_data_row_id": {"type": "integer"},
                                 "columns_mapping": {
                                     "type": "array",
@@ -75,14 +78,15 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
                                         "type": "object",
                                         "properties": {
                                             "sub_field_key": {"type": "string"},
-                                            "excel_column": {"type": "string"}
+                                            "excel_column": {"type": "string"},
+                                            "excel_header_name": {"type": "string"}
                                         },
-                                        "required": ["sub_field_key", "excel_column"],
+                                        "required": ["sub_field_key", "excel_column", "excel_header_name"],
                                         "additionalProperties": False
                                     }
                                 }
                             },
-                            "required": ["field_key", "sheet_name", "first_data_row_id", "columns_mapping"],
+                            "required": ["field_key", "sheet_name", "header_row_id", "first_data_row_id", "columns_mapping"],
                             "additionalProperties": False
                         }
                     },
