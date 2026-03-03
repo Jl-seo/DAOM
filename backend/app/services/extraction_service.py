@@ -395,17 +395,16 @@ class ExtractionService:
                 
              return result_dict
 
-        # Build prompt variables
-        fields_info = []
-        for f in model.fields:
-            field_entry = {"key": f.key, "label": f.label, "type": f.type}
-            if f.description:
-                field_entry["description"] = f.description
-            if f.rules:
-                field_entry["rules"] = f.rules
-            fields_info.append(field_entry)
-        
-        field_descriptions = json.dumps(fields_info, ensure_ascii=False, indent=2)
+        # Build clear, explicit field definitions for the prompt
+        field_descriptions = ""
+        for idx, f in enumerate(model.fields, 1):
+            field_descriptions += f"{idx}. '{f.key}' ({f.label}):\n"
+            field_descriptions += f"   - Type: {f.type}\n"
+            if f.description and f.description.strip():
+                field_descriptions += f"   - Description: {f.description}\n"
+            if f.rules and f.rules.strip():
+                field_descriptions += f"   - Extraction Rule: {f.rules}\n"
+            field_descriptions += "\n"
         
         global_rules_text = ""
         if model.global_rules:
