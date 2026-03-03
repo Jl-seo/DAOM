@@ -96,22 +96,17 @@ _AUDIT_INDEX_POLICY = {
 
 
 async def _init_container(database, name: str, partition_key_path: str = "/id", indexing_policy: dict = None):
-    """Initialize a single container and cache it."""
+    """Get a container proxy reference (no network call).
+    The container must already exist in Cosmos DB.
+    """
     global _containers
     try:
-        kwargs = {
-            "id": name,
-            "partition_key": PartitionKey(path=partition_key_path),
-        }
-        if indexing_policy:
-            kwargs["indexing_policy"] = indexing_policy
-
-        container = await database.create_container_if_not_exists(**kwargs)
+        container = database.get_container_client(name)
         _containers[name] = container
-        logger.info(f"[Cosmos] Container '{name}' ready (async)")
+        logger.info(f"[Cosmos] Container '{name}' registered (async proxy)")
         return container
     except Exception as e:
-        logger.error(f"[Cosmos] Container '{name}' creation failed: {e}")
+        logger.error(f"[Cosmos] Container '{name}' proxy failed: {e}")
         return None
 
 
@@ -148,7 +143,13 @@ def get_config_container():
 
 
 async def init_cosmos():
-    """Initialize Cosmos DB async connection and all containers"""
+    """Initialize Cosmos DB async connection.
+    
+    Uses get_database_client() and get_container_client() which create
+    local proxy objects WITHOUT making network calls. This avoids
+    permission issues and startup failures. Actual DB calls
+    happen lazily when endpoints are hit.
+    """
     global _client, _database
 
     logger.info("[Cosmos] Initializing (async)...")
@@ -164,20 +165,21 @@ async def init_cosmos():
         )
         logger.info(f"[Cosmos] Async client created for {settings.COSMOS_ENDPOINT}")
 
-        _database = await _client.create_database_if_not_exists(id=settings.COSMOS_DATABASE)
-        logger.info(f"[Cosmos] Database '{settings.COSMOS_DATABASE}' ready")
+        # get_database_client: proxy only, no network call
+        _database = _client.get_database_client(settings.COSMOS_DATABASE)
+        logger.info(f"[Cosmos] Database '{settings.COSMOS_DATABASE}' proxy ready")
 
-        # Pre-initialize all containers
+        # Pre-register all container proxies (no network calls)
         await _init_container(_database, MODELS_CONTAINER, "/id")
-        await _init_container(_database, EXTRACTIONS_CONTAINER, "/model_id", _EXTRACTIONS_INDEX_POLICY)
-        await _init_container(_database, AUDIT_CONTAINER, "/user_id", _AUDIT_INDEX_POLICY)
+        await _init_container(_database, EXTRACTIONS_CONTAINER, "/model_id")
+        await _init_container(_database, AUDIT_CONTAINER, "/user_id")
         await _init_container(_database, USERS_CONTAINER, "/tenant_id")
         await _init_container(_database, GROUPS_CONTAINER, "/tenant_id")
         await _init_container(_database, MENUS_CONTAINER, "/id")
         await _init_container(_database, CONFIG_CONTAINER, "/id")
         await _init_container(_database, PROMPTS_CONTAINER, "/id")
 
-        logger.info("[Cosmos] Initialization complete (async)")
+        logger.info(f"[Cosmos] Initialization complete — {len(_containers)} containers registered")
 
     except Exception as e:
         logger.error(f"[Cosmos] Async initialization failed: {e}")
