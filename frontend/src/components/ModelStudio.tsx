@@ -404,10 +404,8 @@ export function ModelStudio() {
                                 </Card>
 
                                 {/* Dictionary Engine */}
-                                <Card icon={BookOpen} title="딕셔너리 (Dictionary Engine)">
+                                <Card icon={BookOpen} title="정규화 딕셔너리 연동">
                                     <DictionaryPanel
-                                        modelDictionaries={editingModel.dictionaries || []}
-                                        onDictionariesChange={(dicts) => setEditingModel({ ...editingModel, dictionaries: dicts })}
                                         disabled={!isEditing}
                                     />
                                 </Card>

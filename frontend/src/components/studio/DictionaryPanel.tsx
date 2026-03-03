@@ -21,12 +21,10 @@ interface SearchResult {
 }
 
 interface DictionaryPanelProps {
-    modelDictionaries: string[]
-    onDictionariesChange: (dictionaries: string[]) => void
     disabled?: boolean
 }
 
-export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disabled }: DictionaryPanelProps) {
+export function DictionaryPanel({ disabled }: DictionaryPanelProps) {
     const [categories, setCategories] = useState<DictionaryCategory[]>([])
     const [loading, setLoading] = useState(false)
     const [uploading, setUploading] = useState(false)
@@ -60,16 +58,11 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
             formData.append('category', category)
 
             const res = await apiClient.post('/dictionaries/upload', formData)
-            const data = res.data
 
-            toast.success(`${data.count}건 업로드 완료 (${category})`)
-
-            // Auto-add to model dictionaries if not already
-            if (!modelDictionaries.includes(category)) {
-                onDictionariesChange([...modelDictionaries, category])
-            }
-
-            await fetchCategories()
+            toast.success(`딕셔너리 '${category}' 생성 완료 (항목: ${res.data.count}개)`)
+            setNewCategoryName('')
+            setShowAddForm(false)
+            fetchCategories()
         } catch (e: any) {
             const message = e.response?.data?.detail || e.message || 'Upload failed'
             toast.error(message)
@@ -105,10 +98,9 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
         if (!confirm(`'${category}' 딕셔너리를 삭제하시겠습니까?`)) return
         try {
             await apiClient.delete(`/dictionaries/${category}`)
-            toast.success(`${category} 삭제됨`)
-            onDictionariesChange(modelDictionaries.filter(d => d !== category))
-            await fetchCategories()
-        } catch {
+            toast.success(`딕셔너리 '${category}' 삭제 완료`)
+            fetchCategories()
+        } catch (err: any) {
             toast.error('삭제 실패')
         }
     }
@@ -134,14 +126,6 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
             // If user cancelled file dialog, form stays open
         }
         input.click()
-    }
-
-    const toggleCategory = (category: string) => {
-        if (modelDictionaries.includes(category)) {
-            onDictionariesChange(modelDictionaries.filter(d => d !== category))
-        } else {
-            onDictionariesChange([...modelDictionaries, category])
-        }
     }
 
     const handleDownloadTemplate = () => {
@@ -246,25 +230,16 @@ export function DictionaryPanel({ modelDictionaries, onDictionariesChange, disab
                 ) : (
                     <div className="space-y-1">
                         {categories.map((cat) => {
-                            const isLinked = modelDictionaries.includes(cat.category)
                             return (
                                 <div
                                     key={cat.category}
-                                    className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs transition-colors ${isLinked ? 'bg-primary/5 border-primary/20' : 'bg-muted/30 border-transparent'}`}
+                                    className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs bg-muted/30 border-transparent`}
                                 >
                                     <div className="flex items-center gap-2">
-                                        <input
-                                            id={`dict-toggle-${cat.category}`}
-                                            name={`dict-toggle-${cat.category}`}
-                                            type="checkbox"
-                                            checked={isLinked}
-                                            onChange={() => toggleCategory(cat.category)}
-                                            disabled={disabled}
-                                            className="rounded"
-                                        />
-                                        <label htmlFor={`dict-toggle-${cat.category}`} className="font-medium cursor-pointer">
+                                        <BookOpen className="w-3.5 h-3.5 text-blue-500/70" />
+                                        <span className="font-medium text-foreground">
                                             {cat.category}
-                                        </label>
+                                        </span>
                                         <span className="text-muted-foreground">({cat.count}건)</span>
                                     </div>
                                     <div className="flex gap-1">
