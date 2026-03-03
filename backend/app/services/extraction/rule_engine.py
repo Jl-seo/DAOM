@@ -95,7 +95,8 @@ class RuleEngine:
                             for sub_key, sub_val in row.items():
                                 if isinstance(sub_val, str):
                                     # composite key for lookup: parentKey.subKey
-                                    sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}")
+                                    # Fallback to parentKey for table-level generic dictionary cascading
+                                    sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}") or field_dict_map.get(key)
                                     if sub_dict_cat:
                                         norm = await _normalize_value(sub_val, sub_dict_cat)
                                         row[sub_key] = {

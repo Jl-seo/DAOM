@@ -16,6 +16,8 @@ async def mock_search(query, category, top_k=1):
         return [MockMatch("KRPUS", 0.95, "port")]
     elif query.lower() == "jebel ali" and category == "port":
         return [MockMatch("AEJEA", 0.98, "port")]
+    elif query.lower() == "shanghai" and category == "port":
+        return [MockMatch("CNSHA", 0.96, "port")]
     return []
 
 dict_service = get_dictionary_service()
@@ -29,9 +31,9 @@ async def test_engine():
             "pod": {"value": "Jebel Ali", "confidence": 0.8},
             "unknown_field": {"value": "Some Random Value", "confidence": 0.5},
             "shipping_charges": {"value": [
-                {"charge_code": "THC", "container_no": "TEST1234567"},
-                {"charge_code": "THC", "container_no": "TEST1234567"}, # Duplicate
-                {"charge_code": "DOC", "container_no": "TEST1234567"}
+                {"charge_code": "THC", "port": "Shanghai", "container_no": "TEST1234567"},
+                {"charge_code": "THC", "port": "Shanghai", "container_no": "TEST1234567"}, # Duplicate
+                {"charge_code": "DOC", "port": "Busan", "container_no": "TEST1234567"}
             ], "confidence": 0.9}
         }
     }
@@ -44,6 +46,7 @@ async def test_engine():
         type('MockField', (object,), {"key": "pol", "dictionary": "port"}),
         type('MockField', (object,), {"key": "pod", "dictionary": "port"}),
         type('MockField', (object,), {"key": "unknown_field"}),
+        type('MockField', (object,), {"key": "shipping_charges", "dictionary": "port"}),
     ]
 
     # Apply normalization with "port" dictionary active
