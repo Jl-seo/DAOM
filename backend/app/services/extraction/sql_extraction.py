@@ -44,7 +44,7 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     
     CRITICAL RULES:
     - **NO HALLUCINATED KEYS**: The keys `field_key` and `sub_field_key` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys.
-    - `"header_row_id"`: The exact `row_id` from the JSON where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
+    - `"first_data_row_id"`: The exact `row_id` from the JSON where the ACTUAL DATA records begin. If headers span multiple rows (e.g. row 0 is main header, row 1 is sub-header), you MUST output `first_data_row_id: 2`. The Python engine will slice data starting strictly from `row_id >= first_data_row_id`.
     - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants, specified in `sub_fields`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here, ONLY the mapped column letter.
     - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label. For example, if row 3 Column A says "VesselName" and Column B says "MSC ALICE", you MUST return `{{"col": "B"}}`.
     - **SCALAR FALLBACK**: For scalars, also output `"exact_value"` containing the raw text you see in the cell, as a fallback backup.
@@ -66,7 +66,7 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
                             "properties": {
                                 "field_key": {"type": "string"},
                                 "sheet_name": {"type": "string"},
-                                "header_row_id": {"type": "integer"},
+                                "first_data_row_id": {"type": "integer"},
                                 "columns_mapping": {
                                     "type": "array",
                                     "items": {
@@ -80,7 +80,7 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
                                     }
                                 }
                             },
-                            "required": ["field_key", "sheet_name", "header_row_id", "columns_mapping"],
+                            "required": ["field_key", "sheet_name", "first_data_row_id", "columns_mapping"],
                             "additionalProperties": False
                         }
                     },
@@ -284,13 +284,13 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         
         tables_map[t["field_key"]] = {
             "sheet_name": t.get("sheet_name", "Sheet1"),
-            "header_row_id": t.get("header_row_id", 0),
+            "first_data_row_id": t.get("first_data_row_id", 1),
             "columns_mapping": col_map_dict
         }
         
     for target_key, t_map in tables_map.items():
         sheet = t_map.get("sheet_name", "Sheet1")
-        header_row_id = t_map.get("header_row_id", 0)
+        first_data_row_id = t_map.get("first_data_row_id", 1)
         col_map = t_map.get("columns_mapping", {})
         
         if not isinstance(col_map, dict) or not sheet:
@@ -302,11 +302,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             sheet_df = df # Fallback
             
         try:
-            h_id = int(header_row_id)
+            h_id = int(first_data_row_id)
         except (ValueError, TypeError):
-            h_id = 0
+            h_id = 1
             
-        data_rows = sheet_df[sheet_df["row_id"] > h_id]
+        data_rows = sheet_df[sheet_df["row_id"] >= h_id]
         
         extracted_table_rows = []
         
