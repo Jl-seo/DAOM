@@ -9,6 +9,27 @@ from app.core.enums import ExtractionStatus
 import json
 import logging
 
+import logging
+
+"""
+========================================================================
+[DAOM Extraction Pipeline - Main Router (B2B Document Processing)]
+========================================================================
+
+이 파일(`extraction_preview.py` - 이전 파일명 호환성 유지)은 DAOM 시스템의
+가장 핵심적인 문서 추출 및 처리 API 엔드포인트들을 담당합니다.
+
+주요 역할 (Roles):
+1. /start-extraction: 최초 파일 업로드 후 백그라운드 추출 Job 생성 및 실행
+2. /retry (재추출): 이미 추출 완료된 문서에 대해 실패하거나 변경된 스키마로 다시 백그라운드 추출 실행
+3. /status/{job_id}: 폴링용 API (프론트엔드가 Job의 진행 상태를 P100 -> SUCCESS 까지 확인)
+4. /save-extraction: 추출이 끝나고 최종 검수를 통과한 데이터를 DB (Cosmos DB)에 저장
+
+*주의: 추출 파이프라인(LLM 호출 등) 자체는 무겁기 때문에, BackgroundTasks를 이용해
+동기식 워커(Threadpool) 로 넘겨서 메인 API 서버가 멈추지(Blocking) 않도록 설계되어 있습니다.
+========================================================================
+"""
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -917,11 +938,13 @@ async def retry_extraction(
     # 6. Start background task using the synchronous threadpool wrapper
     background_tasks.add_task(
         process_extraction_job_sync,
-        job.id,
-        log.model_id,
-        log.file_url,
-        candidate_file_url,
-        candidate_file_urls
+        job_id=job.id,
+        model_id=log.model_id,
+        file_url=log.file_url,
+        candidate_file_url=candidate_file_url,
+        candidate_file_urls=candidate_file_urls,
+        candidate_filenames=None, # /retry API doesn't store this currently
+        barcode=None # Pass explicitly to avoid positional shifting
     )
 
     return {
