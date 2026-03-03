@@ -141,14 +141,19 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     file_content = await file.read()
     await file.seek(0)
     
-    # 1. Load Excel or CSV into Pandas
-    try:
-        filename_lower = file.filename.lower()
-        if filename_lower.endswith('.csv') or file.content_type == 'text/csv':
+    filename_lower = file.filename.lower()
+    content_type = file.content_type
+    
+    # 1. Load Excel or CSV into Pandas (CPU BOUND - Run in Threadpool)
+    def _load_excel_sync(fc: bytes, fname: str, ctype: str) -> pd.DataFrame:
+        import io
+        import csv
+        
+        if fname.endswith('.csv') or ctype == 'text/csv':
             content_str = None
             for encoding in ["utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"]:
                 try:
-                    content_str = file_content.decode(encoding)
+                    content_str = fc.decode(encoding)
                     break
                 except UnicodeDecodeError:
                     continue
@@ -156,7 +161,6 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 raise ValueError("Failed to decode CSV file with supported encodings")
                 
             # Read CSV perfectly aligned with Excel Parser behavior
-            import csv
             reader = csv.reader(io.StringIO(content_str))
             csv_rows = list(reader)
             combined_df = pd.DataFrame(csv_rows)
@@ -166,9 +170,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 combined_df.insert(0, 'row_id', range(0, len(combined_df)))
         else:
             try:
-                excel_data = pd.read_excel(io.BytesIO(file_content), sheet_name=None, header=None, engine="calamine")
+                excel_data = pd.read_excel(io.BytesIO(fc), sheet_name=None, header=None, engine="calamine")
             except ImportError:
-                excel_data = pd.read_excel(io.BytesIO(file_content), sheet_name=None, header=None, engine="openpyxl")
+                excel_data = pd.read_excel(io.BytesIO(fc), sheet_name=None, header=None, engine="openpyxl")
             
             combined_df = pd.DataFrame()
             row_offset = 0
@@ -197,7 +201,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             clean_cols.append(name)
             
         df.columns = clean_cols
-        
+        return df
+
+    from fastapi.concurrency import run_in_threadpool
+    try:
+        df = await run_in_threadpool(_load_excel_sync, file_content, filename_lower, content_type)
     except Exception as e:
         logger.error(f"Failed to load Excel with pandas: {e}")
         raise ValueError(f"지원하지 않거나 손상된 엑셀 구조입니다. 파일 로딩 실패: {e}")

@@ -59,9 +59,10 @@ class ExtractionService:
                 md_content = ""
                 try:
                     from app.services.extraction.excel_parser import ExcelParser
+                    from fastapi.concurrency import run_in_threadpool
                     ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else 'xlsx'
                     if mime_type == "text/csv": ext = "csv"
-                    parsed_sheets = ExcelParser.from_bytes(file_content, ext)
+                    parsed_sheets = await run_in_threadpool(ExcelParser.from_bytes, file_content, ext)
                     md_content = "\n\n".join([s.get("content", "") for s in parsed_sheets])
                 except Exception as ex:
                     logger.warning(f"[Extraction] Could not parse Excel for frontend display: {ex}")

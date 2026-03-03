@@ -2,6 +2,7 @@ from typing import Optional
 from fastapi import UploadFile
 from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
 from app.core.config import settings
+from fastapi.concurrency import run_in_threadpool
 import uuid
 import logging
 from pathlib import Path
@@ -41,22 +42,25 @@ async def upload_file_to_blob(file: UploadFile) -> str:
         blob_client = client.get_blob_client(container=container_name, blob=blob_name)
 
         # Ensure container exists (Safety check)
-        try:
-            container_client = client.get_container_client(container_name)
-            if not container_client.exists():
-                logger.info(f"[Storage] Container '{container_name}' not found, creating...")
-                container_client.create_container()
-        except Exception as container_err:
-             logger.warning(f"[Storage] Container check failed (non-fatal): {container_err}")
+        def _upload():
+            try:
+                container_client = client.get_container_client(container_name)
+                if not container_client.exists():
+                    logger.info(f"[Storage] Container '{container_name}' not found, creating...")
+                    container_client.create_container()
+            except Exception as container_err:
+                 logger.warning(f"[Storage] Container check failed (non-fatal): {container_err}")
 
-        # Fix DoS: Use streaming upload from SpooledTemporaryFile
-        # file.file is the underlying Python file object
-        try:
-            file.file.seek(0)
-        except Exception:
-            pass # Seek might fail on some streams, ignore
+            # Fix DoS: Use streaming upload from SpooledTemporaryFile
+            # file.file is the underlying Python file object
+            try:
+                file.file.seek(0)
+            except Exception:
+                pass # Seek might fail on some streams, ignore
 
-        blob_client.upload_blob(file.file, overwrite=True)
+            blob_client.upload_blob(file.file, overwrite=True)
+            
+        await run_in_threadpool(_upload)
         logger.info(f"[Storage] Uploaded blob: {blob_name}")
         return blob_client.url
 
@@ -82,15 +86,18 @@ async def upload_bytes_to_blob(content: bytes, filename: str, folder: str = "con
         blob_name = f"{folder}/{uuid.uuid4()}_{filename}"
         blob_client = client.get_blob_client(container=container_name, blob=blob_name)
 
-        try:
-            container_client = client.get_container_client(container_name)
-            if not container_client.exists():
-                logger.info(f"[Storage] Container '{container_name}' not found, creating...")
-                container_client.create_container()
-        except Exception as container_err:
-             logger.warning(f"[Storage] Container check failed (non-fatal): {container_err}")
+        def _upload_bytes():
+            try:
+                container_client = client.get_container_client(container_name)
+                if not container_client.exists():
+                    logger.info(f"[Storage] Container '{container_name}' not found, creating...")
+                    container_client.create_container()
+            except Exception as container_err:
+                 logger.warning(f"[Storage] Container check failed (non-fatal): {container_err}")
 
-        blob_client.upload_blob(content, overwrite=True)
+            blob_client.upload_blob(content, overwrite=True)
+
+        await run_in_threadpool(_upload_bytes)
         logger.info(f"[Storage] Uploaded bytes blob: {blob_name}")
         return blob_client.url
 
@@ -121,15 +128,18 @@ async def save_json_as_blob(data: dict, filename: str) -> Optional[str]:
         container_name = settings.AZURE_CONTAINER_NAME
         blob_client = client.get_blob_client(container=container_name, blob=filename)
 
-        # Ensure container exists
-        container_client = client.get_container_client(container_name)
-        if not container_client.exists():
-            try:
-                container_client.create_container()
-            except Exception:
-                pass # Already created by another process
+        def _upload_json():
+            # Ensure container exists
+            container_client = client.get_container_client(container_name)
+            if not container_client.exists():
+                try:
+                    container_client.create_container()
+                except Exception:
+                    pass # Already created by another process
 
-        blob_client.upload_blob(json.dumps(data), overwrite=True)
+            blob_client.upload_blob(json.dumps(data), overwrite=True)
+            
+        await run_in_threadpool(_upload_json)
         return blob_client.url
     except Exception as e:
         import logging
@@ -157,12 +167,15 @@ async def load_json_from_blob(filename: str) -> Optional[dict]:
     try:
         container_name = settings.AZURE_CONTAINER_NAME
         blob_client = client.get_blob_client(container=container_name, blob=filename)
-        if not blob_client.exists():
-            return None
+        def _download_json():
+            if not blob_client.exists():
+                return None
 
-        stream = blob_client.download_blob()
-        data = stream.readall()
-        return json.loads(data)
+            stream = blob_client.download_blob()
+            data = stream.readall()
+            return json.loads(data)
+            
+        return await run_in_threadpool(_download_json)
     except Exception as e:
         # Don't spam logs for cache miss
         return None
@@ -201,8 +214,13 @@ async def download_file_from_url(file_url: str) -> Optional[bytes]:
             blob_name = unquote(blob_name)
             
             blob_client = client.get_blob_client(container=container_name, blob=blob_name)
-            if blob_client.exists():
-                return blob_client.download_blob().readall()
+            
+            def _download_blob():
+                if blob_client.exists():
+                    return blob_client.download_blob().readall()
+                return None
+                
+            return await run_in_threadpool(_download_blob)
                 
     except Exception as e:
         logger.error(f"[Storage] Blob download failed: {e}")
