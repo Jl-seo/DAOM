@@ -303,23 +303,18 @@ class ExtractionService:
         # [Scenario Router] - FIRST STEP
         # Decide strategy immediately based on model configuration.
         use_beta = model.beta_features.get("use_optimized_prompt", False) if model.beta_features else False
+        use_multi_table = model.beta_features.get("use_multi_table_analyzer", False) if model.beta_features else False
         
-        logger.info(f"[LLM] Dispatching to mode: {'BETA (LayoutParser)' if use_beta else 'GENERAL (Legacy)'}")
+        logger.info(f"[LLM] Dispatching to mode: {'ADVANCED_TABLE' if use_multi_table else 'BETA (LayoutParser)' if use_beta else 'GENERAL (Legacy)'}")
 
-        if use_beta:
-            # [Refactored Phase 7] Use BetaPipeline
-            from app.services.extraction.beta_pipeline import BetaPipeline
+        if use_multi_table:
+            # [New Pipeline] Multi-Table Extractor (Bypass markdown, use raw JSON Grid)
+            from app.services.extraction.advanced_table_pipeline import AdvancedTablePipeline
+            pipeline = AdvancedTablePipeline(self.azure_openai)
             
-            # Lazy init or singleton? Better to init once. 
-            # For now, instantiate here to avoid circular imports in __init__ if any.
-            # Actually, let's keep it simple.
-            pipeline = BetaPipeline(self.azure_openai)
-            
-            # Execute Pipeline (Standardized Result)
+            # Execute Pipeline
             extraction_result = await pipeline.execute(model, ocr_data_to_send, focus_pages)
             
-            # Convert to Dictionary for Compatibility with _validate_and_format
-            # We map Standard Schema -> Legacy Dict Schema
             result_dict = {
                 "guide_extracted": extraction_result.guide_extracted,
                 "_token_usage": extraction_result.token_usage.dict(),
@@ -329,9 +324,27 @@ class ExtractionService:
                 "pages": ocr_data_to_send.get("pages", []),
                 "other_data": extraction_result.other_data or []
             }
+            return result_dict
+
+        elif use_beta:
+            # [Refactored Phase 7] Use BetaPipeline
+            from app.services.extraction.beta_pipeline import BetaPipeline
             
-            # Legacy "is_table" logic removed.
-            # Table data is now part of guide_extracted.
+            pipeline = BetaPipeline(self.azure_openai)
+            
+            # Execute Pipeline (Standardized Result)
+            extraction_result = await pipeline.execute(model, ocr_data_to_send, focus_pages)
+            
+            # Convert to Dictionary for Compatibility with _validate_and_format
+            result_dict = {
+                "guide_extracted": extraction_result.guide_extracted,
+                "_token_usage": extraction_result.token_usage.dict(),
+                "error": extraction_result.error,
+                "raw_content": ocr_data_to_send.get("content", ""),
+                "raw_tables": ocr_data_to_send.get("tables", []),
+                "pages": ocr_data_to_send.get("pages", []),
+                "other_data": extraction_result.other_data or []
+            }
                 
             # Metadata
             if extraction_result.beta_metadata:

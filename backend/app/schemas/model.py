@@ -5,7 +5,8 @@ from typing import List, Optional, Dict, Any
 def default_beta_features() -> Dict[str, bool]:
     return {
         "use_optimized_prompt": False,
-        "use_vision_extraction": False
+        "use_vision_extraction": False,
+        "use_multi_table_analyzer": False  # New Feature: Direct JSON-level table mapping bypassing markdown conversion
     }
 
 
