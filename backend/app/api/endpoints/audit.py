@@ -57,7 +57,7 @@ async def list_audit_logs(
 
     # RBAC Filtering
     target_model_ids = None
-    if not is_super_admin(user):
+    if not await is_super_admin(user):
         # Model Admin: Filter logs by accessible groups
         all_models = await models.load_models()
         user_groups = set(user.groups or [])
@@ -77,10 +77,10 @@ async def list_audit_logs(
     # If super admin, allow viewing all logs (ignore tenant mismatch for system logs)
     # System logs often have tenant_id="default", but user has real Entra ID tenant
     search_tenant = user.tenant_id
-    if is_super_admin(user):
+    if await is_super_admin(user):
         search_tenant = None
 
-    logs = get_audit_logs(
+    logs = await get_audit_logs(
         user_id=user_id,
         tenant_id=search_tenant,
         resource_type=resource_type,
@@ -108,5 +108,5 @@ async def get_audit_stats(
     """
     Get audit log statistics (Admin only)
     """
-    stats = stats_service.get_dashboard_stats()
+    stats = await stats_service.get_dashboard_stats()
     return stats

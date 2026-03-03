@@ -3,6 +3,7 @@ Dictionary Service — Azure AI Search
 Manages dictionary indexes for auto-normalization.
 Dynamically indexes any Excel columns — no fixed schema required.
 """
+import asyncio
 import logging
 import io
 import hashlib
@@ -133,7 +134,7 @@ class DictionaryService:
 
         try:
             index = SearchIndex(name=index_name, fields=fields)
-            self._index_client.create_or_update_index(index)
+            await asyncio.to_thread(self._index_client.create_or_update_index, index)
             logger.info(f"[DictionaryService] Index '{index_name}' created/updated with {len(safe_columns)} fields")
         except Exception as e:
             return {"error": f"인덱스 생성 실패: {e}", "count": 0}
@@ -148,7 +149,7 @@ class DictionaryService:
         for orig, safe in col_mapping.items():
             meta_doc[safe] = orig  # safe field stores original column name
         try:
-            client.upload_documents(documents=[meta_doc])
+            await asyncio.to_thread(client.upload_documents, documents=[meta_doc])
         except Exception as e:
             logger.warning(f"[DictionaryService] Meta document upload failed: {e}")
 
@@ -172,7 +173,7 @@ class DictionaryService:
         for i in range(0, len(documents), batch_size):
             batch = documents[i:i + batch_size]
             try:
-                result = client.upload_documents(documents=batch)
+                result = await asyncio.to_thread(client.upload_documents, documents=batch)
                 total += len([r for r in result if r.succeeded])
             except Exception as e:
                 logger.error(f"[DictionaryService] Upload batch {i} failed: {e}")
@@ -202,7 +203,8 @@ class DictionaryService:
         try:
             client = self._search_client(category)
             filter_expr = "doc_type eq 'data'"
-            search_results = client.search(
+            search_results = await asyncio.to_thread(
+                client.search,
                 search_text=query, filter=filter_expr,
                 top=top_k, include_total_count=True
             )
@@ -228,7 +230,7 @@ class DictionaryService:
         if not self._initialized:
             return []
         try:
-            indexes = self._index_client.list_indexes()
+            indexes = await asyncio.to_thread(lambda: list(self._index_client.list_indexes()))
             categories = []
             for idx in indexes:
                 if idx.name.startswith("daom-dict-"):
@@ -236,7 +238,9 @@ class DictionaryService:
                     # Get document count
                     try:
                         client = self._search_client(cat_name)
-                        results = client.search(search_text="*", top=0, include_total_count=True)
+                        results = await asyncio.to_thread(
+                            client.search, search_text="*", top=0, include_total_count=True
+                        )
                         count = results.get_count() or 0
                     except Exception:
                         count = 0
@@ -252,7 +256,7 @@ class DictionaryService:
             return 0
         index_name = _get_index_name(category)
         try:
-            self._index_client.delete_index(index_name)
+            await asyncio.to_thread(self._index_client.delete_index, index_name)
             logger.info(f"[DictionaryService] Deleted index '{index_name}'")
             return 1
         except Exception as e:
