@@ -275,7 +275,8 @@ Do NOT translate unless the field rule explicitly mentions translation.
                 "label": f.label,
                 "description": f.description,
                 "rules": f.rules,
-                "type": f.type
+                "type": f.type,
+                "sub_fields": f.sub_fields
             }
             for f in fields
         ], ensure_ascii=False, indent=2)
@@ -360,10 +361,10 @@ CRITICAL PRECISION & RULE PRESERVATION:
 - If the schema has a rich description, the "instruction" must be detailed enough to capture all edge cases mentioned.
 
 CRITICAL TABLE SUB-COLUMN EXTRACTION:
-- For any field classified as "table_fields" (type: list, table, array), YOU MUST READ the user's description to accurately determine what columns are required.
-- Users often write sub-columns inside the description (e.g., "Extract POL, POD, Rate, and 20DC columns").
-- YOU MUST create a distinct sub-key in the "columns" object for EVERY column mentioned by the user. DO NOT use generic keys like "col1".
-- If the description says "POL Name, Rate Basis, 40HQ", your columns object MUST have keys: "pol_name", "rate_basis", "40hq", etc., alongside detailed instructions for each.
+- For any field classified as "table_fields" (type: list, table, array), YOU MUST USE the provided "sub_fields" array if it exists to strictly define the columns.
+- Create a distinct sub-key in the "columns" object for EVERY item in "sub_fields", using its "key". Incorporate its "label", "description", and "rules" into detailed column instructions.
+- If "sub_fields" is empty or missing, fallback to reading the user's field description (e.g., "Extract POL, POD") to determine required columns and invent appropriate keys.
+- DO NOT use generic keys like "col1".
 
 ZERO TOLERANCE — FIELD COVERAGE:
 - You MUST generate exactly one instruction entry for EVERY field in the schema.

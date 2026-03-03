@@ -20,10 +20,15 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     client = get_openai_client()
     deployment = get_current_model()
     
-    fields_context = [{"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules} for f in model.fields]
+    fields_context = [{"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules, "sub_fields": f.sub_fields} for f in model.fields]
+    
+    # Truncate markdown_text to prevent context overload and save tokens
+    lines = markdown_text.split("\n")
+    if len(lines) > 50:
+        markdown_text = "\n".join(lines[:50]) + "\n... [TRUNCATED - EXCEL CONTENT TOO LARGE, MAPPING BY HEADERS ONLY]"
     
     prompt = f"""
-    You are an expert Data Extractor interpreting Excel files. You are given the FULL Excel content as a Markdown table.
+    You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a Markdown table (first 50 rows).
     The table contains columns: `row_id` (global row number), and `A`, `B`, `C`, `D`... (representing Excel columns).
     
     Data Content (Markdown):
@@ -33,42 +38,80 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     {json.dumps(fields_context, ensure_ascii=False, indent=2)}
     
     YOUR TASKS:
-    1. Identify tables and scalars. Fields of type 'table', 'list', 'array' expect a list of objects. Fields of type 'string', 'number' are usually scalars but might be within a table if they map to repeating rows. Look at the description/rules to find the expected keys inside the table objects.
+    1. Identify tables and scalars. Fields of type 'table', 'list', 'array' expect a list of objects. Fields of type 'string', 'number' are usually scalars but might be within a table if they map to repeating rows. Look at the description/rules/sub_fields to find the expected keys inside the table objects.
     2. Find the REAL headers for the table(s) in the Excel grid to map the columns properly.
-    3. Output a precise Mapping JSON.
+    3. Output a precise Mapping JSON array format.
     
     CRITICAL RULES:
-    - **NO HALLUCINATED KEYS**: The keys inside `"tables"` and `"scalars"` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys.
+    - **NO HALLUCINATED KEYS**: The keys `field_key` and `sub_field_key` MUST exactly match the `key` strings from the "Target Extraction Schema" above. Do NOT invent your own keys.
     - `"header_row_id"`: The exact `row_id` from the JSON where the table headers reside. The Python engine will slice data starting strictly from `row_id > header_row_id`.
-    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here, ONLY the mapped column letter.
+    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (what the final schema wants, specified in `sub_fields`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). Do NOT use literal text headers here, ONLY the mapped column letter.
     - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label. For example, if row 3 Column A says "VesselName" and Column B says "MSC ALICE", you MUST return `{{"col": "B"}}`.
     - **SCALAR FALLBACK**: For scalars, also output `"exact_value"` containing the raw text you see in the cell, as a fallback backup.
-    
-    Return ONLY a JSON object with this EXACT structure:
-    {{
-        "tables": {{
-            "target_table_field_key": {{
-                "sheet_name": "Sheet1",
-                "header_row_id": 5,
-                "columns_mapping": {{
-                    "POL": "B",
-                    "POD": "C"
-                }}
-            }}
-        }},
-        "scalars": {{
-            "target_scalar_field_key": {{"sheet_name": "Sheet1", "row_id": 1, "col": "D", "exact_value": "BKG-1234"}}
-        }},
-        "reasoning": "Brief mapping logic justification."
-    }}
     """
+    
+    response_schema = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "excel_mapping",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "reasoning": {"type": "string"},
+                    "tables": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "field_key": {"type": "string"},
+                                "sheet_name": {"type": "string"},
+                                "header_row_id": {"type": "integer"},
+                                "columns_mapping": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "sub_field_key": {"type": "string"},
+                                            "excel_column": {"type": "string"}
+                                        },
+                                        "required": ["sub_field_key", "excel_column"],
+                                        "additionalProperties": False
+                                    }
+                                }
+                            },
+                            "required": ["field_key", "sheet_name", "header_row_id", "columns_mapping"],
+                            "additionalProperties": False
+                        }
+                    },
+                    "scalars": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "field_key": {"type": "string"},
+                                "sheet_name": {"type": "string"},
+                                "row_id": {"type": "integer"},
+                                "col": {"type": "string"},
+                                "exact_value": {"type": ["string", "null"]}
+                            },
+                            "required": ["field_key", "sheet_name", "row_id", "col", "exact_value"],
+                            "additionalProperties": False
+                        }
+                    }
+                },
+                "required": ["reasoning", "tables", "scalars"],
+                "additionalProperties": False
+            }
+        }
+    }
     
     try:
         res = await client.chat.completions.create(
             model=deployment,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0
+            response_format=response_schema,
+            temperature=model.temperature
         )
         content = res.choices[0].message.content
         result_json = json.loads(content)
@@ -176,10 +219,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     ref_data = model.reference_data or {}
     
     # 3.1 LLM Handoff: Process Natively Extracted Scalars
-    scalars_mapping = mapping_plan.get("scalars", {})
-    if not isinstance(scalars_mapping, dict):
-        logger.warning(f"LLM returned invalid scalars schema type: {type(scalars_mapping)}. Defaulting to empty dict.")
-        scalars_mapping = {}
+    raw_scalars = mapping_plan.get("scalars", [])
+    if not isinstance(raw_scalars, list):
+        logger.warning(f"LLM returned invalid scalars schema type: {type(raw_scalars)}. Defaulting to empty list.")
+        raw_scalars = []
+        
+    scalars_mapping = {s["field_key"]: s for s in raw_scalars if "field_key" in s}
         
     for target_key, s_map in scalars_mapping.items():
         sheet = s_map.get("sheet_name")
@@ -225,10 +270,23 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             logger.debug(f"Skipping empty scalar {target_key}")
 
     # 3.2 Pandas Handoff: Map Tables using Bridge Rules
-    tables_map = mapping_plan.get("tables", {})
-    if not isinstance(tables_map, dict):
-        logger.warning(f"LLM returned invalid tables schema type: {type(tables_map)}. Defaulting to empty dict.")
-        tables_map = {}
+    raw_tables = mapping_plan.get("tables", [])
+    if not isinstance(raw_tables, list):
+        logger.warning(f"LLM returned invalid tables schema type: {type(raw_tables)}. Defaulting to empty list.")
+        raw_tables = []
+        
+    tables_map = {}
+    for t in raw_tables:
+        if "field_key" not in t:
+            continue
+        col_map_array = t.get("columns_mapping", [])
+        col_map_dict = {c["sub_field_key"]: c["excel_column"] for c in col_map_array if "sub_field_key" in c and "excel_column" in c} if isinstance(col_map_array, list) else {}
+        
+        tables_map[t["field_key"]] = {
+            "sheet_name": t.get("sheet_name", "Sheet1"),
+            "header_row_id": t.get("header_row_id", 0),
+            "columns_mapping": col_map_dict
+        }
         
     for target_key, t_map in tables_map.items():
         sheet = t_map.get("sheet_name", "Sheet1")

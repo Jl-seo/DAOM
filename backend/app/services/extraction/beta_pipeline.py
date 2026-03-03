@@ -218,6 +218,85 @@ class BetaPipeline(ExtractionPipeline):
         return work_order
 
     @staticmethod
+    def _build_engineer_schema(model: ExtractionModel) -> dict:
+        """Create a Strict Structured Outputs JSON Schema from the model."""
+        properties = {}
+        required_keys = []
+        
+        for f in model.fields:
+            required_keys.append(f.key)
+            if f.type in ["table", "list", "array"]:
+                # If sub_fields are defined, make it strict
+                if f.sub_fields:
+                    sub_props = {}
+                    sub_req = []
+                    for sf in f.sub_fields:
+                        sf_key = sf.get("key", "")
+                        if sf_key:
+                            # Values come wrapped in value/confidence dicts or just raw strings depending on the phase
+                            # Let's be lenient on type: string or null 
+                            sub_props[sf_key] = {
+                                "type": "object",
+                                "properties": {
+                                    "value": {"type": ["string", "null", "number", "boolean"]},
+                                    "confidence": {"type": ["number", "null"]},
+                                    "page_number": {"type": ["integer", "null"]}
+                                },
+                                "required": ["value", "confidence", "page_number"],
+                                "additionalProperties": False
+                            }
+                            sub_req.append(sf_key)
+                    
+                    properties[f.key] = {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": sub_props,
+                            "required": sub_req,
+                            "additionalProperties": False
+                        }
+                    }
+                else:
+                    # Fallback if no sub_fields defined
+                    properties[f.key] = {
+                        "type": "array",
+                        "items": {"type": "object"}
+                    }
+            else:
+                properties[f.key] = {
+                    "type": "object",
+                    "properties": {
+                        "value": {"type": ["string", "null", "number", "boolean"]},
+                        "confidence": {"type": ["number", "null"]},
+                        "page_number": {"type": ["integer", "null"]}
+                    },
+                    "required": ["value", "confidence", "page_number"],
+                    "additionalProperties": False
+                }
+                
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "extraction_result",
+                "strict": False,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "guide_extracted": {
+                            "type": "object",
+                            "properties": properties,
+                            "required": required_keys,
+                            "additionalProperties": False
+                        },
+                        "error": {"type": ["string", "null"]}
+                    },
+                    "required": ["guide_extracted"],
+                    "additionalProperties": True # allow _token_usage etc.
+                }
+            }
+        }
+
+    @staticmethod
     def _build_fallback_work_order(model: ExtractionModel) -> dict:
         """Build a minimal work order directly from model schema when Designer fails."""
         TABLE_FIELD_TYPES = ('list', 'table', 'array')
@@ -290,7 +369,10 @@ class BetaPipeline(ExtractionPipeline):
             {"role": "user", "content": user_prompt}
         ]
         
-        raw_result = await self.call_llm(messages, is_table_model=True)
+        response_format = self._build_engineer_schema(model) if model else {"type": "json_object"}
+        temp = model.temperature if model else None
+        
+        raw_result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
         return raw_result
 
     async def _run_engineer_chunked(self, work_order: dict, tagged_text: str, chunk_size: int, model: ExtractionModel = None) -> dict:
@@ -343,7 +425,9 @@ class BetaPipeline(ExtractionPipeline):
             ]
             async with self.semaphore:
                 try:
-                    result = await self.call_llm(messages, is_table_model=True)
+                    response_format = self._build_engineer_schema(model) if model else {"type": "json_object"}
+                    temp = model.temperature if model else None
+                    result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
                     # Validate result structure
                     if not isinstance(result, dict):
                         logger.error(f"[BetaPipeline] Chunk {chunk_idx}: call_llm returned {type(result).__name__}, expected dict")
@@ -680,11 +764,14 @@ class BetaPipeline(ExtractionPipeline):
             # Header context STRICTLY isolated to this specific sheet/section
             header_context = content[:1500]
             
+            response_format = self._build_engineer_schema(model) if model else {"type": "json_object"}
+            temp = model.temperature if model else None
+            
             # Create process task closure for this specific chunk
             for idx, chunk_text in enumerate(chunks):
                 all_chunk_tasks.append(
                     self._process_table_chunk_task(
-                        chunk_text, idx, header_context, section["name"], table_prompt, ocr_data, ref_map
+                        chunk_text, idx, header_context, section["name"], table_prompt, ocr_data, ref_map, response_format, temp
                     )
                 )
 
@@ -729,7 +816,7 @@ class BetaPipeline(ExtractionPipeline):
         merged_result.guide_extracted = self._normalize_column_keys(merged_guide)
         return merged_result
 
-    async def _process_table_chunk_task(self, chunk_text: str, chunk_idx: int, header_context: str, section_name: str, table_prompt: str, ocr_data: Dict, ref_map: Dict) -> ExtractionResult:
+    async def _process_table_chunk_task(self, chunk_text: str, chunk_idx: int, header_context: str, section_name: str, table_prompt: str, ocr_data: Dict, ref_map: Dict, response_format: Dict = None, temperature: float = None) -> ExtractionResult:
         """Helper to process a single chunk safely."""
         final_chunk = chunk_text
         if chunk_idx > 0:
@@ -748,7 +835,7 @@ class BetaPipeline(ExtractionPipeline):
         
         async with self.semaphore:
             try:
-                raw_result = await self.call_llm(messages)
+                raw_result = await self.call_llm(messages, is_table_model=True, temperature=temperature, response_format=response_format)
                 return self._normalize_output(raw_result, ocr_data, ref_map, chunk_text)
             except Exception as e:
                 logger.error(f"[BetaPipeline] Table Chunk {chunk_idx} in {section_name} failed: {e}")
@@ -1093,21 +1180,24 @@ class BetaPipeline(ExtractionPipeline):
         
         return res
 
-    async def call_llm(self, messages, is_table_model: bool = False):
+    async def call_llm(self, messages, is_table_model: bool = False, temperature: Optional[float] = None, response_format: Optional[Dict] = None):
         """Direct LLM Call with table-aware max_tokens"""
         current_model_name = get_current_model()
         # Table models need more output tokens for many rows
         raw_max = settings.LLM_TABLE_MAX_TOKENS if is_table_model else settings.LLM_DEFAULT_MAX_TOKENS
         max_tokens = min(raw_max, 32768)  # Clamp to model's actual limit
         
+        temp = temperature if temperature is not None else settings.LLM_DEFAULT_TEMPERATURE
+        resp_fmt = response_format if response_format is not None else {"type": "json_object"}
+        
         try:
             response = await self.azure_client.chat.completions.create(
                 model=current_model_name,
                 messages=messages,
-                temperature=settings.LLM_DEFAULT_TEMPERATURE,
+                temperature=temp,
                 seed=42,
                 max_completion_tokens=max_tokens,
-                response_format={"type": "json_object"}
+                response_format=resp_fmt
             )
         except Exception as e:
             error_msg = str(e)

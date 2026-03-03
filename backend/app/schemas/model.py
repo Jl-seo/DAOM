@@ -16,6 +16,7 @@ class FieldDefinition(BaseModel):
     rules: Optional[str] = None  # 출력 보정/형태 정의 (자연어)
     type: str = "string"
     is_dex_target: Optional[bool] = False # DEX 바코드 검증 타겟 여부
+    sub_fields: Optional[List[Dict[str, str]]] = None # 하위 컬러 정의 (e.g. [{"key": "pol", "label": "POL"}])
 
 class ComparisonSettings(BaseModel):
     """비교 설정 (comparison 모델 전용)"""
@@ -61,6 +62,7 @@ class ExtractionModel(BaseModel):
     allowedGroups: Optional[List[str]] = None # Access control groups
     fields: List[FieldDefinition]
     is_active: bool = True
+    temperature: float = 0.0  # LLM Temperature (0.0 for deterministic)
     # Reference data for LLM context (Phase 1: structured JSON data)
     reference_data: Optional[Dict[str, Any]] = None  # 참고 데이터 (고객코드 매핑, 유효성 규칙 등)
     # Beta feature toggles - uses default_factory so missing DB values get defaults
@@ -84,6 +86,7 @@ class ExtractionModelCreate(BaseModel):
     webhook_url: Optional[str] = None  # POST URL for automation
     allowedGroups: Optional[List[str]] = None
     fields: List[FieldDefinition]
+    temperature: float = 0.0
     # Reference data for LLM context (Phase 1: structured JSON data)
     reference_data: Optional[Dict[str, Any]] = None  # 참고 데이터 (고객코드 매핑, 유효성 규칙 등)
     # Beta feature toggles - uses default_factory so missing values get defaults

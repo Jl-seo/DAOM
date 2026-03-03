@@ -257,6 +257,8 @@ async def analyze_document_content(
         try:
             logger.info(f"[LLM] Calling: {_current_model} (attempt {attempt+1}, prompt: {len(user_prompt)} chars)")
 
+            temp = model_info.temperature if model_info and hasattr(model_info, 'temperature') else getattr(settings, 'LLM_DEFAULT_TEMPERATURE', 0.0)
+            
             response = await client.chat.completions.create(
                 model=_current_model,
                 messages=[
@@ -264,7 +266,7 @@ async def analyze_document_content(
                     {"role": "user", "content": user_prompt}
                 ],
                 response_format={"type": "json_object"},
-                temperature=0,
+                temperature=temp,
             )
 
             result_content = response.choices[0].message.content
@@ -361,8 +363,35 @@ def build_extraction_schema(model_info) -> dict:
         key = field.key
         field_keys.append(key)
 
-        # Map FieldDefinition.type to JSON Schema type for "value"
-        value_type = _map_field_type(field.type)
+        if getattr(field, "type", "") in ["table", "list", "array"] and getattr(field, "sub_fields", None):
+            sub_props = {}
+            sub_req = []
+            for sf in field.sub_fields:
+                sf_key = sf.get("key", "")
+                if sf_key:
+                    sub_props[sf_key] = {
+                        "type": "object",
+                        "properties": {
+                            "value": {"type": ["string", "null", "number", "boolean"]},
+                            "confidence": {"type": "number"},
+                            "source_text": {"type": ["string", "null"]}
+                        },
+                        "required": ["value", "confidence", "source_text"],
+                        "additionalProperties": False
+                    }
+                    sub_req.append(sf_key)
+            
+            value_type = {
+                "type": ["array", "null"],
+                "items": {
+                    "type": "object",
+                    "properties": sub_props,
+                    "required": sub_req,
+                    "additionalProperties": False
+                }
+            }
+        else:
+            value_type = _map_field_type(field.type)
 
         field_properties[key] = {
             "type": "object",
@@ -420,18 +449,16 @@ async def call_llm_single(
     """
     client = get_openai_client()
 
-    # Detect table-type models: strict Structured Outputs can't enforce dynamic
-    # table column names and its token overhead limits row count. Use json_object
-    # mode instead and rely on the prompt for schema enforcement.
+    # Detect table-type models: strict Structured Outputs enforce exact schema.
+    # We fall back to json_object ONLY if a table field lacks explicit sub_fields,
+    # because we cannot build a strict schema for dynamic column names.
     is_table_model = False
-    if model_info:
-        # DEPRECATED: data_structure manual selector removed
-        # if getattr(model_info, 'data_structure', None) == 'table':
-        #     is_table_model = True
-        if hasattr(model_info, 'fields') and model_info.fields:
-            is_table_model = any(
-                getattr(f, 'type', '') == 'table' for f in model_info.fields
-            )
+    if model_info and hasattr(model_info, 'fields') and model_info.fields:
+        for f in model_info.fields:
+            if getattr(f, 'type', '') in ['table', 'list', 'array']:
+                if not getattr(f, 'sub_fields', None):
+                    is_table_model = True
+                    break
 
     # Build response format
     if is_table_model:
@@ -460,6 +487,8 @@ async def call_llm_single(
     max_tokens = min(raw_max, MODEL_MAX_COMPLETION_TOKENS)
 
     try:
+        temp = model_info.temperature if model_info and hasattr(model_info, 'temperature') else getattr(settings, 'LLM_DEFAULT_TEMPERATURE', 0.0)
+        
         response = await client.chat.completions.create(
             model=_current_model,
             messages=[
@@ -468,7 +497,7 @@ async def call_llm_single(
             ],
             response_format=response_format,
             max_completion_tokens=max_tokens,
-            temperature=0,
+            temperature=temp,
         )
 
         result_content = response.choices[0].message.content
