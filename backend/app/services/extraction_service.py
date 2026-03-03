@@ -15,6 +15,7 @@ from app.schemas.model import ExtractionModel
 from app.core.config import settings
 from app.services.llm import call_llm_single, get_current_model, get_openai_client
 from app.services.extraction_utils import normalize_bbox, parse_number
+from app.services.extraction.rule_engine import rule_engine
 
 # Async Azure OpenAI client for direct calls
 from openai import AsyncAzureOpenAI
@@ -89,6 +90,12 @@ class ExtractionService:
                     "pipeline_mode": "python-excel-engine"
                 })
                 
+                # Rule Engine Hook (Normalization & Validation)
+                if model.dictionaries:
+                    sql_result = await rule_engine.apply_dictionary_normalization(sql_result, model.dictionaries)
+                if model.reference_data:
+                    sql_result = rule_engine.apply_validation_rules(sql_result, model.reference_data)
+
                 if barcode:
                     sql_result = self._apply_dex_validation(sql_result, model, barcode)
                 
@@ -150,6 +157,12 @@ class ExtractionService:
                     "timestamp": start_time.isoformat(),
                     "pipeline_mode": "vision-extraction",
                 }
+
+                # Rule Engine Hook (Normalization & Validation)
+                if model.dictionaries:
+                    final_result = await rule_engine.apply_dictionary_normalization(final_result, model.dictionaries)
+                if model.reference_data:
+                    final_result = rule_engine.apply_validation_rules(final_result, model.reference_data)
 
                 if barcode:
                     final_result = self._apply_dex_validation(final_result, model, barcode)
@@ -230,6 +243,12 @@ class ExtractionService:
             "model_name": model.name,
             "timestamp": start_time.isoformat()
         }
+
+        # Rule Engine Hook (Normalization & Validation)
+        if model.dictionaries:
+            final_result = await rule_engine.apply_dictionary_normalization(final_result, model.dictionaries)
+        if model.reference_data:
+            final_result = rule_engine.apply_validation_rules(final_result, model.reference_data)
 
         # 5. DEX Integration (LLM vs LIS Check)
         if barcode:
@@ -418,8 +437,18 @@ If a field is not found, return null.
             {"role": "user", "content": user_prompt}
         ]
         
+        # Generate strict structured output schema if possible
+        from app.services.extraction.beta_pipeline import BetaPipeline
+        try:
+            response_format = BetaPipeline._build_engineer_schema(model)
+        except Exception as e:
+            logger.warning(f"[General Mode] Failed to build strict schema, falling back to json_object: {e}")
+            response_format = {"type": "json_object"}
+            
+        temp = model.temperature if hasattr(model, 'temperature') else getattr(settings, 'LLM_DEFAULT_TEMPERATURE', 0.0)
+
         # Call LLM
-        llm_result = await self._call_llm(messages, ocr_data.get("content", ""))
+        llm_result = await self._call_llm(messages, ocr_data.get("content", ""), response_format=response_format, temperature=temp)
         
         # Merge Original Data (Pass-through)
         # Verify if raw_content flows through
@@ -434,17 +463,20 @@ If a field is not found, return null.
     # _extract_beta_chunked and _extract_beta_mode are now DEPRECATED and REMOVED.
     # Logic moved to app.services.extraction.beta_pipeline.BetaPipeline
 
-    async def _call_llm(self, messages: List[Dict[str, str]], raw_content: str) -> Dict[str, Any]:
+    async def _call_llm(self, messages: List[Dict[str, str]], raw_content: str, response_format: Optional[Dict[str, Any]] = None, temperature: float = 0.0) -> Dict[str, Any]:
         """Shared LLM Caller"""
         logger.info(f"[LLM] Sending request to Azure OpenAI...")
+        if response_format is None:
+            response_format = {"type": "json_object"}
+            
         try:
             current_model_name = get_current_model()
             response = await self.azure_openai.chat.completions.create(
                 model=current_model_name,
                 messages=messages,
-                temperature=settings.LLM_DEFAULT_TEMPERATURE,
+                temperature=temperature,
                 max_completion_tokens=settings.LLM_DEFAULT_MAX_TOKENS,
-                response_format={"type": "json_object"}
+                response_format=response_format
             )
             content = response.choices[0].message.content or "{}"
             

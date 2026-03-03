@@ -97,7 +97,17 @@ def normalize_bbox(bbox: Any, page_width: float = 0, page_height: float = 0) -> 
                 (y2 / page_height) * 100
             ]
 
-        # Case 2: Coordinates look like inches (Azure Doc Intelligence, typically 0-11)
+        # Case 2: Coordinates look like percentages already (0.0 to 1.0)
+        if all(0 <= v <= 1 for v in [x1, y1, x2, y2]):
+            if max(x1, y1, x2, y2) < 1.0:
+                 return [
+                     x1 * 100,
+                     y1 * 100,
+                     x2 * 100,
+                     y2 * 100
+                 ]
+
+        # Case 3: Coordinates look like inches (Azure Doc Intelligence, typically 0-11)
         if all(0 <= v <= 20 for v in [x1, y1, x2, y2]):
             default_page_width = 8.5
             default_page_height = 11.0

@@ -39,6 +39,11 @@ function extractValue(data: any): any {
         return data.value
     }
 
+    // Case 1.5: Dictionary normalized object in arrays
+    if (data && typeof data === 'object' && !Array.isArray(data) && 'raw_value' in data) {
+        return data.raw_value
+    }
+
     // Case 2: OpenAI sometimes returns arrays of rich objects - don't unwrap these
     if (Array.isArray(data)) {
         return data
@@ -484,17 +489,20 @@ function ResizableNestedTable({
                         {virtualizer.getVirtualItems().map((virtualRow) => {
                             const row = displayData[virtualRow.index]
                             const isHighlightRow = !!dexValidation
+                            const isDuplicateRow = !!row?._is_duplicate
+                            const rowWarnings = row?._row_warnings as string[] | undefined
 
                             return (
                                 <tr
                                     key={virtualRow.index}
                                     className={clsx(
                                         "absolute top-0 left-0 w-full flex",
+                                        isDuplicateRow && "bg-orange-50/50 hover:bg-orange-100/50 border-l-4 border-l-orange-500",
                                         isHighlightRow
                                             ? (dexValidation.status === 'PASS'
                                                 ? "bg-emerald-50/50 hover:bg-emerald-100/50 border-l-4 border-l-emerald-500"
                                                 : "bg-destructive/10 hover:bg-destructive/20 border-l-4 border-l-destructive")
-                                            : "hover:bg-accent/50"
+                                            : !isDuplicateRow && "hover:bg-accent/50"
                                     )}
                                     style={{
                                         height: `${virtualRow.size}px`,
@@ -528,8 +536,18 @@ function ResizableNestedTable({
                                                     }}
                                                 />
                                             ) : (
-                                                <div className="px-3 py-2 truncate h-full flex items-center">
-                                                    {renderValue(row != null ? row[key] : '')}
+                                                <div className="px-3 py-2 truncate h-full flex flex-col justify-center">
+                                                    <div>{renderValue(row != null ? row[key] : '')}</div>
+                                                    {row?.[key] && typeof row[key] === 'object' && row[key].normalized_code && (
+                                                        <div className="text-[9px] font-semibold px-1 rounded bg-blue-50/80 text-blue-700 w-fit mt-0.5 border border-blue-200">
+                                                            정규화: {row[key].normalized_code}
+                                                        </div>
+                                                    )}
+                                                    {isDuplicateRow && key === allKeys[0] && rowWarnings && (
+                                                        <div className="text-[10px] items-center text-orange-700 font-semibold flex gap-1 mt-1">
+                                                            ⚠️ 중복 감지
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </td>
@@ -561,10 +579,12 @@ function NestedArrayTable({ data, onUpdate, dexValidation }: { data: any[], onUp
 
 function EditableValueCell({
     value,
+    rawData,
     onChange,
     dexValidation
 }: {
     value: any
+    rawData?: any
     onChange: (newValue: any) => void
     dexValidation?: DexValidationData
 }) {
@@ -574,7 +594,9 @@ function EditableValueCell({
     // Logic to handle potential JSON strings, including markdown blocks
     if (typeof value === 'string') {
         const cleanValue = value.trim()
-        if (cleanValue.startsWith('[') || cleanValue.startsWith('{')) {
+        if (cleanValue === "null") {
+            parsedValue = null
+        } else if (cleanValue.startsWith('[') || cleanValue.startsWith('{')) {
             try {
                 parsedValue = JSON.parse(cleanValue)
             } catch (e) {
@@ -660,6 +682,22 @@ function EditableValueCell({
                     placeholder="값을 찾지 못함 - 직접 입력"
                 />
             )}
+
+            {rawData?.normalized_code && (
+                <div className="flex justify-start w-full mt-0.5">
+                    <div className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-800 flex items-center gap-1 shadow-sm" title={`정확도: ${Math.round((rawData.dict_score || 0) * 100)}%`}>
+                        <span className="opacity-70">정규화:</span> {rawData.normalized_code}
+                    </div>
+                </div>
+            )}
+            {rawData?.validation_status === 'error' && (
+                <div className="flex justify-start w-full mt-0.5">
+                    <div className="text-[11px] font-semibold px-2 py-0.5 rounded bg-destructive/10 border border-destructive text-destructive flex items-center gap-1 shadow-sm">
+                        <span className="opacity-70">경고:</span> {rawData?.validation_msg || "검증 실패"}
+                    </div>
+                </div>
+            )}
+
             {dexValidation && (
                 <div className="flex justify-end w-full">
                     <div className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800 flex items-center gap-1 shadow-sm">
@@ -974,6 +1012,7 @@ export function ExtractionPreview({
                                                                 ) : (
                                                                     <EditableValueCell
                                                                         value={value}
+                                                                        rawData={rawData}
                                                                         dexValidation={dexValidation?.target_field_key === field.key ? dexValidation : undefined}
                                                                         onChange={(newValue) => updateGuideField(field.key,
                                                                             rawData && typeof rawData === 'object' && 'confidence' in rawData

@@ -222,6 +222,7 @@ class BetaPipeline(ExtractionPipeline):
         """Create a Strict Structured Outputs JSON Schema from the model."""
         properties = {}
         required_keys = []
+        is_strict = True
         
         for f in model.fields:
             required_keys.append(f.key)
@@ -236,7 +237,7 @@ class BetaPipeline(ExtractionPipeline):
                             # Values come wrapped in value/confidence dicts or just raw strings depending on the phase
                             # Let's be lenient on type: string or null 
                             sub_props[sf_key] = {
-                                "type": "object",
+                                "type": ["object", "null"],
                                 "properties": {
                                     "value": {"type": ["string", "null", "number", "boolean"]},
                                     "confidence": {"type": ["number", "null"]},
@@ -248,7 +249,7 @@ class BetaPipeline(ExtractionPipeline):
                             sub_req.append(sf_key)
                     
                     properties[f.key] = {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
                             "properties": sub_props,
@@ -257,14 +258,15 @@ class BetaPipeline(ExtractionPipeline):
                         }
                     }
                 else:
+                    is_strict = False
                     # Fallback if no sub_fields defined
                     properties[f.key] = {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {"type": "object"}
                     }
             else:
                 properties[f.key] = {
-                    "type": "object",
+                    "type": ["object", "null"],
                     "properties": {
                         "value": {"type": ["string", "null", "number", "boolean"]},
                         "confidence": {"type": ["number", "null"]},
@@ -278,7 +280,7 @@ class BetaPipeline(ExtractionPipeline):
             "type": "json_schema",
             "json_schema": {
                 "name": "extraction_result",
-                "strict": False,
+                "strict": is_strict,
                 "schema": {
                     "type": "object",
                     "properties": {
@@ -290,8 +292,8 @@ class BetaPipeline(ExtractionPipeline):
                         },
                         "error": {"type": ["string", "null"]}
                     },
-                    "required": ["guide_extracted"],
-                    "additionalProperties": True # allow _token_usage etc.
+                    "required": ["guide_extracted", "error"] if is_strict else ["guide_extracted"],
+                    "additionalProperties": not is_strict
                 }
             }
         }
