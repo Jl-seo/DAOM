@@ -607,8 +607,12 @@ If a field is not found, return null.
                         p_w, p_h = page_dims[page_number]
                     normalized_bbox = normalize_bbox(bbox, p_w, p_h)
                 elif len(bbox) == 4:
-                    # Already normalized [x%, y%, w%, h%] (legacy path)
-                    normalized_bbox = bbox
+                    # Previous assumption: Already normalized [x%, y%, w%, h%]
+                    # New logic: Pass to normalize_bbox to catch 0.0~1.0 edge cases from Document Intelligence
+                    p_w, p_h = 100, 100
+                    if page_number and page_number in page_dims:
+                        p_w, p_h = page_dims[page_number]
+                    normalized_bbox = normalize_bbox(bbox, p_w, p_h)
             
 
             # Type Validation & JSON Parsing for Complex Fields
@@ -622,9 +626,29 @@ If a field is not found, return null.
                         (value.startswith("{") and value.endswith("}")):
                         try:
                             value = json.loads(value)
+                            
+                            # Recursively apply normalize_bbox to any nested 'bbox' coordinates
+                            def _recursive_normalize_bbox(data, pg_w, pg_h):
+                                if isinstance(data, dict):
+                                    for k, v in data.items():
+                                        if k == "bbox" and isinstance(v, list):
+                                            data[k] = normalize_bbox(v, pg_w, pg_h)
+                                        elif isinstance(v, (dict, list)):
+                                            _recursive_normalize_bbox(v, pg_w, pg_h)
+                                elif isinstance(data, list):
+                                    for item in data:
+                                        if isinstance(item, (dict, list)):
+                                            _recursive_normalize_bbox(item, pg_w, pg_h)
+                                return data
+                                
+                            p_w, p_h = 100, 100
+                            if page_number and page_number in page_dims:
+                                p_w, p_h = page_dims[page_number]
+                            value = _recursive_normalize_bbox(value, p_w, p_h)
+                            
                         except json.JSONDecodeError:
                             validation_status = "error_json_format"
-                            logger.warning(f"[Validation] Failed to parse JSON for field '{key}': {value[:50]}...")
+                            logger.warning(f"[Validation] Failed to parse JSON for field '{key}': {str(value)[:50]}...")
 
             # 2. Simple Types
             elif field.type == "number":
