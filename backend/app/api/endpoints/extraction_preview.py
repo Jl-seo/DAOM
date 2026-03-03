@@ -237,37 +237,6 @@ async def process_extraction_job(job_id: str, model_id: str, file_url: str, cand
             pass
 
 
-def process_extraction_job_sync(job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None, candidate_filenames: Optional[List[str]] = None, barcode: Optional[str] = None):
-    """
-    Synchronous wrapper for the async process_extraction_job.
-    Because this is a `def`, FastAPI's BackgroundTasks will run it in a 
-    Starlette threadpool (AnyIO worker thread), completely isolating it
-    from the main event loop that handles incoming HTTP requests.
-    This prevents heavy extraction tasks (with hundreds of awaits and CPU parsing)
-    from freezing the whole server.
-    """
-    import asyncio
-    
-    def _run_in_new_loop():
-        # Create a brand new event loop for this specific background thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(
-                process_extraction_job(
-                    job_id=job_id,
-                    model_id=model_id,
-                    file_url=file_url,
-                    candidate_file_url=candidate_file_url,
-                    candidate_file_urls=candidate_file_urls,
-                    candidate_filenames=candidate_filenames,
-                    barcode=barcode
-                )
-            )
-        finally:
-            loop.close()
-            
-    _run_in_new_loop()
 
 @router.post("/start-job")
 async def start_job_with_upload(
@@ -351,7 +320,7 @@ async def start_job_with_upload(
         file_url,
         candidate_file_url,
         candidate_file_urls,
-        candidate_filenames,  # NEW: Pass original filenames
+        candidate_filenames,
         barcode # DEX validation
     )
 
@@ -574,13 +543,16 @@ async def start_extraction(
         tenant_id=current_user.tenant_id if current_user else None
     )
 
-    # 3. Run extraction in background
-    # 3. Run extraction in background using the synchronous threadpool wrapper
+    # 3. Run extraction in background directly
     background_tasks.add_task(
-        process_extraction_job_sync,
+        process_extraction_job,
         job.id,
         request.model_id,
-        request.file_url
+        request.file_url,
+        None, # candidate_file_url
+        None, # candidate_file_urls
+        None, # candidate_filenames
+        None  # barcode
     )
 
     return {
@@ -935,9 +907,9 @@ async def retry_extraction(
         tenant_id=current_user.tenant_id if current_user else None
     )
 
-    # 6. Start background task using the synchronous threadpool wrapper
+    # 6. Start background task directly
     background_tasks.add_task(
-        process_extraction_job_sync,
+        process_extraction_job,
         job_id=job.id,
         model_id=log.model_id,
         file_url=log.file_url,
