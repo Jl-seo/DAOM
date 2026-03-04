@@ -74,10 +74,12 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     3. Output a precise Mapping JSON.
     
     CRITICAL RULES:
-    - **NO HALLUCINATED KEYS**: The `field_key` and `sub_field_key` MUST exactly match the `key` strings from the Target Schema.
+    - **NO HALLUCINATED KEYS**: The `field_key` MUST exactly match a `key` string from the Target Schema.
+    - If a field has `sub_fields` defined in the Schema, `sub_field_key` MUST exactly match the keys of the target `sub_fields`.
+    - IF `sub_fields` IS EMPTY OR MISSING for a table field, you MUST dynamically infer the required `sub_field_key` names by reading the field's `description` or `rules`. DO NOT just blindly copy the exact Excel header text as the `sub_field_key`! Use the names specified by the user in the prompt/rules.
     - `"header_row_id"`: The exact `row_id` where the actual column headers (titles) are located (e.g., the row containing "POL", "Description", "Amount").
     - `"first_data_row_id"`: The exact `row_id` where the ACTUAL DATA RECORDS begin, which MUST be GREATER THAN the `header_row_id`. Do NOT point this to the header row.
-    - `"columns_mapping"`: Map EXPECTED TARGET KEYS to EXCEL COLUMN LETTERS ("A", "B", "C"...). 
+    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (`sub_field_key`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). 
       **SUPER CRITICAL SEMANTIC INFERENCE RULE**: 
       1. NEVER blindly map columns sequentially just because they exist! 
       2. You MUST extract the exact text of the Excel header into `excel_header_name`. 

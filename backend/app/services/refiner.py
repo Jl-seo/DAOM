@@ -133,7 +133,7 @@ You must extract ALL rows from the document. Do NOT truncate or sample.
    - Inside the table array, each item is a row object with column keys.
 5. **MAP HEADERS**: You must map document headers to the EXACT field keys defined above.
    - Example: If doc has "Charge_Type", map it to "charge_type".
-   - Do NOT invent new keys.
+   - **CRITICAL**: If a table field lacks an explicit list of sub-field column keys, you MUST infer the required column keys by reading the field's `Description` or `Refinement Rule`. Convert the requested column names to clean `snake_case`. DO NOT just blindly copy the exact document header text (like Excel headers) as the JSON key!
 
 **CRITICAL: DO NOT FLATTEN**
 - Do NOT force header fields into every table row. Keep them separate at the root level.
@@ -363,7 +363,7 @@ CRITICAL PRECISION & RULE PRESERVATION:
 CRITICAL TABLE SUB-COLUMN EXTRACTION:
 - For any field classified as "table_fields" (type: list, table, array), YOU MUST USE the provided "sub_fields" array if it exists to strictly define the columns.
 - Create a distinct sub-key in the "columns" object for EVERY item in "sub_fields", using its "key". Incorporate its "label", "description", and "rules" into detailed column instructions.
-- If "sub_fields" is empty or missing, fallback to reading the user's field description (e.g., "Extract POL, POD") to determine required columns and invent appropriate keys.
+- If "sub_fields" is empty or missing, fallback to reading the user's field description (e.g., "Extract POL, POD") to determine required column keys. Convert the names intended by the user into clean snake_case keys. DO NOT blindly copy the exact document header text (like Excel headers) as the JSON key!
 - DO NOT use generic keys like "col1".
 
 ZERO TOLERANCE — FIELD COVERAGE:
