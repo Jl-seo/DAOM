@@ -6,7 +6,7 @@ Delegates LLM calls to specialized services (Beta Chunking) or handles them dire
 import json
 import logging
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 
 from app.services.doc_intel import analyze_document_layout
