@@ -141,8 +141,12 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                                 className={clsx(
                                     "flex items-center justify-between px-3 py-2 rounded-md text-[13px] font-bold transition-all border shadow-sm",
                                     field.sub_fields && field.sub_fields.length > 0
-                                        ? "bg-primary/5 text-primary border-primary/30 hover:bg-primary/10 hover:border-primary/50"
-                                        : "bg-white dark:bg-background text-foreground border-border hover:bg-accent hover:text-accent-foreground"
+                                        ? "bg-primary/5 text-primary border-primary/30"
+                                        : "bg-white dark:bg-background text-foreground border-border",
+                                    !disabled && (field.sub_fields && field.sub_fields.length > 0
+                                        ? "hover:bg-primary/10 hover:border-primary/50"
+                                        : "hover:bg-accent hover:text-accent-foreground"),
+                                    disabled && "opacity-60 cursor-not-allowed"
                                 )}
                             >
                                 <span className="flex items-center gap-2">
