@@ -588,16 +588,35 @@ async def refine_schema(current_fields: List[dict], instruction: str) -> List[di
     - Add new fields
     - Remove fields
     - Update descriptions or types
+    - **Add or Modify Sub-Fields:** If the instruction implies an array of objects (like a Table, List, or Array of items), you MUST add a `sub_fields` array to that field. Every sub-field in `sub_fields` follows the same structure: `{"key": "...", "label": "...", "type": "...", "description": "..."}`.
     
     Return a valid JSON object with a single key "fields", containing the updated list.
     
-    Example:
+    Example 1:
     Input Fields: [{"key": "inv_id", "label": "ID", "type": "string"}]
     Instruction: "Change inv_id to invoice_number and add total_amount"
     Output: {
       "fields": [
         {"key": "invoice_number", "label": "Invoice Number", "type": "string", "description": "ID"},
         {"key": "total_amount", "label": "Total Amount", "type": "currency", "description": "Total amount usually found at bottom"}
+      ]
+    }
+
+    Example 2:
+    Input Fields: [{"key": "items", "label": "Line Items", "type": "table"}]
+    Instruction: "add line item breakdown with quantity, description, and unit price"
+    Output: {
+      "fields": [
+        {
+          "key": "items", 
+          "label": "Line Items", 
+          "type": "table",
+          "sub_fields": [
+            {"key": "quantity", "label": "Quantity", "type": "number", "description": "Item qty"},
+            {"key": "description", "label": "Description", "type": "string", "description": "Item name"},
+            {"key": "unit_price", "label": "Unit Price", "type": "currency", "description": "Price per unit"}
+          ]
+        }
       ]
     }
     """

@@ -96,12 +96,19 @@ export function DictionaryPanel({ disabled }: DictionaryPanelProps) {
 
     const handleDeleteCategory = async (category: string) => {
         if (!confirm(`'${category}' 딕셔너리를 삭제하시겠습니까?`)) return
+        // Optimistic UI update to handle Azure AI Search index drop propagation delay
+        setCategories(prev => prev.filter(c => c.category !== category))
         try {
             await apiClient.delete(`/dictionaries/${category}`)
             toast.success(`딕셔너리 '${category}' 삭제 완료`)
-            fetchCategories()
+            // Delay the strict refetch to allow Azure search to actually drop the index
+            setTimeout(() => {
+                fetchCategories()
+            }, 3000)
         } catch (err: any) {
-            toast.error('삭제 실패')
+            toast.error('삭제 실패: ' + (err.response?.data?.detail || err.message))
+            // Revert on failure
+            fetchCategories()
         }
     }
 

@@ -253,7 +253,7 @@ class DictionaryService:
     async def delete_category(self, category: str) -> int:
         """Delete a dictionary category (drops the index)."""
         if not self._initialized:
-            return 0
+            raise Exception("Dictionary service not configured")
         index_name = _get_index_name(category)
         try:
             await asyncio.to_thread(self._index_client.delete_index, index_name)
@@ -261,7 +261,7 @@ class DictionaryService:
             return 1
         except Exception as e:
             logger.error(f"[DictionaryService] delete_category failed: {e}")
-            return 0
+            raise e
 
 
 # Singleton

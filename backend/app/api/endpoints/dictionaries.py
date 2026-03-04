@@ -95,7 +95,11 @@ async def delete_category(
     if not service.is_available:
         raise HTTPException(status_code=503, detail="Dictionary service not configured.")
 
-    count = await service.delete_category(category)
+    try:
+        count = await service.delete_category(category)
+    except Exception as e:
+        logger.error(f"Failed to delete dictionary {category}: {e}")
+        raise HTTPException(status_code=500, detail=f"딕셔너리 삭제 실패: {str(e)}")
 
     # Audit log
     await log_action(

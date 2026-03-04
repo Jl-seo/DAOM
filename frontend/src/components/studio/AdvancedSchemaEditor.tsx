@@ -76,7 +76,7 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
             </div>
 
             {/* 2. Key & Description Section */}
-            <div className="flex-1 flex flex-col gap-3 min-w-[200px]">
+            <div className="w-[45%] flex flex-col gap-3 min-w-[150px]">
                 <div className="flex flex-col gap-1.5">
                     <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest pl-1">KEY (필드명)</span>
                     <input
@@ -84,7 +84,7 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                         value={field.key}
                         onChange={(e) => updateField(index, 'key', e.target.value)}
                         disabled={disabled}
-                        className="font-mono text-base font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none transition-colors w-full disabled:cursor-not-allowed px-1 py-0.5"
+                        className="font-mono text-[15px] font-bold text-foreground bg-white dark:bg-background border border-border/80 focus:border-primary rounded-md px-3 py-2.5 outline-none transition-all w-full disabled:cursor-not-allowed shadow-sm"
                         placeholder="invoice_no"
                     />
                 </div>
@@ -100,14 +100,14 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                         }}
                         disabled={disabled}
                         rows={field.description && field.description.length > 50 ? 2 : 1}
-                        className="text-[13px] leading-relaxed text-muted-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none transition-colors w-full disabled:cursor-not-allowed px-1 py-0.5 resize-none overflow-hidden min-h-[28px]"
+                        className="text-[13px] leading-relaxed text-foreground bg-white dark:bg-background border border-border/80 rounded-md px-3 py-2 placeholder:text-muted-foreground/40 focus:border-primary outline-none transition-all disabled:cursor-not-allowed shadow-sm resize-none overflow-hidden min-h-[40px]"
                         placeholder="어디서 찾을지, 어떤 형식인지 상세히 적어주세요."
                     />
                 </div>
             </div>
 
             {/* 3. Type & Dictionary Section */}
-            <div className="w-[300px] flex flex-col gap-3.5 shrink-0 px-5 border-l border-border/50">
+            <div className="w-[30%] flex flex-col gap-3.5 shrink px-5 border-l border-border/50 min-w-[200px]">
                 {/* Data Type */}
                 <div className="flex items-center gap-2">
                     <div className="p-1.5 rounded-md bg-secondary/50 text-muted-foreground border border-border/50">
@@ -194,7 +194,7 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
             </div>
 
             {/* 4. Validation & Actions */}
-            <div className="w-[180px] flex flex-col justify-between shrink-0 pl-5 border-l border-border/50 h-full min-h-[100px]">
+            <div className="w-[25%] flex flex-col justify-between shrink pl-5 border-l border-border/50 h-full min-h-[100px] min-w-[150px]">
                 <div className="flex flex-col gap-3">
                     <label className={clsx(
                         "flex items-center gap-2.5 text-[13px] font-bold cursor-pointer transition-colors group/req",
@@ -310,9 +310,9 @@ export function AdvancedSchemaEditor({ fields, modelDictionaries, onChange, disa
             {/* Headers */}
             <div className="flex items-center gap-4 px-4 pb-3 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
                 <div className="w-5 shrink-0"></div>
-                <div className="flex-1 min-w-[200px]">필드 및 설명 (추출 가이드)</div>
-                <div className="w-[300px] shrink-0 pl-4 border-l border-transparent">타입 및 규칙 (Transformation)</div>
-                <div className="w-[180px] shrink-0 pl-4 border-l border-transparent">추가 옵션</div>
+                <div className="w-[45%] min-w-[150px]">필드 및 설명 (추출 가이드)</div>
+                <div className="w-[30%] shrink pl-4 border-l border-transparent min-w-[200px]">타입 및 규칙 (Transformation)</div>
+                <div className="w-[25%] shrink pl-4 border-l border-transparent min-w-[150px]">추가 옵션</div>
             </div>
 
             <DndContext

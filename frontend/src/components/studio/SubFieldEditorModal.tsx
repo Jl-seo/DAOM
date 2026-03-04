@@ -184,7 +184,9 @@ export function SubFieldEditorModal({ isOpen, onClose, parentField, modelDiction
     // Sync from parent field when modal opens
     useEffect(() => {
         if (isOpen && parentField) {
-            setLocalFields(parentField.sub_fields ? [...parentField.sub_fields] : [])
+            const initial = parentField.sub_fields ? [...parentField.sub_fields] : []
+            // Attach a stable internal ID to prevent DnD losing focus during edits
+            setLocalFields(initial.map(f => ({ ...f, _id: crypto.randomUUID() })))
         }
     }, [isOpen, parentField])
 
@@ -195,12 +197,12 @@ export function SubFieldEditorModal({ isOpen, onClose, parentField, modelDiction
 
     if (!isOpen || !parentField) return null;
 
-    const ids = localFields.map((f, i) => f.key || `temp_${i}`) // Basic ID for dnd
+    const ids = localFields.map(f => f._id) // Stable robust ID
 
     const handleAddRow = () => {
         setLocalFields([
             ...localFields,
-            { key: '', label: '', description: '', type: 'string', required: false }
+            { _id: crypto.randomUUID(), key: '', label: '', description: '', type: 'string', required: false }
         ])
     }
 
@@ -228,8 +230,10 @@ export function SubFieldEditorModal({ isOpen, onClose, parentField, modelDiction
     }
 
     const handleSave = () => {
-        // filter out completely empty rows
-        const cleaned = localFields.filter(f => f.key && f.key.trim() !== '')
+        // filter out completely empty rows and strip the internal _id
+        const cleaned = localFields
+            .filter(f => f.key && f.key.trim() !== '')
+            .map(({ _id, ...rest }) => rest)
         onSave(cleaned)
         onClose()
     }
@@ -277,8 +281,8 @@ export function SubFieldEditorModal({ isOpen, onClose, parentField, modelDiction
                                     <tbody className="text-xs border-x border-border/20">
                                         {localFields.map((field, idx) => (
                                             <SortableSubRow
-                                                key={ids[idx] + '_' + idx} // Simple safe key mix 
-                                                id={ids[idx] + '_' + idx}
+                                                key={field._id}
+                                                id={field._id}
                                                 subField={field}
                                                 index={idx}
                                                 modelDictionaries={modelDictionaries}
