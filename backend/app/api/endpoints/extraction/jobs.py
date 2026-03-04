@@ -177,12 +177,13 @@ async def start_job_with_upload(
         )
 
     # Start background extraction
-    background_tasks.add_task(
-        process_extraction_job,
-        job.id,
-        model_id,
-        valid_urls,
-        filenames
+    asyncio.create_task(
+        process_extraction_job(
+            job.id,
+            model_id,
+            valid_urls,
+            filenames
+        )
     )
 
     return {
@@ -390,11 +391,14 @@ async def retry_extraction(
     )
 
     # 6. Start background task
-    background_tasks.add_task(
-        process_extraction_job,
-        job.id,
-        log.model_id,
-        log.file_url
+    import asyncio
+    asyncio.create_task(
+        process_extraction_job(
+            job.id,
+            log.model_id,
+            [log.file_url],
+            [log.filename]
+        )
     )
 
     return {
