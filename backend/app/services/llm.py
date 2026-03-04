@@ -157,7 +157,8 @@ def get_openai_client() -> AsyncAzureOpenAI:
     _openai_client = AsyncAzureOpenAI(
         azure_endpoint=endpoint,
         api_key=api_key,
-        api_version=api_version
+        api_version=api_version,
+        timeout=180.0
     )
     return _openai_client
 

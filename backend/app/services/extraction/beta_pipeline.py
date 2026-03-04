@@ -296,6 +296,9 @@ class BetaPipeline(ExtractionPipeline):
                     "additionalProperties": False
                 }
                 
+        if not is_strict:
+            return {"type": "json_object"}
+
         return {
             "type": "json_schema",
             "json_schema": {
@@ -1207,7 +1210,7 @@ class BetaPipeline(ExtractionPipeline):
         current_model_name = get_current_model()
         # Table models need more output tokens for many rows
         raw_max = settings.LLM_TABLE_MAX_TOKENS if is_table_model else settings.LLM_DEFAULT_MAX_TOKENS
-        max_tokens = min(raw_max, 32768)  # Clamp to model's actual limit
+        max_tokens = min(raw_max, 16384)  # Clamp to model's actual limit to prevent 15-min hangs
         
         temp = temperature if temperature is not None else settings.LLM_DEFAULT_TEMPERATURE
         resp_fmt = response_format if response_format is not None else {"type": "json_object"}

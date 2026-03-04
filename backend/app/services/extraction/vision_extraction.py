@@ -199,7 +199,7 @@ For EACH field, return:
     async def _call_vision_llm(self, messages: list) -> dict:
         """Call GPT-4.1 Vision API with error handling."""
         current_model = get_current_model()
-        max_tokens = min(settings.LLM_DEFAULT_MAX_TOKENS, 32768)
+        max_tokens = min(settings.LLM_DEFAULT_MAX_TOKENS, 16384)
 
         try:
             response = await self.azure_client.chat.completions.create(
