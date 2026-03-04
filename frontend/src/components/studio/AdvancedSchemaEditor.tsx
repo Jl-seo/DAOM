@@ -59,8 +59,8 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
             ref={setNodeRef}
             style={style}
             className={clsx(
-                "group relative flex items-start gap-4 p-4 mb-2 bg-card rounded-xl border border-border/50 transition-all",
-                isDragging ? "shadow-xl ring-2 ring-primary/20 opacity-90" : "hover:border-primary/30 hover:shadow-sm"
+                "group relative flex items-start gap-4 p-5 mb-4 bg-white dark:bg-card rounded-2xl border border-border/80 transition-all shadow-sm",
+                isDragging ? "shadow-2xl ring-2 ring-primary/30 opacity-95" : "hover:border-primary/40 hover:shadow-md"
             )}
         >
             {/* 1. Drag Handle */}
@@ -76,35 +76,42 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
             </div>
 
             {/* 2. Key & Description Section */}
-            <div className="flex-1 flex flex-col gap-2 min-w-[200px]">
+            <div className="flex-1 flex flex-col gap-3 min-w-[200px]">
                 <input
                     type="text"
                     value={field.key}
                     onChange={(e) => updateField(index, 'key', e.target.value)}
                     disabled={disabled}
-                    className="font-mono text-sm font-bold bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none transition-colors w-full disabled:cursor-not-allowed"
+                    className="font-mono text-base font-bold text-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none transition-colors w-full disabled:cursor-not-allowed px-1 py-0.5"
                     placeholder="필드명 (예: invoice_no)"
                 />
-                <input
-                    type="text"
+                <textarea
                     value={field.description || ''}
-                    onChange={(e) => updateField(index, 'description', e.target.value)}
+                    onChange={(e) => {
+                        updateField(index, 'description', e.target.value)
+                        // Trigger auto-resize (optional implementation, or just fixed min-height)
+                        e.target.style.height = 'auto';
+                        e.target.style.height = (e.target.scrollHeight) + 'px';
+                    }}
                     disabled={disabled}
-                    className="text-xs text-muted-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none transition-colors w-full disabled:cursor-not-allowed"
+                    rows={field.description && field.description.length > 50 ? 2 : 1}
+                    className="text-[13px] leading-relaxed text-muted-foreground bg-transparent border-b border-transparent hover:border-border focus:border-primary outline-none transition-colors w-full disabled:cursor-not-allowed px-1 py-0.5 resize-none overflow-hidden min-h-[28px]"
                     placeholder="필드 설명 또는 추출 가이드 (선택사항)"
                 />
             </div>
 
             {/* 3. Type & Dictionary Section */}
-            <div className="w-[280px] flex flex-col gap-3 shrink-0 px-4 border-l border-border/50">
+            <div className="w-[300px] flex flex-col gap-3.5 shrink-0 px-5 border-l border-border/50">
                 {/* Data Type */}
                 <div className="flex items-center gap-2">
-                    <Network className="w-4 h-4 text-muted-foreground" />
+                    <div className="p-1.5 rounded-md bg-secondary text-muted-foreground border border-border/50">
+                        <Network className="w-3.5 h-3.5" />
+                    </div>
                     <select
                         value={field.type}
                         onChange={(e) => updateField(index, 'type', e.target.value)}
                         disabled={disabled}
-                        className="flex-1 text-sm font-medium bg-secondary/50 hover:bg-secondary border border-transparent hover:border-border rounded-md px-2 py-1.5 outline-none cursor-pointer disabled:cursor-not-allowed transition-all"
+                        className="flex-1 text-[13px] font-semibold text-foreground bg-secondary/30 hover:bg-secondary/80 border border-border/80 focus:border-primary rounded-md px-3 py-2 outline-none cursor-pointer disabled:cursor-not-allowed transition-all shadow-sm"
                     >
                         {FIELD_TYPES.map(type => (
                             <option key={type.value} value={type.value}>
@@ -115,7 +122,7 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                 </div>
 
                 {/* Sub-fields / Rules Trigger */}
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2.5">
                     {['list', 'table', 'array'].includes(field.type) ? (
                         <button
                             onClick={(e) => {
@@ -125,29 +132,33 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                             }}
                             disabled={disabled}
                             className={clsx(
-                                "flex items-center justify-between px-3 py-1.5 rounded-md text-xs font-medium transition-all border",
+                                "flex items-center justify-between px-3 py-2 rounded-md text-[13px] font-bold transition-all border shadow-sm",
                                 field.sub_fields && field.sub_fields.length > 0
-                                    ? "bg-primary/10 text-primary border-primary/20 hover:bg-primary/20"
-                                    : "bg-background text-muted-foreground border-border hover:bg-accent"
+                                    ? "bg-primary/5 text-primary border-primary/30 hover:bg-primary/10 hover:border-primary/50"
+                                    : "bg-white dark:bg-background text-foreground border-border hover:bg-accent hover:text-accent-foreground"
                             )}
                         >
-                            <span className="flex items-center gap-1.5">
-                                <Settings2 className="w-3.5 h-3.5" />
+                            <span className="flex items-center gap-2">
+                                <Settings2 className="w-4 h-4" />
                                 서브 필드 설정
                             </span>
                             {field.sub_fields?.length && (
-                                <span className="text-[10px] bg-background px-1.5 py-0.5 rounded shadow-sm border border-border/50">
+                                <span className="text-[11px] bg-white dark:bg-background px-2 py-0.5 rounded-full shadow-sm border border-border/50 font-bold">
                                     {field.sub_fields.length}개 컬럼
                                 </span>
                             )}
                         </button>
                     ) : (
-                        <input
-                            type="text"
+                        <textarea
                             value={field.rules || ''}
-                            onChange={(e) => updateField(index, 'rules', e.target.value)}
+                            onChange={(e) => {
+                                updateField(index, 'rules', e.target.value)
+                                e.target.style.height = 'auto';
+                                e.target.style.height = (e.target.scrollHeight) + 'px';
+                            }}
                             disabled={disabled}
-                            className="w-full text-xs font-mono bg-background border border-border/50 rounded-md px-3 py-1.5 placeholder:text-muted-foreground/30 focus:border-primary outline-none transition-all disabled:cursor-not-allowed"
+                            rows={1}
+                            className="w-full text-xs leading-relaxed text-foreground bg-white dark:bg-background border border-border/80 rounded-md px-3 py-2 placeholder:text-muted-foreground/40 focus:border-primary outline-none transition-all disabled:cursor-not-allowed shadow-sm resize-none overflow-hidden min-h-[34px]"
                             placeholder="변환 규칙, 예외 처리 등"
                         />
                     )}
@@ -156,9 +167,9 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                         value={field.dictionary || ''}
                         onChange={(e) => updateField(index, 'dictionary', e.target.value)}
                         disabled={disabled}
-                        className="w-full text-xs text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-900/10 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-blue-100 dark:border-blue-800/50 rounded-md px-2 py-1.5 outline-none cursor-pointer transition-all disabled:cursor-not-allowed"
+                        className="w-full text-[13px] font-semibold text-blue-700 dark:text-blue-300 bg-blue-50/80 dark:bg-blue-900/20 hover:bg-blue-100/80 dark:hover:bg-blue-900/40 border border-blue-200 dark:border-blue-800 rounded-md px-3 py-2 outline-none cursor-pointer transition-all disabled:cursor-not-allowed shadow-sm"
                     >
-                        <option value="">📖 딕셔너리 매핑 없음</option>
+                        <option value="">📖 딕셔너리 연동 없음</option>
                         {modelDictionaries.map(dict => (
                             <option key={dict} value={dict}>
                                 📖 {dict}
@@ -169,12 +180,12 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
             </div>
 
             {/* 4. Validation & Actions */}
-            <div className="w-[160px] flex flex-col justify-between shrink-0 pl-4 border-l border-border/50 h-full min-h-[80px]">
-                <div className="flex flex-col gap-2">
+            <div className="w-[180px] flex flex-col justify-between shrink-0 pl-5 border-l border-border/50 h-full min-h-[100px]">
+                <div className="flex flex-col gap-3">
                     <label className={clsx(
-                        "flex items-center gap-2 text-sm cursor-pointer transition-colors group/req",
+                        "flex items-center gap-2.5 text-[13px] font-bold cursor-pointer transition-colors group/req",
                         disabled ? "opacity-60 cursor-not-allowed" : "hover:text-foreground",
-                        field.required ? "text-primary font-bold" : "text-muted-foreground"
+                        field.required ? "text-primary" : "text-muted-foreground"
                     )}>
                         <input
                             type="checkbox"
@@ -183,27 +194,30 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                             disabled={disabled}
                             className="w-4 h-4 rounded border-border text-primary focus:ring-primary focus:ring-offset-background"
                         />
-                        필수 값 (Required)
+                        필수 수집 (Required)
                     </label>
 
-                    <div className="flex items-center gap-1 border border-border/50 rounded bg-background px-2 py-1 focus-within:border-primary/50 transition-colors">
-                        <span className="text-[10px] text-muted-foreground/50 tracking-tighter">/^</span>
-                        <input
-                            type="text"
-                            value={field.validation_regex || ''}
-                            onChange={(e) => updateField(index, 'validation_regex', e.target.value)}
-                            disabled={disabled}
-                            className="w-full bg-transparent text-[11px] font-mono outline-none disabled:cursor-not-allowed text-foreground"
-                            placeholder="정규식 검증 (Regex)"
-                        />
-                        <span className="text-[10px] text-muted-foreground/50 tracking-tighter">$/</span>
+                    <div className="flex flex-col gap-1.5">
+                        <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest pl-1">검증 규칙 (Regex)</span>
+                        <div className="flex items-center gap-1.5 border border-border/80 rounded-md bg-white dark:bg-background px-2.5 py-1.5 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all shadow-sm">
+                            <span className="text-[11px] text-muted-foreground/50 font-bold tracking-tighter">/^</span>
+                            <input
+                                type="text"
+                                value={field.validation_regex || ''}
+                                onChange={(e) => updateField(index, 'validation_regex', e.target.value)}
+                                disabled={disabled}
+                                className="w-full bg-transparent text-xs font-mono outline-none disabled:cursor-not-allowed text-foreground"
+                                placeholder="..."
+                            />
+                            <span className="text-[11px] text-muted-foreground/50 font-bold tracking-tighter">$/</span>
+                        </div>
                     </div>
                 </div>
 
                 {!disabled && (
                     <button
                         onClick={() => removeField(index)}
-                        className="self-end p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all"
+                        className="self-end mt-4 p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-all"
                         title="필드 삭제"
                     >
                         <X className="w-4 h-4" />
@@ -278,13 +292,13 @@ export function AdvancedSchemaEditor({ fields, modelDictionaries, onChange, disa
     }
 
     return (
-        <div className="w-full bg-secondary/20 p-4 rounded-xl border border-border/50">
+        <div className="w-full bg-secondary/30 p-5 rounded-2xl border border-border/40 shadow-inner">
             {/* Headers */}
-            <div className="flex items-center gap-4 px-4 pb-2 text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            <div className="flex items-center gap-4 px-4 pb-3 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
                 <div className="w-5 shrink-0"></div>
                 <div className="flex-1 min-w-[200px]">필드 및 설명 (추출 가이드)</div>
-                <div className="w-[280px] shrink-0 pl-4 border-l border-transparent">타입 및 규칙 (Transformation)</div>
-                <div className="w-[160px] shrink-0 pl-4 border-l border-transparent">추가 옵션</div>
+                <div className="w-[300px] shrink-0 pl-4 border-l border-transparent">타입 및 규칙 (Transformation)</div>
+                <div className="w-[180px] shrink-0 pl-4 border-l border-transparent">추가 옵션</div>
             </div>
 
             <DndContext

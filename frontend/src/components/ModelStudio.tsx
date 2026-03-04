@@ -74,7 +74,7 @@ export function ModelStudio() {
     const [editingModel, setEditingModel] = useState<Partial<Model> | null>(null)
     const [originalModel, setOriginalModel] = useState<Partial<Model> | null>(null)
     const [isEditing, setIsEditing] = useState(false)
-    const [activeStudioTab, setActiveStudioTab] = useState<'schema' | 'reference' | 'settings' | 'transformation'>('schema')
+    const [activeStudioTab, setActiveStudioTab] = useState<'settings' | 'schema' | 'reference' | 'transformation'>('settings')
 
     const [searchQuery, setSearchQuery] = useState('')
     const [searchParams, setSearchParams] = useSearchParams()
@@ -217,6 +217,17 @@ export function ModelStudio() {
                     {/* Tabs */}
                     <div className="flex gap-1 bg-muted p-1 rounded-lg shrink-0 overflow-x-auto custom-scrollbar">
                         <button
+                            onClick={() => setActiveStudioTab('settings')}
+                            className={clsx(
+                                "whitespace-nowrap flex-1 px-4 py-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2",
+                                activeStudioTab === 'settings'
+                                    ? "bg-card text-foreground shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            <Settings2 className="w-4 h-4" /> 모델 전역 설정
+                        </button>
+                        <button
                             onClick={() => setActiveStudioTab('schema')}
                             className={clsx(
                                 "whitespace-nowrap flex-1 px-4 py-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2",
@@ -238,33 +249,22 @@ export function ModelStudio() {
                         >
                             <Database className="w-4 h-4" /> 데이터 & 딕셔너리
                         </button>
-                        <button
-                            onClick={() => setActiveStudioTab('settings')}
-                            className={clsx(
-                                "whitespace-nowrap flex-1 px-4 py-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2",
-                                activeStudioTab === 'settings'
-                                    ? "bg-card text-foreground shadow-sm"
-                                    : "text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            <Settings2 className="w-4 h-4" /> 모델 전역 설정
-                        </button>
                         {editingModel?.id && (
-                        <button
-                            onClick={() => setActiveStudioTab('transformation')}
-                            className={clsx(
-                                "whitespace-nowrap flex-1 px-4 py-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2",
-                                activeStudioTab === 'transformation'
-                                    ? "bg-card text-foreground shadow-sm"
-                                    : "text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            <TerminalSquare className="w-4 h-4" /> 후처리 스크립트
-                        </button>
+                            <button
+                                onClick={() => setActiveStudioTab('transformation')}
+                                className={clsx(
+                                    "whitespace-nowrap flex-1 px-4 py-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2",
+                                    activeStudioTab === 'transformation'
+                                        ? "bg-card text-foreground shadow-sm"
+                                        : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <TerminalSquare className="w-4 h-4" /> 후처리 스크립트
+                            </button>
                         )}
                     </div>
 
-                    
+
                     {/* Schema Tab Content */}
                     {activeStudioTab === 'schema' && (
                         <div className="flex-1 overflow-y-auto space-y-5 custom-scrollbar pr-2 pb-20">
@@ -408,12 +408,12 @@ export function ModelStudio() {
                                 }}
                             />
 
-                                                    </div>
+                        </div>
                     )}
                     {/* Reference Tab Content */}
                     {activeStudioTab === 'reference' && (
                         <div className="flex-1 overflow-y-auto space-y-5 custom-scrollbar pr-2 pb-20">
-{/* Reference Data (Phase 1) */}
+                            {/* Reference Data (Phase 1) */}
                             <Card icon={Database} title="참고 데이터 (Reference Data)">
                                 <ReferenceDataEditor
                                     value={editingModel.reference_data}
@@ -429,12 +429,12 @@ export function ModelStudio() {
                                 />
                             </Card>
 
-                                                    </div>
+                        </div>
                     )}
                     {/* Settings Tab Content */}
                     {activeStudioTab === 'settings' && (
                         <div className="flex-1 overflow-y-auto space-y-5 custom-scrollbar pr-2 pb-20">
-{/* Model Type Selection */}
+                            {/* Model Type Selection */}
                             <Card icon={Sliders} title="모델 유형">
                                 <div className="flex gap-2">
                                     <button
@@ -740,7 +740,7 @@ export function ModelStudio() {
                             </Card>
                         </div>
                     )}
-{/* Transformation Rules Tab Content */}
+                    {/* Transformation Rules Tab Content */}
                     {activeStudioTab === 'transformation' && editingModel?.id && (
                         <div className="flex-1 h-full overflow-hidden">
                             <TransformationRulesEditor
