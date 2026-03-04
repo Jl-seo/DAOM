@@ -33,7 +33,7 @@ interface SortableRowProps {
     index: number
     id: string
     modelDictionaries: string[]
-    updateField: (index: number, key: keyof Field, value: string) => void
+    updateField: (index: number, key: keyof Field, value: any) => void
     removeField: (index: number) => void
     disabled: boolean
 }
@@ -137,13 +137,68 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                     placeholder="없음"
                 />
             </td>
+            <td className="py-2 px-2 align-top text-right min-w-[120px]">
+                <div className="flex flex-col items-end gap-1.5 w-full">
+                    {/* Required Toggle */}
+                    <label className={clsx(
+                        "flex items-center gap-1.5 text-[10px] cursor-pointer transition-colors w-full justify-end",
+                        disabled ? "opacity-60 cursor-not-allowed" : "hover:text-foreground",
+                        field.required ? "text-primary font-bold" : "text-muted-foreground"
+                    )}>
+                        <input
+                            type="checkbox"
+                            checked={field.required || false}
+                            onChange={(e) => updateField(index, 'required', e.target.checked)}
+                            disabled={disabled}
+                            className="rounded border-border/50 bg-transparent w-3 h-3"
+                        />
+                        필수 항목 (Required)
+                    </label>
+
+                    {/* Validation Regex */}
+                    <div className="flex items-center gap-1 border border-border/50 rounded px-1.5 py-0.5 focus-within:border-primary/50 overflow-hidden w-full max-w-[140px]">
+                        <span className="text-[9px] text-muted-foreground/50 tracking-tighter">/^</span>
+                        <input
+                            type="text"
+                            value={field.validation_regex || ''}
+                            onChange={(e) => updateField(index, 'validation_regex', e.target.value)}
+                            disabled={disabled}
+                            className="w-full bg-transparent text-[10px] outline-none font-mono text-muted-foreground placeholder:text-muted-foreground/30"
+                            placeholder="Regex"
+                            title="Validation Regex Pattern"
+                        />
+                    </div>
+
+                    {/* Sub-Field Editor Trigger (Only for collection types) */}
+                    {['list', 'table', 'array'].includes(field.type) && (
+                        <button
+                            onClick={(e) => {
+                                e.preventDefault();
+                                // We dispatch a custom event to ModelStudio to open the modal
+                                const event = new CustomEvent('open-subfield-modal', { detail: { index, field } });
+                                window.dispatchEvent(event);
+                            }}
+                            disabled={disabled}
+                            className={clsx(
+                                "w-full text-[10px] py-1 px-2 rounded font-medium mt-1 leading-tight flex items-center justify-center gap-1 transition-all border",
+                                field.sub_fields && field.sub_fields.length > 0
+                                    ? "bg-primary/10 text-primary border-primary/20 hover:bg-primary/20"
+                                    : "bg-transparent text-muted-foreground border-border/50 hover:bg-accent hover:text-foreground"
+                            )}
+                        >
+                            <span className="text-[12px]">⚙️</span>
+                            {field.sub_fields?.length ? `${field.sub_fields.length}개 서브컬럼` : '상세 스키마 설정'}
+                        </button>
+                    )}
+                </div>
+            </td>
             <td className="py-1.5 pr-1 text-right">
                 {!disabled && (
                     <button
                         onClick={() => removeField(index)}
-                        className="p-1 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 rounded transition-all"
+                        className="p-1 mt-1 text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 rounded transition-all"
                     >
-                        <X className="w-3 h-3" />
+                        <X className="w-4 h-4" />
                     </button>
                 )}
             </td>
@@ -178,7 +233,7 @@ export function FieldEditorTable({ fields, modelDictionaries, onChange, disabled
         })
     )
 
-    const updateField = (index: number, key: keyof Field, value: string) => {
+    const updateField = (index: number, key: keyof Field, value: any) => {
         if (disabled) return
         const newFields = [...fields]
         newFields[index] = { ...newFields[index], [key]: value }

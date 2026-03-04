@@ -512,24 +512,126 @@ If a field is not found, return null.
             logger.error(f"[LLM] Call Failed: {e}")
             raise e
 
+    def _discover_page_and_snapped_bbox(self, value: Any, bbox: Optional[List[float]], raw_page: Any, default_page: int, pages_info: List[Dict[str, Any]]) -> Tuple[Optional[int], Optional[List[float]]]:
+        """Helper to find the correct page number and snap bbox to words."""
+        try:
+            page_number = int(raw_page) if raw_page else None
+        except (ValueError, TypeError):
+            page_number = None
+
+        detected_page = page_number or default_page
+        snapped_bbox = None
+        final_page_number = detected_page
+
+        def search_page(p_num):
+            p_data = next((p for p in pages_info if (p.get("page_number") or p.get("pageNumber", 0)) == p_num), None)
+            if p_data and "words" in p_data:
+                return self._snap_bbox_to_words(str(value), bbox, p_data["words"])
+            return None
+
+        if value:
+            snapped_bbox = search_page(final_page_number)
+            if not snapped_bbox and pages_info:
+                for p_info in pages_info:
+                    p_num = p_info.get("page_number") or p_info.get("pageNumber")
+                    if p_num == final_page_number: continue
+                    
+                    found_bbox = search_page(p_num)
+                    if found_bbox:
+                        snapped_bbox = found_bbox
+                        final_page_number = p_num
+                        logger.debug(f"[SmartDiscovery] Value '{value}' found on Page {p_num} (originally thought {page_number})")
+                        break
+                        
+        return final_page_number, snapped_bbox
+
+    def _normalize_and_filter_bbox(self, bbox: Optional[List[float]], page_number: Optional[int], page_dims: Dict[int, Tuple[float, float]]) -> Optional[List[float]]:
+        """Helper to normalize bounding box to percentages and filter invalid ones."""
+        normalized_bbox = None
+        if bbox:
+            if len(bbox) >= 8 or len(bbox) == 4:
+                p_w, p_h = 100, 100
+                if page_number and page_number in page_dims:
+                    p_w, p_h = page_dims[page_number]
+                normalized_bbox = normalize_bbox(bbox, p_w, p_h)
+        
+        if normalized_bbox and len(normalized_bbox) == 4:
+            nx1, ny1, nx2, ny2 = normalized_bbox
+            if (nx2 - nx1) <= 0 or (ny2 - ny1) <= 0 or (nx1 == 0 and ny1 == 0 and nx2 == 0 and ny2 == 0):
+                normalized_bbox = None
+                
+        return normalized_bbox
+
+    def _validate_schema_constraints(self, value: Any, field: Any) -> str:
+        """Helper to validate required and regex constraints."""
+        validation_status = "valid"
+        if field.required and (value is None or value == ""):
+            validation_status = "error_missing_required"
+            
+        if getattr(field, 'validation_regex', None) and value is not None and value != "":
+            import re
+            try:
+                if not re.match(field.validation_regex, str(value)):
+                    validation_status = "error_format_invalid"
+            except re.error as e:
+                logger.warning(f"[Validation] Invalid regex '{field.validation_regex}' for field '{field.key}': {e}")
+        return validation_status
+
+    def _parse_complex_field(self, value: Any, field_key: str, page_number: Optional[int], page_dims: Dict[int, Tuple[float, float]]) -> Tuple[Any, str]:
+        """Helper to parse JSON array/object strings and recursively normalize bboxes."""
+        validation_status = "valid"
+        if isinstance(value, str):
+            value = value.strip()
+            if (value.startswith("[") and value.endswith("]")) or \
+                (value.startswith("{") and value.endswith("}")):
+                try:
+                    value = json.loads(value)
+                    
+                    def _recursive_normalize_bbox(data, pg_w, pg_h):
+                        if isinstance(data, dict):
+                            for k, v in list(data.items()):
+                                if k == "bbox" and isinstance(v, list):
+                                    norm_box = normalize_bbox(v, pg_w, pg_h)
+                                    if norm_box and len(norm_box) == 4:
+                                        nx1, ny1, nx2, ny2 = norm_box
+                                        if (nx2 - nx1) <= 0 or (ny2 - ny1) <= 0 or (nx1 == 0 and ny1 == 0 and nx2 == 0 and ny2 == 0):
+                                            norm_box = None
+                                    
+                                    if norm_box:
+                                        data[k] = norm_box
+                                    else:
+                                        del data[k] 
+
+                                elif isinstance(v, (dict, list)):
+                                    _recursive_normalize_bbox(v, pg_w, pg_h)
+                        elif isinstance(data, list):
+                            for item in data:
+                                if isinstance(item, (dict, list)):
+                                    _recursive_normalize_bbox(item, pg_w, pg_h)
+                        return data
+                        
+                    p_w, p_h = 100, 100
+                    if page_number and page_number in page_dims:
+                        p_w, p_h = page_dims[page_number]
+                    value = _recursive_normalize_bbox(value, p_w, p_h)
+                    
+                except json.JSONDecodeError:
+                    validation_status = "error_json_format"
+                    logger.warning(f"[Validation] Failed to parse JSON for field '{field_key}': {str(value)[:50]}...")
+        return value, validation_status
+
     def _validate_and_format(self, raw_data: Dict[str, Any], model: ExtractionModel, pages_info: List[Dict[str, Any]] = [], default_page: int = 1) -> Dict[str, Any]:
         """
         Strictly validates and formats data based on field types.
         AI provides the raw string, Code ensures it matches the Type.
         Adds confidence flags and normalizes bbox for frontend rendering.
-        
-        For TABLE mode: passes through _table_rows directly without field-by-field validation.
         """
-        # Unified Validation Logic (No more Table Mode split)
         guide_extracted = self._normalize_guide_extracted(
             raw_data.get("guide_extracted", {}), context="Validation"
         )
-
         validated_extracted = {}
 
-        CONFIDENCE_THRESHOLD = settings.LLM_CONFIDENCE_THRESHOLD
-
-        # Create a lookup for page dimensions (handle both snake_case and camelCase)
+        # Lookup for page dimensions
         page_dims = {
             (p.get("page_number") or p.get("pageNumber", i+1)): (p.get("width", 0), p.get("height", 0))
             for i, p in enumerate(pages_info)
@@ -539,144 +641,41 @@ If a field is not found, return null.
             key = field.key
             item = guide_extracted.get(key, {})
             if not item:
-                logger.debug(f"[Validation] Field '{key}' NOT found in guide_extracted. Available keys: {list(guide_extracted.keys())[:10]}")
-            # Defensive: item must also be a dict
+                logger.debug(f"[Validation] Field '{key}' NOT found in guide_extracted.")
             if not isinstance(item, dict):
                 item = {"value": item} if item is not None else {}
+                
             original_value = item.get("value")
             value = original_value
             confidence = item.get("confidence", 0)
             bbox = item.get("bbox")
-            try:
-                # Support both "page_number" (legacy path) and "page" (RefinerEngine beta path)
-                raw_page = item.get("page_number") or item.get("page")
-                page_number = int(raw_page) if raw_page else None
-            except (ValueError, TypeError):
-                page_number = None
+            raw_page = item.get("page_number") or item.get("page")
 
+            # 1. Smart Page Discovery & Snapping
+            page_number, snapped_bbox = self._discover_page_and_snapped_bbox(value, bbox, raw_page, default_page, pages_info)
+
+            # 2. Normalize Bounding Box
+            bbox_to_normalize = snapped_bbox if snapped_bbox else bbox
+            normalized_bbox = self._normalize_and_filter_bbox(bbox_to_normalize, page_number, page_dims)
+
+            # 3. Schema Constraints
+            validation_status = self._validate_schema_constraints(value, field)
             
-            # --- SMART PAGE DISCOVERY ---------------------------------
-            detected_page = page_number
-            if not detected_page:
-                    detected_page = default_page
-
-            snapped_bbox = None
-            final_page_number = detected_page
-
-            def search_page(p_num):
-                p_data = next((p for p in pages_info if (p.get("page_number") or p.get("pageNumber", 0)) == p_num), None)
-                if p_data and "words" in p_data:
-                    return self._snap_bbox_to_words(str(value), bbox, p_data["words"])
-                return None
-
-            if value:
-                # Attempt 1: Check intended page
-                snapped_bbox = search_page(final_page_number)
-
-                # Attempt 2: If not found, check ALL other pages (fallback)
-                if not snapped_bbox and pages_info:
-                        for p_info in pages_info:
-                            p_num = p_info.get("page_number") or p_info.get("pageNumber")
-                            if p_num == final_page_number: continue
-                            
-                            found_bbox = search_page(p_num)
-                            if found_bbox:
-                                snapped_bbox = found_bbox
-                                final_page_number = p_num
-                                logger.info(f"[SmartDiscovery] Value '{value}' for '{key}' found on Page {p_num} (originally thought {page_number})")
-                                break
-            
-            page_number = final_page_number
-            # -----------------------------------------------------------
-
-
-            # Normalize BBox (convert generic coords to % of page)
-            normalized_bbox = None
-            if snapped_bbox:
-                p_w, p_h = 100, 100
-                if page_number and page_number in page_dims:
-                    p_w, p_h = page_dims[page_number]
-                
-                normalized_bbox = normalize_bbox(snapped_bbox, p_w, p_h)
-            elif bbox and isinstance(bbox, list):
-                if len(bbox) >= 8:
-                    # 8-element polygon from LayoutParser/Beta pipeline: [x1,y1,...x4,y4]
-                    p_w, p_h = 100, 100
-                    if page_number and page_number in page_dims:
-                        p_w, p_h = page_dims[page_number]
-                    normalized_bbox = normalize_bbox(bbox, p_w, p_h)
-                elif len(bbox) == 4:
-                    # Previous assumption: Already normalized [x%, y%, w%, h%]
-                    # New logic: Pass to normalize_bbox to catch 0.0~1.0 edge cases from Document Intelligence
-                    p_w, p_h = 100, 100
-                    if page_number and page_number in page_dims:
-                        p_w, p_h = page_dims[page_number]
-                    normalized_bbox = normalize_bbox(bbox, p_w, p_h)
-            
-            # Filter out invalid or zero-area bounding boxes
-            if normalized_bbox and len(normalized_bbox) == 4:
-                nx1, ny1, nx2, ny2 = normalized_bbox
-                if (nx2 - nx1) <= 0 or (ny2 - ny1) <= 0 or (nx1 == 0 and ny1 == 0 and nx2 == 0 and ny2 == 0):
-                    normalized_bbox = None
-
-            # Type Validation & JSON Parsing for Complex Fields
-            validation_status = "valid"
-            
-            # 1. Complex Types (Array/List/Object/Table) - Auto-Parse JSON strings
+            # 4. Type Specific Parsing
             if field.type in ("array", "list", "object", "table"):
-                if isinstance(value, str):
-                    value = value.strip()
-                    if (value.startswith("[") and value.endswith("]")) or \
-                        (value.startswith("{") and value.endswith("}")):
-                        try:
-                            value = json.loads(value)
-                            
-                            # Recursively apply normalize_bbox to any nested 'bbox' coordinates
-                            def _recursive_normalize_bbox(data, pg_w, pg_h):
-                                if isinstance(data, dict):
-                                    for k, v in list(data.items()):
-                                        if k == "bbox" and isinstance(v, list):
-                                            norm_box = normalize_bbox(v, pg_w, pg_h)
-                                            if norm_box and len(norm_box) == 4:
-                                                nx1, ny1, nx2, ny2 = norm_box
-                                                if (nx2 - nx1) <= 0 or (ny2 - ny1) <= 0 or (nx1 == 0 and ny1 == 0 and nx2 == 0 and ny2 == 0):
-                                                    norm_box = None
-                                            
-                                            if norm_box:
-                                                data[k] = norm_box
-                                            else:
-                                                del data[k] # remove invalid bbox
-
-                                        elif isinstance(v, (dict, list)):
-                                            _recursive_normalize_bbox(v, pg_w, pg_h)
-                                elif isinstance(data, list):
-                                    for item in data:
-                                        if isinstance(item, (dict, list)):
-                                            _recursive_normalize_bbox(item, pg_w, pg_h)
-                                return data
-                                
-                            p_w, p_h = 100, 100
-                            if page_number and page_number in page_dims:
-                                p_w, p_h = page_dims[page_number]
-                            value = _recursive_normalize_bbox(value, p_w, p_h)
-                            
-                        except json.JSONDecodeError:
-                            validation_status = "error_json_format"
-                            logger.warning(f"[Validation] Failed to parse JSON for field '{key}': {str(value)[:50]}...")
-
-            # 2. Simple Types
+                parsed_val, complex_status = self._parse_complex_field(value, key, page_number, page_dims)
+                value = parsed_val
+                if complex_status != "valid":
+                    validation_status = complex_status
             elif field.type == "number":
                 parsed = parse_number(value)
                 if parsed is not None:
                     value = parsed
-                else:
-                    if value:
-                        validation_status = "error_type_mismatch"
+                elif value:
+                    validation_status = "error_type_mismatch"
             elif field.type == "date":
-                pass 
                 if value and len(str(value)) < 6:
-                    if value:
-                        validation_status = "error_date_format"
+                    validation_status = "error_date_format"
 
             validated_extracted[key] = {
                 "value": value,
@@ -687,29 +686,25 @@ If a field is not found, return null.
                 "validation_status": validation_status
             }
 
-        # Initialize result container (STANDARD MODE)
+        # Initialize result container
         result = {
             "guide_extracted": validated_extracted,
         }
 
-        # --- Common metadata (always included regardless of mode) ---
+        # Commmon metadata pass-through
         result["other_data"] = raw_data.get("other_data", [])
         result["pages"] = raw_data.get("pages", [])
         result["raw_content"] = raw_data.get("raw_content", "")
         result["raw_tables"] = raw_data.get("raw_tables", [])
-
-        # Preserve technical fields from Beta path
+        
         for key in ["_beta_parsed_content", "_beta_ref_map", "_beta_chunking_info", "_beta_pipeline_stages"]:
             if key in raw_data:
                 result[key] = raw_data[key]
         
-        # Pass token usage & logs
         if "_token_usage" in raw_data:
             result["_token_usage"] = raw_data["_token_usage"]
         if "logs" in raw_data:
             result["logs"] = raw_data["logs"]
-            
-        # Error propagation
         if "error" in raw_data:
             result["error"] = raw_data["error"]
 

@@ -225,7 +225,11 @@ class BetaPipeline(ExtractionPipeline):
         is_strict = True
         
         for f in model.fields:
-            required_keys.append(f.key)
+            # If a field is explicitly marked as required by the user, add it to required_keys
+            # Otherwise, for strict JSON schema compatibility, ALL keys defined in properties MUST be in the required list
+            # We enforce all keys to be required in the schema, but allow their type to be ["object", "null"] so they can return null if not found
+            required_keys.append(f.key) 
+            
             if f.type in ["table", "list", "array"]:
                 # If sub_fields are defined, make it strict
                 if f.sub_fields:
@@ -234,12 +238,20 @@ class BetaPipeline(ExtractionPipeline):
                     for sf in f.sub_fields:
                         sf_key = sf.get("key", "")
                         if sf_key:
-                            # Values come wrapped in value/confidence dicts or just raw strings depending on the phase
-                            # Let's be lenient on type: string or null 
+                            # Parse expected type from sub_field
+                            sf_type = sf.get("type", "string")
+                            sf_schema_type = ["string", "null"]
+                            if sf_type == "number":
+                                sf_schema_type = ["number", "null"]
+                            elif sf_type == "boolean":
+                                sf_schema_type = ["boolean", "null"]
+                            else:
+                                sf_schema_type = ["string", "null", "number", "boolean"] # loose fallback
+
                             sub_props[sf_key] = {
                                 "type": ["object", "null"],
                                 "properties": {
-                                    "value": {"type": ["string", "null", "number", "boolean"]},
+                                    "value": {"type": sf_schema_type},
                                     "confidence": {"type": ["number", "null"]},
                                     "page_number": {"type": ["integer", "null"]}
                                 },
@@ -265,10 +277,18 @@ class BetaPipeline(ExtractionPipeline):
                         "items": {"type": "object"}
                     }
             else:
+                f_schema_type = ["string", "null"]
+                if f.type == "number":
+                    f_schema_type = ["number", "null"]
+                elif f.type == "boolean":
+                    f_schema_type = ["boolean", "null"]
+                else:
+                    f_schema_type = ["string", "null", "number", "boolean"] # loose fallback
+
                 properties[f.key] = {
                     "type": ["object", "null"],
                     "properties": {
-                        "value": {"type": ["string", "null", "number", "boolean"]},
+                        "value": {"type": f_schema_type},
                         "confidence": {"type": ["number", "null"]},
                         "page_number": {"type": ["integer", "null"]}
                     },

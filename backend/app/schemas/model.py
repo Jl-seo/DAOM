@@ -18,6 +18,8 @@ class FieldDefinition(BaseModel):
     type: str = "string"
     is_dex_target: Optional[bool] = False # DEX 바코드 검증 타겟 여부
     dictionary: Optional[str] = None # Field-level dictionary mapping category (e.g., "port", "charge")
+    required: bool = False # 필수 항목 추출 여부
+    validation_regex: Optional[str] = None # 값 검증 정규식 (e.g., ^[A-Z0-9]+$)
     sub_fields: Optional[List[Dict[str, Any]]] = None # 하위 컬러 정의 (e.g. [{"key": "pol", "label": "POL", "dictionary": "port"}])
 
 class ComparisonSettings(BaseModel):

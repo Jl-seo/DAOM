@@ -84,16 +84,32 @@ INSTRUCTIONS FOR REFERENCE DATA:
 
         prompt += "\nREQUIRED EXTRACTION FIELDS:\n"
         for field in fields:
-            prompt += f"- {field.key} ({field.label}):\n"
+            # Indicate required status prominently
+            req_marker = "[REQUIRED]" if field.required else "[OPTIONAL]"
+            prompt += f"- {field.key} ({field.label}) {req_marker}:\n"
+            
             desc = field.description
             if desc and desc.strip():
                 prompt += f"  Description: {desc}\n"
-            else:
-                # If description is missing, don't print "Description: None"
-                pass
+            
             if field.rules:
                 prompt += f"  Refinement Rule: {field.rules}\n"
+                
+            if getattr(field, 'validation_regex', None):
+                prompt += f"  Validation Regex: MUST exactly match pattern `{field.validation_regex}`\n"
+                
             prompt += f"  Type: {field.type}\n"
+            
+            # If sub-fields exist, list them out with their constraints
+            if getattr(field, 'sub_fields', None):
+                prompt += "  Sub-Fields (apply recursively):\n"
+                for sf in field.sub_fields:
+                    sf_req = "[REQUIRED]" if sf.get('required') else "[OPTIONAL]"
+                    prompt += f"    - {sf.get('key')} ({sf.get('label')}) {sf_req}: Type {sf.get('type', 'string')}\n"
+                    if sf.get('rules'):
+                        prompt += f"      Rule: {sf.get('rules')}\n"
+                    if sf.get('validation_regex'):
+                        prompt += f"      Regex: MUST exactly match pattern `{sf.get('validation_regex')}`\n"
 
         # 4. Output Formatting — detect table from field types (data_structure manual selector deprecated)
         # data_structure = get_attr(model, 'data_structure', 'data')  # DEPRECATED
@@ -135,6 +151,10 @@ You must extract ALL rows from the document. Do NOT truncate or sample.
    - Example: If doc has "Charge_Type", map it to "charge_type".
    - **CRITICAL**: If a table field lacks an explicit list of sub-field column keys, you MUST infer the required column keys by reading the field's `Description` or `Refinement Rule`. Convert the requested column names to clean `snake_case`. DO NOT just blindly copy the exact document header text (like Excel headers) as the JSON key!
 
+**CRITICAL: STRICT VALIDATION RULES**
+- If a field is marked **[REQUIRED]**, it must NOT be null. If the value cannot be found, make your best absolute guess or infer it.
+- If a field has a **Validation Regex**, the extracted string MUST conform to that REGEX exactly. If it does not naturally conform, you must format or clean up the string so that it matches. Do not return failing strings.
+
 **CRITICAL: DO NOT FLATTEN**
 - Do NOT force header fields into every table row. Keep them separate at the root level.
 - Do NOT output a single "rows" list unless the field type is explicitly a list.
@@ -162,6 +182,8 @@ CRITICAL RULES:
 1. "source_text" MUST be the EXACT substring found in the document.
 2. If a field is not found, set "value": null.
 3. Do not add fields that are not in the REQUIRED EXTRACTION FIELDS list.
+4. VALIDATION: If a field is marked **[REQUIRED]**, you must do your best to find it. Make formatting adjustments so it strictly meets any **Validation Regex**.
+
 
 LANGUAGE INSTRUCTION:
 Extract the value exactly as it appears in the document (Original Language).

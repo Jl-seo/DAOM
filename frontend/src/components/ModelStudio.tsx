@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
     Plus, Trash2, Save, ArrowLeft, Wand2,
-    LayoutTemplate, Edit, Sliders, Database, BookOpen
+    LayoutTemplate, Edit, Sliders, Database, BookOpen, Search
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
@@ -20,6 +20,7 @@ import { ComparisonSettingsPanel } from './studio/ComparisonSettingsPanel'
 import { ExcelColumnEditor } from './studio/ExcelColumnEditor'
 import { ReferenceDataEditor } from './studio/ReferenceDataEditor'
 import { DictionaryPanel } from './studio/DictionaryPanel'
+import { SubFieldEditorModal } from './studio/SubFieldEditorModal'
 
 export interface ComparisonSettings {
     confidence_threshold: number; // 0.85
@@ -74,8 +75,24 @@ export function ModelStudio() {
     const [originalModel, setOriginalModel] = useState<Partial<Model> | null>(null)
     const [isEditing, setIsEditing] = useState(false)
     const [activeStudioTab, setActiveStudioTab] = useState<'extraction' | 'transformation'>('extraction')
+    const [searchQuery, setSearchQuery] = useState('')
     const [searchParams, setSearchParams] = useSearchParams()
     const navigate = useNavigate()
+
+    // Sub-field modal state
+    const [subFieldModalOpen, setSubFieldModalOpen] = useState(false)
+    const [selectedParentField, setSelectedParentField] = useState<{ index: number, field: Field } | null>(null)
+
+    // Listen for custom event from FieldEditorTable to open SubField Modal
+    useEffect(() => {
+        const handleOpenSubFieldModal = (e: Event) => {
+            const customEvent = e as CustomEvent<{ index: number, field: Field }>;
+            setSelectedParentField(customEvent.detail);
+            setSubFieldModalOpen(true);
+        };
+        window.addEventListener('open-subfield-modal', handleOpenSubFieldModal);
+        return () => window.removeEventListener('open-subfield-modal', handleOpenSubFieldModal);
+    }, []);
 
     // Auto-select model from URL query param (e.g. ?modelId=xxx)
     useEffect(() => {
@@ -341,31 +358,45 @@ export function ModelStudio() {
                                     </div>
                                 </Card>
 
-                                {/* Extraction Fields - Only show for Extraction Models */}
-                                {(!editingModel.model_type || editingModel.model_type === 'extraction') && (
-                                    <Card icon={LayoutTemplate} title="추출 필드">
-                                        <FieldEditorTable
-                                            fields={editingModel.fields || []}
-                                            modelDictionaries={editingModel.dictionaries || []}
-                                            onChange={(fields) => setEditingModel({ ...editingModel, fields })}
-                                            disabled={!isEditing}
-                                        />
-                                        {isEditing && (
-                                            <button
-                                                onClick={() => {
-                                                    const newField = { key: '', label: '', description: '', rules: '', type: 'string' as const }
-                                                    setEditingModel({
-                                                        ...editingModel,
-                                                        fields: [...(editingModel.fields || []), newField]
-                                                    })
-                                                }}
-                                                className="mt-3 w-full py-2 border-2 border-dashed border-border hover:border-primary text-muted-foreground hover:text-primary rounded-lg text-xs font-medium transition-all"
-                                            >
-                                                + 필드 추가
-                                            </button>
-                                        )}
-                                    </Card>
-                                )}
+                                <Card icon={LayoutTemplate} title="추출 필드">
+                                    <FieldEditorTable
+                                        fields={editingModel.fields || []}
+                                        modelDictionaries={editingModel.dictionaries || []}
+                                        onChange={(fields) => setEditingModel({ ...editingModel, fields })}
+                                        disabled={!isEditing}
+                                    />
+                                    {isEditing && (
+                                        <button
+                                            onClick={() => {
+                                                const newField = { key: '', label: '', description: '', rules: '', type: 'string' as const }
+                                                setEditingModel({
+                                                    ...editingModel,
+                                                    fields: [...(editingModel.fields || []), newField]
+                                                })
+                                            }}
+                                            className="mt-3 w-full py-2 border-2 border-dashed border-border hover:border-primary text-muted-foreground hover:text-primary rounded-lg text-xs font-medium transition-all"
+                                        >
+                                            + 필드 추가
+                                        </button>
+                                    )}
+                                </Card>
+
+                                {/* Sub-Field Editor UI (Dialog) */}
+                                <SubFieldEditorModal
+                                    isOpen={subFieldModalOpen}
+                                    onClose={() => setSubFieldModalOpen(false)}
+                                    parentField={selectedParentField?.field || null}
+                                    modelDictionaries={editingModel.dictionaries || []}
+                                    onSave={(subFields) => {
+                                        if (selectedParentField === null || !isEditing) return;
+                                        const newFields = [...(editingModel.fields || [])];
+                                        newFields[selectedParentField.index] = {
+                                            ...newFields[selectedParentField.index],
+                                            sub_fields: subFields
+                                        };
+                                        setEditingModel({ ...editingModel, fields: newFields });
+                                    }}
+                                />
 
                                 {/* Comparison Settings - Only show for Comparison Models */}
                                 {editingModel.model_type === 'comparison' && (
@@ -706,79 +737,98 @@ export function ModelStudio() {
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                    {models.map((model) => (
-                        <div
-                            key={model.id}
-                            className={clsx(
-                                "group cursor-pointer h-full",
-                                model.is_active === false && "opacity-60"
-                            )}
-                            onClick={() => handleEditModel(model)}
-                        >
-                            <div className={clsx(
-                                "relative p-[2px] rounded-2xl transition-all duration-300",
-                                model.is_active === false
-                                    ? "bg-muted-foreground/30"
-                                    : "bg-gradient-to-br from-border to-border hover:from-primary hover:to-chart-5"
-                            )}>
-                                <div className="bg-card rounded-2xl p-5 h-full transition-all duration-300 group-hover:shadow-xl">
-                                    <div className="flex items-start justify-between mb-3">
-                                        <div className={clsx(
-                                            "p-2.5 rounded-xl group-hover:scale-110 transition-transform",
-                                            model.is_active === false
-                                                ? "bg-muted-foreground/20"
-                                                : "bg-gradient-to-br from-primary/20 to-chart-5/20"
-                                        )}>
-                                            <LayoutTemplate className={clsx(
-                                                "w-5 h-5",
-                                                model.is_active === false ? "text-muted-foreground" : "text-primary"
-                                            )} />
-                                        </div>
-                                        <div className="flex items-center gap-1">
-                                            {model.is_active === false && (
-                                                <span className="px-2 py-0.5 text-[10px] bg-muted-foreground/20 text-muted-foreground rounded-full">
-                                                    숨김
-                                                </span>
-                                            )}
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    handleDeleteModel(model.id)
-                                                }}
-                                                className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-destructive/10 rounded-lg transition-all"
-                                            >
-                                                <Trash2 className="w-4 h-4 text-destructive" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <h3 className={clsx(
-                                        "font-bold text-base mb-2 transition-colors",
+                <>
+                    <div className="mb-6 max-w-md relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <input
+                            type="text"
+                            placeholder="모델 검색..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium"
+                        />
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {models
+                            .filter(model => model.name.toLowerCase().includes(searchQuery.toLowerCase()) || (model.description && model.description.toLowerCase().includes(searchQuery.toLowerCase())))
+                            .map((model) => (
+                                <div
+                                    key={model.id}
+                                    className={clsx(
+                                        "group cursor-pointer h-full",
+                                        model.is_active === false && "opacity-60"
+                                    )}
+                                    onClick={() => handleEditModel(model)}
+                                >
+                                    <div className={clsx(
+                                        "relative p-[2px] rounded-2xl transition-all duration-300",
                                         model.is_active === false
-                                            ? "text-muted-foreground"
-                                            : "text-foreground group-hover:text-primary"
+                                            ? "bg-muted-foreground/30"
+                                            : "bg-gradient-to-br from-border to-border hover:from-primary hover:to-chart-5"
                                     )}>
-                                        {model.name}
-                                    </h3>
-                                    <p className="text-xs text-muted-foreground mb-4 line-clamp-2">
-                                        {model.description || '설명 없음'}
-                                    </p>
-                                    <div className="flex items-center justify-between text-xs">
-                                        <span className="text-muted-foreground">{model.fields?.length || 0}개 필드</span>
-                                        <span className={clsx(
-                                            "px-2 py-1 rounded-full font-medium",
-                                            model.is_active === false
-                                                ? "bg-muted-foreground/10 text-muted-foreground"
-                                                : "bg-primary/10 text-primary"
-                                        )}>
-                                            {model.data_structure?.toUpperCase() || 'DATA'}
-                                        </span>
+                                        <div className="bg-card rounded-2xl p-5 h-full transition-all duration-300 group-hover:shadow-xl">
+                                            <div className="flex items-start justify-between mb-3">
+                                                <div className={clsx(
+                                                    "p-2.5 rounded-xl group-hover:scale-110 transition-transform",
+                                                    model.is_active === false
+                                                        ? "bg-muted-foreground/20"
+                                                        : "bg-gradient-to-br from-primary/20 to-chart-5/20"
+                                                )}>
+                                                    <LayoutTemplate className={clsx(
+                                                        "w-5 h-5",
+                                                        model.is_active === false ? "text-muted-foreground" : "text-primary"
+                                                    )} />
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    {model.is_active === false && (
+                                                        <span className="px-2 py-0.5 text-[10px] bg-muted-foreground/20 text-muted-foreground rounded-full">
+                                                            숨김
+                                                        </span>
+                                                    )}
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            handleDeleteModel(model.id)
+                                                        }}
+                                                        className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-destructive/10 rounded-lg transition-all"
+                                                    >
+                                                        <Trash2 className="w-4 h-4 text-destructive" />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <h3 className={clsx(
+                                                "font-bold text-base mb-2 transition-colors",
+                                                model.is_active === false
+                                                    ? "text-muted-foreground"
+                                                    : "text-foreground group-hover:text-primary"
+                                            )}>
+                                                {model.name}
+                                            </h3>
+                                            <p className="text-xs text-muted-foreground mb-4 line-clamp-2">
+                                                {model.description || '설명 없음'}
+                                            </p>
+                                            <div className="flex items-center justify-between text-xs">
+                                                <span className="text-muted-foreground">{model.fields?.length || 0}개 필드</span>
+                                                <span className={clsx(
+                                                    "px-2 py-1 rounded-full font-medium",
+                                                    model.is_active === false
+                                                        ? "bg-muted-foreground/10 text-muted-foreground"
+                                                        : "bg-primary/10 text-primary"
+                                                )}>
+                                                    {model.data_structure?.toUpperCase() || 'DATA'}
+                                                </span>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
+                            ))}
+                        {models.filter(model => model.name.toLowerCase().includes(searchQuery.toLowerCase()) || (model.description && model.description.toLowerCase().includes(searchQuery.toLowerCase()))).length === 0 && (
+                            <div className="col-span-full py-12 text-center text-muted-foreground border border-dashed border-border rounded-2xl bg-card/50">
+                                "{searchQuery}"에 해당하는 모델이 없습니다.
                             </div>
-                        </div>
-                    ))}
-                </div>
+                        )}
+                    </div>
+                </>
             )}
         </div>
     )

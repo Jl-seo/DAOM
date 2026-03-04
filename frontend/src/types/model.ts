@@ -12,6 +12,9 @@ export interface Field {
     type: FieldType
     is_dex_target?: boolean
     dictionary?: string // Field-level dictionary mapping category (e.g., "port", "charge")
+    required?: boolean // 필드값 필수 포함 여부
+    validation_regex?: string // 값 검증용 정규식 패턴 (e.g., ^[A-Z0-9]+$)
+    sub_fields?: Record<string, any>[] // 테이블(리스트) 형태의 하위 필드 정의 스키마
 }
 
 export interface ComparisonSettings {
