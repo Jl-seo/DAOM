@@ -84,6 +84,7 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
       1. NEVER blindly map columns sequentially just because they exist! 
       2. You MUST extract the exact text of the Excel header into `excel_header_name`. 
       3. If a schema field does not exist in the Excel table, DO NOT INCLUDE IT in the mapping array. Skip it. For example, if the schema asks for `sc_number` but the Excel table headers only have `Receipt`, `POL`, `POD`, `Delivery`, then DO NOT map `sc_number` to `Receipt`. Just omit `sc_number` entirely!
+      4. **DATA TYPE MATCHING (CRITICAL)**: Look at the `type` or `description` of each field/sub-field in the schema. If it expects a `number`, `금액`, `단가` or `운임` (Rates/Charges/Amounts), you MUST map it to an Excel column that actually contains NUMERIC values or currency amounts in the data rows below the header! Do NOT map a numeric field to a text label column (like "Freight Name") just because the header is similar. Let the actual data types in the rows guide you.
     - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label.
     """
     
