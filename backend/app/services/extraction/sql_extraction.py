@@ -455,6 +455,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                     col_map[str(k).strip().lower()] = str(v).strip().upper()
         
         if not col_map or not sheet:
+            logs.append({"step": f"Table [{target_key}]", "message": f"Skipped: col_map or sheet is empty. Sheet={sheet}, Map={col_map}"})
             raw_extracted[target_key] = {"value": [], "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
             continue
         
@@ -462,6 +463,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         df['_sheet_name_lower'] = df['_sheet_name'].str.strip().str.lower()
         sheet_df = df[df["_sheet_name_lower"] == sheet]
         if sheet_df.empty:
+            logs.append({"step": f"Table [{target_key}]", "message": f"Sheet '{sheet}' not found, falling back to full combined data."})
             sheet_df = df # Fallback
             
         try:
@@ -470,6 +472,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             h_id = 1
             
         logger.info(f"[{target_key}] Slicing sheet '{sheet}': using `row_id >= {h_id}`")
+        logs.append({"step": f"Table [{target_key}] Target", "message": f"Sheet='{sheet}', Starting row_id={h_id}, Mapping={json.dumps(col_map)}"})
+        
         data_rows = sheet_df[sheet_df["row_id"] >= h_id]
         
         extracted_table_rows = []
@@ -536,6 +540,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             if row_has_meaningful_data:
                 extracted_table_rows.append(row_data)
                 
+        logs.append({"step": f"Table [{target_key}] Exec", "message": f"Extracted {len(extracted_table_rows)} rows out of {len(data_rows)} target data rows."})
         raw_extracted[target_key] = {
             "value": extracted_table_rows,
             "confidence": 0.95 if extracted_table_rows else 0.0,
