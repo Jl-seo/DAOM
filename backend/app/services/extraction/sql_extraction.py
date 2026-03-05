@@ -380,6 +380,24 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         # Fallback tracking
         val = None
         raw_val = None
+        bbox = None
+        
+        # Virtual Grid constants (Sync with ExcelGridViewer.tsx)
+        VIRTUAL_WIDTH = 1000
+        CELL_HEIGHT = 50
+        col_count = len(df.columns) - 2 if 'df' in locals() and len(df.columns) > 2 else 26
+        cell_width = VIRTUAL_WIDTH / max(1, col_count)
+        
+        page_number = 1
+        if sheet and 'df' in locals() and '_sheet_name' in df.columns:
+            try:
+                s_list = df['_sheet_name'].unique().tolist()
+                s_lower = [str(s).strip().lower() for s in s_list]
+                search = str(sheet).strip().lower()
+                if search in s_lower:
+                    page_number = s_lower.index(search) + 1
+            except Exception:
+                pass
         
         # 1. Try Coordinate-based pure Pandas lookup
         if sheet and row_id is not None and col:
@@ -390,6 +408,19 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                     raw_val = val_df.iloc[0][col]
                     if pd.notna(raw_val):
                         val = str(raw_val).strip()
+                        
+                        # Calculate virtual BBox for Scalar
+                        try:
+                            col_idx = df.columns.tolist().index(col) - 1 # Adjusted for row_id
+                            row_idx = r_id
+                            
+                            x1 = col_idx * cell_width
+                            y1 = row_idx * CELL_HEIGHT
+                            x2 = x1 + cell_width
+                            y2 = y1 + CELL_HEIGHT
+                            bbox = [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
+                        except Exception:
+                            pass
             except Exception as e:
                 logger.debug(f"Failed to extract scalar {target_key} via coordinates: {e}")
                 
@@ -416,7 +447,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 "original_value": str(raw_val),
                 "confidence": 0.90,
                 "validation_status": "valid",
-                "page_number": 1
+                "page_number": page_number,
+                "bbox": bbox
             }
         else:
             logger.debug(f"Skipping empty scalar {target_key}")
@@ -454,6 +486,17 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             for k, v in raw_col_map.items():
                 if k and v:
                     col_map[str(k).strip().lower()] = str(v).strip().upper()
+        
+        page_number = 1
+        if sheet and 'df' in locals() and '_sheet_name' in df.columns:
+            try:
+                s_list = df['_sheet_name'].unique().tolist()
+                s_lower = [str(s).strip().lower() for s in s_list]
+                search = str(sheet).strip().lower()
+                if search in s_lower:
+                    page_number = s_lower.index(search) + 1
+            except Exception:
+                pass
         
         if not col_map or not sheet:
             logs.append({"step": f"Table [{target_key}]", "message": f"Skipped: col_map or sheet is empty. Sheet={sheet}, Map={col_map}"})
@@ -501,6 +544,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             for inner_key in expected_sub_keys:
                 lookup_key = str(inner_key).strip().lower() if inner_key else ""
                 excel_col = col_map.get(lookup_key)
+                # Virtual Grid constants (Sync with ExcelGridViewer.tsx)
+                VIRTUAL_WIDTH = 1000
+                CELL_HEIGHT = 50
+                col_count = len(df.columns) - 2  # Subtract row_id and _sheet_name
+                cell_width = VIRTUAL_WIDTH / max(1, col_count)
                 
                 # Check if we have mapped column and the cell has data
                 if excel_col and excel_col in row and pd.notna(row[excel_col]):
@@ -514,12 +562,28 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                         elif target_key in ref_data and val in ref_data[target_key]:  # Nested fallback
                             val = ref_data[target_key][val]
                             
+                        # Calculate Virtual BBox
+                        bbox = None
+                        try:
+                            # excel_col is A, B, C... Find its 0-based index
+                            col_idx = df.columns.tolist().index(excel_col) - 1 # Adjusted for row_id
+                            row_idx = int(row["row_id"])
+                            
+                            x1 = col_idx * cell_width
+                            y1 = row_idx * CELL_HEIGHT
+                            x2 = x1 + cell_width
+                            y2 = y1 + CELL_HEIGHT
+                            bbox = [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
+                        except Exception:
+                            pass
+                            
                         # Wrap cells for validation formatting
                         row_data[inner_key] = {
                             "value": val,
                             "confidence": 0.95,
                             "validation_status": "valid",
-                            "original_value": str(row[excel_col]).strip()
+                            "original_value": str(row[excel_col]).strip(),
+                            "bbox": bbox
                         }
                     else:
                         # Empty but mapped string
@@ -527,7 +591,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                             "value": "",
                             "confidence": 0.0,
                             "validation_status": "flagged",
-                            "original_value": ""
+                            "original_value": "",
+                            "bbox": None
                         }
                 else:
                     # Unmapped Column, or completely empty NaN cell
@@ -535,7 +600,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                         "value": "",
                         "confidence": 0.0,
                         "validation_status": "flagged",
-                        "original_value": ""
+                        "original_value": "",
+                        "bbox": None
                     }
             
             if row_has_meaningful_data:
@@ -546,7 +612,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             "value": extracted_table_rows,
             "confidence": 0.95 if extracted_table_rows else 0.0,
             "validation_status": "valid" if extracted_table_rows else "flagged",
-            "page_number": 1
+            "page_number": page_number
         }
 
     # 4. Fill entirely missing fields with empty schemas
