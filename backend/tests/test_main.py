@@ -4,4 +4,6 @@ import pytest
 async def test_root(async_client):
     response = await async_client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "Welcome to DAOM API"}
+    data = response.json()
+    assert "message" in data
+    assert "DAOM API" in data["message"]

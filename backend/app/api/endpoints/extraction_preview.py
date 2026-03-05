@@ -73,168 +73,20 @@ class StartExtractionRequest(BaseModel):
     file_url: str
 
 
-# Background task to process extraction
+# Background task — delegates to extraction_orchestrator for clean separation
 async def process_extraction_job(job_id: str, model_id: str, file_url: str, candidate_file_url: Optional[str] = None, candidate_file_urls: Optional[List[str]] = None, candidate_filenames: Optional[List[str]] = None, barcode: Optional[str] = None):
-    """Background task to run full extraction or comparison pipeline"""
-    logger.info(f"[Background] Starting extraction job {job_id}")
-    import mimetypes
-    from app.services.storage import download_blob_to_bytes
-    from app.services.extraction_service import extraction_service
-
-    try:
-        # 1. Update Status
-        await extraction_jobs.update_job(job_id, status=ExtractionStatus.ANALYZING.value)
-
-        # 2. Load Model to determine pipeline type
-        model = await get_model_by_id(model_id)
-        if not model:
-            await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=f"Model {model_id} not found")
-            return
-
-        # ──────────────────────────────────────────────
-        # COMPARISON BRANCH: model_type == "comparison"
-        # ──────────────────────────────────────────────
-        all_candidates = candidate_file_urls or ([candidate_file_url] if candidate_file_url else [])
-
-        if getattr(model, "model_type", "extraction") == "comparison" and all_candidates:
-            logger.info(f"[Background] Comparison mode: {len(all_candidates)} candidate(s)")
-            from app.services.comparison_service import compare_images
-
-            # Build comparison settings dict from model
-            comp_settings = None
-            if hasattr(model, "comparison_settings") and model.comparison_settings:
-                comp_settings = model.comparison_settings if isinstance(model.comparison_settings, dict) else model.comparison_settings.dict()
-
-            custom_instructions = getattr(model, "global_rules", None)
-
-            comparisons: List[Dict[str, Any]] = []
-            for i, cand_url in enumerate(all_candidates):
-                try:
-                    logger.info(f"[Background] Comparing candidate {i+1}/{len(all_candidates)}")
-                    result = await compare_images(
-                        image_url_1=file_url,
-                        image_url_2=cand_url,
-                        custom_instructions=custom_instructions,
-                        comparison_settings=comp_settings,
-                    )
-                    comparisons.append({
-                        "candidate_index": i,
-                        "result": result,
-                        "file_url": cand_url,
-                        "filename": candidate_filenames[i] if candidate_filenames and i < len(candidate_filenames) else None,
-                    })
-                except Exception as comp_err:
-                    logger.error(f"[Background] Comparison failed for candidate {i}: {comp_err}")
-                    comparisons.append({
-                        "candidate_index": i,
-                        "result": {"differences": [], "metadata": {"error": str(comp_err)}},
-                        "file_url": cand_url,
-                        "filename": candidate_filenames[i] if candidate_filenames and i < len(candidate_filenames) else None,
-                        "error": str(comp_err),
-                    })
-
-            preview_data: Dict[str, Any] = {
-                "comparisons": comparisons,
-                "comparison_result": comparisons[0]["result"] if comparisons else None,
-            }
-
-            await extraction_jobs.update_job(
-                job_id,
-                status=ExtractionStatus.PREVIEW_READY.value,
-                preview_data=preview_data,
-            )
-            
-            job = await extraction_jobs.get_job(job_id)
-            if job and getattr(job, "original_log_id", None):
-                await extraction_logs.update_log_status(
-                    log_id=str(job.original_log_id),
-                    status=ExtractionStatus.PREVIEW_READY.value,
-                    preview_data=preview_data
-                )
-                
-            logger.info(f"[Background] Completed comparison job {job_id} — {len(comparisons)} candidate(s) processed")
-            return
-
-        # ──────────────────────────────────────────────
-        # EXTRACTION BRANCH (default)
-        # ──────────────────────────────────────────────
-
-        # 2b. Download File
-        try:
-            file_content = await download_blob_to_bytes(file_url)
-            if not file_content:
-                raise ValueError("Downloaded file content is empty or None")
-            logger.info(f"[Background] Downloaded {len(file_content)} bytes from {file_url}")
-        except Exception as e:
-            error_msg = f"Failed to download file: {str(e)}"
-            logger.error(f"[Background] {error_msg}")
-            
-            job = await extraction_jobs.get_job(job_id)
-            await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=error_msg)
-            if job and getattr(job, "original_log_id", None):
-                await extraction_logs.update_log_status(
-                    log_id=str(job.original_log_id),
-                    status=ExtractionStatus.ERROR.value,
-                    error=error_msg
-                )
-            
-            return
-
-        # 3. Detect MIME type
-        filename = file_url.split('/')[-1]
-        mime_type, _ = mimetypes.guess_type(filename)
-        
-        # 4. Call Pure Extraction Service
-        result = await extraction_service.run_extraction_pipeline(
-            file_content=file_content,
-            model_id=model_id,
-            filename=filename,
-            mime_type=mime_type or "",
-            barcode=barcode
-        )
-        
-        # 5. Handle Result
-        job = await extraction_jobs.get_job(job_id)
-        if result.get("error"):
-             await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
-             if job and getattr(job, "original_log_id", None):
-                 await extraction_logs.update_log_status(
-                     log_id=str(job.original_log_id),
-                     status=ExtractionStatus.ERROR.value,
-                     error=result["error"]
-                 )
-        else:
-             await extraction_jobs.update_job(
-                job_id, 
-                status=ExtractionStatus.PREVIEW_READY.value, 
-                preview_data=result
-            )
-             if job and getattr(job, "original_log_id", None):
-                 await extraction_logs.update_log_status(
-                     log_id=str(job.original_log_id),
-                     status=ExtractionStatus.PREVIEW_READY.value,
-                     preview_data=result
-                 )
-
-        logger.info(f"[Background] Completed extraction job {job_id}")
-
-    except Exception as e:
-        logger.error(f"[Background] FATAL ERROR in job {job_id}: {e}")
-        import traceback
-        traceback.print_exc()
-        # Update job with error status
-        try:
-            job = await extraction_jobs.get_job(job_id)
-            await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
-            if job and getattr(job, "original_log_id", None):
-                await extraction_logs.update_log_status(
-                    log_id=str(job.original_log_id),
-                    status=ExtractionStatus.ERROR.value,
-                    error=str(e)
-                )
-        except Exception as update_err:
-            logger.error(f"[Background] Failed to update job status: {update_err}")
-            pass
+    """Background task to run full extraction or comparison pipeline.
+    Business logic lives in app.services.extraction_orchestrator."""
+    from app.services.extraction_orchestrator import run_pipeline_job
+    await run_pipeline_job(
+        job_id=job_id,
+        model_id=model_id,
+        file_url=file_url,
+        candidate_file_url=candidate_file_url,
+        candidate_file_urls=candidate_file_urls,
+        candidate_filenames=candidate_filenames,
+        barcode=barcode,
+    )
 
 
 
@@ -694,133 +546,29 @@ async def confirm_job(
     request: Dict[str, Any],
     current_user: CurrentUser = Depends(get_current_user)
 ):
-    """Confirm and save extraction job"""
-    job = await extraction_jobs.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    """Confirm and save extraction job.
+    Business logic delegated to extraction_orchestrator."""
+    from app.services.extraction_orchestrator import confirm_and_save_job
 
-    # Extract user_id early for use throughout the function
+    edited_data = request.get("edited_data") if request else None
     user_id = current_user.id if current_user else "unknown"
 
-    # Check for S100 (SUCCESS) status - only success jobs can be edited/confirmed
-    if job.status != ExtractionStatus.SUCCESS.value:
-        raise HTTPException(status_code=400, detail=f"Job is not ready for confirmation. Status: {job.status}")
-
-    # Use edited data if provided, otherwise use preview data
-    edited_data = request.get("edited_data") if request else None
-    final_data = edited_data if edited_data else job.preview_data.get("guide_extracted", {})
-
-    # Update job status
     try:
-        await extraction_jobs.update_job(job_id, status=ExtractionStatus.SUCCESS.value, extracted_data=final_data)
-        
-        # Log audit
-        # audit.log_action(...) - handled inside update_job now
-
+        result = await confirm_and_save_job(
+            job_id=job_id,
+            edited_data=edited_data,
+            user_id=user_id,
+            user_name=(current_user.name if current_user else "Unknown"),
+            user_email=(current_user.email if current_user else None),
+            tenant_id=(current_user.tenant_id if current_user else None),
+        )
+        return result
+    except ValueError as e:
+        status = 404 if "not found" in str(e).lower() else 400
+        raise HTTPException(status_code=status, detail=str(e))
     except Exception as e:
-        logger.error(f"[Confirmation] Failed to update job {job_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to save result: {e}")
-
-    try:
-        # Multi-Document Support: Save extraction log for EACH sub-document
-        saved_logs = []
-        sub_docs = job.preview_data.get("sub_documents")
-        logger.info(f"[ConfirmJob] Job {job_id} | SubDocs: {len(sub_docs) if sub_docs else 0} | original_log_id: {job.original_log_id}")
-
-        if sub_docs and len(sub_docs) > 0:
-            # Save each split as a separate record
-            for idx, sub in enumerate(sub_docs):
-                try:
-                    if sub.get("status") == "success":  # Sub-doc internal status
-                        # Flatten the data for this split
-                        split_data = sub.get("data", {}).get("guide_extracted", {})
-
-                        # Use original_log_id for the FIRST sub-doc (updates existing record)
-                        # Additional sub-docs get new IDs
-                        target_log_id = job.original_log_id if idx == 0 and job.original_log_id else None
-
-                        log = await extraction_logs.save_extraction_log(
-                            model_id=job.model_id,
-                            user_id=user_id,
-                            user_name=(current_user.name if current_user and current_user.name else job.user_name or "Unknown"),
-                            user_email=(current_user.email if current_user and current_user.email else job.user_email),
-                            filename=f"{job.filename} (Doc {sub['index']})" if len(sub_docs) > 1 else job.filename,
-                            file_url=job.file_url,
-                            status=ExtractionStatus.SUCCESS.value,
-                            extracted_data=split_data,
-                            preview_data=sub.get("data"),  # Save full structure for this sub-doc
-                            job_id=job_id,
-                            tenant_id=current_user.tenant_id if current_user else None,
-                            debug_data=job.debug_data,
-                            token_usage=sub.get("data", {}).get("_token_usage")
-                        )
-                        if log: saved_logs.append(log)
-                except Exception as e:
-                     logger.error(f"[ConfirmJob] Failed to save sub-doc {sub.get('index')}: {e}")
-
-            # Use first doc data for return
-            final_data = sub_docs[0].get("data", {}).get("guide_extracted", {}) if sub_docs else {}
-
-        else:
-            # Legacy/Single Doc mode
-            logger.info(f"[ConfirmJob] Saving legacy single doc format")
-            await extraction_logs.save_extraction_log(
-                model_id=job.model_id,
-                user_id=user_id,
-                user_name=(current_user.name if current_user and current_user.name else job.user_name or "Unknown"),
-                user_email=(current_user.email if current_user and current_user.email else job.user_email),
-                filename=job.filename,
-                file_url=job.file_url,
-                status=ExtractionStatus.SUCCESS.value,
-                extracted_data=final_data,
-                preview_data=job.preview_data,  # Save full structure for reload
-                log_id=job.original_log_id,
-                job_id=job_id,
-                tenant_id=current_user.tenant_id if current_user else None,
-                debug_data=job.debug_data,
-                token_usage=job.preview_data.get("_token_usage") if job.preview_data else None
-            )
-
-    except Exception as e:
-        logger.error(f"[ConfirmJob] Critical error saving logs: {e}")
-        with open("last_error.txt", "w") as f:
-            f.write(str(e))
+        logger.error(f"[ConfirmJob] Failed: {e}")
         raise HTTPException(status_code=500, detail=f"Save failed: {str(e)}")
-
-    # --- WEBHOOK CALL ---
-    webhook_result = None
-    try:
-        model = await get_model_by_id(job.model_id)
-        if model and getattr(model, 'webhook_url', None):
-            import httpx
-            webhook_payload = {
-                "event": "extraction_confirmed",
-                "job_id": job_id,
-                "model_id": job.model_id,
-                "model_name": model.name,
-                "filename": job.filename,
-                "file_url": job.file_url,
-                "extracted_data": final_data,
-                "user_id": user_id,
-                "user_email": current_user.email if current_user else None,
-                "timestamp": job.updated_at or job.created_at
-            }
-            logger.info(f"[Webhook] Sending to {model.webhook_url}")
-            with httpx.Client(timeout=10.0) as client:
-                resp = client.post(model.webhook_url, json=webhook_payload)
-                webhook_result = {"status": resp.status_code, "success": resp.is_success}
-                logger.info(f"[Webhook] Response: {resp.status_code}")
-    except Exception as webhook_err:
-        logger.error(f"[Webhook] Failed: {webhook_err}")
-        webhook_result = {"error": str(webhook_err)}
-    # ---------------------
-
-    return {
-        "success": True,
-        "job_id": job_id,
-        "extracted_data": final_data,
-        "webhook": webhook_result
-    }
 
 
 @router.get("/jobs")

@@ -52,58 +52,37 @@ class ExcelExportColumn(BaseModel):
     width: int = 15  # 열 너비
     enabled: bool = True  # 내보내기 포함 여부
 
-class ExtractionModel(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore Cosmos system fields
-
-    id: str
-    name: str
-    description: Optional[str] = None # 대체 내용 정의 등
-    global_rules: Optional[str] = None # 전체적인 출력 형태/보정 정의
-    data_structure: Optional[str] = "data" # 데이터 구조 타입: "table" (표), "data" (JSON 객체), "report" (문서)
-    model_type: Optional[str] = "extraction" # "extraction" or "comparison"
-    azure_model_id: Optional[str] = "prebuilt-layout" # Azure Document Intelligence Model ID (e.g. prebuilt-invoice)
-    mapper_llm: Optional[str] = None # LLM deployment name for fast structural tasks (e.g. gpt-4o-mini)
-    extractor_llm: Optional[str] = None # LLM deployment name for main extraction tasks (overrides default)
-    webhook_url: Optional[str] = None  # POST URL for automation after extraction confirmation
-    allowedGroups: Optional[List[str]] = None # Access control groups
-    fields: List[FieldDefinition]
-    is_active: bool = True
-    temperature: float = 0.0  # LLM Temperature (0.0 for deterministic)
-    # Reference data for LLM context (Phase 1: structured JSON data)
-    reference_data: Optional[Dict[str, Any]] = None  # 참고 데이터 (고객코드 매핑, 유효성 규칙 등)
-    # Beta feature toggles - uses default_factory so missing DB values get defaults
-    beta_features: Dict[str, bool] = Field(default_factory=default_beta_features)
-    # Comparison-specific settings
-    comparison_settings: Optional[ComparisonSettings] = None
-    excel_columns: Optional[List[ExcelExportColumn]] = None
-    # Dictionary categories for auto-normalization (e.g., ["port", "charge"])
-    dictionaries: Optional[List[str]] = None
-    # Transform rules for row expansion (e.g., group code → individual ports)
-    transform_rules: Optional[List[Dict[str, Any]]] = None
-
-class ExtractionModelCreate(BaseModel):
+class _BaseExtractionModel(BaseModel):
+    """공통 필드를 정의하는 베이스 클래스 (직접 사용 금지)"""
     model_config = ConfigDict(extra="ignore")
 
     name: str
-    description: Optional[str] = None
-    global_rules: Optional[str] = None
-    data_structure: Optional[str] = "data"
-    model_type: Optional[str] = "extraction"
-    mapper_llm: Optional[str] = None
-    extractor_llm: Optional[str] = None
-    webhook_url: Optional[str] = None  # POST URL for automation
-    allowedGroups: Optional[List[str]] = None
+    description: Optional[str] = None  # 대체 내용 정의 등
+    global_rules: Optional[str] = None  # 전체적인 출력 형태/보정 정의
+    data_structure: Optional[str] = "data"  # "table" (표), "data" (JSON), "report" (문서)
+    model_type: Optional[str] = "extraction"  # "extraction" or "comparison"
+    mapper_llm: Optional[str] = None  # LLM deployment name for fast structural tasks (e.g. gpt-4o-mini)
+    extractor_llm: Optional[str] = None  # LLM deployment name for main extraction tasks (overrides default)
+    webhook_url: Optional[str] = None  # POST URL for automation after extraction confirmation
+    allowedGroups: Optional[List[str]] = None  # Access control groups
     fields: List[FieldDefinition]
-    temperature: float = 0.0
-    # Reference data for LLM context (Phase 1: structured JSON data)
+    is_active: bool = True
+    temperature: float = 0.0  # LLM Temperature (0.0 for deterministic)
     reference_data: Optional[Dict[str, Any]] = None  # 참고 데이터 (고객코드 매핑, 유효성 규칙 등)
-    # Beta feature toggles - uses default_factory so missing values get defaults
     beta_features: Dict[str, bool] = Field(default_factory=default_beta_features)
-    # Comparison-specific settings
     comparison_settings: Optional[ComparisonSettings] = None
     excel_columns: Optional[List[ExcelExportColumn]] = None
-    # Dictionary categories for auto-normalization (e.g., ["port", "charge"])
-    dictionaries: Optional[List[str]] = None
-    # Transform rules for row expansion (e.g., group code → individual ports)
-    transform_rules: Optional[List[Dict[str, Any]]] = None
+    dictionaries: Optional[List[str]] = None  # Dictionary categories for auto-normalization
+    transform_rules: Optional[List[Dict[str, Any]]] = None  # Row expansion rules
+
+
+class ExtractionModel(_BaseExtractionModel):
+    """DB에서 읽어온 모델 (id, azure_model_id 포함)"""
+    id: str
+    azure_model_id: Optional[str] = "prebuilt-layout"  # Azure Document Intelligence Model ID
+
+
+class ExtractionModelCreate(_BaseExtractionModel):
+    """모델 생성용 스키마 (id 자동 생성)"""
+    pass
 

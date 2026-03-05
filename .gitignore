@@ -42,3 +42,14 @@ azure-pipelines.yml
 # Temp files
 *.tmp
 *.temp
+nohup.out
+restore_diff.txt
+temp_backup_review.tsx
+
+# Scratch test/debug scripts (ad-hoc, not CI)
+backend/scripts/scratch_tests/
+backend/scripts/debug/
+
+# Temp data files
+backend/dummy_*.xlsx
+backend/extraction_models.json

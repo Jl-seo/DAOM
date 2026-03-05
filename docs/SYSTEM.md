@@ -38,6 +38,13 @@ graph TD
 | **추출 재시도** | 동일 문서에 대해 재추출 실행 | ✅ 운영 |
 | **Webhook 자동 호출** | 추출 완료 후 외부 URL로 결과 POST | ✅ 운영 |
 | **참조 데이터 그라운딩** | 고객 코드, 매핑 테이블 등 참조 데이터를 LLM 컨텍스트에 포함 | ✅ 운영 |
+| **사전 정규화 (Dictionary)** | Azure AI Search 기반 사전으로 추출값 자동 정규화 (항구코드, 운임코드 등) | ✅ 운영 |
+| **행 확장 (Transform)** | 그룹 코드를 개별 행으로 확장 (예: AS1 → [NINGBO, QINGDAO, ...]) | ✅ 운영 |
+| **모델별 LLM 선택** | 헤더 정규화(`mapper_llm`)와 추출(`extractor_llm`) 각각 다른 LLM 배포 선택 가능 | ✅ 운영 |
+| **Vision 직접 추출** | OCR 스킵, GPT Vision으로 이미지 기반 추출 (`use_vision_extraction`) | ✅ 운영 |
+| **Excel 직접 추출 (SQL)** | Pandas 기반 Excel 파싱 → LLM 스키마 매핑 → 데이터 실행 | ✅ 운영 |
+| **Blob Hydration** | 1.5MB 초과 데이터 자동 Blob 오프로드 및 API 반환 시 복원 | ✅ 운영 |
+| **토큰 감사** | tiktoken 기반 LLM 프롬프트 토큰 사용량 분석 유틸리티 | ✅ 운영 |
 
 #### 🔍 문서 비교
 | 기능 | 설명 | 상태 |
@@ -132,27 +139,39 @@ daom/
 │       ├── schemas/
 │       │   ├── model.py            # ExtractionModel, FieldDefinition
 │       │   └── document.py         # Document 스키마
-│       ├── services/               # 비즈니스 로직 (30개 서비스)
+│       ├── services/               # 비즈니스 로직 (35+ 서비스)
 │       │   ├── extraction_service.py   # 핵심: OCR→LLM 추출 파이프라인
+│       │   ├── extraction/             # 추출 서브패키지
+│       │   │   ├── beta_pipeline.py        # Beta: Designer→Engineer→Aggregator
+│       │   │   ├── sql_extraction.py       # Excel/Pandas 기반 추출
+│       │   │   ├── rule_engine.py          # Dictionary 정규화 + 검증
+│       │   │   ├── transform_engine.py     # 그룹코드→행 확장
+│       │   │   ├── index_engine.py         # 인덱스 기반 좌표 매칭
+│       │   │   ├── excel_parser.py         # Excel→Markdown 변환
+│       │   │   ├── vision_extraction.py    # GPT Vision 직접 추출
+│       │   │   └── advanced_table_pipeline.py # 테이블 직접 매핑
 │       │   ├── beta_chunking.py        # Beta: 최적화된 단일호출 추출
 │       │   ├── chunked_extraction.py   # Legacy: 청킹 추출
 │       │   ├── refiner.py              # LLM 프롬프트 생성 엔진
 │       │   ├── layout_parser.py        # OCR 결과 → 구조화된 텍스트
-│       │   ├── llm.py                  # OpenAI API 호출 래퍼
+│       │   ├── llm.py                  # OpenAI API 호출 래퍼 + 모델 목록 조회
 │       │   ├── doc_intel.py            # Document Intelligence 호출
 │       │   ├── extraction_jobs.py      # 추출 작업 관리
 │       │   ├── extraction_logs.py      # 추출 이력 CRUD
+│       │   ├── comparison_service.py   # SSIM+Vision+LLM 문서 비교
+│       │   ├── dictionary_service.py   # Azure AI Search 사전 관리
 │       │   ├── pixel_diff.py           # 이미지 비교 (SSIM)
 │       │   ├── vision_service.py       # Azure AI Vision 비교
+│       │   ├── hydration.py            # Blob 오프로드 데이터 복원
+│       │   ├── token_audit.py          # tiktoken 토큰 사용량 분석
 │       │   ├── user_service.py         # 사용자 관리
 │       │   ├── group_service.py        # 그룹 관리
 │       │   ├── permission_service.py   # RBAC
 │       │   ├── audit.py                # 감사 추적
 │       │   ├── menu_service.py         # 메뉴 관리
 │       │   ├── prompt_service.py       # 프롬프트 저장/조회
-│       │   ├── storage.py              # Cosmos DB CRUD
-│       │   ├── file_storage.py         # Blob Storage
-│       │   ├── excel_mapper.py         # 엑셀 내보내기
+│       │   ├── storage.py              # Blob Storage CRUD
+│       │   ├── file_storage.py         # Blob Storage 유틸
 │       │   ├── splitter.py             # 다중 문서 분리
 │       │   ├── template_chat.py        # 템플릿 채팅
 │       │   ├── graph_service.py        # MS Graph API
@@ -220,11 +239,21 @@ class ExtractionModel:
     global_rules: str                 # 전체 출력 규칙 (자연어)
     reference_data: Dict              # 참고 데이터 (코드 매핑 등)
 
+    # LLM 설정 (2026-03 추가)
+    mapper_llm: Optional[str]         # 헤더 정규화용 LLM 배포명 (e.g. gpt-4o-mini)
+    extractor_llm: Optional[str]      # 메인 추출용 LLM 배포명 (기본값 오버라이드)
+    temperature: float = 0.0          # LLM Temperature
+
     # 비교 설정
     comparison_settings: ComparisonSettings  # 신뢰도, 무시 규칙, 카테고리
 
+    # 후처리 엔진 (2026-03 추가)
+    dictionaries: List[str]           # Dictionary 카테고리 목록 (e.g. ["port", "charge"])
+    transform_rules: List[Dict]       # 행 확장 규칙 (그룹코드 → 개별 행)
+    excel_columns: List[ExcelExportColumn]  # 엑셀 내보내기 열 정의
+
     # 기능 토글
-    beta_features: Dict[str, bool]    # use_optimized_prompt, use_virtual_excel_ocr
+    beta_features: Dict[str, bool]    # use_optimized_prompt, use_vision_extraction, use_multi_table_analyzer
     is_active: bool                   # 메뉴 표시 여부
     webhook_url: str                  # 추출 완료 후 자동 호출 URL
     allowedGroups: List[str]          # 접근 허용 그룹
@@ -234,11 +263,15 @@ class ExtractionModel:
 
 ```python
 class FieldDefinition:
-    key: str          # 필드 키 (예: "shipper_name")
-    label: str        # 표시명 (예: "송하인명")
-    description: str  # 추출 대상 정의 (자연어, LLM 프롬프트에 포함)
-    rules: str        # 출력 보정 규칙 (자연어, LLM 프롬프트에 포함)
-    type: str         # "string" | "number" | "date" | "array"
+    key: str                  # 필드 키 (예: "shipper_name")
+    label: str                # 표시명 (예: "송하인명")
+    description: str          # 추출 대상 정의 (자연어, LLM 프롬프트에 포함)
+    rules: str                # 출력 보정 규칙 (자연어, LLM 프롬프트에 포함)
+    type: str                 # "string" | "number" | "date" | "array"
+    dictionary: Optional[str] # 사전 매핑 카테고리 (e.g. "port")
+    required: bool = False    # 필수 추출 여부
+    validation_regex: str     # 값 검증 정규식 (e.g. ^[A-Z0-9]+$)
+    sub_fields: List[Dict]    # 테이블 하위 필드 정의
 ```
 
 ### 4.3 추출 결과 구조 (guide_extracted)
@@ -469,7 +502,16 @@ graph TD
 | `GET` | `/menus` | 메뉴 구성 (권한 기반 필터링) |
 | `GET/PUT` | `/site-settings` | 사이트 설정 |
 
-### 8.4 통합
+### 8.4 사전/변환
+
+| Method | Path | 설명 |
+|--------|------|------|
+| `POST` | `/dictionaries/{category}/upload` | 사전 Excel 업로드 |
+| `GET` | `/dictionaries/{category}/search` | 사전 검색 |
+| `GET` | `/dictionaries` | 사전 카테고리 목록 |
+| `DELETE` | `/dictionaries/{category}` | 사전 삭제 |
+
+### 8.5 통합
 
 | Method | Path | 설명 |
 |--------|------|------|
@@ -510,19 +552,27 @@ graph LR
 ### 10.2 Azure AI Foundry (LLM)
 - **용도**: 데이터 추출 (JSON 모드), 문서 비교 (Vision), 템플릿 채팅
 - **엔드포인트**: `AZURE_AIPROJECT_ENDPOINT` (AI Foundry), fallback: `AZURE_OPENAI_ENDPOINT` (legacy)
-- **배포명**: `AZURE_OPENAI_DEPLOYMENT_NAME`으로 설정
+- **배포명**: 기본 `AZURE_OPENAI_DEPLOYMENT_NAME`, 모델별 오버라이드 가능 (`mapper_llm`, `extractor_llm`)
+- **모델 목록 조회**: `fetch_available_models()` — AI Foundry에서 사용 가능한 배포 동적 조회
 - **현재 모델**: **GPT-4.1** (max output: **52,000 토큰**, context window: 1M tokens)
-- **max_tokens 설정**: 테이블 모드 `50000`, 일반 모드 `8192`
+- **max_tokens 설정**: 테이블 모드 `32768`, 일반 모드 `16384`
 - **테이블 모드**: Structured Outputs 미사용 (json_object 모드). compact flat format으로 토큰 절약
-- **최적화**: 인덱스 참조 방식 (`[#idx]`)으로 토큰 절약
+- **최적화**: 인덱스 참조 방식 (`^C`, `^W`, `^P` 태그)으로 토큰 절약
 
-### 10.3 Power Automate
+### 10.3 Azure AI Search (Dictionary Engine)
+- **용도**: 추출값 자동 정규화 (항구 코드, 운임 코드 등)
+- **인덱스 관리**: `dictionary_service.py` — 카테고리별 독립 인덱스 (`daom-dict-{category}`)
+- **업로드**: Excel/CSV → 동적 인덱스 생성 (컬럼 -> 검색 필드)
+- **검색**: Fuzzy 검색으로 유사 매칭 (score > 0.5 threshold)
+- **통합**: `rule_engine.py`에서 추출 후처리 시 자동 정규화 적용
+
+### 10.4 Power Automate
 - **Custom Connector**: Swagger 2.0 기반
 - **인증**: Entra ID OAuth 2.0
 - **지원 액션**: 추출 실행, 비교 실행, 모델 목록 조회
 - **파일 전달**: Base64 인코딩
 
-### 10.4 Webhook
+### 10.5 Webhook
 - **용도**: 추출 완료 후 외부 시스템 자동 호출
 - **설정**: 모델별 `webhook_url` 지정
 - **페이로드**: 추출 결과 JSON
@@ -605,5 +655,5 @@ graph LR
 
 ---
 
-> 📅 마지막 업데이트: 2026-02-07
+> 📅 마지막 업데이트: 2026-03-05
 > 📌 이 문서는 코드 변경 시 함께 업데이트되어야 합니다.
