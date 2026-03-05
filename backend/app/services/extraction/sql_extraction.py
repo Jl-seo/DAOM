@@ -104,8 +104,11 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
     You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a Markdown table (first 1500 rows).
     The table contains columns: `row_id` (global row number), and `A`, `B`, `C`, `D`... (representing Excel columns).
     
-    We have already pre-processed the complex merged headers for you. Here is the flattened, logically resolved mapping of Column Letters to Headers:
-    Normalized Headers Mapping (JSON):
+    We have pre-processed the top 20 rows for you to resolve complex merged headers, provided via `Normalized Headers Mapping (JSON)`. 
+    Use this JSON mapping as a HINT to understand top-level scalar fields or early tables.
+    HOWEVER, if a table is located deeper in the document (e.g. at row 30), it will NOT be in the JSON mapping. For tables, you MUST ALWAYS READ THE MARKDOWN DIRECTLY to find the correct Excel Column Letters (`A`, `B`, `C`...) corresponding to the table's headers.
+    
+    Normalized Headers Mapping (JSON, strictly top 20 rows):
     {normalized_headers}
     
     Data Content (Markdown):
@@ -119,10 +122,11 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
     2. Find the REAL headers for the table(s) in the Excel grid to map the columns properly.
     3. Output a precise Mapping JSON.
     
-    CRITICAL RULES:
-    - **NO HALLUCINATED KEYS**: The `field_key` MUST exactly match a `key` string from the Target Schema.
-    - If a field has `sub_fields` defined in the Schema, `sub_field_key` MUST exactly match the keys of the target `sub_fields`.
-    - IF `sub_fields` IS EMPTY OR MISSING for a table field, you MUST dynamically infer the required `sub_field_key` names by reading the field's `description` or `rules`. DO NOT just blindly copy the exact Excel header text as the `sub_field_key`! Use the names specified by the user in the prompt/rules.
+    CRITICAL INSTRUCTIONS:
+    - Return ONLY valid JSON matching the exact schema provided.
+    - If `sub_fields` exists for a table field, you MUST map each `sub_field_key` to its corresponding `excel_column` letter (e.g., "A", "C", "F").
+    - DO NOT guess or assume sequential columns (e.g., A, B, C). Read the actual Column Letters from the Markdown table, because empty columns may have been omitted (e.g., A, C, D).
+    - If `sub_fields` is missing, dynamically infer required `sub_field_key` names from the field description or rules.
     - `"header_row_id"`: The exact `row_id` where the actual column headers (titles) are located (e.g., the row containing "POL", "Description", "Amount").
     - `"first_data_row_id"`: The exact `row_id` where the ACTUAL DATA RECORDS begin, which MUST be GREATER THAN the `header_row_id`. Do NOT point this to the header row.
     - `"columns_mapping"`: Map EXPECTED TARGET KEYS (`sub_field_key`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). 
@@ -464,6 +468,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             for inner_key in expected_sub_keys:
                 excel_col = col_map.get(inner_key)
                 
+                if excel_col:
+                    excel_col = str(excel_col).strip().upper()
+                
                 # Check if we have mapped column and the cell has data
                 if excel_col and excel_col in row and pd.notna(row[excel_col]):
                     val = str(row[excel_col]).strip()
@@ -532,7 +539,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         }
     }
     
-    with open("/tmp/excel_debug.json", "w", encoding="utf-8") as f:
+    with open("excel_debug.json", "w", encoding="utf-8") as f:
         json.dump({
             "mapping_plan": mapping_plan,
             "raw_extracted": raw_extracted,
