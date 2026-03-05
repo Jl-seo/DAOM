@@ -20,26 +20,28 @@ async def _normalize_headers_via_llm(html_content: str, mapper_llm: str) -> str:
     
     prompt = f"""
     You are an expert Data Analyst processing Excel data. Below is the top N rows of an Excel file in HTML table format.
+    The table header includes column letters like `A`, `B`, `C`.
     This HTML preserves `colspan` and `rowspan` which represent merged cells in Excel.
     
-    Your goal is to flatten the hierarchical/merged headers into a simple 1-dimensional array of strings, one for each column.
-    For example, if the top header says "20DC" spanning 2 columns, and the sub-headers are "Rate" and "Type", 
-    you should output ["20DC - Rate", "20DC - Type"].
+    Your goal is to flatten the hierarchical/merged headers into a single logical string for each column letter.
+    For example, if the top header says "20DC" spanning columns C and D, and the sub-headers are "Rate" (under C) and "Type" (under D), 
+    you should output {{ "C": "20DC - Rate", "D": "20DC - Type" }}.
     
     HTML Content:
     {html_content}
     
     CRITICAL RULES:
-    1. Output ONLY a valid JSON array of strings, representing the flattened column names from left to right.
-    2. Do NOT output any markdown code blocks (e.g., ```json). Return just the raw array like ["col1", "col2"].
-    3. If there are scalar values above the table, ignore them and focus on the main table's headers.
+    1. Output ONLY a valid JSON OBJECT recursively mapping where the keys are the column letters (e.g., "A", "B", "C") and values are the flattened logical header strings.
+    2. Do NOT output any markdown code blocks (e.g., ```json). Return just the raw JSON object.
+    3. Ignore system columns like `row_id` or `_sheet_name` if they exist. Focus purely on the data columns A, B, C, etc.
     """
     try:
         res = await client.chat.completions.create(
             model=mapper_llm,
             messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
             temperature=0.0,
-            max_tokens=1500
+            max_tokens=2000
         )
         content = res.choices[0].message.content.strip()
         if content.startswith("```json"):
@@ -102,8 +104,8 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
     You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a Markdown table (first 1500 rows).
     The table contains columns: `row_id` (global row number), and `A`, `B`, `C`, `D`... (representing Excel columns).
     
-    We have already pre-processed the complex merged headers for you. Here is the flattened, logically resolved 1D array of the headers:
-    Normalized Headers Array:
+    We have already pre-processed the complex merged headers for you. Here is the flattened, logically resolved mapping of Column Letters to Headers:
+    Normalized Headers Mapping (JSON):
     {normalized_headers}
     
     Data Content (Markdown):
