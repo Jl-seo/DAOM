@@ -145,7 +145,8 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
          - **NEVER** map a numeric schema field to a column where the data rows contain text (e.g., "GC", "DRY", "Unit", "Type").
          - If the schema expects text/string, map to the text column.
       6. **MULTI-ROW / MERGED HEADERS**: Excel tables often have 2-3 rows of hierarchical headers (e.g., Row 1: "20DC", Row 2: "Rate" | "Type"). If multiple columns share the same top-level header but have different sub-headers, use the DATA TYPE in the rows to decide which column corresponds to the schema field. If the schema asks for a rate (number), pick the sub-column containing numbers. If it asks for a type (string), pick the sub-column containing text.
-    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label.
+    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label. 
+      - **IF THE FIELD IS A GENERAL SUMMARY** or does not have a specific coordinate in the grid, output `null` for `sheet_name`, `row_id`, and `col`, and provide your extracted text natively in `exact_value`.
     """
     
     response_schema = {
@@ -190,9 +191,9 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
                             "type": "object",
                             "properties": {
                                 "field_key": {"type": "string"},
-                                "sheet_name": {"type": "string"},
-                                "row_id": {"type": "integer"},
-                                "col": {"type": "string"},
+                                "sheet_name": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+                                "row_id": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+                                "col": {"anyOf": [{"type": "string"}, {"type": "null"}]},
                                 "exact_value": {
                                     "anyOf": [
                                         {"type": "string"},
