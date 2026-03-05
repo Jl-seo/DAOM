@@ -182,7 +182,13 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
                                 "sheet_name": {"type": "string"},
                                 "row_id": {"type": "integer"},
                                 "col": {"type": "string"},
-                                "exact_value": {"type": ["string", "null"]}
+                                "exact_value": {
+                                    "anyOf": [
+                                        {"type": "string"},
+                                        {"type": "null"},
+                                        {"type": "array", "items": {}}
+                                    ]
+                                }
                             },
                             "required": ["field_key", "sheet_name", "row_id", "col", "exact_value"],
                             "additionalProperties": False
@@ -364,15 +370,22 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 logger.debug(f"Failed to extract scalar {target_key} via coordinates: {e}")
                 
         # 2. Fallback to Exact Value provided by LLM if Pandas lookup failed or was empty
-        if not val and exact_value and str(exact_value).strip():
-            logger.info(f"Using LLM exact_value fallback for {target_key} = {exact_value}")
-            val = str(exact_value).strip()
-            raw_val = val
+        if not val and exact_value is not None:
+            if isinstance(exact_value, list):
+                logger.info(f"Using LLM exact_value (List) callback for {target_key}")
+                val = exact_value
+                raw_val = exact_value
+            elif str(exact_value).strip():
+                logger.info(f"Using LLM exact_value fallback for {target_key} = {exact_value}")
+                val = str(exact_value).strip()
+                raw_val = val
 
         # 3. Apply reference data and save
-        if val:
-            if target_key in ref_data and val in ref_data[target_key]:
+        if val is not None:
+            if isinstance(val, str) and target_key in ref_data and val in ref_data[target_key]:
                 val = ref_data[target_key][val]
+            elif isinstance(val, list) and target_key in ref_data:
+                val = [ref_data[target_key].get(str(v), v) for v in val]
                 
             raw_extracted[target_key] = {
                 "value": val,
@@ -471,7 +484,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                     else:
                         # Empty but mapped string
                         row_data[inner_key] = {
-                            "value": None,
+                            "value": "",
                             "confidence": 0.0,
                             "validation_status": "flagged",
                             "original_value": ""
@@ -479,10 +492,10 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 else:
                     # Unmapped Column, or completely empty NaN cell
                     row_data[inner_key] = {
-                        "value": None,
+                        "value": "",
                         "confidence": 0.0,
                         "validation_status": "flagged",
-                        "original_value": None
+                        "original_value": ""
                     }
             
             if row_has_meaningful_data:
