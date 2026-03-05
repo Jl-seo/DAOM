@@ -48,6 +48,8 @@ export interface Model {
     global_rules: string
     data_structure: DataStructureType
     model_type?: 'extraction' | 'comparison'
+    mapper_llm?: string
+    extractor_llm?: string
     webhook_url?: string  // POST URL for automation after extraction
     fields: Field[]
     is_active?: boolean  // 메뉴에서 숨기기 (false면 숨김)

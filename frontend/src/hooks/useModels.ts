@@ -84,6 +84,16 @@ export function useModels() {
         }
     }, [])
 
+    const fetchLlmOptions = useCallback(async () => {
+        try {
+            const res = await modelsApi.getLlmOptions()
+            return res.data
+        } catch (err) {
+            console.error(err)
+            return []
+        }
+    }, [])
+
     const analyzeSample = async (file: File, modelType: string) => {
         // 중복 분석 방지
         if (loading) {
@@ -134,6 +144,7 @@ export function useModels() {
         saveModel,
         deleteModel,
         fetchOptions,
+        fetchLlmOptions,
         analyzeSample,
         refineSchema
     }

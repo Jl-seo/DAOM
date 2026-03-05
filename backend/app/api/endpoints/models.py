@@ -140,6 +140,12 @@ def list_model_options():
     from app.services.doc_intel import get_supported_models
     return get_supported_models()
 
+@router.get("/options/llms", dependencies=[Depends(require_admin)])
+async def list_llm_options():
+    """Get available Azure OpenAI / API Foundry deployments"""
+    from app.services.llm import fetch_available_models
+    return await fetch_available_models()
+
 @router.post("/analyze-sample", dependencies=[Depends(require_admin)])
 async def analyze_sample(
     file: UploadFile = File(...),

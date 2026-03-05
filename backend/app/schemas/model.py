@@ -62,6 +62,8 @@ class ExtractionModel(BaseModel):
     data_structure: Optional[str] = "data" # 데이터 구조 타입: "table" (표), "data" (JSON 객체), "report" (문서)
     model_type: Optional[str] = "extraction" # "extraction" or "comparison"
     azure_model_id: Optional[str] = "prebuilt-layout" # Azure Document Intelligence Model ID (e.g. prebuilt-invoice)
+    mapper_llm: Optional[str] = None # LLM deployment name for fast structural tasks (e.g. gpt-4o-mini)
+    extractor_llm: Optional[str] = None # LLM deployment name for main extraction tasks (overrides default)
     webhook_url: Optional[str] = None  # POST URL for automation after extraction confirmation
     allowedGroups: Optional[List[str]] = None # Access control groups
     fields: List[FieldDefinition]
@@ -87,6 +89,8 @@ class ExtractionModelCreate(BaseModel):
     global_rules: Optional[str] = None
     data_structure: Optional[str] = "data"
     model_type: Optional[str] = "extraction"
+    mapper_llm: Optional[str] = None
+    extractor_llm: Optional[str] = None
     webhook_url: Optional[str] = None  # POST URL for automation
     allowedGroups: Optional[List[str]] = None
     fields: List[FieldDefinition]

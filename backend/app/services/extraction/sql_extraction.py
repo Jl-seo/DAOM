@@ -11,14 +11,54 @@ from app.services.llm import get_openai_client, get_current_model
 logger = logging.getLogger(__name__)
 
 
-async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict[str, Any]:
+async def _normalize_headers_via_llm(html_content: str, mapper_llm: str) -> str:
+    """
+    Phase 1.5: Header Normalizer
+    Uses a fast LLM to flatten complex multi-row merged headers into a clean 1D array.
+    """
+    client = get_openai_client()
+    
+    prompt = f"""
+    You are an expert Data Analyst processing Excel data. Below is the top N rows of an Excel file in HTML table format.
+    This HTML preserves `colspan` and `rowspan` which represent merged cells in Excel.
+    
+    Your goal is to flatten the hierarchical/merged headers into a simple 1-dimensional array of strings, one for each column.
+    For example, if the top header says "20DC" spanning 2 columns, and the sub-headers are "Rate" and "Type", 
+    you should output ["20DC - Rate", "20DC - Type"].
+    
+    HTML Content:
+    {html_content}
+    
+    CRITICAL RULES:
+    1. Output ONLY a valid JSON array of strings, representing the flattened column names from left to right.
+    2. Do NOT output any markdown code blocks (e.g., ```json). Return just the raw array like ["col1", "col2"].
+    3. If there are scalar values above the table, ignore them and focus on the main table's headers.
+    """
+    try:
+        res = await client.chat.completions.create(
+            model=mapper_llm,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=1500
+        )
+        content = res.choices[0].message.content.strip()
+        if content.startswith("```json"):
+            content = content[7:-3].strip()
+        elif content.startswith("```"):
+            content = content[3:-3].strip()
+        return content
+    except Exception as e:
+        logger.error(f"Header Normalizer failed: {e}")
+        return "[]"
+
+async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model: ExtractionModel, extractor_llm: str) -> Dict[str, Any]:
     """
     Phase 1: LLM Schema Mapper & Scalar Extractor
     The LLM inspects the FULL markdown text of the Excel file.
     It extracts Scalar values directly, and outputs Mapping JSON for Tables.
     """
     client = get_openai_client()
-    deployment = get_current_model()
+    deployment = extractor_llm or get_current_model()
     
     fields_context = [{"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules, "sub_fields": f.sub_fields} for f in model.fields]
     
@@ -61,6 +101,10 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
     prompt = f"""
     You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a Markdown table (first 1500 rows).
     The table contains columns: `row_id` (global row number), and `A`, `B`, `C`, `D`... (representing Excel columns).
+    
+    We have already pre-processed the complex merged headers for you. Here is the flattened, logically resolved 1D array of the headers:
+    Normalized Headers Array:
+    {normalized_headers}
     
     Data Content (Markdown):
     {markdown_text}
@@ -258,9 +302,27 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         # Fallback if md_content is empty
         logger.warning("md_content is empty, this shouldn't happen in native mode.")
         md_content = "Empty Excel Content"
+        
+    # Phase 1.5: Header Normalization via Mapper LLM
+    mapper_llm = getattr(model, "mapper_llm", None)
+    extractor_llm = getattr(model, "extractor_llm", None)
+    
+    normalized_headers_json = "[]"
+    if mapper_llm:
+        logger.info(f"[Extraction] Running Header Normalizer with {mapper_llm}")
+        try:
+            # Extract top 20 rows for header normalization to save tokens
+            # Forward fill NaNs to propagate merged cell values for the LLM
+            top_rows = df.head(min(20, len(df))).copy()
+            top_rows = top_rows.ffill(axis=1).ffill(axis=0)
+            html_snippet = top_rows.to_html(index=False)
+            normalized_headers_json = await _normalize_headers_via_llm(html_snippet, mapper_llm)
+            logger.info(f"[Extraction] Normalized Headers: {normalized_headers_json}")
+        except Exception as e:
+            logger.warning(f"Failed to normalize headers: {e}")
     
     # 3. Request Schema Mapping & Scalar Extraction from LLM
-    mapping_plan = await _run_schema_mapper(md_content, model)
+    mapping_plan = await _run_schema_mapper(md_content, normalized_headers_json, model, extractor_llm)
     reasoning = mapping_plan.get("reasoning", "")
     token_usage = mapping_plan.pop("_token_usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
     logger.info(f"Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")

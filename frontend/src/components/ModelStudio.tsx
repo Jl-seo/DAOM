@@ -55,6 +55,8 @@ export interface ExtractionModel {
     data_structure?: 'data' | 'table' | 'report'; // data=JSON, table=Grid
     model_type?: 'extraction' | 'comparison';
     azure_model_id?: string;
+    mapper_llm?: string;
+    extractor_llm?: string;
     webhook_url?: string;
     allowedGroups?: string[];
     fields: Field[];
@@ -70,11 +72,12 @@ export interface ExtractionModel {
 }
 
 export function ModelStudio() {
-    const { models, loading, saveModel, deleteModel, refineSchema, fetchModels } = useModels()
+    const { models, loading, saveModel, deleteModel, refineSchema, fetchModels, fetchLlmOptions } = useModels()
     const [editingModel, setEditingModel] = useState<Partial<Model> | null>(null)
     const [originalModel, setOriginalModel] = useState<Partial<Model> | null>(null)
     const [isEditing, setIsEditing] = useState(false)
     const [activeStudioTab, setActiveStudioTab] = useState<'settings' | 'schema' | 'reference' | 'transformation'>('settings')
+    const [llmOptions, setLlmOptions] = useState<string[]>([])
 
     const [searchQuery, setSearchQuery] = useState('')
     const [searchParams, setSearchParams] = useSearchParams()
@@ -83,6 +86,15 @@ export function ModelStudio() {
     // Sub-field modal state
     const [subFieldModalOpen, setSubFieldModalOpen] = useState(false)
     const [selectedParentField, setSelectedParentField] = useState<{ index: number, field: Field } | null>(null)
+
+    // Fetch LLM options for the dropdowns
+    useEffect(() => {
+        const loadLlmOptions = async () => {
+            const options = await fetchLlmOptions()
+            setLlmOptions(options)
+        }
+        loadLlmOptions()
+    }, [fetchLlmOptions])
 
     // Listen for custom event from FieldEditorTable to open SubField Modal
     useEffect(() => {
@@ -536,6 +548,53 @@ export function ModelStudio() {
                                     <p className="mt-1 text-[10px] text-muted-foreground">
                                         추출 확정 시 이 URL로 결과 데이터가 POST 됩니다.
                                     </p>
+                                </div>
+
+                                <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-2">
+                                            🤖 전처리 특화 LLM (선택)
+                                        </label>
+                                        <select
+                                            value={editingModel.mapper_llm || ''}
+                                            onChange={(e) => setEditingModel({ ...editingModel, mapper_llm: e.target.value })}
+                                            disabled={!isEditing}
+                                            className={clsx(
+                                                "w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary transition-all bg-background appearance-none",
+                                                !isEditing && "bg-muted cursor-not-allowed"
+                                            )}
+                                        >
+                                            <option value="">(기본 모델 사용)</option>
+                                            {llmOptions.map(opt => (
+                                                <option key={opt} value={opt}>{opt}</option>
+                                            ))}
+                                        </select>
+                                        <p className="mt-1 text-[10px] text-muted-foreground">
+                                            헤더 평탄화 등 구조적 전처리에 사용할 빠르고 저렴한 모델 배포명.
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-muted-foreground mb-2">
+                                            🧠 주 추출 본 LLM (선택)
+                                        </label>
+                                        <select
+                                            value={editingModel.extractor_llm || ''}
+                                            onChange={(e) => setEditingModel({ ...editingModel, extractor_llm: e.target.value })}
+                                            disabled={!isEditing}
+                                            className={clsx(
+                                                "w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary transition-all bg-background appearance-none",
+                                                !isEditing && "bg-muted cursor-not-allowed"
+                                            )}
+                                        >
+                                            <option value="">(기본 모델 사용)</option>
+                                            {llmOptions.map(opt => (
+                                                <option key={opt} value={opt}>{opt}</option>
+                                            ))}
+                                        </select>
+                                        <p className="mt-1 text-[10px] text-muted-foreground">
+                                            데이터를 최종 추출/보정할 메인 모델 배포명. (비워두면 환경변수의 기본 모델 사용)
+                                        </p>
+                                    </div>
                                 </div>
 
                                 {/* Beta Features - Only for extraction models */}

@@ -81,6 +81,9 @@ export const modelsApi = {
     getOptions: () =>
         apiClient.get<{ id: string; name: string }[]>('/models/options/list'),
 
+    getLlmOptions: () =>
+        apiClient.get<string[]>('/models/options/llms'),
+
     analyzeSample: (formData: FormData) =>
         apiClient.post<{ fields: any[]; raw_result: any }>('/models/analyze-sample', formData),
 
