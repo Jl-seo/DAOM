@@ -85,9 +85,11 @@ async def _run_schema_mapper(markdown_text: str, model: ExtractionModel) -> Dict
       2. You MUST extract the exact text of the Excel header into `excel_header_name`. 
       3. If a schema field does not exist in the Excel table, DO NOT INCLUDE IT in the mapping array. Skip it. For example, if the schema asks for `sc_number` but the Excel table headers only have `Receipt`, `POL`, `POD`, `Delivery`, then DO NOT map `sc_number` to `Receipt`. Just omit `sc_number` entirely!
       4. **SUB-FIELD SEMANTICS & RULES (CRITICAL)**: You MUST read the `description` and `rules` of EVERY `sub_field` in the schema. The true meaning of what column to map is found in its `description` and `rules`, not just its `label`! If a sub-field rule says "Use the USD rate" or "Look for Freight", map it to the column that semantically matches that description and rule.
-      5. **DATA TYPE MATCHING (CRITICAL)**: Look at the `type` or `description` of each field/sub-field in the schema. If it expects a `number`, `금액`, `단가` or `운임` (Rates/Charges/Amounts), you MUST map it to an Excel column that actually contains NUMERIC values or currency amounts in the data rows below the header! 
-         - **WARNING**: Do NOT map a rate/price schema field to a text/label column just because the header is similar or nearby. For example, NEVER map a `20DC` rate field to a column containing commodity types like "GC" (General Cargo) or "DRY" in the rows. This is a catastrophic failure. Let the actual data types in the rows guide you.
-         - Likewise, if the schema expects text/string, map to the text column.
+      5. **DATA TYPE MATCHING (CRITICAL)**: You MUST validate your mapping against the ACTUAL DATA ROWS below the header. 
+         - If the schema expects a `number`, `금액`, `단가` or `운임` (Rates/Charges/Amounts), the mapped column's data MUST be numeric (e.g., 1500, $200). 
+         - **NEVER** map a numeric schema field to a column where the data rows contain text (e.g., "GC", "DRY", "Unit", "Type").
+         - If the schema expects text/string, map to the text column.
+      6. **MULTI-ROW / MERGED HEADERS**: Excel tables often have 2-3 rows of hierarchical headers (e.g., Row 1: "20DC", Row 2: "Rate" | "Type"). If multiple columns share the same top-level header but have different sub-headers, use the DATA TYPE in the rows to decide which column corresponds to the schema field. If the schema asks for a rate (number), pick the sub-column containing numbers. If it asks for a type (string), pick the sub-column containing text.
     - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label.
     """
     
