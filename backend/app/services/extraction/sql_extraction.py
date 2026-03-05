@@ -440,15 +440,27 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         }
         
     for target_key, t_map in tables_map.items():
-        sheet = t_map.get("sheet_name", "Sheet1")
-        first_data_row_id = t_map.get("first_data_row_id", 1)
-        col_map = t_map.get("columns_mapping", {})
+        sheet = t_map.get("sheet_name", "")
+        if sheet:
+            sheet = str(sheet).strip().lower()
         
-        if not isinstance(col_map, dict) or not sheet:
+        first_data_row_id = t_map.get("first_data_row_id", 1)
+        raw_col_map = t_map.get("columns_mapping", {})
+        
+        # Normalize LLM output column map keys (sub_field_key) to lowercase for safe matching
+        col_map = {}
+        if isinstance(raw_col_map, dict):
+            for k, v in raw_col_map.items():
+                if k and v:
+                    col_map[str(k).strip().lower()] = str(v).strip().upper()
+        
+        if not col_map or not sheet:
             raw_extracted[target_key] = {"value": [], "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
             continue
         
-        sheet_df = df[df["_sheet_name"] == sheet]
+        # Case insensitive sheet name search
+        df['_sheet_name_lower'] = df['_sheet_name'].str.strip().str.lower()
+        sheet_df = df[df["_sheet_name_lower"] == sheet]
         if sheet_df.empty:
             sheet_df = df # Fallback
             
@@ -481,12 +493,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             row_has_meaningful_data = False
             row_data = {}
             
-            # 2. Iterate over universally expected keys based on schema
             for inner_key in expected_sub_keys:
-                excel_col = col_map.get(inner_key)
-                
-                if excel_col:
-                    excel_col = str(excel_col).strip().upper()
+                lookup_key = str(inner_key).strip().lower() if inner_key else ""
+                excel_col = col_map.get(lookup_key)
                 
                 # Check if we have mapped column and the cell has data
                 if excel_col and excel_col in row and pd.notna(row[excel_col]):
