@@ -19,21 +19,26 @@ async def _normalize_headers_via_llm(html_content: str, mapper_llm: str) -> str:
     client = get_openai_client()
     
     prompt = f"""
-    You are an expert Data Analyst processing Excel data. Below is the top N rows of an Excel file in HTML table format.
-    The table header includes column letters like `A`, `B`, `C`.
+    You are an expert Data Analyst processing Excel data. Below are the top 50 rows of EACH Sheet from an Excel file in HTML table format.
+    The table headers include column letters like `A`, `B`, `C`.
     This HTML preserves `colspan` and `rowspan` which represent merged cells in Excel.
     
-    Your goal is to flatten the hierarchical/merged headers into a single logical string for each column letter.
-    For example, if the top header says "20DC" spanning columns C and D, and the sub-headers are "Rate" (under C) and "Type" (under D), 
-    you should output {{ "C": "20DC - Rate", "D": "20DC - Type" }}.
+    Your goal is to flatten the hierarchical/merged headers into a single logical string for each column letter, FOR EACH SHEET.
+    For example, if Sheet "Data" has a top header "20DC" spanning columns C and D, and sub-headers "Rate" and "Type", 
+    you should output:
+    {{ 
+      "Data": {{ "C": "20DC - Rate", "D": "20DC - Type" }},
+      "Sheet2": {{ "A": "Customer Name" }}
+    }}
     
     HTML Content:
     {html_content}
     
     CRITICAL RULES:
-    1. Output ONLY a valid JSON OBJECT recursively mapping where the keys are the column letters (e.g., "A", "B", "C") and values are the flattened logical header strings.
-    2. Do NOT output any markdown code blocks (e.g., ```json). Return just the raw JSON object.
-    3. Ignore system columns like `row_id` or `_sheet_name` if they exist. Focus purely on the data columns A, B, C, etc.
+    1. Output ONLY a valid JSON OBJECT where the top-level keys are the EXACT Sheet Names found in the HTML `<h3>` tags.
+    2. The values must be a JSON object mapping the column letters (e.g., "A", "B", "C") to the flattened logical header strings.
+    3. Do NOT output any markdown code blocks (e.g., ```json). Return just the raw JSON object.
+    4. Ignore system columns like `row_id` if they exist. Focus purely on the data columns A, B, C, etc.
     """
     try:
         res = await client.chat.completions.create(
@@ -104,11 +109,11 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
     You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a Markdown table (first 1500 rows).
     The table contains columns: `row_id` (global row number), and `A`, `B`, `C`, `D`... (representing Excel columns).
     
-    We have pre-processed the top 20 rows for you to resolve complex merged headers, provided via `Normalized Headers Mapping (JSON)`. 
+    We have pre-processed the top 50 rows of EACH SHEET for you to resolve complex merged headers, provided via `Normalized Headers Mapping (JSON)`. 
     Use this JSON mapping as a HINT to understand top-level scalar fields or early tables.
-    HOWEVER, if a table is located deeper in the document (e.g. at row 30), it will NOT be in the JSON mapping. For tables, you MUST ALWAYS READ THE MARKDOWN DIRECTLY to find the correct Excel Column Letters (`A`, `B`, `C`...) corresponding to the table's headers.
+    HOWEVER, if a table is located deeper in the document (e.g. at row 60), it will NOT be in the JSON mapping. For tables, you MUST ALWAYS READ THE MARKDOWN DIRECTLY to find the correct Excel Column Letters (`A`, `B`, `C`...) corresponding to the table's headers.
     
-    Normalized Headers Mapping (JSON, strictly top 20 rows):
+    Normalized Headers Mapping (JSON dictionary of SheetName -> Column Mapping, strictly top 50 rows per sheet):
     {normalized_headers}
     
     Data Content (Markdown):
@@ -323,12 +328,24 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     if mapper_llm:
         logger.info(f"[Extraction] Running Header Normalizer with {mapper_llm}")
         try:
-            # Extract top 20 rows for header normalization to save tokens
-            # Forward fill NaNs to propagate merged cell values for the LLM
-            top_rows = df.head(min(20, len(df))).copy()
-            top_rows = top_rows.ffill(axis=1).ffill(axis=0)
-            html_snippet = top_rows.to_html(index=False)
-            normalized_headers_json = await _normalize_headers_via_llm(html_snippet, mapper_llm)
+            # Extract top 50 rows *per sheet* for header normalization
+            html_snippets = []
+            if '_sheet_name' in df.columns:
+                for sheet_name, group in df.groupby('_sheet_name', sort=False):
+                    top_rows = group.head(min(50, len(group))).copy()
+                    top_rows = top_rows.ffill(axis=1).ffill(axis=0)
+                    if '_sheet_name' in top_rows.columns:
+                        top_rows = top_rows.drop(columns=['_sheet_name'])
+                    html_snippet = top_rows.to_html(index=False)
+                    html_snippets.append(f"<h3>Sheet: {sheet_name}</h3>\n{html_snippet}")
+            else:
+                top_rows = df.head(min(50, len(df))).copy()
+                top_rows = top_rows.ffill(axis=1).ffill(axis=0)
+                html_snippet = top_rows.to_html(index=False)
+                html_snippets.append(f"<h3>Sheet: Default</h3>\n{html_snippet}")
+                
+            combined_html = "\n\n".join(html_snippets)
+            normalized_headers_json = await _normalize_headers_via_llm(combined_html, mapper_llm)
             logger.info(f"[Extraction] Normalized Headers: {normalized_headers_json}")
         except Exception as e:
             logger.warning(f"Failed to normalize headers: {e}")
