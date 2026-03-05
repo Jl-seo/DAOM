@@ -359,6 +359,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     
     # 3. Pure Python Extraction Engine
     raw_extracted = {}
+    logs = []
     
     # Pre-build reference lookup dictionaries by field key
     ref_data = model.reference_data or {}
