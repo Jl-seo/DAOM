@@ -198,7 +198,7 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
                                     "anyOf": [
                                         {"type": "string"},
                                         {"type": "null"},
-                                        {"type": "array", "items": {}}
+                                        {"type": "array", "items": {"type": "string"}}
                                     ]
                                 }
                             },
