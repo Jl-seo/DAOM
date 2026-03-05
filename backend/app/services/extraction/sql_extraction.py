@@ -362,7 +362,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         expected_sub_keys = []
         for f in model.fields:
             if f.key == target_key and getattr(f, 'sub_fields', None):
-                expected_sub_keys = [sf.key for sf in getattr(f, 'sub_fields')]
+                raw_subs = getattr(f, 'sub_fields')
+                expected_sub_keys = [
+                    sf.get('key') if isinstance(sf, dict) else getattr(sf, 'key') 
+                    for sf in raw_subs if sf
+                ]
                 break
                 
         # Fallback if no schema is strictly defined or found
