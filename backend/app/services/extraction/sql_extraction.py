@@ -313,9 +313,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             top_rows = group.head(min(150, len(group))).copy()
             data_cols = top_rows.columns[2:]
             
-            # 1. Forward Fill horizontally for top 30 rows (assumed header region)
+            # 1. Cast header block to string to prevent numerical coercion errors when dragging text
+            top_rows.loc[top_rows.index[:30], data_cols] = top_rows.loc[top_rows.index[:30], data_cols].astype(str)
+            
+            # 2. Forward Fill horizontally for top 30 rows (assumed header region)
             top_rows.loc[top_rows.index[:30], data_cols] = top_rows.loc[top_rows.index[:30], data_cols].ffill(axis=1)
-            # 2. Forward Fill vertically for top 10 rows
+            # 3. Forward Fill vertically for top 10 rows
             top_rows.loc[top_rows.index[:10], data_cols] = top_rows.loc[top_rows.index[:10], data_cols].ffill(axis=0)
             
             if '_sheet_name' in top_rows.columns:
@@ -326,6 +329,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
     else:
         top_rows = df.head(min(150, len(df))).copy()
         data_cols = top_rows.columns[2:]
+        top_rows.loc[top_rows.index[:30], data_cols] = top_rows.loc[top_rows.index[:30], data_cols].astype(str)
         top_rows.loc[top_rows.index[:30], data_cols] = top_rows.loc[top_rows.index[:30], data_cols].ffill(axis=1)
         top_rows.loc[top_rows.index[:10], data_cols] = top_rows.loc[top_rows.index[:10], data_cols].ffill(axis=0)
         csv_snippet = top_rows.to_csv(index=False)
