@@ -127,18 +127,12 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
     - `"first_data_row_id"`: The exact `row_id` where the ACTUAL DATA RECORDS begin, which MUST be GREATER THAN the `header_row_id`. Do NOT point this to the header row.
     - `"columns_mapping"`: Map EXPECTED TARGET KEYS (`sub_field_key`) to EXCEL NUMERIC COLUMNS ("0", "1", "2"...). 
       **SUPER CRITICAL SEMANTIC INFERENCE RULE**: 
-      1. NEVER blindly map columns sequentially just because they exist! 
-      2. You MUST extract the exact text of the Excel header into `excel_header_name`. 
-      3. If a schema field does not exist in the Excel table, DO NOT INCLUDE IT in the mapping array. Skip it.
-      4. **SUB-FIELD SEMANTICS & RULES (CRITICAL)**: You MUST read the `description` and `rules` of EVERY `sub_field` in the schema. Check the data type to assign the correct index.
-      5. **DATA TYPE MATCHING & OFF-BY-ONE SHIFTS (CRITICAL)**: You MUST validate your mapping against the ACTUAL DATA ROWS below the header.
-         - **Excel Ocean Freight Shift Quirks**: Sub-headers like `2SD`, `4SD`, or `20DC` are often visually shifted one column to the RIGHT. The actual rate ($1240) is placed in the column directly to the LEFT (sometimes labeled 'Unit' or blank), while the column labeled '2SD' contains Cargo Type ('GC', 'FAK').
-         - **RESOLUTION**: If a schema expects a Rate/단가/운임, but the column labeled with the container size (e.g. '2SD') contains literal text like 'GC', 'FAK', 'DRY', YOU MUST NOT MAP THAT COLUMN. Instead, trace left in the data row to find the numeric amount ($1240) and map to THAT column's index.
-         - **MUTUALLY EXCLUSIVE RULE**: YOU MUST NEVER map a rate field (like 20DC) to a column that is ALREADY semantically assigned to another field (like Currency, POL, POD). Look closely at the data. If the column to the left is obviously 'Currency', then the rate must be in another numeric column! Every `sub_field` MUST map to a UNIQUE column. Do not map `Currency` and `20DC` to the same column!
-         - **NEVER** map a Rate/Cost field to columns where data rows contain standard ocean cargo text (e.g., "GC", "FAK", "Type") unless explicitly requested.
-      6. **MULTI-ROW / MERGED HEADERS**: Excel tables often have 2-3 rows of hierarchical headers. Since Python already forward-filled them, just look for the column index that contains the relevant data directly underneath.
-    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column numeric index ("0", "1") containing the actual VALUE, not the text label.
-    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label. 
+      1. **Trust the Data Type over the Header Name**: In Ocean Freight PDFs/Excel, headers are often misaligned. For example, the rate `1240` might accidentally fall under the `Currency` column, and the text `GC` might fall under the `20DC` column. You MUST ignore the header name if the data type beneath it fundamentally mismatches what the schema requires.
+      2. **Mathematical Data Matching**: If the schema expects a Rate/Cost (Number), scan the actual data rows to find the column containing the numbers (e.g. 1240, 2500) and map to its NUMERIC INDEX. Do NOT map a Rate field to a column containing text like 'GC', 'FAK', or 'USD'.
+      3. **Text Data Matching**: If the schema expects Cargo Type (Text), map to the column containing text (e.g. 'GC'). Avoid mapping it to columns containing rates.
+      4. **Allow Missing Columns**: If the CSV physically lacks a column for a required field (e.g., the schema requires `Currency`, but there is no column containing USD/KRW because they are all numbers or Cargo Types), simply SKIP IT and DO NOT include it in the `columns_mapping` array.
+      5. **Extract the Original Header Name**: Always extract the exact original header text into `excel_header_name`, even if it seems wrong or shifted (e.g., if you map the `1240` column to `20DC`, but its header says `Currency`, write `Currency` into `excel_header_name`).
+    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column numeric index ("0", "1") containing the actual VALUE, not the text label. 
       - **IF THE FIELD IS A GENERAL SUMMARY** or does not have a specific coordinate in the grid, output `null` for `sheet_name`, `row_id`, and `col`, and provide your extracted text natively in `exact_value`.
     """
     
