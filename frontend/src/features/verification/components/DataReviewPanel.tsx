@@ -27,6 +27,7 @@ interface DataReviewPanelProps {
     documentId?: string | null // Unique identifier for the document (fileUrl or ID)
     currentParsedContent?: string | null // NEW: Parsed text from LayoutParser
     isBetaMode?: boolean
+    isRawData?: boolean
 }
 
 // Internal fields to strip from export JSON
@@ -116,7 +117,8 @@ export function DataReviewPanel({
     onRetry,
     onDownload,
     documentId,
-    isBetaMode = false
+    isBetaMode = false,
+    isRawData = false
 }: DataReviewPanelProps) {
     const [isExpanded, setIsExpanded] = useState(false)
     const [showDebugModal, setShowDebugModal] = useState(false)
@@ -165,7 +167,7 @@ export function DataReviewPanel({
             <div className="px-6 py-3 border-b bg-card flex justify-between items-center shrink-0">
                 <span className="flex items-center gap-2 font-semibold">
                     <CheckCircle2 className="w-5 h-5 text-green-500" />
-                    추출 결과 확인
+                    {isRawData ? '추출 원본 데이터 (Raw Data)' : '추출 결과 확인'}
                 </span>
                 <div className="flex gap-2">
                     <Button variant="ghost" size="icon" onClick={() => setShowDebugModal(true)} title="View Debug Info">

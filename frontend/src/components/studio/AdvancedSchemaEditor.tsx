@@ -1,8 +1,7 @@
 import { GripVertical, X, Settings2, Network } from 'lucide-react'
 import { useRef } from 'react'
 import { FIELD_TYPES } from '../../constants'
-import type { Field, PostProcessRule } from '../../types/model'
-import { PostProcessAction } from '../../types/model'
+import type { Field } from '../../types/model'
 import {
     DndContext,
     closestCenter,
@@ -25,8 +24,6 @@ import { clsx } from 'clsx'
 interface AdvancedSchemaEditorProps {
     fields: Field[]
     modelDictionaries: string[]
-    postProcessRules?: PostProcessRule[]
-    onRulesChange?: (rules: PostProcessRule[]) => void
     onChange: (fields: Field[]) => void
     disabled?: boolean
 }
@@ -36,14 +33,12 @@ interface SortableRowProps {
     index: number
     id: string
     modelDictionaries: string[]
-    postProcessRules: PostProcessRule[]
-    onRulesChange: (rules: PostProcessRule[]) => void
     updateField: (index: number, key: keyof Field, value: any) => void
     removeField: (index: number) => void
     disabled: boolean
 }
 
-function SortableRow({ field, index, id, modelDictionaries, postProcessRules, onRulesChange, updateField, removeField, disabled }: SortableRowProps) {
+function SortableRow({ field, index, id, modelDictionaries, updateField, removeField, disabled }: SortableRowProps) {
     const {
         attributes,
         listeners,
@@ -57,16 +52,6 @@ function SortableRow({ field, index, id, modelDictionaries, postProcessRules, on
         transform: CSS.Transform.toString(transform),
         transition,
         zIndex: isDragging ? 50 : 1,
-    }
-
-    const fieldRules = postProcessRules.filter(r => r.target_field === field.key)
-    const toggleRule = (action: PostProcessAction) => {
-        if (!field.key) return; // Prevent setting rules on empty key
-        if (fieldRules.some(r => r.action === action)) {
-            onRulesChange(postProcessRules.filter(r => !(r.target_field === field.key && r.action === action)))
-        } else {
-            onRulesChange([...postProcessRules, { action, target_field: field.key }])
-        }
     }
 
     return (
@@ -209,38 +194,6 @@ function SortableRow({ field, index, id, modelDictionaries, postProcessRules, on
                             ))}
                         </select>
                     </div>
-
-                    <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-border/50">
-                        <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest pl-1">POST-PROCESSING (추출 후처리 액션)</span>
-                        <div className="flex flex-wrap gap-1">
-                            {[
-                                { action: PostProcessAction.SPLIT_CURRENCY, label: '통화/금액 분리' },
-                                { action: PostProcessAction.EXTRACT_DIGITS, label: '숫자만 남기기' },
-                                { action: PostProcessAction.UPPERCASE, label: '대문자 강제 변환' },
-                                { action: PostProcessAction.DATE_FORMAT_ISO, label: '날짜 ISO 표준화' }
-                            ].map(opt => {
-                                const isActive = fieldRules.some(r => r.action === opt.action)
-                                return (
-                                    <button
-                                        key={opt.action}
-                                        type="button"
-                                        disabled={disabled || !field.key}
-                                        onClick={(e) => { e.preventDefault(); toggleRule(opt.action); }}
-                                        className={clsx(
-                                            "px-2 py-1 text-[10px] rounded border transition-colors",
-                                            isActive
-                                                ? "bg-primary text-primary-foreground border-primary"
-                                                : "bg-background text-muted-foreground border-border hover:border-primary/50",
-                                            disabled && "opacity-50 cursor-not-allowed"
-                                        )}
-                                        title={opt.label}
-                                    >
-                                        {opt.label}
-                                    </button>
-                                )
-                            })}
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -293,7 +246,12 @@ function SortableRow({ field, index, id, modelDictionaries, postProcessRules, on
     )
 }
 
-export function AdvancedSchemaEditor({ fields, modelDictionaries, postProcessRules = [], onRulesChange = () => { }, onChange, disabled = false }: AdvancedSchemaEditorProps) {
+export function AdvancedSchemaEditor({
+    fields,
+    modelDictionaries,
+    onChange,
+    disabled = false
+}: AdvancedSchemaEditorProps) {
     const idCounterRef = useRef(0)
     const stableIdsRef = useRef<string[]>([])
 

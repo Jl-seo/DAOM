@@ -10,7 +10,7 @@ import { ExtractionProvider, useExtraction } from '../context/ExtractionContext'
 import { EXTRACTION_STATUS } from '../constants/status'
 
 // Components
-import { ExtractionWizardHeader } from './ExtractionWizardHeader'
+import { ExtractionTabsHeader } from './ExtractionTabsHeader'
 import { ExtractionHistoryView } from './ExtractionHistoryView'
 import { ExtractionUploadView } from './ExtractionUploadView'
 import { ExtractionReviewView } from './ExtractionReviewView'
@@ -90,14 +90,15 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
 
     return (
         <div className="flex flex-col h-full bg-background relative overflow-hidden">
-            {/* Header (Wizard Steps) - Shows only during extraction flow */}
+            {/* Header (Tabs) - Shows only during extraction flow */}
             {activeStep !== 'history' && (
-                <ExtractionWizardHeader
+                <ExtractionTabsHeader
                     activeStep={activeStep}
                     modelName={model.name}
                     modelId={modelId}
                     onStepChange={setActiveStep}
                     onCancel={handleCancelPreview}
+                    hasData={!!previewData || !!candidateFileUrls?.length}
                 />
             )}
 
@@ -128,7 +129,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                 )}
 
                 {/* 3. Review / Edit View */}
-                {(activeStep === 'review' || activeStep === 'complete') && (
+                {(activeStep === 'raw_data' || activeStep === 'refined_data') && (
                     model?.model_type === 'comparison' ? (
                         <ComparisonWorkspace
                             fileUrl={fileUrl || ''}
@@ -147,6 +148,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                             result={result}
                             model={model}
                             highlights={highlights}
+                            isRawData={activeStep === 'raw_data'}
 
                             // State
                             selectedSubDocIndex={selectedSubDocIndex}

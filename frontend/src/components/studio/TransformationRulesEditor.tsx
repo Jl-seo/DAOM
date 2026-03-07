@@ -18,8 +18,10 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, ChevronDown, ChevronUp, Copy, ArrowRightLeft } from 'lucide-react'
-import type { Model } from '@/types/model'
+import { Plus, Trash2, ChevronDown, ChevronUp, Copy, ArrowRightLeft, Sparkles } from 'lucide-react'
+import type { Model, PostProcessRule } from '@/types/model'
+import { PostProcessAction } from '@/types/model'
+import { clsx } from 'clsx'
 
 interface TransformRule {
     name: string
@@ -60,12 +62,30 @@ export function TransformationRulesEditor({ model, onUpdate }: TransformationRul
         .filter(f => f.type === 'array' as any)
         .map(f => f.key)
     const allFieldKeys = model.fields.map(f => f.key)
+    const postProcessRules: PostProcessRule[] = (model.post_process_rules || [])
 
     const updateRules = (newRules: TransformRule[]) => {
         onUpdate({
             ...model,
             transform_rules: newRules as any[]
         })
+    }
+
+    const updatePostProcessRules = (newRules: PostProcessRule[]) => {
+        onUpdate({
+            ...model,
+            post_process_rules: newRules
+        })
+    }
+
+    const togglePostProcessRule = (target_field: string, action: PostProcessAction) => {
+        if (!target_field) return;
+        const isCurrentlyActive = postProcessRules.some(r => r.target_field === target_field && r.action === action)
+        if (isCurrentlyActive) {
+            updatePostProcessRules(postProcessRules.filter(r => !(r.target_field === target_field && r.action === action)))
+        } else {
+            updatePostProcessRules([...postProcessRules, { action, target_field }])
+        }
     }
 
     const addRule = () => {
@@ -126,6 +146,56 @@ export function TransformationRulesEditor({ model, onUpdate }: TransformationRul
                 <p className="text-xs text-amber-700/80 dark:text-amber-400/70">
                     그룹 코드 → 개별 값으로 행을 확장합니다. 예: AS1 → Ningbo, Qingdao, Shanghai, ...
                 </p>
+            </div>
+
+            {/* Post-Processing Actions Section */}
+            <div className="bg-indigo-50/50 p-3 rounded-lg border border-indigo-100 dark:bg-indigo-900/10 dark:border-indigo-800 mt-4">
+                <h3 className="text-sm font-semibold mb-3 text-indigo-800 dark:text-indigo-300 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    간편 데이터 정제 규칙 (Post-Processing Actions)
+                </h3>
+                <div className="space-y-3">
+                    {allFieldKeys.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">스키마에 필드가 없습니다.</p>
+                    ) : (
+                        allFieldKeys.map(fieldKey => {
+                            const fieldRules = postProcessRules.filter(r => r.target_field === fieldKey)
+                            if (!fieldKey) return null; // Skip empty keys
+                            return (
+                                <div key={fieldKey} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 rounded bg-background/50 border border-indigo-100/50 dark:border-indigo-800/50">
+                                    <span className="text-xs font-bold text-foreground w-1/3 truncate pr-2" title={fieldKey}>
+                                        {fieldKey}
+                                    </span>
+                                    <div className="flex flex-wrap gap-1.5 flex-1 justify-end">
+                                        {[
+                                            { action: PostProcessAction.SPLIT_CURRENCY, label: '통화 분리' },
+                                            { action: PostProcessAction.EXTRACT_DIGITS, label: '숫자 추출' },
+                                            { action: PostProcessAction.UPPERCASE, label: '대문자' },
+                                            { action: PostProcessAction.DATE_FORMAT_ISO, label: '날짜 ISO' }
+                                        ].map(opt => {
+                                            const isActive = fieldRules.some(r => r.action === opt.action)
+                                            return (
+                                                <button
+                                                    key={opt.action}
+                                                    type="button"
+                                                    onClick={() => togglePostProcessRule(fieldKey, opt.action)}
+                                                    className={clsx(
+                                                        "px-2 py-1 text-[10px] rounded border transition-colors shadow-sm",
+                                                        isActive
+                                                            ? "bg-indigo-600 text-white border-indigo-600 font-semibold"
+                                                            : "bg-background text-muted-foreground border-border hover:border-indigo-300 hover:text-indigo-700"
+                                                    )}
+                                                >
+                                                    {opt.label}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            )
+                        })
+                    )}
+                </div>
             </div>
 
             {/* Rules List */}

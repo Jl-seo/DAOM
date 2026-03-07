@@ -173,7 +173,7 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
                                 model_fields: preview_data?.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
                             })
                         }
-                        setActiveStep('review')
+                        setActiveStep('raw_data')
                     } else if (jobStatus === EXTRACTION_STATUS.ANALYZING || jobStatus === EXTRACTION_STATUS.REFINING ||
                         jobStatus === 'processing' || jobStatus === 'analyzing') {
                         setStatus(EXTRACTION_STATUS.ANALYZING)
@@ -271,8 +271,8 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
                             setPreviewData(res.data.preview_data)
                         }
 
-                        // Move to review step
-                        setActiveStep('review')
+                        // Move to raw_data step
+                        setActiveStep('raw_data')
                         toast.success('추출이 완료되었습니다')
                     }, 50)
                 } else if (jobStatus === EXTRACTION_STATUS.FAILED || jobStatus === EXTRACTION_STATUS.ERROR || jobError) {
@@ -593,7 +593,7 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
             startPolling(jobId)
         }
 
-        setActiveStep('upload') // Start polling will switch to 'review' when ready
+        setActiveStep('upload') // Start polling will switch to 'raw_data' when ready
     }, [startPolling])
 
     const loadFromHistory = useCallback(async (initialLog: ExtractionLog) => {
@@ -606,8 +606,8 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
         setFilename(initialLog.filename)
         setCurrentLogId(initialLog.id)
 
-        // 2. Immediately switch to review/complete view for instant feedback
-        setActiveStep('complete')
+        // 2. Immediately switch to refined_data view for instant feedback
+        setActiveStep('refined_data')
 
         navigate(`/models/${modelId}/extractions/${initialLog.id}`, { replace: true })
 

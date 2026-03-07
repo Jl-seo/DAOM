@@ -19,6 +19,7 @@ import { ReferenceDataEditor } from './studio/ReferenceDataEditor'
 import { DictionaryPanel } from './studio/DictionaryPanel'
 import { SubFieldEditorModal } from './studio/SubFieldEditorModal'
 import { ModelSettingsTab } from './studio/ModelSettingsTab'
+import { VibeDictionaryPanel } from './studio/VibeDictionaryPanel'
 import { ModelGallery } from './studio/ModelGallery'
 
 export interface ComparisonSettings {
@@ -382,8 +383,6 @@ export function ModelStudio() {
                                 <AdvancedSchemaEditor
                                     fields={editingModel.fields || []}
                                     modelDictionaries={editingModel.dictionaries || []}
-                                    postProcessRules={editingModel.post_process_rules || []}
-                                    onRulesChange={(rules) => setEditingModel({ ...editingModel, post_process_rules: rules })}
                                     onChange={(fields) => setEditingModel({ ...editingModel, fields })}
                                     disabled={!isEditing}
                                 />
@@ -441,6 +440,13 @@ export function ModelStudio() {
                                     disabled={!isEditing}
                                 />
                             </Card>
+
+                            {/* Vibe Dictionary Configuration */}
+                            <VibeDictionaryPanel
+                                editingModel={editingModel}
+                                isEditing={isEditing}
+                                onUpdate={setEditingModel}
+                            />
 
                         </div>
                     )}

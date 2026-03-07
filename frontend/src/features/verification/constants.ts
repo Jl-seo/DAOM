@@ -1,19 +1,19 @@
 import { Upload, FileCheck, CheckCircle2, type LucideIcon } from 'lucide-react'
 
 // ==========================================
-// EXTRACTION WIZARD STEPS
+// EXTRACTION TABS
 // ==========================================
-export interface WizardStep {
-    id: 'upload' | 'review' | 'complete'
+export interface ExtractionTab {
+    id: 'upload' | 'raw_data' | 'refined_data'
     label: string
     description: string
     icon: LucideIcon
 }
 
-export const WIZARD_STEPS: WizardStep[] = [
-    { id: 'upload', label: '문서 업로드', description: '분석할 문서를 추가하세요', icon: Upload },
-    { id: 'review', label: '데이터 검토', description: '추출 데이터를 확인하세요', icon: FileCheck },
-    { id: 'complete', label: '완료', description: '결과를 저장하세요', icon: CheckCircle2 }
+export const EXTRACTION_TABS: ExtractionTab[] = [
+    { id: 'upload', label: '문서 업로드', description: '분석할 문서 추가 및 스캔', icon: Upload },
+    { id: 'raw_data', label: '추출 원본 (Raw Data)', description: 'AI가 원문에서 추출한 1차 데이터', icon: FileCheck },
+    { id: 'refined_data', label: '최종 가공 결과', description: '정규화 및 후처리 규칙이 적용된 완성 데이터', icon: CheckCircle2 }
 ]
 
 // ==========================================

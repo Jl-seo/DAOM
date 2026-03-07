@@ -21,6 +21,7 @@ interface ExtractionReviewViewProps {
     result: Record<string, any> | null
     model: ExtractionModel
     highlights: Highlight[]
+    isRawData?: boolean
 
     // State
     selectedSubDocIndex: number
@@ -44,6 +45,7 @@ export function ExtractionReviewView({
     result,
     model,
     highlights,
+    isRawData = false,
     selectedSubDocIndex,
     selectedFieldKey,
     file,
@@ -99,9 +101,10 @@ export function ExtractionReviewView({
     }, [])
 
     // Get current document data based on sub-document selection
+    const dataSource = isRawData ? 'raw_extracted' : 'guide_extracted'
     const currentGuideExtracted = previewData?.sub_documents && previewData.sub_documents.length > 0
-        ? previewData.sub_documents[selectedSubDocIndex]?.data?.guide_extracted
-        : previewData?.guide_extracted
+        ? previewData.sub_documents[selectedSubDocIndex]?.data?.[dataSource]
+        : previewData?.[dataSource]
 
     const currentOtherData = previewData?.sub_documents && previewData.sub_documents.length > 0
         ? previewData.sub_documents[selectedSubDocIndex]?.data?.other_data
@@ -245,19 +248,23 @@ export function ExtractionReviewView({
                             <DataReviewPanel
                                 currentGuideExtracted={currentGuideExtracted || {}}
                                 currentOtherData={currentOtherData || []}
+                                currentParsedContent={currentParsedContent}
                                 model={model}
                                 previewData={previewData}
+                                debugData={previewData?.debug_data}
                                 selectedFieldKey={selectedFieldKey}
                                 onFieldSelect={onFieldSelect}
-                                onDataChange={setLatestData}
-                                onSave={onSave}
+                                onDataChange={(newData) => setLatestData(newData)}
+                                onSave={(guide, other) => {
+                                    setLatestData(null)
+                                    onSave(guide, other)
+                                }}
                                 onReset={onReset}
                                 onRetry={onRetry}
                                 onDownload={handleDownload}
-                                documentId={fileUrl}
-                                debugData={previewData?.debug_data}
+                                documentId={fileUrl || filename}
                                 isBetaMode={isBetaMode}
-                                currentParsedContent={currentParsedContent}
+                                isRawData={isRawData}
                             />
                         </div>
                     </Panel>

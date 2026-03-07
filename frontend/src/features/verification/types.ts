@@ -156,5 +156,5 @@ export interface ExtractionLog {
 // VIEW TYPES
 // ==========================================
 
-export type ViewStep = 'history' | 'upload' | 'review' | 'complete'
+export type ViewStep = 'history' | 'upload' | 'raw_data' | 'refined_data'
 export type ExtractionStatus = ExtractionStatusType | 'idle'

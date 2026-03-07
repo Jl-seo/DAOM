@@ -655,11 +655,17 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 raw_extracted[f.key] = {"value": "", "original_value": "", "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
 
     # 5. Apply Stage 3 Post-Processing Rules (Deterministic transformations)
-    from app.services.extraction.post_processor import apply_post_processing
-    raw_extracted = apply_post_processing(raw_extracted, getattr(model, "post_process_rules", []), model.fields)
+    import copy
+    unmodified_raw = copy.deepcopy(raw_extracted)
+    try:
+        from app.services.extraction.post_processor import apply_post_processing
+        raw_extracted = apply_post_processing(raw_extracted, getattr(model, "post_process_rules", []), model.fields)
+    except Exception as e:
+        print(f"Post-processing error: {e}")
 
     # 6. Build Final Payload
     final_payload = {
+        "raw_extracted": unmodified_raw,
         "guide_extracted": raw_extracted,
         "_token_usage": token_usage,
         "logs": [
