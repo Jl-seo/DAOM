@@ -601,6 +601,45 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                     }
             
             if row_has_meaningful_data:
+                # --- NATIVE CURRENCY SPLITTER ---
+                import re
+                currency_key = next((k for k in expected_sub_keys if "currency" in str(k).lower() or "cur" in str(k).lower()), None)
+                
+                currency_val = ""
+                if currency_key and row_data.get(currency_key, {}).get("value"):
+                    currency_val = str(row_data[currency_key]["value"]).strip()
+                
+                currency_pattern = r'^(USD|EUR|KRW|JPY|GBP|CNY|AUD|CAD|CHF|HKD|SGD|NZD|THB|VND|MYR|IDR|PHP|INR|AED|SAR|\$|€|£|₩|¥)\s*([\d\.,]+)$'
+                currency_pattern_rev = r'^([\d\.,]+)\s*(USD|EUR|KRW|JPY|GBP|CNY|AUD|CAD|CHF|HKD|SGD|NZD|THB|VND|MYR|IDR|PHP|INR|AED|SAR|\$|€|£|₩|¥)$'
+                
+                for k, cell in row_data.items():
+                    val = str(cell.get("value", "")).strip()
+                    if not val:
+                        continue
+                        
+                    m1 = re.match(currency_pattern, val, re.IGNORECASE)
+                    m2 = re.match(currency_pattern_rev, val, re.IGNORECASE)
+                    
+                    if m1:
+                        cur = m1.group(1).upper()
+                        num = m1.group(2)
+                        cell["value"] = num
+                        if not currency_val:
+                            currency_val = cur
+                    elif m2:
+                        num = m2.group(1)
+                        cur = m2.group(2).upper()
+                        cell["value"] = num
+                        if not currency_val:
+                            currency_val = cur
+                
+                if currency_key and currency_val and not str(row_data.get(currency_key, {}).get("value", "")).strip():
+                    if currency_key in row_data:
+                        row_data[currency_key]["value"] = currency_val
+                        row_data[currency_key]["confidence"] = 0.95
+                        row_data[currency_key]["validation_status"] = "valid"
+                # --- END NATIVE CURRENCY SPLITTER ---
+                
                 extracted_table_rows.append(row_data)
                 
         logs.append({"step": f"Table [{target_key}] Exec", "message": f"Extracted {len(extracted_table_rows)} rows out of {len(data_rows)} target data rows."})
