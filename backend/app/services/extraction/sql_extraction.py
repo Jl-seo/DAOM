@@ -102,7 +102,7 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
     
     prompt = f"""
     You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a CSV (first N rows).
-    The table contains columns: `row_id` (global row number), and numerical indices `0`, `1`, `2`, `3`... (representing absolute Excel column arrays).
+    The table contains columns: `row_id` (global row number), and `A`, `B`, `C`, `D`... (representing Excel columns).
     
     CRITICAL ARCHITECTURE: The data you see has ALREADY been visually "flatened" and merged headers have been Forward-Filled (ffilled) by Python.
     This means if a cell was previously blank because it was merged, it now explicitly contains the header value.
@@ -120,19 +120,18 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
     
     CRITICAL INSTRUCTIONS:
     - Return ONLY valid JSON matching the exact schema provided.
-    - If `sub_fields` exists for a table field, you MUST map each `sub_field_key` to its corresponding numeric `excel_column` INDEX (e.g., "0", "2", "5") as a STRING.
-    - DO NOT USE LETTERS (A, B, C). ONLY USE NUMBERS ("0", "1", "2")! The CSV explicitly labels columns as 0, 1, 2.
+    - If `sub_fields` exists for a table field, you MUST map each `sub_field_key` to its corresponding `excel_column` LETTER (e.g., "A", "C", "F").
     - If `sub_fields` is missing, dynamically infer required `sub_field_key` names from the field description or rules.
     - `"header_row_id"`: The exact `row_id` where the actual column headers (titles) are located (e.g., the row containing "POL", "Description", "Amount").
     - `"first_data_row_id"`: The exact `row_id` where the ACTUAL DATA RECORDS begin, which MUST be GREATER THAN the `header_row_id`. Do NOT point this to the header row.
-    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (`sub_field_key`) to EXCEL NUMERIC COLUMNS ("0", "1", "2"...). 
+    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (`sub_field_key`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). 
       **SUPER CRITICAL SEMANTIC INFERENCE RULE**: 
       1. **Trust the Data Type over the Header Name**: In Ocean Freight PDFs/Excel, headers are often misaligned. For example, the rate `1240` might accidentally fall under the `Currency` column, and the text `GC` might fall under the `20DC` column. You MUST ignore the header name if the data type beneath it fundamentally mismatches what the schema requires.
-      2. **Mathematical Data Matching**: If the schema expects a Rate/Cost (Number), scan the actual data rows to find the column containing the numbers (e.g. 1240, 2500) and map to its NUMERIC INDEX. Do NOT map a Rate field to a column containing text like 'GC', 'FAK', or 'USD'.
+      2. **Mathematical Data Matching**: If the schema expects a Rate/Cost (Number), scan the actual data rows to find the column containing the numbers (e.g. 1240, 2500) and map to its COLUMN LETTER. Do NOT map a Rate field to a column containing text like 'GC', 'FAK', or 'USD'.
       3. **Text Data Matching**: If the schema expects Cargo Type (Text), map to the column containing text (e.g. 'GC'). Avoid mapping it to columns containing rates.
       4. **Allow Missing Columns**: If the CSV physically lacks a column for a required field (e.g., the schema requires `Currency`, but there is no column containing USD/KRW because they are all numbers or Cargo Types), simply SKIP IT and DO NOT include it in the `columns_mapping` array.
       5. **Extract the Original Header Name**: Always extract the exact original header text into `excel_header_name`, even if it seems wrong or shifted (e.g., if you map the `1240` column to `20DC`, but its header says `Currency`, write `Currency` into `excel_header_name`).
-    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column numeric index ("0", "1") containing the actual VALUE, not the text label. 
+    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column letter ("A", "B") containing the actual VALUE, not the text label. 
       - **IF THE FIELD IS A GENERAL SUMMARY** or does not have a specific coordinate in the grid, output `null` for `sheet_name`, `row_id`, and `col`, and provide your extracted text natively in `exact_value`.
     """
     
@@ -184,8 +183,7 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
                                 "exact_value": {
                                     "anyOf": [
                                         {"type": "string"},
-                                        {"type": "null"},
-                                        {"type": "array", "items": {"type": "string"}}
+                                        {"type": "null"}
                                     ]
                                 }
                             },
@@ -259,6 +257,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             combined_df = combined_df.dropna(how='all')
             if not combined_df.empty:
                 combined_df.insert(0, '_sheet_name', 'Data')
+                combined_df.insert(0, 'local_row_id', range(0, len(combined_df)))
                 combined_df.insert(0, 'row_id', range(0, len(combined_df)))
         else:
             fc_io = io.BytesIO(fc) if isinstance(fc, bytes) else fc
@@ -274,6 +273,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 sheet_df = sheet_df.dropna(how='all') 
                 if not sheet_df.empty:
                     sheet_df.insert(0, '_sheet_name', str(sheet_name))
+                    sheet_df.insert(0, 'local_row_id', range(0, len(sheet_df)))
                     # Add row_id before concat to preserve true row indexing per sheet or globally.
                     sheet_df.insert(0, 'row_id', range(row_offset, row_offset + len(sheet_df)))
                     row_offset += len(sheet_df)
@@ -284,10 +284,15 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             
         df = combined_df
         
-        # Ensure column names are robust absolute indices
-        clean_cols = ['row_id', '_sheet_name']
-        for i in range(len(df.columns) - 2):
-            clean_cols.append(str(i))
+        # Revert to standard Excel letters (A, B, C) as LLMs have strong priors
+        clean_cols = ['row_id', 'local_row_id', '_sheet_name']
+        for i in range(len(df.columns) - 3):
+            name = ""
+            n = i
+            while n >= 0:
+                name = chr(n % 26 + 65) + name
+                n = n // 26 - 1
+            clean_cols.append(name)
             
         df.columns = clean_cols
         return df
@@ -305,7 +310,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
     if '_sheet_name' in df.columns:
         for sheet_name, group in df.groupby('_sheet_name', sort=False):
             top_rows = group.head(min(150, len(group))).copy()
-            data_cols = top_rows.columns[2:]
+            data_cols = top_rows.columns[3:]
             
             # 1. Cast data block to object to prevent numerical coercion errors when dragging text into float columns
             top_rows[data_cols] = top_rows[data_cols].astype("object")
@@ -317,15 +322,19 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             
             if '_sheet_name' in top_rows.columns:
                 top_rows = top_rows.drop(columns=['_sheet_name'])
+            if 'local_row_id' in top_rows.columns:
+                top_rows = top_rows.drop(columns=['local_row_id'])
                 
             csv_snippet = top_rows.to_csv(index=False)
             csv_snippets.append(f"### Sheet: {sheet_name}\n{csv_snippet}")
     else:
         top_rows = df.head(min(150, len(df))).copy()
-        data_cols = top_rows.columns[2:]
+        data_cols = top_rows.columns[3:]
         top_rows[data_cols] = top_rows[data_cols].astype("object")
         top_rows.loc[top_rows.index[:30], data_cols] = top_rows.loc[top_rows.index[:30], data_cols].ffill(axis=1)
         top_rows.loc[top_rows.index[:10], data_cols] = top_rows.loc[top_rows.index[:10], data_cols].ffill(axis=0)
+        if 'local_row_id' in top_rows.columns:
+            top_rows = top_rows.drop(columns=['local_row_id'])
         csv_snippet = top_rows.to_csv(index=False)
         csv_snippets.append(f"### Sheet: Default\n{csv_snippet}")
         
@@ -398,8 +407,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                         
                         # Calculate virtual BBox for Scalar
                         try:
-                            col_idx = int(col)
-                            row_idx = r_id
+                            col_idx = df.columns.tolist().index(col) - 3  # Adjusted for metadata cols
+                            row_idx = int(val_df.iloc[0]["local_row_id"]) if "local_row_id" in val_df.columns else 0
                             
                             x1 = col_idx * cell_width
                             y1 = row_idx * CELL_HEIGHT
@@ -534,7 +543,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 # Virtual Grid constants (Sync with ExcelGridViewer.tsx)
                 VIRTUAL_WIDTH = 1000
                 CELL_HEIGHT = 50
-                col_count = len(df.columns) - 2  # Subtract row_id and _sheet_name
+                col_count = len(df.columns) - 3  # Subtract metadata cols
                 cell_width = VIRTUAL_WIDTH / max(1, col_count)
                 
                 # Check if we have mapped column and the cell has data
@@ -552,9 +561,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                         # Calculate Virtual BBox
                         bbox = None
                         try:
-                            # excel_col is the absolute column index integer string (0, 1, 2)
-                            col_idx = int(excel_col)
-                            row_idx = int(row["row_id"])
+                            # excel_col is A, B, C... Find its 0-based index
+                            col_idx = df.columns.tolist().index(excel_col) - 3 # Adjusted for metadata cols
+                            row_idx = int(row["local_row_id"])
                             
                             x1 = col_idx * cell_width
                             y1 = row_idx * CELL_HEIGHT
