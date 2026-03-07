@@ -341,8 +341,6 @@ export function AdvancedSchemaEditor({
                                 field={field}
                                 index={index}
                                 modelDictionaries={modelDictionaries}
-                                postProcessRules={postProcessRules}
-                                onRulesChange={onRulesChange}
                                 updateField={updateField}
                                 removeField={removeField}
                                 disabled={disabled}

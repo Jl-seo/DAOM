@@ -1,5 +1,5 @@
 import { clsx } from 'clsx'
-import { Sliders, BookOpen } from 'lucide-react'
+import { Sliders } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card } from '@/components/ui/icon-card'
 import { ComparisonSettingsPanel } from './ComparisonSettingsPanel'

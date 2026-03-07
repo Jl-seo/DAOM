@@ -1,4 +1,4 @@
-export { ExtractionWizardHeader } from './ExtractionWizardHeader'
+export { ExtractionTabsHeader } from './ExtractionTabsHeader'
 export { ExtractionHistoryView } from './ExtractionHistoryView'
 export { ExtractionUploadView } from './ExtractionUploadView'
 export { ExtractionReviewView } from './ExtractionReviewView'

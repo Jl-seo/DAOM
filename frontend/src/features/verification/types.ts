@@ -18,6 +18,7 @@ export interface SubDocument {
     status: 'success' | 'error' | 'review_needed'
     data?: {
         guide_extracted: Record<string, any>
+        raw_extracted?: Record<string, any>
         other_data: any[]
         raw_content?: string
         _beta_parsed_content?: string
@@ -30,6 +31,7 @@ export interface SubDocument {
  */
 export interface PreviewData {
     guide_extracted: Record<string, any>
+    raw_extracted?: Record<string, any>
     other_data: Array<{ column: string; value: any; confidence?: number; bbox?: number[] }>
     model_fields: Array<{ key: string; label: string }>
     debug_data?: any // Raw debug information from backend
