@@ -1,0 +1,258 @@
+{
+  "mapping_plan": {
+    "reasoning": "The provided data is a table of ocean freight rates, with columns for POL, POD, Transit Time, Charge, Rate Basis, and then rate columns for different container types. The schema expects a table with fields for POL, POD, Currency, 20DC, 40DC, and 40HC. In the data, the rate columns (F, G, H) contain values like 'USD 1602', 'EUR 740', etc., which are combined currency and amount. There is no separate column for Currency, so per instructions, we skip mapping Currency. The 20DC and 40DC fields are mapped to the columns with rates for 20DRY (F) and 40DRY (H), as these are the closest matches. There is no 40HC column in the data, so it is omitted. The header row is row_id 0, and data starts at row_id 1. There are no scalar fields in the schema.",
+    "tables": [
+      {
+        "field_key": "Rate List",
+        "sheet_name": "Tender Quote",
+        "header_row_id": 0,
+        "first_data_row_id": 1,
+        "columns_mapping": [
+          {
+            "sub_field_key": "POL",
+            "excel_column": "A",
+            "excel_header_name": "POL"
+          },
+          {
+            "sub_field_key": "POD",
+            "excel_column": "B",
+            "excel_header_name": "POD"
+          },
+          {
+            "sub_field_key": "20DC",
+            "excel_column": "F",
+            "excel_header_name": "20DRY"
+          },
+          {
+            "sub_field_key": "40DC",
+            "excel_column": "H",
+            "excel_header_name": "40DRY"
+          }
+        ]
+      }
+    ],
+    "scalars": []
+  },
+  "raw_extracted": {
+    "Rate List": {
+      "value": [
+        {
+          "POL": {
+            "value": "BUSAN",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "BUSAN",
+            "bbox": [
+              0.0,
+              50,
+              111.11,
+              100
+            ]
+          },
+          "POD": {
+            "value": "TOKYO",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "TOKYO",
+            "bbox": [
+              111.11,
+              50,
+              222.22,
+              100
+            ]
+          },
+          "Currency": {
+            "value": "",
+            "confidence": 0.0,
+            "validation_status": "flagged",
+            "original_value": "",
+            "bbox": null
+          },
+          "20DC": {
+            "value": "USD 1602",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "USD 1602",
+            "bbox": [
+              555.56,
+              50,
+              666.67,
+              100
+            ]
+          },
+          "40DC": {
+            "value": "USD 1840",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "USD 1840",
+            "bbox": [
+              777.78,
+              50,
+              888.89,
+              100
+            ]
+          },
+          "40HC": {
+            "value": "",
+            "confidence": 0.0,
+            "validation_status": "flagged",
+            "original_value": "",
+            "bbox": null
+          }
+        },
+        {
+          "POL": {
+            "value": "BUSAN",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "BUSAN",
+            "bbox": [
+              0.0,
+              100,
+              111.11,
+              150
+            ]
+          },
+          "POD": {
+            "value": "TOKYO",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "TOKYO",
+            "bbox": [
+              111.11,
+              100,
+              222.22,
+              150
+            ]
+          },
+          "Currency": {
+            "value": "",
+            "confidence": 0.0,
+            "validation_status": "flagged",
+            "original_value": "",
+            "bbox": null
+          },
+          "20DC": {
+            "value": "USD 0",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "USD 0",
+            "bbox": [
+              555.56,
+              100,
+              666.67,
+              150
+            ]
+          },
+          "40DC": {
+            "value": "USD 0",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "USD 0",
+            "bbox": [
+              777.78,
+              100,
+              888.89,
+              150
+            ]
+          },
+          "40HC": {
+            "value": "",
+            "confidence": 0.0,
+            "validation_status": "flagged",
+            "original_value": "",
+            "bbox": null
+          }
+        },
+        {
+          "POL": {
+            "value": "BUSAN",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "BUSAN",
+            "bbox": [
+              0.0,
+              150,
+              111.11,
+              200
+            ]
+          },
+          "POD": {
+            "value": "TOKYO",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "TOKYO",
+            "bbox": [
+              111.11,
+              150,
+              222.22,
+              200
+            ]
+          },
+          "Currency": {
+            "value": "",
+            "confidence": 0.0,
+            "validation_status": "flagged",
+            "original_value": "",
+            "bbox": null
+          },
+          "20DC": {
+            "value": "EUR 740",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "EUR 740",
+            "bbox": [
+              555.56,
+              150,
+              666.67,
+              200
+            ]
+          },
+          "40DC": {
+            "value": "EUR 685",
+            "confidence": 0.95,
+            "validation_status": "valid",
+            "original_value": "EUR 685",
+            "bbox": [
+              777.78,
+              150,
+              888.89,
+              200
+            ]
+          },
+          "40HC": {
+            "value": "",
+            "confidence": 0.0,
+            "validation_status": "flagged",
+            "original_value": "",
+            "bbox": null
+          }
+        }
+      ],
+      "confidence": 0.95,
+      "validation_status": "valid",
+      "page_number": 1
+    },
+    "Trade": {
+      "value": "",
+      "original_value": "",
+      "confidence": 0.0,
+      "validation_status": "flagged",
+      "page_number": 1
+    }
+  },
+  "file_columns": [
+    "row_id",
+    "local_row_id",
+    "_sheet_name",
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "_sheet_name_lower"
+  ]
+}

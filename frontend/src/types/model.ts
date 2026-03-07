@@ -4,6 +4,24 @@ import { FIELD_TYPES, DATA_STRUCTURES } from '../constants'
 export type FieldType = typeof FIELD_TYPES[number]['value']
 export type DataStructureType = typeof DATA_STRUCTURES[number]['id']
 
+export enum PostProcessAction {
+    SPLIT_CURRENCY = 'split_currency',
+    EXTRACT_DIGITS = 'extract_digits',
+    UPPERCASE = 'uppercase',
+    DATE_FORMAT_ISO = 'date_format_iso'
+}
+
+export interface PostProcessRule {
+    action: PostProcessAction
+    target_field: string
+}
+
+export interface VibeDictionaryConfig {
+    enabled: boolean
+    persona_prompt: string
+    target_fields: string[]
+}
+
 export interface Field {
     key: string
     label: string
@@ -64,6 +82,8 @@ export interface Model {
     beta_features?: BetaFeatures
     dictionaries?: string[]  // Dictionary categories for auto-normalization (e.g., ["port", "charge"])
     transform_rules?: TransformRule[]  // Row expansion rules (e.g., group code → individual ports)
+    post_process_rules?: PostProcessRule[]
+    vibe_dictionary?: VibeDictionaryConfig
 }
 
 export interface TransformRule {

@@ -382,6 +382,8 @@ export function ModelStudio() {
                                 <AdvancedSchemaEditor
                                     fields={editingModel.fields || []}
                                     modelDictionaries={editingModel.dictionaries || []}
+                                    postProcessRules={editingModel.post_process_rules || []}
+                                    onRulesChange={(rules) => setEditingModel({ ...editingModel, post_process_rules: rules })}
                                     onChange={(fields) => setEditingModel({ ...editingModel, fields })}
                                     disabled={!isEditing}
                                 />

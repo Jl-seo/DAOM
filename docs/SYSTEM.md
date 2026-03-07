@@ -42,7 +42,9 @@ graph TD
 | **행 확장 (Transform)** | 그룹 코드를 개별 행으로 확장 (예: AS1 → [NINGBO, QINGDAO, ...]) | ✅ 운영 |
 | **모델별 LLM 선택** | 헤더 정규화(`mapper_llm`)와 추출(`extractor_llm`) 각각 다른 LLM 배포 선택 가능 | ✅ 운영 |
 | **Vision 직접 추출** | OCR 스킵, GPT Vision으로 이미지 기반 추출 (`use_vision_extraction`) | ✅ 운영 |
-| **Excel 직접 추출 (SQL)** | Pandas 기반 Excel 파싱 → LLM 스키마 매핑 → 데이터 실행 | ✅ 운영 |
+| **Excel 직접 추출 (SQL)** | Pandas 기반 파싱 → 복합 헤더/서브필드 규칙/자료형 매핑 강제 적용 | ✅ 운영 |
+| **배열/테이블 보존** | 중첩 테이블 렌더링을 위한 배열 데이터 구조 보존 및 빈 문자열(Null) 안정화 | ✅ 운영 |
+| **파이프라인 안정화** | 무한 지연(Hang) 방지를 위한 토큰 캡, Azure 클라이언트 타임아웃, `asyncio.create_task` 적용 | ✅ 운영 |
 | **Blob Hydration** | 1.5MB 초과 데이터 자동 Blob 오프로드 및 API 반환 시 복원 | ✅ 운영 |
 | **토큰 감사** | tiktoken 기반 LLM 프롬프트 토큰 사용량 분석 유틸리티 | ✅ 운영 |
 
@@ -59,7 +61,7 @@ graph TD
 #### ⚙️ 관리 (Admin)
 | 기능 | 설명 | 상태 |
 |------|------|------|
-| **Model Studio** | 추출/비교 모델 스키마 편집 (필드, 규칙, 참조 데이터) | ✅ 운영 |
+| **Model Studio** | 4-Tab 구조의 고급 스키마 편집기 (계층형 필드, 규칙, 참조 데이터, Beta 토글) | ✅ 운영 |
 | **모델 갤러리** | 전체 모델 카드형 목록 (홈 페이지) | ✅ 운영 |
 | **모델 활성/비활성** | `is_active` 토글로 메뉴에서 숨기기 | ✅ 운영 |
 | **사용자 관리** | 사용자 CRUD, 대량 등록, 사전 등록 | ✅ 운영 |
@@ -357,9 +359,9 @@ sequenceDiagram
 |------|------|------|
 | **1. OCR** | `doc_intel.py` | Azure Document Intelligence로 문서 분석. 결과를 Blob에 캐싱 (해시 기반) |
 | **2. 구조화** | `layout_parser.py` | OCR 단어/테이블을 Markdown 텍스트로 변환. 각 단어에 `[#idx]` 참조 부여 |
-| **3. 프롬프트** | `refiner.py` | 모델 필드 정의 + 규칙 + 참조 데이터를 결합하여 LLM 프롬프트 구성. `data_structure`에 따라 분기 |
-| **4. LLM** | `llm.py` | Azure AI Foundry LLM 호출. JSON 모드로 응답 수신 |
-| **5a. 정규화** | `beta_chunking.py` | LLM 응답의 래퍼 해제, 누락 필드 보고, 테이블 모드 감지 |
+| **3. 프롬프트** | `refiner.py` | 모델 스키마/서브필드 명세 및 데이터 규칙을 주입하여 LLM 프롬프트 결합 |
+| **4. LLM** | `llm.py` | Azure AI Foundry 통신 (타임아웃 및 최대 토큰 정책 기반 Hang 방지) |
+| **5a. 정규화** | `beta_chunking.py` | LLM 응답 언래핑, 누락 필드 보고, 중첩 테이블(Array)의 데이터 구조 보존 |
 | **5b. 좌표 매칭** | `extraction_service.py` | source_text로 원본 단어의 bbox 매핑 (하이라이팅용) |
 | **5c. 검증** | `extraction_service.py` | 타입 검증 + 신뢰도 플래그 + bbox 정규화 |
 
@@ -447,7 +449,7 @@ graph TD
 | **추출 결과 검토** | `ExtractionReviewView` | PDF 뷰어 + 추출 필드 편집 (Split Panel) |
 | **빠른 추출** | `QuickExtractionView` | 모델 선택 없이 즉시 추출 |
 | **추출 이력** | `AllExtractionHistory` | 전체 추출 기록 조회/검색 |
-| **모델 스튜디오** | `ModelStudio` | 필드 정의, 규칙, 참조 데이터, Beta 토글 |
+| **모델 스튜디오** | `ModelStudio` | 4-Tab 구조 기반 (고급 계층형 스키마/서브필드 트리, 규칙, 참조 데이터, Beta) |
 | **사용자 관리** | `UserManagement` | 사용자 CRUD, 그룹 할당, RBAC |
 | **대시보드** | `DashboardStats` | 추출 통계 (모델별, 기간별) |
 | **감사 로그** | `AuditLogViewer` | 모든 API 호출 추적 |
@@ -552,8 +554,9 @@ graph LR
 ### 10.2 Azure AI Foundry (LLM)
 - **용도**: 데이터 추출 (JSON 모드), 문서 비교 (Vision), 템플릿 채팅
 - **엔드포인트**: `AZURE_AIPROJECT_ENDPOINT` (AI Foundry), fallback: `AZURE_OPENAI_ENDPOINT` (legacy)
-- **배포명**: 기본 `AZURE_OPENAI_DEPLOYMENT_NAME`, 모델별 오버라이드 가능 (`mapper_llm`, `extractor_llm`)
-- **모델 목록 조회**: `fetch_available_models()` — AI Foundry에서 사용 가능한 배포 동적 조회
+- **배포명**: 모델별 배포 오버라이드 가능 (`mapper_llm`, `extractor_llm`), Model Studio 동적 선택
+- **모델 목록 조회**: `fetch_available_models()` — AI Foundry 사용 가능한 배포 조회 및 UI 연동
+- **파이프라인 안정화**: 타임아웃 정책 및 토큰(`max_tokens`) 캡핑을 통한 백엔드 타임루프/무한 Hang 대응
 - **현재 모델**: **GPT-4.1** (max output: **52,000 토큰**, context window: 1M tokens)
 - **max_tokens 설정**: 테이블 모드 `32768`, 일반 모드 `16384`
 - **테이블 모드**: Structured Outputs 미사용 (json_object 모드). compact flat format으로 토큰 절약

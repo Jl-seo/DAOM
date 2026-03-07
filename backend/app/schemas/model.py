@@ -1,5 +1,6 @@
+from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 
 def default_beta_features() -> Dict[str, bool]:
@@ -8,6 +9,30 @@ def default_beta_features() -> Dict[str, bool]:
         "use_vision_extraction": False,
         "use_multi_table_analyzer": False  # New Feature: Direct JSON-level table mapping bypassing markdown conversion
     }
+
+class PostProcessAction(str, Enum):
+    SPLIT_CURRENCY = "split_currency"
+    EXTRACT_DIGITS = "extract_digits"
+    UPPERCASE = "uppercase"
+    DATE_FORMAT_ISO = "date_format_iso"
+
+class PostProcessRule(BaseModel):
+    action: PostProcessAction
+    target_field: str
+
+class VibeDictionarySource(str, Enum):
+    AI_GENERATED = "AI_GENERATED"
+    MANUAL = "MANUAL"
+
+class VibeDictionaryEntry(BaseModel):
+    value: str  # The standard code (e.g. KRPUS)
+    source: VibeDictionarySource = VibeDictionarySource.MANUAL
+    is_verified: bool = True
+
+class VibeDictionaryConfig(BaseModel):
+    enabled: bool = False
+    persona_prompt: str = ""
+    target_fields: List[str] = []
 
 
 class FieldDefinition(BaseModel):
@@ -74,7 +99,8 @@ class _BaseExtractionModel(BaseModel):
     excel_columns: Optional[List[ExcelExportColumn]] = None
     dictionaries: Optional[List[str]] = None  # Dictionary categories for auto-normalization
     transform_rules: Optional[List[Dict[str, Any]]] = None  # Row expansion rules
-
+    post_process_rules: List[PostProcessRule] = Field(default_factory=list)  # Stage 3
+    vibe_dictionary: Optional[VibeDictionaryConfig] = None  # Stage 2
 
 class ExtractionModel(_BaseExtractionModel):
     """DB에서 읽어온 모델 (id, azure_model_id 포함)"""

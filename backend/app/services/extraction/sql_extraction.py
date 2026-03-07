@@ -433,12 +433,27 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
 
         # 3. Apply reference data and save
         if val is not None:
+            modifier_badge = None
             if isinstance(val, str) and target_key in ref_data and val in ref_data[target_key]:
-                val = ref_data[target_key][val]
+                dict_match = ref_data[target_key][val]
+                if isinstance(dict_match, dict) and "value" in dict_match:
+                    val = dict_match["value"]
+                    modifier_badge = "Vibe Dictionary (Pending AI)" if dict_match.get("is_verified") is False else "Vibe Dictionary"
+                else:
+                    val = str(dict_match)
+                    modifier_badge = "Dictionary"
             elif isinstance(val, list) and target_key in ref_data:
-                val = [ref_data[target_key].get(str(v), v) for v in val]
+                new_list = []
+                for v in val:
+                    dict_match = ref_data[target_key].get(str(v), v)
+                    if isinstance(dict_match, dict) and "value" in dict_match:
+                        new_list.append(dict_match["value"])
+                        modifier_badge = "Vibe Dictionary (Pending AI)" if dict_match.get("is_verified") is False else "Vibe Dictionary"
+                    else:
+                        new_list.append(str(dict_match))
+                val = new_list
                 
-            raw_extracted[target_key] = {
+            payload = {
                 "value": val,
                 "original_value": str(raw_val),
                 "confidence": 0.90,
@@ -446,6 +461,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                 "page_number": page_number,
                 "bbox": bbox
             }
+            if modifier_badge:
+                payload["_modifier"] = modifier_badge
+                payload["_modified_from"] = str(raw_val)
+                
+            raw_extracted[target_key] = payload
         else:
             logger.debug(f"Skipping empty scalar {target_key}")
 
@@ -552,11 +572,21 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                     if val and val.lower() != "nan":
                         row_has_meaningful_data = True
                         
-                        # Apply Reference Data Mapping
+                        # Apply Reference Data Mapping (Vibe Dictionary)
+                        dict_match = None
                         if inner_key in ref_data and val in ref_data[inner_key]:
-                            val = ref_data[inner_key][val]
+                            dict_match = ref_data[inner_key][val]
                         elif target_key in ref_data and val in ref_data[target_key]:  # Nested fallback
-                            val = ref_data[target_key][val]
+                            dict_match = ref_data[target_key][val]
+                            
+                        modifier_badge = None
+                        if dict_match:
+                            if isinstance(dict_match, dict) and "value" in dict_match:
+                                val = dict_match["value"]
+                                modifier_badge = "Vibe Dictionary (Pending AI)" if dict_match.get("is_verified") is False else "Vibe Dictionary"
+                            else:
+                                val = str(dict_match)
+                                modifier_badge = "Dictionary"
                             
                         # Calculate Virtual BBox
                         bbox = None
@@ -581,6 +611,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                             "original_value": str(row[excel_col]).strip(),
                             "bbox": bbox
                         }
+                        if modifier_badge:
+                            row_data[inner_key]["_modifier"] = modifier_badge
+                            row_data[inner_key]["_modified_from"] = str(row[excel_col]).strip()
                     else:
                         # Empty but mapped string
                         row_data[inner_key] = {
@@ -601,44 +634,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
                     }
             
             if row_has_meaningful_data:
-                # --- NATIVE CURRENCY SPLITTER ---
-                import re
-                currency_key = next((k for k in expected_sub_keys if "currency" in str(k).lower() or "cur" in str(k).lower()), None)
-                
-                currency_val = ""
-                if currency_key and row_data.get(currency_key, {}).get("value"):
-                    currency_val = str(row_data[currency_key]["value"]).strip()
-                
-                currency_pattern = r'^(USD|EUR|KRW|JPY|GBP|CNY|AUD|CAD|CHF|HKD|SGD|NZD|THB|VND|MYR|IDR|PHP|INR|AED|SAR|\$|€|£|₩|¥)\s*([\d\.,]+)$'
-                currency_pattern_rev = r'^([\d\.,]+)\s*(USD|EUR|KRW|JPY|GBP|CNY|AUD|CAD|CHF|HKD|SGD|NZD|THB|VND|MYR|IDR|PHP|INR|AED|SAR|\$|€|£|₩|¥)$'
-                
-                for k, cell in row_data.items():
-                    val = str(cell.get("value", "")).strip()
-                    if not val:
-                        continue
-                        
-                    m1 = re.match(currency_pattern, val, re.IGNORECASE)
-                    m2 = re.match(currency_pattern_rev, val, re.IGNORECASE)
-                    
-                    if m1:
-                        cur = m1.group(1).upper()
-                        num = m1.group(2)
-                        cell["value"] = num
-                        if not currency_val:
-                            currency_val = cur
-                    elif m2:
-                        num = m2.group(1)
-                        cur = m2.group(2).upper()
-                        cell["value"] = num
-                        if not currency_val:
-                            currency_val = cur
-                
-                if currency_key and currency_val and not str(row_data.get(currency_key, {}).get("value", "")).strip():
-                    if currency_key in row_data:
-                        row_data[currency_key]["value"] = currency_val
-                        row_data[currency_key]["confidence"] = 0.95
-                        row_data[currency_key]["validation_status"] = "valid"
-                # --- END NATIVE CURRENCY SPLITTER ---
+                pass
                 
                 extracted_table_rows.append(row_data)
                 
@@ -658,7 +654,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             else:
                 raw_extracted[f.key] = {"value": "", "original_value": "", "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
 
-    # 5. Build Final Payload
+    # 5. Apply Stage 3 Post-Processing Rules (Deterministic transformations)
+    from app.services.extraction.post_processor import apply_post_processing
+    raw_extracted = apply_post_processing(raw_extracted, getattr(model, "post_process_rules", []), model.fields)
+
+    # 6. Build Final Payload
     final_payload = {
         "guide_extracted": raw_extracted,
         "_token_usage": token_usage,

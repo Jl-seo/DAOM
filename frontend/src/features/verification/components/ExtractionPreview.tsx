@@ -561,6 +561,11 @@ function ResizableNestedTable({
                                                             정규화: {row[key].normalized_code}
                                                         </div>
                                                     )}
+                                                    {row?.[key] && typeof row[key] === 'object' && row[key]._modifier && (
+                                                        <div className="text-[9px] font-semibold px-1 rounded bg-indigo-50/80 text-indigo-700 w-fit mt-0.5 border border-indigo-200 flex items-center gap-0.5" title={`원본 원시 데이터: ${row[key]._modified_from || '알 수 없음'}`}>
+                                                            ✨ {row[key]._modifier}
+                                                        </div>
+                                                    )}
                                                     {isDuplicateRow && key === allKeys[0] && rowWarnings && (
                                                         <div className="text-[10px] items-center text-orange-700 font-semibold flex gap-1 mt-1">
                                                             ⚠️ 중복 감지
@@ -705,6 +710,13 @@ function EditableValueCell({
                 <div className="flex justify-start w-full mt-0.5">
                     <div className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-800 flex items-center gap-1 shadow-sm" title={`정확도: ${Math.round((rawData.dict_score || 0) * 100)}%`}>
                         <span className="opacity-70">정규화:</span> {rawData.normalized_code}
+                    </div>
+                </div>
+            )}
+            {rawData?._modifier && (
+                <div className="flex justify-start w-full mt-0.5">
+                    <div className="text-[11px] font-semibold px-2 py-0.5 rounded bg-indigo-50 border border-indigo-200 text-indigo-800 flex items-center gap-1 shadow-sm" title={`원본 원시 데이터: ${rawData._modified_from || '알 수 없음'}`}>
+                        ✨ {rawData._modifier}
                     </div>
                 </div>
             )}

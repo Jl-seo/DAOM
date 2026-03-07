@@ -114,6 +114,15 @@ async def run_pipeline_job(
                      preview_data=result
                  )
 
+             # Trigger Async Vibe Dictionary Generator
+             try:
+                 import asyncio
+                 from app.services.dictionary.vibe_dictionary import generate_vibe_dictionary_async
+                 asyncio.create_task(generate_vibe_dictionary_async(model_id, result))
+                 logger.info(f"[Background] Launched Vibe Dictionary AI generator for job {job_id}")
+             except Exception as vibe_error:
+                 logger.error(f"[Background] Failed to launch Vibe Dictionary generator: {vibe_error}")
+
         logger.info(f"[Background] Completed extraction job {job_id}")
 
     except Exception as e:

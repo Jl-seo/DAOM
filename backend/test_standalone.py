@@ -60,7 +60,10 @@ async def main():
     try:
         result = await run_sql_extraction(mock_file, model)
         print("\n--- EXTRACTION RESULT ---")
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        if "Rate List" in result:
+            print(json.dumps(result["Rate List"].get("value", []), indent=2, ensure_ascii=False))
+        else:
+            print(json.dumps(result, indent=2, ensure_ascii=False))
         
         print("\n--- Internal JSON Logs ---")
         if os.path.exists("excel_debug.json"):
