@@ -103,8 +103,8 @@ export function ExtractionReviewView({
     // Get current document data based on sub-document selection
     const dataSource = isRawData ? 'raw_extracted' : 'guide_extracted'
     const currentGuideExtracted = previewData?.sub_documents && previewData.sub_documents.length > 0
-        ? previewData.sub_documents[selectedSubDocIndex]?.data?.[dataSource]
-        : previewData?.[dataSource]
+        ? (previewData.sub_documents[selectedSubDocIndex]?.data?.[dataSource] || previewData.sub_documents[selectedSubDocIndex]?.data?.guide_extracted)
+        : (previewData?.[dataSource] || previewData?.guide_extracted)
 
     const currentOtherData = previewData?.sub_documents && previewData.sub_documents.length > 0
         ? previewData.sub_documents[selectedSubDocIndex]?.data?.other_data

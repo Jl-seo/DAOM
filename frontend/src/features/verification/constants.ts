@@ -10,11 +10,11 @@ export interface ExtractionTab {
     icon: LucideIcon
 }
 
-export const EXTRACTION_TABS: ExtractionTab[] = [
-    { id: 'upload', label: '문서 업로드', description: '분석할 문서 추가 및 스캔', icon: Upload },
-    { id: 'raw_data', label: '추출 원본 (Raw Data)', description: 'AI가 원문에서 추출한 1차 데이터', icon: FileCheck },
-    { id: 'refined_data', label: '최종 가공 결과', description: '정규화 및 후처리 규칙이 적용된 완성 데이터', icon: CheckCircle2 }
-]
+export const EXTRACTION_TABS = [
+    { id: 'upload', label: '대상 문서', description: '분석 대상 파일 확인', icon: Upload },
+    { id: 'raw_data', label: 'AI 원본 추출 결과', description: '딕셔너리 및 후처리 적용 전 AI 순수 추출값', icon: FileText },
+    { id: 'refined_data', label: '규칙 반영 최종 결과', description: '딕셔너리 치환 및 후처리 스크립트 최종 적용 결과', icon: CheckCircle2 }
+] as const
 
 // ==========================================
 // REVIEW TABS

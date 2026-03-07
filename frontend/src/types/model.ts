@@ -22,6 +22,7 @@ export interface VibeDictionaryConfig {
     enabled: boolean
     persona_prompt: string
     target_fields: string[]
+    learning_mode?: 'auto_apply' | 'manual_approval'
 }
 
 export interface Field {

@@ -167,7 +167,7 @@ export function DataReviewPanel({
             <div className="px-6 py-3 border-b bg-card flex justify-between items-center shrink-0">
                 <span className="flex items-center gap-2 font-semibold">
                     <CheckCircle2 className="w-5 h-5 text-green-500" />
-                    {isRawData ? '추출 원본 데이터 (Raw Data)' : '추출 결과 확인'}
+                    {isRawData ? 'AI 원본 추출 결과 (Raw Data)' : '규칙 반영 최종 결과 (Refined Data)'}
                 </span>
                 <div className="flex gap-2">
                     <Button variant="ghost" size="icon" onClick={() => setShowDebugModal(true)} title="View Debug Info">

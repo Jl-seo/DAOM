@@ -29,10 +29,15 @@ class VibeDictionaryEntry(BaseModel):
     source: VibeDictionarySource = VibeDictionarySource.MANUAL
     is_verified: bool = True
 
+class LearningMode(str, Enum):
+    AUTO = "auto_apply"
+    MANUAL = "manual_approval"
+
 class VibeDictionaryConfig(BaseModel):
     enabled: bool = False
     persona_prompt: str = ""
     target_fields: List[str] = []
+    learning_mode: LearningMode = LearningMode.MANUAL
 
 
 class FieldDefinition(BaseModel):
