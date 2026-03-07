@@ -58,20 +58,19 @@ async def _normalize_headers_via_llm(html_content: str, mapper_llm: str) -> str:
         logger.error(f"Header Normalizer failed: {e}")
         return "[]"
 
-async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model: ExtractionModel, extractor_llm: str) -> Dict[str, Any]:
+async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: ExtractionModel, extractor_llm: str) -> Dict[str, Any]:
     """
     Phase 1: LLM Schema Mapper & Scalar Extractor
-    The LLM inspects the FULL markdown text of the Excel file.
-    It extracts Scalar values directly, and outputs Mapping JSON for Tables.
+    The LLM inspects the FULL CSV text of the Excel file generated directly from Pandas.
+    It extracts Scalar values directly, and outputs Mapping JSON for Tables using absolute indices.
     """
     client = get_openai_client()
     deployment = extractor_llm or get_current_model()
     
     fields_context = [{"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules, "sub_fields": f.sub_fields} for f in model.fields]
     
-    # Smart Truncation: Preserve the first N rows of *every* sheet found in the markdown
-    # instead of just blindly cutting the top 200 lines, which destroys multi-sheet visibility.
-    lines = markdown_text.split("\n")
+    # Smart Truncation: Preserve the first N rows of *every* sheet found in the CSV
+    lines = csv_context.split("\n")
     if len(lines) > 200:
         sheets_data = []
         current_sheet_lines = []
@@ -87,37 +86,29 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
         if current_sheet_lines:
             sheets_data.append(current_sheet_lines)
             
-        # Maximum allowed lines across all headers to prevent token explosion
-        # We try to keep it around 500 lines total, BUT we guarantee AT LEAST 50 rows per sheet.
         MAX_TOTAL_LINES = 500
         num_sheets = len(sheets_data)
-        
-        # Calculate fair share, but ALWAYS guarantee at least 50 rows, up to 150 rows.
-        # This means if there are 20 sheets, total lines might be 1000, which is acceptable 
-        # compared to missing headers.
         lines_per_sheet = max(50, min(150, MAX_TOTAL_LINES // max(1, num_sheets)))
         
-        truncated_markdown = []
+        truncated_csv = []
         for sheet_lines in sheets_data:
-            truncated_markdown.extend(sheet_lines[:lines_per_sheet])
+            truncated_csv.extend(sheet_lines[:lines_per_sheet])
             if len(sheet_lines) > lines_per_sheet:
-                truncated_markdown.append(f"... [TRUNCATED - {len(sheet_lines) - lines_per_sheet} MORE ROWS HIDDEN]")
+                truncated_csv.append(f"... [TRUNCATED - {len(sheet_lines) - lines_per_sheet} MORE ROWS HIDDEN]")
                 
-        markdown_text = "\n".join(truncated_markdown)
+        csv_text = "\n".join(truncated_csv)
+    else:
+        csv_text = csv_context
     
     prompt = f"""
-    You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a Markdown table (first 1500 rows).
-    The table contains columns: `row_id` (global row number), and `A`, `B`, `C`, `D`... (representing Excel columns).
+    You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a CSV (first N rows).
+    The table contains columns: `row_id` (global row number), and numerical indices `0`, `1`, `2`, `3`... (representing absolute Excel column arrays).
     
-    We have pre-processed the top 50 rows of EACH SHEET for you to resolve complex merged headers, provided via `Normalized Headers Mapping (JSON)`. 
-    Use this JSON mapping as a HINT to understand top-level scalar fields or early tables.
-    HOWEVER, if a table is located deeper in the document (e.g. at row 60), it will NOT be in the JSON mapping. For tables, you MUST ALWAYS READ THE MARKDOWN DIRECTLY to find the correct Excel Column Letters (`A`, `B`, `C`...) corresponding to the table's headers.
+    CRITICAL ARCHITECTURE: The data you see has ALREADY been visually "flatened" and merged headers have been Forward-Filled (ffilled) by Python.
+    This means if a cell was previously blank because it was merged, it now explicitly contains the header value.
     
-    Normalized Headers Mapping (JSON dictionary of SheetName -> Column Mapping, strictly top 50 rows per sheet):
-    {normalized_headers}
-    
-    Data Content (Markdown):
-    {markdown_text}
+    Data Content (CSV Format):
+    {csv_text}
     
     Target Extraction Schema & Business Rules:
     {json.dumps(fields_context, ensure_ascii=False, indent=2)}
@@ -129,23 +120,24 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
     
     CRITICAL INSTRUCTIONS:
     - Return ONLY valid JSON matching the exact schema provided.
-    - If `sub_fields` exists for a table field, you MUST map each `sub_field_key` to its corresponding `excel_column` letter (e.g., "A", "C", "F").
-    - DO NOT guess or assume sequential columns (e.g., A, B, C). Read the actual Column Letters from the Markdown table, because empty columns may have been omitted (e.g., A, C, D).
+    - If `sub_fields` exists for a table field, you MUST map each `sub_field_key` to its corresponding numeric `excel_column` INDEX (e.g., "0", "2", "5") as a STRING.
+    - DO NOT USE LETTERS (A, B, C). ONLY USE NUMBERS ("0", "1", "2")! The CSV explicitly labels columns as 0, 1, 2.
     - If `sub_fields` is missing, dynamically infer required `sub_field_key` names from the field description or rules.
     - `"header_row_id"`: The exact `row_id` where the actual column headers (titles) are located (e.g., the row containing "POL", "Description", "Amount").
     - `"first_data_row_id"`: The exact `row_id` where the ACTUAL DATA RECORDS begin, which MUST be GREATER THAN the `header_row_id`. Do NOT point this to the header row.
-    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (`sub_field_key`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). 
+    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (`sub_field_key`) to EXCEL NUMERIC COLUMNS ("0", "1", "2"...). 
       **SUPER CRITICAL SEMANTIC INFERENCE RULE**: 
       1. NEVER blindly map columns sequentially just because they exist! 
       2. You MUST extract the exact text of the Excel header into `excel_header_name`. 
-      3. If a schema field does not exist in the Excel table, DO NOT INCLUDE IT in the mapping array. Skip it. For example, if the schema asks for `sc_number` but the Excel table headers only have `Receipt`, `POL`, `POD`, `Delivery`, then DO NOT map `sc_number` to `Receipt`. Just omit `sc_number` entirely!
-      4. **SUB-FIELD SEMANTICS & RULES (CRITICAL)**: You MUST read the `description` and `rules` of EVERY `sub_field` in the schema. The true meaning of what column to map is found in its `description` and `rules`, not just its `label`! If a sub-field rule says "Use the USD rate" or "Look for Freight", map it to the column that semantically matches that description and rule.
+      3. If a schema field does not exist in the Excel table, DO NOT INCLUDE IT in the mapping array. Skip it.
+      4. **SUB-FIELD SEMANTICS & RULES (CRITICAL)**: You MUST read the `description` and `rules` of EVERY `sub_field` in the schema. Check the data type to assign the correct index.
       5. **DATA TYPE MATCHING & OFF-BY-ONE SHIFTS (CRITICAL)**: You MUST validate your mapping against the ACTUAL DATA ROWS below the header.
          - **Excel Ocean Freight Shift Quirks**: Sub-headers like `2SD`, `4SD`, or `20DC` are often visually shifted one column to the RIGHT. The actual rate ($1240) is placed in the column directly to the LEFT (sometimes labeled 'Unit' or blank), while the column labeled '2SD' contains Cargo Type ('GC', 'FAK').
-         - **RESOLUTION**: If a schema expects a Rate/단가/운임, but the column labeled with the container size (e.g. '2SD') contains literal text like 'GC', 'FAK', 'DRY', YOU MUST NOT MAP THAT COLUMN. Instead, trace left in the data row to find the numeric amount ($1240) and map to THAT column's letter.
+         - **RESOLUTION**: If a schema expects a Rate/단가/운임, but the column labeled with the container size (e.g. '2SD') contains literal text like 'GC', 'FAK', 'DRY', YOU MUST NOT MAP THAT COLUMN. Instead, trace left in the data row to find the numeric amount ($1240) and map to THAT column's index.
          - **MUTUALLY EXCLUSIVE RULE**: YOU MUST NEVER map a rate field (like 20DC) to a column that is ALREADY semantically assigned to another field (like Currency, POL, POD). Look closely at the data. If the column to the left is obviously 'Currency', then the rate must be in another numeric column! Every `sub_field` MUST map to a UNIQUE column. Do not map `Currency` and `20DC` to the same column!
          - **NEVER** map a Rate/Cost field to columns where data rows contain standard ocean cargo text (e.g., "GC", "FAK", "Type") unless explicitly requested.
-      6. **MULTI-ROW / MERGED HEADERS**: Excel tables often have 2-3 rows of hierarchical headers (e.g., Row 1: "20DC", Row 2: "Rate" | "Type"). If multiple columns share the same top-level header but have different sub-headers, use the DATA TYPE in the rows to decide which column corresponds to the schema field. If the schema asks for a rate (number), pick the sub-column containing numbers. If it asks for a type (string), pick the sub-column containing text.
+      6. **MULTI-ROW / MERGED HEADERS**: Excel tables often have 2-3 rows of hierarchical headers. Since Python already forward-filled them, just look for the column index that contains the relevant data directly underneath.
+    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column numeric index ("0", "1") containing the actual VALUE, not the text label.
     - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column containing the actual VALUE, not the text label. 
       - **IF THE FIELD IS A GENERAL SUMMARY** or does not have a specific coordinate in the grid, output `null` for `sheet_name`, `row_id`, and `col`, and provide your extracted text natively in `exact_value`.
     """
@@ -237,10 +229,10 @@ async def _run_schema_mapper(markdown_text: str, normalized_headers: str, model:
         logger.error(f"Schema Mapper failed: {e}")
         return {"scalars": {}, "tables": {}, "reasoning": f"Mapper failed: {e}"}
 
-async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_content: str = "") -> Dict[str, Any]:
+async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[str, Any]:
     """
-    Two-Track Excel Extraction (Python Engine Mode, replaces DuckDB SQL logic).
-    Uses LLM for lightweight schema mapping and Heavyweight Pandas for execution.
+    Two-Track Excel Extraction (Python Engine Mode).
+    Phase 13: Single Source of Truth Architecture using pure Pandas.
     """
     logger.info(f"Starting Two-Track Extraction for {file.filename}")
     
@@ -298,15 +290,10 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             
         df = combined_df
         
-        # Standardize column names (A, B, C...)
+        # Ensure column names are robust absolute indices
         clean_cols = ['row_id', '_sheet_name']
         for i in range(len(df.columns) - 2):
-            name = ""
-            n = i
-            while n >= 0:
-                name = chr(n % 26 + 65) + name
-                n = n // 26 - 1
-            clean_cols.append(name)
+            clean_cols.append(str(i))
             
         df.columns = clean_cols
         return df
@@ -318,44 +305,42 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         logger.error(f"Failed to load Excel with pandas: {e}")
         raise ValueError(f"지원하지 않거나 손상된 엑셀 구조입니다. 파일 로딩 실패: {e}")
 
-    # 2. Use the provided Markdown content from ExcelParser
-    if not md_content:
-        # Fallback if md_content is empty
-        logger.warning("md_content is empty, this shouldn't happen in native mode.")
-        md_content = "Empty Excel Content"
+    # 2. Build Single Source of Truth Context from Pandas
+    # We forward-fill (ffill) horizontally and vertically to resolve merged headers.
+    csv_snippets = []
+    if '_sheet_name' in df.columns:
+        for sheet_name, group in df.groupby('_sheet_name', sort=False):
+            top_rows = group.head(min(150, len(group))).copy()
+            data_cols = top_rows.columns[2:]
+            
+            # 1. Forward Fill horizontally for top 30 rows (assumed header region)
+            top_rows.loc[top_rows.index[:30], data_cols] = top_rows.loc[top_rows.index[:30], data_cols].ffill(axis=1)
+            # 2. Forward Fill vertically for top 10 rows
+            top_rows.loc[top_rows.index[:10], data_cols] = top_rows.loc[top_rows.index[:10], data_cols].ffill(axis=0)
+            
+            if '_sheet_name' in top_rows.columns:
+                top_rows = top_rows.drop(columns=['_sheet_name'])
+                
+            csv_snippet = top_rows.to_csv(index=False)
+            csv_snippets.append(f"### Sheet: {sheet_name}\n{csv_snippet}")
+    else:
+        top_rows = df.head(min(150, len(df))).copy()
+        data_cols = top_rows.columns[2:]
+        top_rows.loc[top_rows.index[:30], data_cols] = top_rows.loc[top_rows.index[:30], data_cols].ffill(axis=1)
+        top_rows.loc[top_rows.index[:10], data_cols] = top_rows.loc[top_rows.index[:10], data_cols].ffill(axis=0)
+        csv_snippet = top_rows.to_csv(index=False)
+        csv_snippets.append(f"### Sheet: Default\n{csv_snippet}")
         
-    # Phase 1.5: Header Normalization via Mapper LLM
+    unified_context = "\n\n".join(csv_snippets)
+    
+    # Bypass legacy LLM header normalizer since Pandas ffill dynamically solves it.
+    normalized_headers_json = "[]"
+    
+    # 3. Request Schema Mapping & Scalar Extraction from LLM using our Unified Pandas Context
     mapper_llm = getattr(model, "mapper_llm", None)
     extractor_llm = getattr(model, "extractor_llm", None)
     
-    normalized_headers_json = "[]"
-    if mapper_llm:
-        logger.info(f"[Extraction] Running Header Normalizer with {mapper_llm}")
-        try:
-            # Extract top 50 rows *per sheet* for header normalization
-            html_snippets = []
-            if '_sheet_name' in df.columns:
-                for sheet_name, group in df.groupby('_sheet_name', sort=False):
-                    top_rows = group.head(min(50, len(group))).copy()
-                    top_rows = top_rows.ffill(axis=1).ffill(axis=0)
-                    if '_sheet_name' in top_rows.columns:
-                        top_rows = top_rows.drop(columns=['_sheet_name'])
-                    html_snippet = top_rows.to_html(index=False)
-                    html_snippets.append(f"<h3>Sheet: {sheet_name}</h3>\n{html_snippet}")
-            else:
-                top_rows = df.head(min(50, len(df))).copy()
-                top_rows = top_rows.ffill(axis=1).ffill(axis=0)
-                html_snippet = top_rows.to_html(index=False)
-                html_snippets.append(f"<h3>Sheet: Default</h3>\n{html_snippet}")
-                
-            combined_html = "\n\n".join(html_snippets)
-            normalized_headers_json = await _normalize_headers_via_llm(combined_html, mapper_llm)
-            logger.info(f"[Extraction] Normalized Headers: {normalized_headers_json}")
-        except Exception as e:
-            logger.warning(f"Failed to normalize headers: {e}")
-    
-    # 3. Request Schema Mapping & Scalar Extraction from LLM
-    mapping_plan = await _run_schema_mapper(md_content, normalized_headers_json, model, extractor_llm)
+    mapping_plan = await _run_schema_mapper(unified_context, normalized_headers_json, model, extractor_llm)
     reasoning = mapping_plan.get("reasoning", "")
     token_usage = mapping_plan.pop("_token_usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
     logger.info(f"Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")
@@ -415,7 +400,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                         
                         # Calculate virtual BBox for Scalar
                         try:
-                            col_idx = df.columns.tolist().index(col) - 1 # Adjusted for row_id
+                            col_idx = int(col)
                             row_idx = r_id
                             
                             x1 = col_idx * cell_width
@@ -569,8 +554,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                         # Calculate Virtual BBox
                         bbox = None
                         try:
-                            # excel_col is A, B, C... Find its 0-based index
-                            col_idx = df.columns.tolist().index(excel_col) - 1 # Adjusted for row_id
+                            # excel_col is the absolute column index integer string (0, 1, 2)
+                            col_idx = int(excel_col)
                             row_idx = int(row["row_id"])
                             
                             x1 = col_idx * cell_width
