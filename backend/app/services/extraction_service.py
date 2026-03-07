@@ -70,7 +70,7 @@ class ExtractionService:
                     md_content = "Error reading Excel for display."
 
                 dummy_file = UploadFile(filename=filename, file=io.BytesIO(file_content))
-                sql_result = await run_sql_extraction(dummy_file, model, md_content)
+                sql_result = await run_sql_extraction(dummy_file, model)
                 
                 sql_result["raw_content"] = md_content
                 sql_result["_beta_parsed_content"] = md_content
