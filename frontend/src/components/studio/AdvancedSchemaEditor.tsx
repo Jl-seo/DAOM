@@ -1,7 +1,8 @@
 import { GripVertical, X, Settings2, Network } from 'lucide-react'
 import { useRef } from 'react'
 import { FIELD_TYPES } from '../../constants'
-import { Field, PostProcessAction, PostProcessRule } from '../../types/model'
+import type { Field, PostProcessRule } from '../../types/model'
+import { PostProcessAction } from '../../types/model'
 import {
     DndContext,
     closestCenter,

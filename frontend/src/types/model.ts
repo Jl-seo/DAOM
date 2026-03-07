@@ -4,12 +4,14 @@ import { FIELD_TYPES, DATA_STRUCTURES } from '../constants'
 export type FieldType = typeof FIELD_TYPES[number]['value']
 export type DataStructureType = typeof DATA_STRUCTURES[number]['id']
 
-export enum PostProcessAction {
-    SPLIT_CURRENCY = 'split_currency',
-    EXTRACT_DIGITS = 'extract_digits',
-    UPPERCASE = 'uppercase',
-    DATE_FORMAT_ISO = 'date_format_iso'
-}
+export const PostProcessAction = {
+    SPLIT_CURRENCY: 'split_currency',
+    EXTRACT_DIGITS: 'extract_digits',
+    UPPERCASE: 'uppercase',
+    DATE_FORMAT_ISO: 'date_format_iso'
+} as const;
+
+export type PostProcessAction = typeof PostProcessAction[keyof typeof PostProcessAction];
 
 export interface PostProcessRule {
     action: PostProcessAction
