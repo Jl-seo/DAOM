@@ -404,9 +404,8 @@ export function ModelSettingsTab({
                         />
                     </button>
                 </div>
+            </Card>
         </div>
-            </Card >
-        </div >
     )
 }
 
