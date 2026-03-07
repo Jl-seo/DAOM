@@ -1,4 +1,4 @@
-import { Upload, FileCheck, CheckCircle2, type LucideIcon } from 'lucide-react'
+import { Upload, FileText, CheckCircle2, type LucideIcon } from 'lucide-react'
 
 // ==========================================
 // EXTRACTION TABS
