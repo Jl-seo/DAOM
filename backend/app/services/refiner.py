@@ -60,9 +60,10 @@ Context: {description or 'General Document'}
         if global_rules:
             prompt += f"\nGLOBAL REFINEMENT RULES:\n{global_rules}\n"
 
-        # 3. Reference Data (Phase 1: Structured JSON for mapping/validation)
-        if reference_data:
-            ref_json = json.dumps(reference_data, ensure_ascii=False, indent=2)
+        # 3. Reference Data (Filtered for validation only to prevent Vibe Dictionary token bloat)
+        filtered_ref = {k: v for k, v in (reference_data or {}).items() if k in ("validation_rules", "unique_constraints")} if reference_data else None
+        if filtered_ref:
+            ref_json = json.dumps(filtered_ref, ensure_ascii=False, indent=2)
             # SAFETY: Truncate if massive (prevent 10K+ token bloat)
             MAX_REF_CHARS = settings.REFINER_MAX_REF_CHARS
             if len(ref_json) > MAX_REF_CHARS:
@@ -70,13 +71,11 @@ Context: {description or 'General Document'}
                 logger.warning(f"[Refiner] Reference data truncated (size: {len(ref_json)} chars)")
 
             prompt += f"""
-REFERENCE DATA (Use for value mapping, validation, and context):
+REFERENCE DATA (Validation Rules):
 {ref_json}
 
 INSTRUCTIONS FOR REFERENCE DATA:
-- Use codes/mappings from reference_data for value transformation (e.g., customer code → name)
 - Apply validation rules specified in reference_data
-- If extracted value doesn't match reference_data patterns, flag with lower confidence
 - Reference data takes precedence over guessing
 """
 
@@ -324,13 +323,14 @@ Do NOT translate unless the field rule explicitly mentions translation.
             for f in fields
         ], ensure_ascii=False, indent=2)
 
+        filtered_ref = {k: v for k, v in (reference_data or {}).items() if k in ("validation_rules", "unique_constraints")} if reference_data else None
         ref_data_section = ""
-        if reference_data:
-            ref_json = json.dumps(reference_data, ensure_ascii=False, indent=2)
+        if filtered_ref:
+            ref_json = json.dumps(filtered_ref, ensure_ascii=False, indent=2)
             MAX_REF_CHARS = settings.REFINER_MAX_REF_CHARS
             if len(ref_json) > MAX_REF_CHARS:
                 ref_json = ref_json[:MAX_REF_CHARS] + "\n... [TRUNCATED]"
-            ref_data_section = f"\nREFERENCE DATA:\n{ref_json}\n"
+            ref_data_section = f"\nREFERENCE DATA (Validation Constraints):\n{ref_json}\n"
 
         calibration_section = ""
         if global_rules:
@@ -536,22 +536,20 @@ INTEGRITY RULES:
 {integrity_rules_str}
 """
 
-        # Inject reference data if provided
-        if reference_data:
-            ref_json = json.dumps(reference_data, ensure_ascii=False, indent=2)
+        # Inject validation reference data if provided (Filter out terminology to save tokens)
+        filtered_ref = {k: v for k, v in (reference_data or {}).items() if k in ("validation_rules", "unique_constraints")} if reference_data else None
+        if filtered_ref:
+            ref_json = json.dumps(filtered_ref, ensure_ascii=False, indent=2)
             MAX_REF_CHARS = getattr(settings, 'REFINER_MAX_REF_CHARS', 5000)
             if len(ref_json) > MAX_REF_CHARS:
                 ref_json = ref_json[:MAX_REF_CHARS] + "\n... [TRUNCATED]"
             prompt += f"""
-REFERENCE DATA (Use for value mapping, validation, and lookup):
+REFERENCE DATA (Validation Rules):
 {ref_json}
 
 INSTRUCTIONS FOR REFERENCE DATA:
-- Use codes/mappings from reference_data for value transformation (e.g., port code → route name)
-- If an extracted value matches a key in reference_data, use the mapped value
-- If a field requires lookup (not directly in document), check reference_data
-- Reference data takes precedence over guessing
-- If a field cannot be resolved even with reference_data, return null
+- Check validation rules before outputting.
+- If a field cannot be resolved even with contextual rules, return null.
 """
         return prompt
 

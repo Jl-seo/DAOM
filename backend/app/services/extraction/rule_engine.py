@@ -108,6 +108,72 @@ class RuleEngine:
         raw_result["guide_extracted"] = guide_extracted
         return raw_result
 
+    def apply_vibe_dictionary(self, normalized_result: Dict[str, Any], reference_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Step 2.5: Normalization Engine - Deterministically replaces raw values with standard values
+        if they match a Vibe Dictionary entry that is verified (`is_verified == True`).
+        """
+        if not reference_data:
+            return normalized_result
+
+        guide_extracted = normalized_result.get("guide_extracted", {})
+        if not isinstance(guide_extracted, dict):
+            return normalized_result
+
+        def _apply_dict(cell: Any, field_name: str) -> Any:
+            if not isinstance(cell, dict) or "value" not in cell:
+                return cell
+
+            raw_val = cell.get("value")
+            if not isinstance(raw_val, str) or not raw_val:
+                return cell
+
+            # Check if this field has dictionary entries in reference_data
+            field_dict = reference_data.get(field_name)
+            if not isinstance(field_dict, dict):
+                return cell
+            
+            # Check if the exact raw_val is in the dictionary and is verified
+            entry = field_dict.get(raw_val)
+            if isinstance(entry, dict) and entry.get("is_verified") is True:
+                standard_val = entry.get("value")
+                if standard_val:
+                    cell["value"] = standard_val
+                    cell["_modifier"] = "Vibe Dictionary" # Tag for UI badge
+                    if "raw_value" not in cell:
+                        cell["raw_value"] = raw_val       # Keep original for tracing
+            
+            return cell
+
+        def _process_recursive(data: Any) -> Any:
+            if isinstance(data, dict):
+                processed = {}
+                for key, node in data.items():
+                    if isinstance(node, dict) and "value" in node:
+                        if isinstance(node["value"], list):
+                            # It's an array of rows
+                            processed_rows = []
+                            for row in node["value"]:
+                                processed_rows.append(_process_recursive(row))
+                            processed_node = dict(node)
+                            processed_node["value"] = processed_rows
+                            processed[key] = processed_node
+                        else:
+                            # It's a leaf cell
+                            processed[key] = _apply_dict(dict(node), key)
+                    elif isinstance(node, dict):
+                        processed[key] = _process_recursive(node)
+                    else:
+                        processed[key] = node
+                return processed
+            elif isinstance(data, list):
+                return [_process_recursive(item) for item in data]
+            return data
+
+        # Apply to guide_extracted tree
+        normalized_result["guide_extracted"] = _process_recursive(guide_extracted)
+        return normalized_result
+
     def apply_validation_rules(self, normalized_result: Dict[str, Any], reference_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Step 3: Applies cross-field validation rules and composite unique constraints.
