@@ -8,6 +8,7 @@ import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import { DEFAULTS, MESSAGES } from '../constants'
 import { useModels } from '../hooks/useModels'
+import { apiClient } from '../lib/api'
 import type { Model, Field } from '../types/model'
 import { Card } from '@/components/ui/icon-card'
 import { Button } from '@/components/ui/button'
@@ -78,6 +79,7 @@ export function ModelStudio() {
     const [isEditing, setIsEditing] = useState(false)
     const [activeStudioTab, setActiveStudioTab] = useState<'settings' | 'schema' | 'reference' | 'transformation'>('settings')
     const [llmOptions, setLlmOptions] = useState<string[]>([])
+    const [globalDictionaries, setGlobalDictionaries] = useState<string[]>([])
 
     const [searchQuery, setSearchQuery] = useState('')
     const [searchParams, setSearchParams] = useSearchParams()
@@ -92,6 +94,15 @@ export function ModelStudio() {
         const loadLlmOptions = async () => {
             const options = await fetchLlmOptions()
             setLlmOptions(options)
+
+            try {
+                const res = await apiClient.get('/dictionaries/categories')
+                if (res.data?.categories) {
+                    setGlobalDictionaries(res.data.categories.map((c: any) => c.category))
+                }
+            } catch (e) {
+                console.error('Failed to load global dictionaries', e)
+            }
         }
         loadLlmOptions()
     }, [fetchLlmOptions])
@@ -141,7 +152,21 @@ export function ModelStudio() {
 
     const handleSaveModel = async () => {
         if (!editingModel) return
-        const result = await saveModel(editingModel)
+
+        // Auto-compute the required dictionaries array for back-end LLM processing based on field assignments
+        const dictSet = new Set<string>();
+        editingModel.fields?.forEach(f => {
+            if (f.dictionary) dictSet.add(f.dictionary);
+            f.sub_fields?.forEach(sf => {
+                if (sf.dictionary) dictSet.add(sf.dictionary);
+            });
+        });
+        const modelToSave = {
+            ...editingModel,
+            dictionaries: Array.from(dictSet)
+        };
+
+        const result = await saveModel(modelToSave)
         if (result.success && result.data) {
             toast.success(result.message, { duration: 1500 })
             setIsEditing(false)
@@ -382,7 +407,7 @@ export function ModelStudio() {
                                 </div>
                                 <AdvancedSchemaEditor
                                     fields={editingModel.fields || []}
-                                    modelDictionaries={editingModel.dictionaries || []}
+                                    modelDictionaries={globalDictionaries}
                                     onChange={(fields) => setEditingModel({ ...editingModel, fields })}
                                     disabled={!isEditing}
                                 />
@@ -408,7 +433,7 @@ export function ModelStudio() {
                                 isOpen={subFieldModalOpen}
                                 onClose={() => setSubFieldModalOpen(false)}
                                 parentField={selectedParentField?.field || null}
-                                modelDictionaries={editingModel.dictionaries || []}
+                                modelDictionaries={globalDictionaries}
                                 onSave={(subFields) => {
                                     if (selectedParentField === null || !isEditing) return;
                                     const newFields = [...(editingModel.fields || [])];
