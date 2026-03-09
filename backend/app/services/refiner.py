@@ -135,6 +135,9 @@ INSTRUCTIONS FOR REFERENCE DATA:
 OUTPUT INSTRUCTIONS (TABLE MODE):
 You must extract ALL rows from the document. Do NOT truncate or sample.
 
+**CRITICAL: MULTIPLE TABLES**
+- If the document contains MULTIPLE separate physical tables that match the same table field (e.g., items continuing on the next page, or multiple distinct tables of the same type), you MUST extract rows from EVERY matching table and combine them all into the SINGLE array. DO NOT stop after extracting just the first table!
+
 **CRITICAL: DENORMALIZE HIERARCHICAL DATA**
 - If the table has merged cells or hierarchical headers (e.g., one 'Route' applies to multiple 'POL/POD' rows), **YOU MUST REPEAT** the parent value for EVERY child row.
 - Every row object must be complete.
@@ -498,6 +501,7 @@ INSTRUCTIONS:
 4. If a value spans multiple tags, use the PRIMARY tag containing the core text.
 5. Scan the document from START to END. Check every paragraph and every table row.
    Do NOT stop early. Footnotes, annotations, and small-print text are valid source data.
+6. MULTIPLE TABLES (CRITICAL): If the document contains MULTIPLE separate physical tables that match the same table field (e.g., items continuing on page 2, or multiple distinct tables of the same type), you MUST extract rows from EVERY matching table and combine them all into the SINGLE array. DO NOT stop after extracting just the first table!
 
 DENORMALIZATION (Table fields only):
 - If the document has merged cells or hierarchical headers (one parent value

@@ -664,28 +664,45 @@ class BetaPipeline(ExtractionPipeline):
         When a chunk boundary falls inside a table, the header row + separator
         are injected at the start of each new chunk.
         """
+        import re
         lines = tagged_text.split("\n")
         
         # Detect markdown table headers: | ... | followed by |---|
+        # We allow spaces and tags inside headers and separators.
         table_headers: Dict[int, tuple] = {}  # line_idx -> (header_row, separator_row)
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith("|") and i + 1 < len(lines):
                 next_stripped = lines[i + 1].strip()
-                if next_stripped.startswith("|") and "---" in next_stripped:
-                    table_headers[i] = (line, lines[i + 1])
+                if next_stripped.startswith("|") and "-" in next_stripped:
+                    # Check if next_stripped is mostly a markdown divider e.g. |---|:---|
+                    if re.match(r"^\|[\s\-\:\|]+\|$", next_stripped):
+                        table_headers[i] = (line, lines[i + 1])
         
         chunks = []
         current_chunk: List[str] = []
         current_len = 0
         active_header: Optional[tuple] = None
+        consecutive_non_table_lines = 0
         
         for i, line in enumerate(lines):
+            stripped = line.strip()
             # Track table context
             if i in table_headers:
                 active_header = table_headers[i]
-            elif not line.strip().startswith("|"):
-                active_header = None
+                consecutive_non_table_lines = 0
+            elif stripped.startswith("|"):
+                consecutive_non_table_lines = 0
+            elif stripped != "":
+                # It's a non-empty line that doesn't start with |
+                consecutive_non_table_lines += 1
+                if consecutive_non_table_lines > 0:
+                    active_header = None
+            else:
+                # It's an empty line (\n inside a table). Give it some tolerance.
+                consecutive_non_table_lines += 1
+                if consecutive_non_table_lines > 2:
+                    active_header = None
             
             # Since we split by \n, we must add it back to accurately track length and content
             line_with_newline = line + "\n"
@@ -699,9 +716,11 @@ class BetaPipeline(ExtractionPipeline):
                 
                 # If inside a table, inject header
                 if active_header:
-                    current_chunk.append(active_header[0] + "\n")  # header row
+                    # Clean tags from the injected header so LLM doesn't extract duplicated tags
+                    clean_header = re.sub(r"\^C[0-9A-F]+", "", active_header[0])
+                    current_chunk.append(clean_header + "\n")  # header row
                     current_chunk.append(active_header[1] + "\n")  # separator
-                    current_len += len(active_header[0]) + len(active_header[1]) + 2
+                    current_len += len(clean_header) + len(active_header[1]) + 2
             
             current_chunk.append(line_with_newline)
             current_len += line_len
