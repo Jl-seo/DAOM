@@ -125,10 +125,10 @@ INSTRUCTIONS FOR REFERENCE DATA:
 
             example_parts = []
             for f in non_table_fields:
-                example_parts.append(f'    "{f.key}": "value"')
+                example_parts.append(f'    "{f.key}": {{"value": "extracted value or null", "confidence": 0.95, "source_text": "verbatim text from doc"}}')
             
             for f in table_fields:
-                example_parts.append(f'    "{f.key}": [\n      {{ "col1": "val1", "col2": "val2" }}\n    ]')
+                example_parts.append(f'    "{f.key}": [\n      {{ "col1": {{"value": "val1", "confidence": 0.9, "source_text": "val1 text"}}, "col2": {{"value": "val2", "confidence": 0.8, "source_text": "val2 text"}} }}\n    ]')
 
             example_json = "{\n  \"guide_extracted\": {\n" + ",\n".join(example_parts) + "\n  }\n}"
 
@@ -199,8 +199,6 @@ Do NOT translate unless the field rule explicitly mentions translation.
         """
         from thefuzz import fuzz, process
 
-        processed_data = {}
-
         # Build indexed words dict: {index: word_info}
         all_words_flat = []
         word_choices = {}  # {index: content_string} for process.extractOne
@@ -218,14 +216,13 @@ Do NOT translate unless the field rule explicitly mentions translation.
                 })
                 word_choices[idx] = content
 
-        for key, item in llm_result.items():
-            if not isinstance(item, dict):
-                 processed_data[key] = item # Legacy or simple format
-                 continue
+        def _process_cell(cell: Any) -> Any:
+            if not isinstance(cell, dict) or "value" not in cell:
+                return cell
 
-            value = item.get("value")
-            confidence = item.get("confidence", 0.0)
-            source_text = item.get("source_text", "")
+            value = cell.get("value")
+            confidence = cell.get("confidence", 0.0)
+            source_text = cell.get("source_text", "")
 
             bbox = None
             page_num = 1
@@ -254,9 +251,9 @@ Do NOT translate unless the field rule explicitly mentions translation.
                                     page_num = w.get("page", 1)
                                     break
                 except Exception as e:
-                    logger.warning(f"[PostProcess] Fuzzy match error for '{key}': {e}")
+                    logger.warning(f"[PostProcess] Fuzzy match error: {e}")
 
-            processed_data[key] = {
+            return {
                 "value": value,
                 "confidence": confidence,
                 "source_text": source_text,
@@ -264,6 +261,30 @@ Do NOT translate unless the field rule explicitly mentions translation.
                 "page": page_num
             }
 
+        processed_data = {}
+        has_guide_wrapper = "guide_extracted" in llm_result and isinstance(llm_result["guide_extracted"], dict)
+        target_dict = llm_result["guide_extracted"] if has_guide_wrapper else llm_result
+
+        for key, item in target_dict.items():
+            if isinstance(item, list):
+                # Process table rows
+                processed_rows = []
+                for row in item:
+                    if isinstance(row, dict):
+                        processed_row = {k: _process_cell(v) for k, v in row.items()}
+                        processed_rows.append(processed_row)
+                    else:
+                        processed_rows.append(row)
+                processed_data[key] = processed_rows
+            elif isinstance(item, dict):
+                processed_data[key] = _process_cell(item)
+            else:
+                processed_data[key] = item
+
+        if has_guide_wrapper:
+            # Preserve original outer structure
+            llm_result["guide_extracted"] = processed_data
+            return llm_result
         return processed_data
 
     # ========================================================================
