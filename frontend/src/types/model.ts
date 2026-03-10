@@ -34,6 +34,7 @@ export interface Field {
     is_dex_target?: boolean
     dictionary?: string // Field-level dictionary mapping category (e.g., "port", "charge")
     required?: boolean // 필드값 필수 포함 여부
+    is_pii?: boolean // 개인정보 포함 여부 (마스킹 대상)
     validation_regex?: string // 값 검증용 정규식 패턴 (e.g., ^[A-Z0-9]+$)
     sub_fields?: Record<string, any>[] // 테이블(리스트) 형태의 하위 필드 정의 스키마
 }
@@ -72,6 +73,7 @@ export interface Model {
     mapper_llm?: string
     extractor_llm?: string
     webhook_url?: string  // POST URL for automation after extraction
+    retention_days?: number // Days to keep extraction before automated deletion (Cosmos DB TTL)
     fields: Field[]
     is_active?: boolean  // 메뉴에서 숨기기 (false면 숨김)
     reference_data?: Record<string, unknown>  // 참고 데이터 (고객코드 매핑, 유효성 규칙 등)

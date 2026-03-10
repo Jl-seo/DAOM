@@ -50,6 +50,7 @@ class FieldDefinition(BaseModel):
     is_dex_target: Optional[bool] = False # DEX 바코드 검증 타겟 여부
     dictionary: Optional[str] = None # Field-level dictionary mapping category (e.g., "port", "charge")
     required: bool = False # 필수 항목 추출 여부
+    is_pii: bool = False # 개인정보 필드 여부 (마스킹 대상)
     validation_regex: Optional[str] = None # 값 검증 정규식 (e.g., ^[A-Z0-9]+$)
     sub_fields: Optional[List[Dict[str, Any]]] = None # 하위 컬러 정의 (e.g. [{"key": "pol", "label": "POL", "dictionary": "port"}])
 
@@ -98,6 +99,7 @@ class _BaseExtractionModel(BaseModel):
     allowedGroups: Optional[List[str]] = None  # Access control groups
     fields: List[FieldDefinition]
     is_active: bool = True
+    retention_days: Optional[int] = None  # 데이터 보관 주기 (일 단위, None이면 무기한)
     temperature: float = 0.0  # LLM Temperature (0.0 for deterministic)
     reference_data: Optional[Dict[str, Any]] = None  # 참고 데이터 (고객코드 매핑, 유효성 규칙 등)
     beta_features: Dict[str, bool] = Field(default_factory=default_beta_features)

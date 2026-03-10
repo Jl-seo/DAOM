@@ -41,6 +41,7 @@ class ExtractionLog(BaseModel):
     token_usage: Optional[dict] = None  # {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}
     # Custom metadata (for Power Automate, external integrations)
     metadata: Optional[dict] = None  # User-defined passthrough data
+    ttl: Optional[int] = None  # Cosmos DB Time-to-Live (in seconds)
 
     @field_validator('user_id', mode='before')
     @classmethod
@@ -70,6 +71,7 @@ async def save_extraction_log(
     debug_data: Optional[dict] = None,
     token_usage: Optional[dict] = None,  # Token usage tracking
     metadata: Optional[dict] = None,  # Custom metadata passthrough
+    ttl: Optional[int] = None,  # Data retention Time-To-Live
 ) -> Optional[ExtractionLog]:
     """Save a new extraction log entry"""
     container = get_extractions_container()
@@ -78,13 +80,15 @@ async def save_extraction_log(
         logger.warning("[ExtractionLogs] Cosmos not available, skipping log")
         return None
 
-    # If log_id is provided, we're updating an existing log - preserve created_at
+    # If log_id is provided, we're updating an existing log - preserve created_at and ttl
     existing_created_at = None
+    existing_ttl = None
     if log_id:
         try:
             existing = await get_log(log_id)
             if existing:
                 existing_created_at = existing.created_at
+                existing_ttl = getattr(existing, 'ttl', None)
         except Exception:
             pass
 
@@ -112,7 +116,8 @@ async def save_extraction_log(
         llm_model=llm_model,
         debug_data=debug_data,
         token_usage=token_usage,
-        metadata=metadata
+        metadata=metadata,
+        ttl=ttl if ttl is not None else existing_ttl
     )
 
     try:
@@ -326,6 +331,37 @@ async def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> Lis
     except Exception as e:
         logger.error(f"[ExtractionLogs] Query failed: {e}")
         return []
+
+async def get_all_logs_count(tenant_id: Optional[str] = None) -> int:
+    """Get the total count of extraction logs, enforcing tenant isolation"""
+    # Since cross_partition_query kwargs are failing in this aiohttp version,
+    # and doing a full scan count is expensive,
+    # we'll fetch up to 100,000 metadata records and count them
+    # For a real scalable production count, we would use a tracking container or standard synchronous cosmos SDK.
+    container = get_extractions_container()
+
+    if not container:
+        return 0
+
+    try:
+        query = "SELECT VALUE 1 FROM c WHERE (NOT IS_DEFINED(c.type) OR c.type = 'log')"
+        parameters = []
+
+        if tenant_id:
+            query += " AND c.tenant_id = @tenant_id"
+            parameters.append({"name": "@tenant_id", "value": tenant_id})
+
+        count = 0
+        async for _ in container.query_items(
+            query=query,
+            parameters=parameters
+        ):
+            count += 1
+            
+        return count
+    except Exception as e:
+        logger.error(f"[ExtractionLogs] Count query failed: {e}")
+        return 0
 
 
 async def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[str] = None) -> List[ExtractionLog]:

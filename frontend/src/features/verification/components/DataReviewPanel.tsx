@@ -24,6 +24,7 @@ interface DataReviewPanelProps {
     onReset: () => void
     onRetry: () => void
     onDownload: () => void
+    onUnmask?: (fieldKey: string) => Promise<string | undefined>
     documentId?: string | null // Unique identifier for the document (fileUrl or ID)
     currentParsedContent?: string | null // NEW: Parsed text from LayoutParser
     isBetaMode?: boolean
@@ -116,6 +117,7 @@ export function DataReviewPanel({
     onReset,
     onRetry,
     onDownload,
+    onUnmask,
     documentId,
     isBetaMode = false,
     isRawData = false
@@ -319,6 +321,7 @@ export function DataReviewPanel({
                             onDataChange={onDataChange}
                             onSave={onSave}
                             selectedField={selectedFieldKey} // Sync: Data Selection Control
+                            onUnmask={onUnmask}
                             readOnly={false}
                             dexValidation={previewData?.__dex_validation__ as DexValidationData | undefined}
                         />

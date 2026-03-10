@@ -14,21 +14,22 @@ async def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
     Get aggregated statistics for the dashboard
     """
     try:
-        # Get all recent logs
-        # Note: In a production scenario with millions of logs,
-        # this should be replaced with a proper Cosmos DB aggregate query
-        # or a dedicated analytics store.
-        logs = await extraction_logs.get_all_logs(limit=1000)
+        # Get exact total count first
+        total_extractions = await extraction_logs.get_all_logs_count()
+
+        # Get recent logs for aggregations (daily trend, models, recent activity)
+        # Using a higher limit for a more representative sample
+        logs = await extraction_logs.get_all_logs(limit=10000)
         all_models = await models.load_models()
         model_map = {m.id: m.name for m in all_models}
 
-        # Initialize counters
-        total_extractions = len(logs)
+        # Calculate success rate from the fetched sample (or we could run a separate COUNT query)
+        sample_total = len(logs)
         success_count = sum(1 for log in logs if log.status == ExtractionStatus.SUCCESS.value)
         error_count = sum(1 for log in logs if log.status == ExtractionStatus.ERROR.value)
-
-        # Calculate success rate
-        success_rate = round((success_count / total_extractions * 100) if total_extractions > 0 else 0, 1)
+        
+        # We calculate the success rate based on our recent 10000 sample
+        success_rate = round((success_count / sample_total * 100) if sample_total > 0 else 0, 1)
 
         # 1. Daily Trend (Last 7 days)
         daily_trend = _calculate_daily_trend(logs, days=7)

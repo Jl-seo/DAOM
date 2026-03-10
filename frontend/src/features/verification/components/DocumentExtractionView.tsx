@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { modelsApi } from '@/lib/api'
+import { useExtractionActions } from '@/hooks/useExtractionActions'
 
 // Context & Types
 import { ExtractionProvider, useExtraction } from '../context/ExtractionContext'
@@ -43,8 +44,11 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
         handleRetry,
         handleReset,
         handleCancelPreview,
-        loadFromHistory
+        loadFromHistory,
+        currentLogId
     } = useExtraction()
+
+    const { handleUnmask } = useExtractionActions({ modelId })
 
     // Track if initial file was already processed to prevent infinite loops
     const initialFileProcessedRef = useRef(false)
@@ -164,6 +168,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                             onFieldSelect={setSelectedFieldKey}
                             onRetry={handleRetry}
                             onReset={handleReset}
+                            onUnmask={currentLogId ? (fieldKey) => handleUnmask(currentLogId, fieldKey) : undefined}
                             onSave={(guide, other) => {
                                 // Wrapper to match signature if needed, or pass directly if signatures match
                                 // handleConfirmSelection takes (selectedColumns, editedGuide, editedOther)

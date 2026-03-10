@@ -131,6 +131,12 @@ async def start_job_with_upload(
     primary_url = valid_urls[0]
     primary_filename = filenames[0]
 
+    # Fetch model to get retention_days for TTL
+    model = await get_model_by_id(model_id)
+    ttl = None
+    if model and hasattr(model, 'retention_days') and model.retention_days:
+        ttl = model.retention_days * 24 * 60 * 60
+
     # Create extraction log
     log = await extraction_logs.save_extraction_log(
         model_id=model_id,
@@ -142,7 +148,8 @@ async def start_job_with_upload(
         file_urls=valid_urls, # Multi
         filenames=filenames,
         status=ExtractionStatus.PENDING.value,
-        tenant_id=current_user.tenant_id if current_user else None
+        tenant_id=current_user.tenant_id if current_user else None,
+        ttl=ttl
     )
 
     # Create extraction job linked to log
@@ -156,7 +163,8 @@ async def start_job_with_upload(
         file_urls=valid_urls, # Multi
         filenames=filenames,
         original_log_id=log.id if log else None,
-        tenant_id=current_user.tenant_id if current_user else None
+        tenant_id=current_user.tenant_id if current_user else None,
+        ttl=ttl
     )
 
     # Update log to reference job
@@ -228,6 +236,13 @@ async def get_job_status(
     from app.services.hydration import hydrate_preview_data, hydrate_debug_data
     preview_data = await hydrate_preview_data(job.preview_data)
     debug_data = await hydrate_debug_data(job.debug_data)
+
+    from app.services.models import get_model_by_id
+    from app.services.masking import mask_pii_data
+    model = await get_model_by_id(job.model_id)
+    if model:
+        job.extracted_data = mask_pii_data(job.extracted_data, model)
+        preview_data = mask_pii_data(preview_data, model)
 
     return {
         "job_id": job.id,
@@ -363,6 +378,10 @@ async def retry_extraction(
         logger.info(f"[Retry] Recovered candidate_file_urls from previous job: {len(candidate_file_urls) if candidate_file_urls else 0} files")
 
     # 4. Create new job with reference to original log AND preserved candidate files
+    ttl = None
+    if model and hasattr(model, 'retention_days') and model.retention_days:
+        ttl = model.retention_days * 24 * 60 * 60
+
     job = await extraction_jobs.create_job(
         model_id=log.model_id,
         user_id=current_user.id if current_user else "unknown",
@@ -371,7 +390,8 @@ async def retry_extraction(
         candidate_file_url=candidate_file_url,
         candidate_file_urls=candidate_file_urls,
         original_log_id=log_id,
-        tenant_id=current_user.tenant_id if current_user else None
+        tenant_id=current_user.tenant_id if current_user else None,
+        ttl=ttl
     )
 
     # 5. Update original log status to pending AND update job_id

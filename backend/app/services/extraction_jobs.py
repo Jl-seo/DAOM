@@ -40,6 +40,7 @@ class ExtractionJob(BaseModel):
     original_log_id: Optional[str] = None  # For retry jobs - references the parent Log
     log_id: Optional[str] = None  # Alias for original_log_id - TODO: migrate to log_id only
     tenant_id: Optional[str] = None  # Tenant ID for multi-tenancy
+    ttl: Optional[int] = None  # Cosmos DB Time-to-Live (in seconds)
 
 
 async def create_job(
@@ -54,7 +55,8 @@ async def create_job(
     user_name: Optional[str] = None,
     user_email: Optional[str] = None,
     original_log_id: Optional[str] = None,
-    tenant_id: Optional[str] = None
+    tenant_id: Optional[str] = None,
+    ttl: Optional[int] = None
 ) -> ExtractionJob:
     """Create a new extraction job with pending status"""
     job_id = str(uuid.uuid4())
@@ -81,7 +83,8 @@ async def create_job(
         created_at=now,
         updated_at=now,
         original_log_id=original_log_id,
-        tenant_id=tenant_id
+        tenant_id=tenant_id,
+        ttl=ttl
     )
 
     container = get_extractions_container()

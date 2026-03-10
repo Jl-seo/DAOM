@@ -38,6 +38,7 @@ interface ExtractionReviewViewProps {
     onRetry: () => void
     onSave: (editedGuideData?: Record<string, any>, editedOtherData?: any[]) => void
     onReset: () => void
+    onUnmask?: (fieldKey: string) => Promise<string | undefined>
 }
 
 export function ExtractionReviewView({
@@ -55,7 +56,8 @@ export function ExtractionReviewView({
     onFieldSelect,
     onRetry,
     onReset,
-    onSave
+    onSave,
+    onUnmask
 }: ExtractionReviewViewProps) {
     const pdfViewerRef = useRef<PDFViewerHandle>(null)
     // Layout persistent state - using v2 key to reset any previously narrow layouts
@@ -262,6 +264,7 @@ export function ExtractionReviewView({
                                 onReset={onReset}
                                 onRetry={onRetry}
                                 onDownload={handleDownload}
+                                onUnmask={onUnmask}
                                 documentId={fileUrl || filename}
                                 isBetaMode={isBetaMode}
                                 isRawData={isRawData}

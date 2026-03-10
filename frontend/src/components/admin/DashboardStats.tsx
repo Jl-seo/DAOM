@@ -104,31 +104,33 @@ export function DashboardStats() {
                         </CardTitle>
                         <CardDescription>가장 많이 사용된 추출 모델</CardDescription>
                     </CardHeader>
-                    <CardContent className="h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={model_usage}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={80}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                >
-                                    {model_usage.map((_: any, index: number) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip
-                                    contentStyle={{
-                                        backgroundColor: 'hsl(var(--card))',
-                                        borderColor: 'hsl(var(--border))',
-                                        borderRadius: '8px'
-                                    }}
-                                />
-                            </PieChart>
-                        </ResponsiveContainer>
+                    <CardContent>
+                        <div className="h-[300px]">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={model_usage}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={60}
+                                        outerRadius={80}
+                                        paddingAngle={5}
+                                        dataKey="value"
+                                    >
+                                        {model_usage.map((_: any, index: number) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip
+                                        contentStyle={{
+                                            backgroundColor: 'hsl(var(--card))',
+                                            borderColor: 'hsl(var(--border))',
+                                            borderRadius: '8px'
+                                        }}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
                         <div className="flex flex-wrap justify-center gap-4 mt-2">
                             {model_usage.map((entry: any, index: number) => (
                                 <div key={entry.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
