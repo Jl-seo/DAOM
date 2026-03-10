@@ -1,10 +1,29 @@
 import { useState, useEffect } from 'react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
+import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Activity, Database, FileText, TrendingUp, CheckCircle2 } from 'lucide-react'
 import { apiClient } from '../../lib/api'
 
-const COLORS = ['#005bbb', '#00b0ff', '#1E88E5', '#64b5f6', '#90caf9', '#e3f2fd']
+const STATUS_LABELS: Record<string, string> = {
+    'P100': '대기 중',
+    'P200': '업로드 중',
+    'P300': '분석 중',
+    'P400': 'AI 추출 중',
+    'P500': '추출 완료 (대기)',
+    'S100': '최종 승인',
+    'E100': '추출 실패',
+    'E200': '시스템 오류',
+    'E300': '사용자 취소'
+}
+
+const STATUS_COLORS: Record<string, string> = {
+    'S100': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    'P500': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    'E100': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    'E200': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    'E300': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    'default': 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400'
+}
 
 export function DashboardStats() {
     const [stats, setStats] = useState<any>(null)
@@ -32,6 +51,9 @@ export function DashboardStats() {
     if (!stats || !stats.summary) return <div className="p-8 text-center">데이터가 없습니다</div>
 
     const { summary, daily_trend, model_usage, recent_activity } = stats
+    
+    // Top 5 Models to display safely on the horizontal bar chart
+    const topModels = [...model_usage].sort((a: any, b: any) => b.value - a.value).slice(0, 5)
 
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -64,7 +86,7 @@ export function DashboardStats() {
                     title="성공률"
                     value={`${summary.success_rate}%`}
                     icon={CheckCircle2}
-                    description="해당 기간 평균 성공률"
+                    description="해당 기간 평균 성공률 (완료 및 승인)"
                     trend="positive"
                 />
                 <KPICard
@@ -76,7 +98,7 @@ export function DashboardStats() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Daily Trend Chart */}
+                {/* Daily Trend Chart (Area Chart) */}
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-lg flex items-center gap-2">
@@ -85,9 +107,15 @@ export function DashboardStats() {
                         </CardTitle>
                         <CardDescription>최근 {period}일간의 문서 처리량 추이</CardDescription>
                     </CardHeader>
-                    <CardContent className="h-[240px]">
+                    <CardContent className="h-[280px]">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={daily_trend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                            <AreaChart data={daily_trend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                <defs>
+                                    <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
+                                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                                    </linearGradient>
+                                </defs>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                                 <XAxis
                                     dataKey="date"
@@ -102,6 +130,43 @@ export function DashboardStats() {
                                     tickLine={false}
                                 />
                                 <Tooltip
+                                    contentStyle={{
+                                        backgroundColor: 'hsl(var(--card))',
+                                        borderColor: 'hsl(var(--border))',
+                                        borderRadius: '8px',
+                                        fontSize: '12px'
+                                    }}
+                                />
+                                <Area type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorCount)" />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </CardContent>
+                </Card>
+
+                {/* Model Usage Chart (Top 5 Horizontal Bar Chart) */}
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-chart-2" />
+                            상위 모델 현황 (Top 5)
+                        </CardTitle>
+                        <CardDescription>해당 기간 가장 많이 사용된 추출 모델</CardDescription>
+                    </CardHeader>
+                    <CardContent className="h-[280px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={topModels} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="hsl(var(--border))" />
+                                <XAxis type="number" hide />
+                                <YAxis 
+                                    type="category" 
+                                    dataKey="name" 
+                                    width={140} 
+                                    tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }} 
+                                    axisLine={false} 
+                                    tickLine={false} 
+                                    tickFormatter={(value) => value.length > 15 ? `${value.slice(0, 15)}...` : value}
+                                />
+                                <Tooltip
                                     cursor={{ fill: 'hsl(var(--muted)/0.5)' }}
                                     contentStyle={{
                                         backgroundColor: 'hsl(var(--card))',
@@ -110,61 +175,9 @@ export function DashboardStats() {
                                         fontSize: '12px'
                                     }}
                                 />
-                                <Bar dataKey="count" fill="hsl(var(--primary))" barSize={24} radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="value" fill="#005bbb" radius={[0, 4, 4, 0]} barSize={20} />
                             </BarChart>
                         </ResponsiveContainer>
-                    </CardContent>
-                </Card>
-
-                {/* Model Usage Chart */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-lg flex items-center gap-2">
-                            <Activity className="w-4 h-4 text-chart-2" />
-                            모델별 사용량
-                        </CardTitle>
-                        <CardDescription>가장 많이 사용된 추출 모델</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="h-[240px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={model_usage}
-                                        cx="50%"
-                                        cy="50%"
-                                        innerRadius={70} // Make it a Donut Chart
-                                        outerRadius={90}
-                                        paddingAngle={5}
-                                        dataKey="value"
-                                        stroke="none"
-                                    >
-                                        {model_usage.map((_: any, index: number) => (
-                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip
-                                        contentStyle={{
-                                            backgroundColor: 'hsl(var(--card))',
-                                            borderColor: 'hsl(var(--border))',
-                                            borderRadius: '8px',
-                                            fontSize: '12px',
-                                            border: 'none',
-                                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                                        }}
-                                    />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        </div>
-                        <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-4 max-h-[80px] overflow-y-auto overflow-x-hidden pr-2 text-xs">
-                            {model_usage.map((entry: any, index: number) => (
-                                <div key={entry.name} className="flex items-center gap-1.5 text-muted-foreground w-max">
-                                    <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
-                                    <span className="truncate max-w-[120px]">{entry.name}</span>
-                                    <span className="font-medium text-foreground ml-0.5">{entry.value}</span>
-                                </div>
-                            ))}
-                        </div>
                     </CardContent>
                 </Card>
             </div>
@@ -176,25 +189,26 @@ export function DashboardStats() {
                 </CardHeader>
                 <CardContent>
                     <div className="space-y-4">
-                        {recent_activity.map((activity: any) => (
-                            <div key={activity.id} className="flex items-center justify-between border-b border-border pb-2 last:border-0 last:pb-0">
-                                <div className="flex flex-col">
-                                    <span className="text-sm font-medium">{activity.model}</span>
-                                    <span className="text-xs text-muted-foreground">{activity.filename} · {activity.user}</span>
+                        {recent_activity.map((activity: any) => {
+                            const statusLabel = STATUS_LABELS[activity.status] || activity.status
+                            const badgeColor = STATUS_COLORS[activity.status] || STATUS_COLORS['default']
+                            return (
+                                <div key={activity.id} className="flex items-center justify-between border-b border-border pb-2 last:border-0 last:pb-0">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-medium">{activity.model}</span>
+                                        <span className="text-xs text-muted-foreground">{activity.filename} · {activity.user}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-xs px-2 py-1 rounded-full ${badgeColor}`}>
+                                            {statusLabel}
+                                        </span>
+                                        <span className="text-xs text-muted-foreground w-[70px] text-right">
+                                            {new Date(activity.timestamp).toLocaleDateString()}
+                                        </span>
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <span className={`text-xs px-2 py-1 rounded-full ${activity.status === 'success'
-                                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                                        }`}>
-                                        {activity.status}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground">
-                                        {new Date(activity.timestamp).toLocaleDateString()}
-                                    </span>
-                                </div>
-                            </div>
-                        ))}
+                            )
+                        })}
                     </div>
                 </CardContent>
             </Card>

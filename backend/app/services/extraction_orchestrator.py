@@ -245,8 +245,9 @@ async def confirm_and_save_job(
     if not job:
         raise ValueError("Job not found")
 
-    # Check for S100 (SUCCESS) status
-    if job.status != ExtractionStatus.SUCCESS.value:
+    # Check for valid states: either PREVIEW_READY (initial confirmation) or SUCCESS (re-editing a confirmed job)
+    valid_states = [ExtractionStatus.PREVIEW_READY.value, ExtractionStatus.SUCCESS.value]
+    if job.status not in valid_states:
         raise ValueError(f"Job is not ready for confirmation. Status: {job.status}")
 
     # Use edited data if provided, otherwise use preview data

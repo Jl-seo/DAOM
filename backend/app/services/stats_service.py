@@ -28,7 +28,7 @@ async def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
 
         # Counters for the period
         total_extractions = len(period_logs)
-        success_count = sum(1 for log in period_logs if log.status == ExtractionStatus.SUCCESS.value)
+        success_count = sum(1 for log in period_logs if log.status in [ExtractionStatus.SUCCESS.value, ExtractionStatus.PREVIEW_READY.value])
         error_count = sum(1 for log in period_logs if log.status == ExtractionStatus.ERROR.value)
         
         # We calculate the success rate based on the requested period
