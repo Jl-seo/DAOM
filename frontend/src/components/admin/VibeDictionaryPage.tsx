@@ -40,6 +40,14 @@ export function VibeDictionaryPage() {
         }
     })
 
+    const { data: availableModels = [] } = useQuery({
+        queryKey: ['extraction-models-list'],
+        queryFn: async () => {
+            const res = await apiClient.get('/models')
+            return res.data as { id: string, name: string }[]
+        }
+    })
+
     const updateMutation = useMutation({
         mutationFn: async ({ model_id, field_name, raw_val, data }: { model_id: string, field_name: string, raw_val: string, data: any }) => {
             await apiClient.put(`/vibe-dictionary/${model_id}/${field_name}/${encodeURIComponent(raw_val)}`, data)
@@ -278,11 +286,18 @@ export function VibeDictionaryPage() {
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Model ID (Persona)</label>
-                                <Input
+                                <select
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                                     value={newEntry.model_id}
                                     onChange={e => setNewEntry({ ...newEntry, model_id: e.target.value })}
-                                    placeholder="모델 ID를 입력하세요"
-                                />
+                                >
+                                    <option value="" disabled>모델을 선택하세요</option>
+                                    {availableModels.map(m => (
+                                        <option key={m.id} value={m.id}>
+                                            {m.name}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Field Name (Optional)</label>
