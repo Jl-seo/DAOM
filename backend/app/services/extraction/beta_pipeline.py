@@ -252,7 +252,7 @@ class BetaPipeline(ExtractionPipeline):
                                 "type": ["object", "null"],
                                 "properties": {
                                     "value": {"type": sf_schema_type},
-                                    "confidence": {"type": ["number", "null"]},
+                                    "confidence": {"type": "number"},
                                     "page_number": {"type": ["integer", "null"]}
                                 },
                                 "required": ["value", "confidence", "page_number"],
@@ -289,7 +289,7 @@ class BetaPipeline(ExtractionPipeline):
                     "type": ["object", "null"],
                     "properties": {
                         "value": {"type": f_schema_type},
-                        "confidence": {"type": ["number", "null"]},
+                        "confidence": {"type": "number"},
                         "page_number": {"type": ["integer", "null"]}
                     },
                     "required": ["value", "confidence", "page_number"],
