@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
+import { BarChart, Bar, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, LabelList } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Activity, Database, FileText, TrendingUp, CheckCircle2 } from 'lucide-react'
 import { apiClient } from '../../lib/api'
@@ -112,20 +112,20 @@ export function DashboardStats() {
                             <AreaChart data={daily_trend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
-                                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
+                                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.0}/>
                                     </linearGradient>
                                 </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted-foreground))" strokeOpacity={0.2} />
                                 <XAxis
                                     dataKey="date"
-                                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                                    tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
                                     axisLine={false}
                                     tickLine={false}
                                     tickFormatter={(val) => val.slice(5)} // Show MM-DD only
                                 />
                                 <YAxis
-                                    tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
+                                    tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
                                     axisLine={false}
                                     tickLine={false}
                                 />
@@ -137,7 +137,7 @@ export function DashboardStats() {
                                         fontSize: '12px'
                                     }}
                                 />
-                                <Area type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={2} fillOpacity={1} fill="url(#colorCount)" />
+                                <Area type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
                             </AreaChart>
                         </ResponsiveContainer>
                     </CardContent>
@@ -154,9 +154,9 @@ export function DashboardStats() {
                     </CardHeader>
                     <CardContent className="h-[280px]">
                         <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={topModels} layout="vertical" margin={{ top: 0, right: 20, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="hsl(var(--border))" />
-                                <XAxis type="number" hide />
+                            <BarChart data={topModels} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="hsl(var(--muted-foreground))" strokeOpacity={0.2} />
+                                <XAxis type="number" hide domain={[0, 'dataMax']} />
                                 <YAxis 
                                     type="category" 
                                     dataKey="name" 
@@ -167,7 +167,7 @@ export function DashboardStats() {
                                     tickFormatter={(value) => value.length > 15 ? `${value.slice(0, 15)}...` : value}
                                 />
                                 <Tooltip
-                                    cursor={{ fill: 'hsl(var(--muted)/0.5)' }}
+                                    cursor={{ fill: 'hsl(var(--muted))' }}
                                     contentStyle={{
                                         backgroundColor: 'hsl(var(--card))',
                                         borderColor: 'hsl(var(--border))',
@@ -175,7 +175,9 @@ export function DashboardStats() {
                                         fontSize: '12px'
                                     }}
                                 />
-                                <Bar dataKey="value" fill="#005bbb" radius={[0, 4, 4, 0]} barSize={20} />
+                                <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} barSize={20} background={{ fill: 'hsl(var(--muted))', radius: [0, 4, 4, 0] }} >
+                                    <LabelList dataKey="value" position="right" style={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
+                                </Bar>
                             </BarChart>
                         </ResponsiveContainer>
                     </CardContent>
