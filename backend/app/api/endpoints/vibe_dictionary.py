@@ -5,6 +5,7 @@ from app.core.permissions import require_admin
 from app.db.cosmos import get_models_container, get_vibe_dictionary_container
 from app.services.models import get_model_by_id
 import uuid
+import logging
 
 logger = logging.getLogger(__name__)
 
