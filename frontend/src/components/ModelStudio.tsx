@@ -94,18 +94,28 @@ export function ModelStudio() {
         const loadLlmOptions = async () => {
             const options = await fetchLlmOptions()
             setLlmOptions(options)
+        }
+        loadLlmOptions()
+    }, [fetchLlmOptions])
 
+    // Fetch dictionary categories for the current model
+    useEffect(() => {
+        const loadDictionaries = async () => {
+            if (!editingModel?.id) {
+                setGlobalDictionaries([])
+                return
+            }
             try {
-                const res = await apiClient.get('/dictionaries/categories')
+                const res = await apiClient.get('/dictionaries/categories', { params: { model_id: editingModel.id } })
                 if (res.data?.categories) {
                     setGlobalDictionaries(res.data.categories.map((c: any) => c.category))
                 }
             } catch (e) {
-                console.error('Failed to load global dictionaries', e)
+                console.error('Failed to load model dictionaries', e)
             }
         }
-        loadLlmOptions()
-    }, [fetchLlmOptions])
+        loadDictionaries()
+    }, [editingModel?.id])
 
     // Listen for custom event from FieldEditorTable to open SubField Modal
     useEffect(() => {
@@ -462,7 +472,8 @@ export function ModelStudio() {
                             {/* Dictionary Engine */}
                             <Card icon={BookOpen} title="정규화 딕셔너리 연동">
                                 <DictionaryPanel
-                                    disabled={!isEditing}
+                                    modelId={editingModel.id || ''}
+                                    disabled={!isEditing || !editingModel.id}
                                 />
                             </Card>
 

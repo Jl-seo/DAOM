@@ -98,10 +98,18 @@ If no matches are found, return {{}}.
                     ref_data[field][raw_val] = {
                         "value": standard_code,
                         "source": VibeDictionarySource.AI_GENERATED.value,
-                        "is_verified": False
+                        "is_verified": False,
+                        "hit_count": 1
                     }
                     updates_made = True
                     logger.info(f"[VibeDictionary] Auto-Learned synonym: {field} | '{raw_val}' -> '{standard_code}'")
+                else:
+                    # If it already exists, increment the hit count
+                    existing = ref_data[field][raw_val]
+                    if isinstance(existing, dict):
+                        existing["hit_count"] = existing.get("hit_count", 0) + 1
+                        updates_made = True
+                        logger.info(f"[VibeDictionary] Synonym hit count incremented: {field} | '{raw_val}' -> {existing['hit_count']} hits")
 
         if updates_made:
             await update_model(model_id, {"reference_data": ref_data})

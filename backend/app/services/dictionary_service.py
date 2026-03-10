@@ -35,10 +35,11 @@ class DictionaryMatch:
         self.extra = extra or {}
 
 
-def _get_index_name(category: str) -> str:
-    """Each category gets its own index: daom-dict-{category}"""
-    safe = category.lower().replace(" ", "-").replace("_", "-")
-    return f"daom-dict-{safe}"
+def _get_index_name(model_id: str, category: str) -> str:
+    """Each category per model gets its own index: daom-dict-{model_id}-{category}"""
+    safe_model = model_id.lower().replace("-", "")
+    safe_cat = category.lower().replace(" ", "-").replace("_", "-")
+    return f"daom-dict-{safe_model}-{safe_cat}"
 
 
 class DictionaryService:
@@ -73,14 +74,14 @@ class DictionaryService:
     def is_available(self) -> bool:
         return self._initialized
 
-    def _search_client(self, category: str) -> SearchClient:
+    def _search_client(self, model_id: str, category: str) -> SearchClient:
         return SearchClient(
             endpoint=self._endpoint,
-            index_name=_get_index_name(category),
+            index_name=_get_index_name(model_id, category),
             credential=AzureKeyCredential(self._key)
         )
 
-    async def upload_from_excel(self, file_bytes: bytes, category: str, filename: str = "") -> dict:
+    async def upload_from_excel(self, file_bytes: bytes, model_id: str, category: str, filename: str = "") -> dict:
         """
         Upload Excel/CSV to AI Search.
         Dynamically creates index fields from the Excel column headers.
@@ -122,7 +123,7 @@ class DictionaryService:
         df.columns = safe_columns
 
         # 3. Create/update index with dynamic fields
-        index_name = _get_index_name(category)
+        index_name = _get_index_name(model_id, category)
         fields = [
             SimpleField(name="id", type=SearchFieldDataType.String, key=True),
             SimpleField(name="doc_type", type=SearchFieldDataType.String, filterable=True),
@@ -140,7 +141,7 @@ class DictionaryService:
             return {"error": f"인덱스 생성 실패: {e}", "count": 0}
 
         # 4. Upload metadata document (original column names mapping)
-        client = self._search_client(category)
+        client = self._search_client(model_id, category)
         meta_doc = {
             "id": "__meta__",
             "doc_type": "meta",
@@ -186,22 +187,22 @@ class DictionaryService:
             "field_mapping": col_mapping  # original -> safe
         }
 
-    async def search(self, query: str, category: Optional[str] = None, top_k: int = 5) -> List[DictionaryMatch]:
+    async def search(self, query: str, model_id: str, category: Optional[str] = None, top_k: int = 5) -> List[DictionaryMatch]:
         """Search dictionary entries by keyword."""
         if not self._initialized or not query or len(query.strip()) < 2:
             return []
 
         if not category:
-            # Search all category indexes
+            # Search all category indexes for this model
             results = []
-            for cat_info in await self.list_categories():
-                results.extend(await self.search(query, cat_info["category"], top_k))
+            for cat_info in await self.list_categories(model_id):
+                results.extend(await self.search(query, model_id, cat_info["category"], top_k))
             # Sort by score, take top_k
             results.sort(key=lambda m: m.score, reverse=True)
             return results[:top_k]
 
         try:
-            client = self._search_client(category)
+            client = self._search_client(model_id, category)
             filter_expr = "doc_type eq 'data'"
             
             def _do_search():
@@ -229,19 +230,21 @@ class DictionaryService:
             logger.error(f"[DictionaryService] Search failed for '{category}': {e}")
             return []
 
-    async def list_categories(self) -> List[dict]:
-        """List all dictionary categories by listing indexes prefixed with 'daom-dict-'."""
+    async def list_categories(self, model_id: str) -> List[dict]:
+        """List all dictionary categories for the given model. Also returns list without counts for global queries."""
         if not self._initialized:
             return []
         try:
+            safe_model = model_id.lower().replace("-", "") if model_id else ""
+            prefix = f"daom-dict-{safe_model}-" if safe_model else "daom-dict-"
             indexes = await asyncio.to_thread(lambda: list(self._index_client.list_indexes()))
             categories = []
             for idx in indexes:
-                if idx.name.startswith("daom-dict-"):
-                    cat_name = idx.name.replace("daom-dict-", "")
+                if idx.name.startswith(prefix):
+                    cat_name = idx.name.replace(prefix, "")
                     # Get document count
                     try:
-                        client = self._search_client(cat_name)
+                        client = SearchClient(self._endpoint, idx.name, AzureKeyCredential(self._key))
                         results = await asyncio.to_thread(
                             client.search, search_text="*", top=0, include_total_count=True
                         )
@@ -254,11 +257,11 @@ class DictionaryService:
             logger.error(f"[DictionaryService] list_categories failed: {e}")
             return []
 
-    async def delete_category(self, category: str) -> int:
-        """Delete a dictionary category (drops the index)."""
+    async def delete_category(self, model_id: str, category: str) -> int:
+        """Delete a dictionary category (drops the index) scoped to model."""
         if not self._initialized:
             raise Exception("Dictionary service not configured")
-        index_name = _get_index_name(category)
+        index_name = _get_index_name(model_id, category)
         try:
             await asyncio.to_thread(self._index_client.delete_index, index_name)
             logger.info(f"[DictionaryService] Deleted index '{index_name}'")

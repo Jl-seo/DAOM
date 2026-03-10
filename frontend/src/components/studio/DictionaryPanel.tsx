@@ -21,10 +21,11 @@ interface SearchResult {
 }
 
 interface DictionaryPanelProps {
+    modelId: string
     disabled?: boolean
 }
 
-export function DictionaryPanel({ disabled }: DictionaryPanelProps) {
+export function DictionaryPanel({ modelId, disabled }: DictionaryPanelProps) {
     const [categories, setCategories] = useState<DictionaryCategory[]>([])
     const [loading, setLoading] = useState(false)
     const [uploading, setUploading] = useState(false)
@@ -35,9 +36,10 @@ export function DictionaryPanel({ disabled }: DictionaryPanelProps) {
     const [showAddForm, setShowAddForm] = useState(false)
 
     const fetchCategories = useCallback(async () => {
+        if (!modelId) return
         try {
             setLoading(true)
-            const res = await apiClient.get('/dictionaries/categories')
+            const res = await apiClient.get('/dictionaries/categories', { params: { model_id: modelId } })
             setCategories(res.data.categories || [])
         } catch {
             // Service not configured — silently ignore
@@ -56,6 +58,7 @@ export function DictionaryPanel({ disabled }: DictionaryPanelProps) {
             const formData = new FormData()
             formData.append('file', file)
             formData.append('category', category)
+            formData.append('model_id', modelId)
 
             const res = await apiClient.post('/dictionaries/upload', formData)
 
@@ -85,7 +88,7 @@ export function DictionaryPanel({ disabled }: DictionaryPanelProps) {
     const handleSearch = async () => {
         if (!searchQuery.trim()) return
         try {
-            const params: Record<string, string> = { q: searchQuery, top_k: '5' }
+            const params: Record<string, string> = { q: searchQuery, top_k: '5', model_id: modelId }
             if (searchCategory) params.category = searchCategory
             const res = await apiClient.get('/dictionaries/search', { params })
             setSearchResults(res.data.matches || [])
@@ -99,7 +102,7 @@ export function DictionaryPanel({ disabled }: DictionaryPanelProps) {
         // Optimistic UI update to handle Azure AI Search index drop propagation delay
         setCategories(prev => prev.filter(c => c.category !== category))
         try {
-            await apiClient.delete(`/dictionaries/${category}`)
+            await apiClient.delete(`/dictionaries/${category}`, { params: { model_id: modelId } })
             toast.success(`딕셔너리 '${category}' 삭제 완료`)
             // Delay the strict refetch to allow Azure search to actually drop the index
             setTimeout(() => {

@@ -100,7 +100,7 @@ class BetaPipeline(ExtractionPipeline):
                 index_engine = IndexEngine()
                 guide_data = final_guide.get("guide_extracted", {})
                 final_guide["guide_extracted"] = await index_engine.normalize(
-                    guide_data, model.dictionaries
+                    guide_data, model.id, model.dictionaries
                 )
                 logger.info(f"[BetaPipeline] Dictionary normalization applied for categories: {model.dictionaries}")
             except Exception as e:

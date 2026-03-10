@@ -121,7 +121,7 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
     CRITICAL INSTRUCTIONS:
     - Return ONLY valid JSON matching the exact schema provided.
     - If `sub_fields` exists for a table field, you MUST map each `sub_field_key` to its corresponding `excel_column` LETTER (e.g., "A", "C", "F").
-    - If `sub_fields` is missing, dynamically infer required `sub_field_key` names from the field description or rules.
+    - If `sub_fields` is missing, you MUST dynamically infer required `sub_field_key` names STRICTLY based on the field's `description` and `rules`. DO NOT blindly map all physical columns in the Excel file merely because they exist. Only define sub_fields that directly answer the field's logical intention.
     - `"header_row_id"`: The exact `row_id` where the actual column headers (titles) are located (e.g., the row containing "POL", "Description", "Amount").
     - `"first_data_row_id"`: The exact `row_id` where the ACTUAL DATA RECORDS begin, which MUST be GREATER THAN the `header_row_id`. Do NOT point this to the header row.
     - `"columns_mapping"`: Map EXPECTED TARGET KEYS (`sub_field_key`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). 

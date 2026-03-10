@@ -92,7 +92,7 @@ class ExtractionService:
                 
                 # Rule Engine Hook (Normalization & Validation)
                 if model.dictionaries:
-                    sql_result = await rule_engine.apply_dictionary_normalization(sql_result, model.dictionaries)
+                    sql_result = await rule_engine.apply_dictionary_normalization(sql_result, model.id, model.dictionaries)
                 # Step 3: Global Rule Validation & Vibe Dictionary
                 if model.reference_data:
                     sql_result = rule_engine.apply_vibe_dictionary(sql_result, model.reference_data)
@@ -163,7 +163,7 @@ class ExtractionService:
                 # Rule Engine Hook (Normalization & Validation)
                 if model.dictionaries:
                     # Pass fields definition for O(1) field-level mapping
-                    final_result = await rule_engine.apply_dictionary_normalization(final_result, model.dictionaries, model.fields)
+                    final_result = await rule_engine.apply_dictionary_normalization(final_result, model.id, model.dictionaries, model.fields)
                 # Step 3: Global Rule Validation & Vibe Dictionary Phase
                 if model.reference_data:
                     final_result = rule_engine.apply_vibe_dictionary(final_result, model.reference_data)
@@ -252,7 +252,7 @@ class ExtractionService:
         # Rule Engine Hook (Normalization & Validation)
         if model.dictionaries:
             # Step 4: Dictionary Normalization & Vibe Dictionary & Validation (Global)
-            final_result = await rule_engine.apply_dictionary_normalization(final_result, model.dictionaries, model.fields)
+            final_result = await rule_engine.apply_dictionary_normalization(final_result, model.id, model.dictionaries, model.fields)
         if model.reference_data:
             final_result = rule_engine.apply_vibe_dictionary(final_result, model.reference_data)
             final_result = rule_engine.apply_validation_rules(final_result, model.reference_data)

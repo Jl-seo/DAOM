@@ -16,13 +16,13 @@ router = APIRouter()
 
 
 @router.get("/categories")
-async def list_categories(current_user: CurrentUser = Depends(get_current_user)):
+async def list_categories(model_id: str, current_user: CurrentUser = Depends(get_current_user)):
     """List all registered dictionary categories with item counts."""
     service = get_dictionary_service()
     if not service.is_available:
         raise HTTPException(status_code=503, detail="Dictionary service not configured.")
 
-    categories = await service.list_categories()
+    categories = await service.list_categories(model_id)
     return {"categories": categories}
 
 
@@ -30,6 +30,7 @@ async def list_categories(current_user: CurrentUser = Depends(get_current_user))
 async def upload_dictionary(
     request: Request,
     file: UploadFile = File(...),
+    model_id: str = Form(...),
     category: str = Form(...),
     current_user: CurrentUser = Depends(get_current_user)
 ):
@@ -39,7 +40,7 @@ async def upload_dictionary(
         raise HTTPException(status_code=503, detail="Dictionary service not configured.")
 
     file_bytes = await file.read()
-    result = await service.upload_from_excel(file_bytes, category, filename=file.filename or "")
+    result = await service.upload_from_excel(file_bytes, model_id, category, filename=file.filename or "")
 
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -65,6 +66,7 @@ async def upload_dictionary(
 @router.get("/search")
 async def search_dictionary(
     q: str,
+    model_id: str,
     category: str = None,
     top_k: int = 5,
     current_user: CurrentUser = Depends(get_current_user)
@@ -74,7 +76,7 @@ async def search_dictionary(
     if not service.is_available:
         raise HTTPException(status_code=503, detail="Dictionary service not configured.")
 
-    matches = await service.search(q, category=category, top_k=top_k)
+    matches = await service.search(q, model_id, category=category, top_k=top_k)
     return {
         "query": q,
         "matches": [
@@ -87,6 +89,7 @@ async def search_dictionary(
 @router.delete("/{category}", dependencies=[Depends(require_admin)])
 async def delete_category(
     category: str,
+    model_id: str,
     request: Request,
     current_user: CurrentUser = Depends(get_current_user)
 ):
@@ -96,7 +99,7 @@ async def delete_category(
         raise HTTPException(status_code=503, detail="Dictionary service not configured.")
 
     try:
-        count = await service.delete_category(category)
+        count = await service.delete_category(model_id, category)
     except Exception as e:
         logger.error(f"Failed to delete dictionary {category}: {e}")
         raise HTTPException(status_code=500, detail=f"딕셔너리 삭제 실패: {str(e)}")

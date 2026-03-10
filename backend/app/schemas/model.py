@@ -28,6 +28,7 @@ class VibeDictionaryEntry(BaseModel):
     value: str  # The standard code (e.g. KRPUS)
     source: VibeDictionarySource = VibeDictionarySource.MANUAL
     is_verified: bool = True
+    hit_count: int = 1
 
 class LearningMode(str, Enum):
     AUTO = "auto_apply"

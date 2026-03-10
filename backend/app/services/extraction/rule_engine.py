@@ -6,7 +6,7 @@ from app.services.dictionary_service import get_dictionary_service
 logger = logging.getLogger(__name__)
 
 class RuleEngine:
-    async def apply_dictionary_normalization(self, raw_result: Dict[str, Any], dictionaries: List[str], fields: List[Any] = None) -> Dict[str, Any]:
+    async def apply_dictionary_normalization(self, raw_result: Dict[str, Any], model_id: str, dictionaries: List[str], fields: List[Any] = None) -> Dict[str, Any]:
         """
         Step 2: Normalizes raw extracted texts using active dictionary categories mapped at the field-level.
         Only wraps fields if a dictionary is mapped in the field schema and a match is found.
@@ -80,7 +80,7 @@ class RuleEngine:
             best_score = 0.0
             try:
                 async with sem:
-                    matches = await dict_service.search(query=val, category=target_dictionary, top_k=1)
+                    matches = await dict_service.search(query=val, model_id=model_id, category=target_dictionary, top_k=1)
                     if matches and matches[0].score > best_score:
                         best_match = matches[0]
                         best_score = matches[0].score

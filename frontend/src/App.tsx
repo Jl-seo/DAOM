@@ -22,6 +22,7 @@ const AdminSettings = lazy(() => import('./components/AdminSettings').then(m => 
 const ModelView = lazy(() => import('./components/ModelView').then(m => ({ default: m.ModelView })))
 const AuditLogViewer = lazy(() => import('./components/AuditLogViewer').then(m => ({ default: m.AuditLogViewer })))
 const DashboardStats = lazy(() => import('./components/admin/DashboardStats').then(m => ({ default: m.DashboardStats })))
+const VibeDictionaryPage = lazy(() => import('./components/admin/VibeDictionaryPage').then(m => ({ default: m.VibeDictionaryPage })))
 const UserManagement = lazy(() => import('./components/UserManagement').then(m => ({ default: m.UserManagement })))
 const AllExtractionHistory = lazy(() => import('./features/extraction/components/AllExtractionHistory').then(m => ({ default: m.AllExtractionHistory })))
 const QuickExtractionView = lazy(() => import('./features/quick/QuickExtractionView').then(m => ({ default: m.QuickExtractionView })))
@@ -197,6 +198,14 @@ function App() {
           <AppLayout>
             <div className="flex-1 p-4 md:p-8 overflow-auto">
               <AuditLogViewer />
+            </div>
+          </AppLayout>
+        } />
+
+        <Route path="/admin/vibe-dictionary" element={
+          <AppLayout>
+            <div className="flex-1 overflow-auto bg-slate-50">
+              <VibeDictionaryPage />
             </div>
           </AppLayout>
         } />

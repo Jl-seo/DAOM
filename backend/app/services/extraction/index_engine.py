@@ -30,14 +30,14 @@ class IndexEngine:
         self.dict_service = dict_service or get_dictionary_service()
         self._cache: Dict[str, List[dict]] = {}  # category -> [{code, name, extra}, ...]
 
-    async def _preload_categories(self, categories: List[str]):
+    async def _preload_categories(self, model_id: str, categories: List[str]):
         """Pre-load all dictionary entries for given categories into memory."""
         for cat in categories:
             if cat in self._cache:
                 continue
             try:
                 # Single API call: fetch ALL entries for this category
-                matches = await self.dict_service.search("*", category=cat, top_k=1000)
+                matches = await self.dict_service.search("*", model_id=model_id, category=cat, top_k=1000)
                 self._cache[cat] = [
                     {"code": m.code, "name": m.name, "extra": m.extra}
                     for m in matches
@@ -47,12 +47,13 @@ class IndexEngine:
                 logger.error(f"[IndexEngine] Failed to pre-load category '{cat}': {e}")
                 self._cache[cat] = []
 
-    async def normalize(self, guide_extracted: dict, dict_categories: List[str]) -> dict:
+    async def normalize(self, guide_extracted: dict, model_id: str, dict_categories: List[str]) -> dict:
         """
         Auto-scan all string values in guide_extracted against registered dictionaries.
 
         Args:
             guide_extracted: The LLM extraction result (flat or nested)
+            model_id: Model ID for scoping dictionaries
             dict_categories: List of dictionary categories to check (e.g., ["port", "charge"])
 
         Returns:
@@ -63,7 +64,7 @@ class IndexEngine:
             return guide_extracted
 
         # Step 1: Pre-load ALL dictionary entries (1 API call per category)
-        await self._preload_categories(dict_categories)
+        await self._preload_categories(model_id, dict_categories)
 
         # Step 2: Thread-pool processing to avoid blocking asyncio event loop
         import asyncio

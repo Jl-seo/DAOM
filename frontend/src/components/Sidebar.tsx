@@ -270,6 +270,18 @@ export function Sidebar({ className, onClose, collapsed = false, onToggleCollaps
                                 <span className="flex-1 text-left">활동 로그</span>
                             </button>
                             <button
+                                onClick={() => handleNavigate('/admin/vibe-dictionary')}
+                                className={clsx(
+                                    "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
+                                    isPathActive('/admin/vibe-dictionary')
+                                        ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
+                                        : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
+                                )}
+                            >
+                                <FileText className="w-4 h-4" />
+                                <span className="flex-1 text-left">바이브 딕셔너리</span>
+                            </button>
+                            <button
                                 onClick={() => handleNavigate('/admin/settings')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
