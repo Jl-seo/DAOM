@@ -209,11 +209,16 @@ export const DocumentPreviewPanel = forwardRef<ViewerHandle, DocumentPreviewPane
                                         wrapperStyle={{ width: '100%', height: '100%' }}
                                         contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                     >
-                                        <div className="relative inline-block" style={{ lineHeight: 0, maxWidth: '100%', maxHeight: '100%' }}>
+                                        <div className="relative inline-block" style={{ lineHeight: 0, width: 'max-content', height: 'max-content', maxWidth: '100%', maxHeight: '100%' }}>
                                             <img
                                                 src={fileUrl}
-                                                className="max-w-full max-h-full shadow-md"
-                                                style={{ objectFit: 'contain' }}
+                                                className="shadow-md"
+                                                style={{ 
+                                                    display: 'block', 
+                                                    maxWidth: '100%', 
+                                                    maxHeight: '100%', 
+                                                    imageOrientation: 'none' 
+                                                }}
                                                 alt="doc"
                                                 draggable={false}
                                             />
