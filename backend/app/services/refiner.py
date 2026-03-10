@@ -624,7 +624,7 @@ Return ONLY a valid JSON object starting with exactly:
                     ref_info = ref_map[ref_id]
                     resolved["bbox"] = ref_info.get("bbox")
                     resolved["page_number"] = ref_info.get("page_number")
-                    resolved["confidence"] = 0.5 if cell.get("is_uncertain") else 1.0
+                    resolved["confidence"] = cell.get("confidence", 0.5 if cell.get("is_uncertain") else 1.0)
                     resolved["source_text"] = ref_info.get("text", "")
                     # If value is missing or empty, trust the ref source text?
                     # valid strategy: if LLM value is blank but ref exists, use ref text
@@ -634,11 +634,11 @@ Return ONLY a valid JSON object starting with exactly:
                     # ref exists but not in ref_map (LLM hallucination)
                     resolved["bbox"] = None
                     resolved["page_number"] = None
-                    resolved["confidence"] = 0.3
+                    resolved["confidence"] = cell.get("confidence", 0.3)
                 else:
                     resolved["bbox"] = None
                     resolved["page_number"] = None
-                    resolved["confidence"] = 0.0
+                    resolved["confidence"] = cell.get("confidence", 0.0)
 
                 # Preserve uncertainty flags for UI
                 if cell.get("is_uncertain"):
