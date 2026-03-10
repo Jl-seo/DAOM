@@ -165,6 +165,9 @@ async def _run_comparison_branch(
     comparisons: List[Dict[str, Any]] = []
     sem = asyncio.Semaphore(3)
 
+    # Fetch reference data for Vibe Dictionary normalization in comparison
+    reference_data = getattr(model, "reference_data", None)
+
     async def _compare_single(i, cand_url):
         async with sem:
             try:
@@ -174,6 +177,7 @@ async def _run_comparison_branch(
                     image_url_2=cand_url,
                     custom_instructions=custom_instructions,
                     comparison_settings=comp_settings,
+                    reference_data=reference_data,
                 )
                 return {
                     "candidate_index": i,

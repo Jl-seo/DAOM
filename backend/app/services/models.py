@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 from app.schemas.model import ExtractionModel, ExtractionModelCreate
-from app.db.cosmos import get_models_container
+from app.db.cosmos import get_models_container, get_vibe_dictionary_container
 import logging
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,14 @@ async def load_models() -> List[ExtractionModel]:
     try:
         items = [item async for item in container.read_all_items()]
         logger.info(f"[Models] Loaded {len(items)} models from Cosmos DB")
-        return [ExtractionModel(**item) for item in items]
+        
+        models = []
+        for item in items:
+            models.append(ExtractionModel(**item))
+            
+        # Optional: could populate reference_data for all here, 
+        # but usually get_model_by_id is where it's needed deeply.
+        return models
     except Exception as e:
         logger.error(f"[Models] Cosmos read failed: {e}")
         return _load_models_from_json()
@@ -104,8 +111,9 @@ async def update_model(model_id: str, model_data: dict) -> Optional[ExtractionMo
 
 
 async def get_model_by_id(model_id: str) -> Optional[ExtractionModel]:
-    """Get a single model by ID"""
+    """Get a single model by ID, including joined vibe_dictionaries reference data"""
     container = get_models_container()
+    vibe_container = get_vibe_dictionary_container()
 
     if not container:
         models = _load_models_from_json()
@@ -116,6 +124,43 @@ async def get_model_by_id(model_id: str) -> Optional[ExtractionModel]:
 
     try:
         item = await container.read_item(item=model_id, partition_key=model_id)
+        
+        # Application-level join: Fetch all Vibe Dictionary entries for this model
+        reference_data = item.get("reference_data", {}) or {}
+        
+        if vibe_container:
+            query = "SELECT * FROM c WHERE c.model_id = @model_id"
+            parameters = [{"name": "@model_id", "value": model_id}]
+            
+            try:
+                vibe_items = [v async for v in vibe_container.query_items(
+                    query=query, 
+                    parameters=parameters, 
+                    enable_cross_partition_query=True # Optional safeguard depending on index
+                )]
+                
+                # Reconstruct the reference_data dictionary
+                for v_item in vibe_items:
+                    field = v_item.get("field_name")
+                    raw_val = v_item.get("raw_val")
+                    
+                    if not field or not raw_val:
+                        continue
+                        
+                    if field not in reference_data:
+                        reference_data[field] = {}
+                        
+                    reference_data[field][raw_val] = {
+                        "value": v_item.get("value", ""),
+                        "source": v_item.get("source", "MANUAL"),
+                        "is_verified": v_item.get("is_verified", True),
+                        "hit_count": v_item.get("hit_count", 1)
+                    }
+                    
+                item["reference_data"] = reference_data
+            except Exception as e:
+                logger.error(f"[Models] Failed to fetch vibe_dictionaries for {model_id}: {e}")
+
         return ExtractionModel(**item)
     except Exception as e:
         logger.warning(f"[Models] get_model_by_id({model_id}) failed: {e}")

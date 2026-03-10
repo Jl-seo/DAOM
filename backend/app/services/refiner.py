@@ -65,7 +65,7 @@ Context: {description or 'General Document'}
         if filtered_ref:
             ref_json = json.dumps(filtered_ref, ensure_ascii=False, indent=2)
             # SAFETY: Truncate if massive (prevent 10K+ token bloat)
-            MAX_REF_CHARS = settings.REFINER_MAX_REF_CHARS
+            MAX_REF_CHARS = getattr(settings, 'REFINER_MAX_REF_CHARS', 5000)
             if len(ref_json) > MAX_REF_CHARS:
                 ref_json = ref_json[:MAX_REF_CHARS] + "\n... [TRUNCATED DUE TO SIZE]"
                 logger.warning(f"[Refiner] Reference data truncated (size: {len(ref_json)} chars)")
@@ -330,7 +330,7 @@ Do NOT translate unless the field rule explicitly mentions translation.
         ref_data_section = ""
         if filtered_ref:
             ref_json = json.dumps(filtered_ref, ensure_ascii=False, indent=2)
-            MAX_REF_CHARS = settings.REFINER_MAX_REF_CHARS
+            MAX_REF_CHARS = getattr(settings, 'REFINER_MAX_REF_CHARS', 5000)
             if len(ref_json) > MAX_REF_CHARS:
                 ref_json = ref_json[:MAX_REF_CHARS] + "\n... [TRUNCATED]"
             ref_data_section = f"\nREFERENCE DATA (Validation Constraints):\n{ref_json}\n"

@@ -9,7 +9,7 @@ from app.services.llm import get_openai_client, get_current_model
 
 logger = logging.getLogger(__name__)
 
-async def compare_images(image_url_1: str, image_url_2: str, custom_instructions: Optional[str] = None, comparison_settings: Optional[dict] = None) -> dict:
+async def compare_images(image_url_1: str, image_url_2: str, custom_instructions: Optional[str] = None, comparison_settings: Optional[dict] = None, reference_data: Optional[dict] = None) -> dict:
     """
     Compare two images using the 3-Layer Component-Based Architecture:
     1. Physical Layer: SSIM (Structural Similarity)
@@ -220,7 +220,34 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     # 🌟 CRITICAL Logo & Layout Anti-Hallucination Rules
     ignore_rules_list.append("- IGNORE minor pixel variations, alias artifacts, or slight lighting shifts in logos, watermarks, and branding elements if the overall shape and meaning are identical.")
     
-    excluded_cats = comp_settings.get("excluded_categories", [])
+    # 🌟 CRITICAL Reference Data (Vibe Dictionary) Rules for OCR/Handwritten normalizations
+    reference_data_instruction = ""
+    if reference_data:
+        # Extract and flatten verified dictionary words
+        flattened_vibe_dict = {}
+        for field_key, entries in reference_data.items():
+            if isinstance(entries, dict):
+                for raw_val, entry_data in entries.items():
+                    if isinstance(entry_data, dict) and entry_data.get("is_verified") is True:
+                        std_value = entry_data.get("value")
+                        if std_value:
+                            if std_value not in flattened_vibe_dict:
+                                flattened_vibe_dict[std_value] = []
+                            flattened_vibe_dict[std_value].append(raw_val)
+
+        if flattened_vibe_dict:
+            vibe_json = json.dumps(flattened_vibe_dict, ensure_ascii=False, indent=2)
+            reference_data_instruction = f"""
+    **REFERENCE DATA (Global Vibe Dictionary)**
+    The following is a verified map of Standard Values to their known OCR/Handwritten variations:
+    {vibe_json}
+    
+    **VIBE DICTIONARY INSTRUCTIONS:**
+    1. SYNONYM EQUIVALENCE: If the Baseline image contains a handwritten or printed text (e.g., "황양숙") and the Candidate image contains a slight variation or OCR misread (e.g., "황상숙"), check the Vibe Dictionary. If BOTH texts belong to the same Standard Value, or one is the Standard Value and the other is a variation, THEY ARE IDENTICAL. DO NOT report a difference.
+    2. NORMALIZATION: If you must report a difference, and the new text is a known variation in the Vibe Dictionary, output the STANDARD VALUE instead of the raw text.
+    """
+
+    excluded_cats = comparison_settings.get("excluded_categories", []) if comparison_settings else []
     if "missing_element" not in excluded_cats:
         ignore_rules_list.append("- ONLY report a logo difference if it is clearly a DIFFERENT logo entirely OR if the logo/banner is COMPLETELY MISSING.")
         ignore_rules_list.append("- CRITICAL: If an entire section, top banner, or large block of text/graphics is missing from the Candidate image, you MUST report it under the 'missing_element' category.")
@@ -243,6 +270,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     
     {category_instruction}
     {anti_hallucination_instruction}
+    {reference_data_instruction}
     
     **TEXT/NUMBER ACCURACY**:
     - Read text and numbers carefully. Do not skip digits (e.g., "140" ≠ "40").

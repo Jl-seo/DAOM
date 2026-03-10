@@ -10,7 +10,7 @@ Performance: Pre-loads entire dictionary per category ONCE, then matches in-memo
 """
 import logging
 from typing import Optional, List, Dict
-from difflib import SequenceMatcher
+from thefuzz import fuzz
 
 from app.services.dictionary_service import DictionaryService, get_dictionary_service
 
@@ -36,8 +36,8 @@ class IndexEngine:
             if cat in self._cache:
                 continue
             try:
-                # Single API call: fetch ALL entries for this category
-                matches = await self.dict_service.search("*", model_id=model_id, category=cat, top_k=1000)
+                # Single API call: fetch ALL entries for this category (removed top_k limit)
+                matches = await self.dict_service.search("*", model_id=model_id, category=cat, top_k=100000)
                 self._cache[cat] = [
                     {"code": m.code, "name": m.name, "extra": m.extra}
                     for m in matches
@@ -196,11 +196,13 @@ class IndexEngine:
                 elif query_lower in code_lower or code_lower in query_lower:
                     score = 0.8
                 else:
-                    # Fuzzy match using SequenceMatcher
-                    score = max(
-                        SequenceMatcher(None, query_lower, name_lower).ratio(),
-                        SequenceMatcher(None, query_lower, code_lower).ratio()
+                    # Fuzzy match using thefuzz token_set_ratio + ratio
+                    score_name = max(
+                        fuzz.token_set_ratio(query_lower, name_lower) / 100.0,
+                        fuzz.ratio(query_lower, name_lower) / 100.0
                     )
+                    score_code = fuzz.ratio(query_lower, code_lower) / 100.0
+                    score = max(score_name, score_code)
 
                 if score > best_score:
                     best = {
