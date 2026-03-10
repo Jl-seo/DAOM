@@ -8,6 +8,8 @@ def _get_pii_paths(model: _BaseExtractionModel) -> Set[str]:
         if getattr(field, "is_pii", False):
             # Top-level field: path is just the key
             pii_paths.add(field.key)
+            # DAOM Wrappers:
+            pii_paths.add(f"guide_extracted.{field.key}.value")
             
         if field.sub_fields:
             for sub in field.sub_fields:
@@ -15,6 +17,8 @@ def _get_pii_paths(model: _BaseExtractionModel) -> Set[str]:
                     # Sub-field within a table/array (or any nested structure).
                     # We represent array indices with a wildcard '*'
                     pii_paths.add(f"{field.key}.*.{sub.get('key')}")
+                    # DAOM Wrappers:
+                    pii_paths.add(f"guide_extracted.{field.key}.value.*.{sub.get('key')}")
     return pii_paths
 
 def mask_pii_data(data: Any, model: _BaseExtractionModel) -> Any:
@@ -37,8 +41,11 @@ def _recursively_mask_path(data: Any, pii_paths: Set[str], current_path: List[st
             path_str = ".".join(path_parts)
             
             # Check if this exact path is in the pii_paths set
-            if path_str in pii_paths and isinstance(v, str) and v:
-                new_data[k] = "***"
+            if path_str in pii_paths and v is not None and v != "":
+                if not isinstance(v, (dict, list)):
+                    new_data[k] = "***"
+                else:
+                    new_data[k] = _recursively_mask_path(v, pii_paths, path_parts)
             else:
                 new_data[k] = _recursively_mask_path(v, pii_paths, path_parts)
         return new_data

@@ -190,12 +190,20 @@ async def unmask_log_field(
         if not path_str or not isinstance(data, dict):
             return None
             
-        parts = path_str.split('.')
-        current = data
+        path_str = path_str.replace('[', '.').replace(']', '')
+        parts = [p for p in path_str.split('.') if p]
         
+        current = data
         for part in parts:
-            if isinstance(current, dict) and part in current:
-                current = current[part]
+            if isinstance(current, dict):
+                # Auto-unwrap 'value' dict if present and we aren't explicitly looking for 'value'
+                if part not in current and "value" in current and isinstance(current["value"], (dict, list)):
+                    current = current["value"]
+                    
+                if part in current:
+                    current = current[part]
+                else:
+                    return None
             elif isinstance(current, list) and part.isdigit():
                 idx = int(part)
                 if 0 <= idx < len(current):
@@ -205,6 +213,10 @@ async def unmask_log_field(
             else:
                 return None
                 
+        # If the final resolved value is still a wrapped dict, unwrap it.
+        if isinstance(current, dict) and "value" in current:
+            return current["value"]
+            
         return current
 
     raw_value = get_value_by_path(raw_data, payload.path)
