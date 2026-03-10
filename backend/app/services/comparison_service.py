@@ -219,9 +219,15 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
     
     # 🌟 CRITICAL Logo & Layout Anti-Hallucination Rules
     ignore_rules_list.append("- IGNORE minor pixel variations, alias artifacts, or slight lighting shifts in logos, watermarks, and branding elements if the overall shape and meaning are identical.")
-    ignore_rules_list.append("- ONLY report a logo difference if it is clearly a DIFFERENT logo entirely OR if the logo/banner is COMPLETELY MISSING.")
-    ignore_rules_list.append("- CRITICAL: If an entire section, top banner, or large block of text/graphics is missing from the Candidate image, you MUST report it under the 'missing_element' category.")
-    ignore_rules_list.append("- IGNORE anything you are not certain about, but do not ignore massive structural or layout omissions.")
+    
+    excluded_cats = comp_settings.get("excluded_categories", [])
+    if "missing_element" not in excluded_cats:
+        ignore_rules_list.append("- ONLY report a logo difference if it is clearly a DIFFERENT logo entirely OR if the logo/banner is COMPLETELY MISSING.")
+        ignore_rules_list.append("- CRITICAL: If an entire section, top banner, or large block of text/graphics is missing from the Candidate image, you MUST report it under the 'missing_element' category.")
+    else:
+        ignore_rules_list.append("- ONLY report a logo difference if it is clearly a DIFFERENT logo entirely. Do NOT report if it is just missing (as missing_element is excluded).")
+
+    ignore_rules_list.append("- IGNORE anything you are not certain about, but do not ignore massive structural or layout omissions unless layout is excluded.")
 
     ignore_rules_text = "\n    ".join(ignore_rules_list)
 
@@ -290,7 +296,7 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
             "type": "text", 
             "text": "The SSIM Physical Layer identified the following specific regions of interest. Please review these paired crops carefully. For each pair, compare the Baseline Crop to the Candidate Crop. If they are semantically identical based on the ignore rules, DO NOT report a difference."
         })
-        for i, d in enumerate(ssim_diffs[:5]):
+        for i, d in enumerate(ssim_diffs[:3]):
             crop1_url = d.get('crop_1')
             crop2_url = d.get('crop_2')
             if crop1_url and crop2_url:
@@ -316,12 +322,18 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         data = json.loads(result_content)
 
         # Post-process 1: Filter by confidence threshold (낮은 확신도 차이점 제거)
+        dropped_differences = []
         if "differences" in data and isinstance(data["differences"], list):
             before_conf_count = len(data["differences"])
-            data["differences"] = [
-                d for d in data["differences"]
-                if d.get("confidence", 0) >= conf_threshold
-            ]
+            valid_diffs = []
+            for d in data["differences"]:
+                if d.get("confidence", 0) >= conf_threshold:
+                    valid_diffs.append(d)
+                else:
+                    d["drop_reason"] = f"Low Confidence ({d.get('confidence', 0)} < {conf_threshold})"
+                    dropped_differences.append(d)
+            
+            data["differences"] = valid_diffs
             after_conf_count = len(data["differences"])
             if before_conf_count != after_conf_count:
                 logger.info(f"[LLM] Confidence filter: {before_conf_count} -> {after_conf_count} (threshold: {conf_threshold})")
@@ -329,27 +341,30 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
         # Post-process 2: Filter out excluded categories (LLM 지시 무시 대비 안전장치)
         if "differences" in data and isinstance(data["differences"], list):
             original_count = len(data["differences"])
+            valid_diffs = []
+            
+            allowed_lower = [c.lower() for c in category_list] if allowed_categories else None
+            excluded_lower = [c.lower() for c in excluded_categories] if excluded_categories else None
 
-            if allowed_categories:
-                # Only keep differences in allowed categories
-                data["differences"] = [
-                    d for d in data["differences"]
-                    if d.get("category", "").lower() in [c.lower() for c in category_list]
-                ]
-            elif excluded_categories:
-                # Remove differences in excluded categories
-                excluded_lower = [c.lower() for c in excluded_categories]
-                data["differences"] = [
-                    d for d in data["differences"]
-                    if d.get("category", "").lower() not in excluded_lower
-                ]
+            for d in data["differences"]:
+                cat = d.get("category", "").lower()
+                if allowed_categories and cat not in allowed_lower:
+                    d["drop_reason"] = f"Category '{cat}' not in allowed list"
+                    dropped_differences.append(d)
+                elif excluded_categories and cat in excluded_lower:
+                    d["drop_reason"] = f"Category '{cat}' is in excluded list"
+                    dropped_differences.append(d)
+                else:
+                    valid_diffs.append(d)
 
+            data["differences"] = valid_diffs
             filtered_count = len(data["differences"])
             if original_count != filtered_count:
                 logger.info(f"[LLM] Category filter: {original_count} -> {filtered_count} differences")
 
         # Inject metadata
         data["metadata"] = {
+            "dropped_differences": dropped_differences,
             "model": model,
             "method": "3_layer_component_arch",
             "ssim_score": ssim_global_score,

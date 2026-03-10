@@ -161,31 +161,41 @@ async def _run_comparison_branch(
 
     custom_instructions = getattr(model, "global_rules", None)
 
+    import asyncio
     comparisons: List[Dict[str, Any]] = []
-    for i, cand_url in enumerate(all_candidates):
-        try:
-            logger.info(f"[Background] Comparing candidate {i+1}/{len(all_candidates)}")
-            result = await compare_images(
-                image_url_1=file_url,
-                image_url_2=cand_url,
-                custom_instructions=custom_instructions,
-                comparison_settings=comp_settings,
-            )
-            comparisons.append({
-                "candidate_index": i,
-                "result": result,
-                "file_url": cand_url,
-                "filename": candidate_filenames[i] if candidate_filenames and i < len(candidate_filenames) else None,
-            })
-        except Exception as comp_err:
-            logger.error(f"[Background] Comparison failed for candidate {i}: {comp_err}")
-            comparisons.append({
-                "candidate_index": i,
-                "result": {"differences": [], "metadata": {"error": str(comp_err)}},
-                "file_url": cand_url,
-                "filename": candidate_filenames[i] if candidate_filenames and i < len(candidate_filenames) else None,
-                "error": str(comp_err),
-            })
+    sem = asyncio.Semaphore(3)
+
+    async def _compare_single(i, cand_url):
+        async with sem:
+            try:
+                logger.info(f"[Background] Comparing candidate {i+1}/{len(all_candidates)}")
+                result = await compare_images(
+                    image_url_1=file_url,
+                    image_url_2=cand_url,
+                    custom_instructions=custom_instructions,
+                    comparison_settings=comp_settings,
+                )
+                return {
+                    "candidate_index": i,
+                    "result": result,
+                    "file_url": cand_url,
+                    "filename": candidate_filenames[i] if candidate_filenames and i < len(candidate_filenames) else None,
+                }
+            except Exception as comp_err:
+                logger.error(f"[Background] Comparison failed for candidate {i}: {comp_err}")
+                return {
+                    "candidate_index": i,
+                    "result": {"differences": [], "metadata": {"error": str(comp_err)}},
+                    "file_url": cand_url,
+                    "filename": candidate_filenames[i] if candidate_filenames and i < len(candidate_filenames) else None,
+                    "error": str(comp_err),
+                }
+
+    tasks = [_compare_single(i, cand_url) for i, cand_url in enumerate(all_candidates)]
+    comparisons = await asyncio.gather(*tasks)
+    
+    # Sort by candidate_index to preserve original order
+    comparisons.sort(key=lambda x: x["candidate_index"])
 
     preview_data: Dict[str, Any] = {
         "comparisons": comparisons,
