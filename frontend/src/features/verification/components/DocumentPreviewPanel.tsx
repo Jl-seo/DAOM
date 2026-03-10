@@ -209,12 +209,68 @@ export const DocumentPreviewPanel = forwardRef<ViewerHandle, DocumentPreviewPane
                                         wrapperStyle={{ width: '100%', height: '100%' }}
                                         contentStyle={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                                     >
-                                        <img
-                                            src={fileUrl}
-                                            className="max-w-full max-h-full object-contain shadow-md"
-                                            alt="doc"
-                                            draggable={false}
-                                        />
+                                        <div className="relative inline-block" style={{ lineHeight: 0, maxWidth: '100%', maxHeight: '100%' }}>
+                                            <img
+                                                src={fileUrl}
+                                                className="max-w-full max-h-full shadow-md"
+                                                style={{ objectFit: 'contain' }}
+                                                alt="doc"
+                                                draggable={false}
+                                            />
+                                            {/* Render Image Highlights */}
+                                            {highlights.map((area, idx) => {
+                                                const isActive = area.fieldKey === selectedFieldKey
+                                                const hasActive = !!selectedFieldKey
+                                                const isDimmed = hasActive && !isActive
+
+                                                // Ignore invalid bounds
+                                                if (!area.position || !area.position.boundingRect) return null
+
+                                                return (
+                                                    <div
+                                                        key={`img-hl-${idx}`}
+                                                        id={`highlight-img-${area.fieldKey}`}
+                                                        className={`
+                                                            absolute transition-all duration-300 ease-out cursor-pointer group
+                                                            ${isActive ? 'z-50' : 'z-10 hover:z-20'}
+                                                            ${isDimmed ? 'opacity-30 grayscale' : 'opacity-100'}
+                                                        `}
+                                                        style={{
+                                                            left: `${area.position.boundingRect.x1}%`,
+                                                            top: `${area.position.boundingRect.y1}%`,
+                                                            width: `${area.position.boundingRect.width}%`,
+                                                            height: `${area.position.boundingRect.height}%`,
+                                                        }}
+                                                        title={area.content}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            if (area.fieldKey && onHighlightClick) {
+                                                                onHighlightClick(area.fieldKey)
+                                                            }
+                                                        }}
+                                                    >
+                                                        <div
+                                                            className={`
+                                                                w-full h-full rounded-[2px] backdrop-blur-[1px]
+                                                                ${isActive
+                                                                    ? 'bg-yellow-400/30 border-2 border-yellow-600 shadow-[0_0_15px_rgba(234,179,8,0.6)] animate-pulse'
+                                                                    : 'bg-yellow-300/10 border border-yellow-500/50 hover:bg-yellow-300/20 hover:border-yellow-600'
+                                                                }
+                                                            `}
+                                                        />
+                                                        {(isActive || !hasActive) && (
+                                                            <div className={`
+                                                                absolute -top-6 left-0 px-1.5 py-0.5 text-[10px] font-bold text-white bg-yellow-600 rounded shadow-sm
+                                                                opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none
+                                                                ${isActive ? 'opacity-100' : ''}
+                                                            `}>
+                                                                {area.fieldKey}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
                                     </TransformComponent>
                                 </div>
                             </div>
