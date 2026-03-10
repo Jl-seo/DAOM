@@ -99,7 +99,7 @@ export function useExtractionActions(options: UseExtractionActionsOptions = {}) 
         try {
             const res = await apiClient.post(`/extraction/logs/${logId}/unmask`, { path })
             toast.success('원본 데이터를 성공적으로 불러왔습니다', { position: 'top-center' })
-            return res.data.raw_value
+            return res.data.value
         } catch (e: any) {
             toast.error('마스킹 해제 실패: ' + (e?.response?.data?.detail || '알 수 없는 오류'), { position: 'top-center' })
             throw e
