@@ -160,6 +160,13 @@ You must extract ALL rows from the document. Do NOT truncate or sample.
 **CRITICAL: DO NOT FLATTEN**
 - Do NOT force header fields into every table row. Keep them separate at the root level.
 - Do NOT output a single "rows" list unless the field type is explicitly a list.
+
+**CRITICAL: CHECKBOXES & SELECTION MARKS**
+- The document text may contain `:selected:` or `:unselected:` tokens representing checkboxes.
+- `:selected:` means the checkbox/radio button is CHECKED (True/Yes).
+- `:unselected:` means the checkbox/radio button is UNCHECKED (False/No).
+- If your instruction asks to extract ONLY selected items, you MUST filter and extract only rows/values that have a `:selected:` mark next to them. If it has `:unselected:`, IGNORE it.
+- If your instruction asks for the state of a checkbox, map `:selected:` to true/Yes and `:unselected:` to false/No.
 """
         else:
             prompt += f"""
@@ -517,6 +524,13 @@ NULL HANDLING (CRITICAL):
 LANGUAGE:
 - Extract values in the ORIGINAL language as they appear in the document.
 - Do NOT translate unless the work order instruction explicitly says to translate.
+
+CHECKBOXES & SELECTION MARKS (CRITICAL):
+- The document text may contain `:selected:` or `:unselected:` tokens representing checkboxes.
+- `:selected:` means the checkbox is CHECKED (True/Yes).
+- `:unselected:` means the checkbox is UNCHECKED (False/No).
+- If your instruction asks to extract ONLY selected items, you MUST filter and extract only rows/values that have a `:selected:` mark next to them. If it has `:unselected:`, IGNORE it.
+- If your instruction asks for the state of a checkbox, map `:selected:` to true/Yes and `:unselected:` to false/No.
 
 SELF-VERIFICATION RULES (CRITICAL):
 When extracting a value, if ANY of these conditions apply,
