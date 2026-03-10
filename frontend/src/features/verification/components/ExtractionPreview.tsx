@@ -644,7 +644,7 @@ function ResizableNestedTable({
 }
 
 // Legacy wrapper for backward compatibility
-function NestedArrayTable({ data, onUpdate, dexValidation }: { data: any[], onUpdate?: (newData: any[]) => void, dexValidation?: DexValidationData }) {
+function NestedArrayTable({ data, onUpdate, dexValidation, onUnmask, basePath }: { data: any[], onUpdate?: (newData: any[]) => void, dexValidation?: DexValidationData, onUnmask?: (path: string) => Promise<string | undefined>, basePath?: string }) {
     const [isExpanded, setIsExpanded] = useState(true)
     return (
         <ResizableNestedTable
@@ -653,10 +653,11 @@ function NestedArrayTable({ data, onUpdate, dexValidation }: { data: any[], onUp
             isExpanded={isExpanded}
             onToggleExpand={() => setIsExpanded(!isExpanded)}
             dexValidation={dexValidation}
+            onUnmask={onUnmask}
+            basePath={basePath}
         />
     )
 }
-
 
 function EditableValueCell({
     value,
@@ -664,14 +665,16 @@ function EditableValueCell({
     onChange,
     dexValidation,
     onUnmask,
-    isUnmasking
+    isUnmasking,
+    basePath
 }: {
     value: any,
     rawData: any,
     onChange: (val: any) => void,
     dexValidation?: DexValidationData,
-    onUnmask?: () => Promise<void>,
-    isUnmasking?: boolean
+    onUnmask?: (path?: string) => Promise<string | void | undefined>,
+    isUnmasking?: boolean,
+    basePath?: string
 }) {
     // Try to parse JSON strings
     let parsedValue = value
@@ -705,6 +708,8 @@ function EditableValueCell({
                         onChange(newData)
                     }}
                     dexValidation={dexValidation}
+                    onUnmask={onUnmask as any}
+                    basePath={basePath}
                 />
                 <div className="flex justify-between flex-wrap items-center mt-1 gap-2">
                     <div className="text-[10px] text-muted-foreground">
@@ -731,6 +736,8 @@ function EditableValueCell({
                         onChange(newData[0] || {})
                     }}
                     dexValidation={dexValidation}
+                    onUnmask={onUnmask as any}
+                    basePath={basePath}
                 />
                 <div className="flex justify-between flex-wrap items-center mt-1 gap-2">
                     <div className="text-[10px] text-muted-foreground">
@@ -1139,11 +1146,14 @@ export function ExtractionPreview({
                                                                         rawData={rawData}
                                                                         dexValidation={dexValidation?.target_field_key === field.key ? dexValidation : undefined}
                                                                         isUnmasking={unmaskingFields.has(field.key)}
-                                                                        onUnmask={onUnmask && value === '***' ? async () => {
-                                                                            setUnmaskingFields(prev => new Set(prev).add(field.key))
+                                                                        onUnmask={onUnmask ? async (subPath?: string) => {
+                                                                            const targetPath = subPath ? subPath : field.key
+                                                                            setUnmaskingFields(prev => new Set(prev).add(targetPath))
                                                                             try {
-                                                                                const rawVal = await onUnmask(field.key)
+                                                                                const rawVal = await onUnmask(targetPath)
                                                                                 if (rawVal !== undefined) {
+                                                                                    if (subPath) return rawVal;
+                                                                                    
                                                                                     updateGuideField(field.key,
                                                                                         rawData && typeof rawData === 'object' && ('confidence' in rawData || 'raw_value' in rawData)
                                                                                             ? { ...rawData, value: rawVal, raw_value: rawVal }
@@ -1153,11 +1163,12 @@ export function ExtractionPreview({
                                                                             } finally {
                                                                                 setUnmaskingFields(prev => {
                                                                                     const next = new Set(prev)
-                                                                                    next.delete(field.key)
+                                                                                    next.delete(targetPath)
                                                                                     return next
                                                                                 })
                                                                             }
                                                                         } : undefined}
+                                                                        basePath={field.key}
                                                                         onChange={(newValue) => updateGuideField(field.key,
                                                                             rawData && typeof rawData === 'object' && ('confidence' in rawData || 'raw_value' in rawData)
                                                                                 ? {
