@@ -316,9 +316,21 @@ function ResizableNestedTable({
     useEffect(() => {
         if (allKeys.length > 0 && Object.keys(columnWidths).length === 0) {
             const initialWidths: Record<string, number> = {}
-            const defaultWidth = Math.max(100, Math.floor(800 / allKeys.length))
+            
             allKeys.forEach((key: string) => {
-                initialWidths[key] = defaultWidth
+                let maxChars = key.length;
+                for (let i = 0; i < Math.min(displayData.length, 10); i++) {
+                    const row = displayData[i];
+                    if (row) {
+                        const strVal = renderValue(row[key]);
+                        if (strVal.length > maxChars) {
+                            maxChars = strVal.length;
+                        }
+                    }
+                }
+                // 폰트 크기 고려 대략 글자당 8px, 기본 패딩 40px 포함. 최소 120px, 최대 400px
+                const calculatedWidth = Math.max(120, Math.min(400, maxChars * 8 + 40));
+                initialWidths[key] = calculatedWidth;
             })
             setColumnWidths(initialWidths)
         }
