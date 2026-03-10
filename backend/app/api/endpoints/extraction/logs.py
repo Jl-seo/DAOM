@@ -6,6 +6,7 @@ from typing import Optional, List
 from app.services import extraction_logs
 from app.services.audit import log_action, AuditAction, AuditResource
 from app.core.auth import get_current_user, CurrentUser
+from pydantic import BaseModel
 from app.core.rate_limit import limiter
 import logging
 
@@ -113,8 +114,116 @@ async def get_extraction_log(
     debug_data = await hydrate_debug_data(log.debug_data)
 
     # Construct response with hydrated data
+    from app.services.models import get_model_by_id
+    from app.services.masking import mask_pii_data
+    
+    model = await get_model_by_id(log.model_id)
+    if model:
+        log.extracted_data = mask_pii_data(log.extracted_data, model)
+        preview_data = mask_pii_data(preview_data, model)
+
     response = log.model_dump()
     response["preview_data"] = preview_data
     response["debug_data"] = debug_data
     
     return response
+
+
+class UnmaskRequest(BaseModel):
+    path: str  # JSON path like 'items.0.name' or 'customer_name'
+
+class ExportAuditRequest(BaseModel):
+    log_ids: List[str]
+    model_id: Optional[str] = None
+
+@router.post("/logs/audit/export")
+async def audit_export_logs(
+    payload: ExportAuditRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Called by the frontend when downloading Excel locally to ensure the EXPORT
+    action is formally recorded in the backend AuditLog.
+    """
+    await log_action(
+        user=current_user,
+        action=AuditAction.EXPORT,
+        resource_type=AuditResource.EXTRACTION,
+        resource_id=payload.model_id or "MULTIPLE",
+        details={
+            "log_ids": payload.log_ids,
+            "count": len(payload.log_ids)
+        }
+    )
+    return {"status": "audited"}
+
+@router.post("/logs/{log_id}/unmask")
+async def unmask_log_field(
+    log_id: str,
+    payload: UnmaskRequest,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Unmask a specific PII field for a document using its JSON path and write to AuditLog.
+    """
+    # 1. Fetch raw log (bypassing the mask)
+    log = await extraction_logs.get_log(log_id)
+    if not log:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Log not found")
+
+    # Enforce Tenant Isolation
+    if current_user.tenant_id and log.tenant_id and log.tenant_id != current_user.tenant_id:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # 2. Extract Data Hydration
+    from app.services.hydration import hydrate_preview_data
+    # Use preview_data or extracted_data
+    preview_data = await hydrate_preview_data(log.preview_data)
+    raw_data = log.extracted_data or {}
+    if not raw_data and preview_data and getattr(preview_data, "get", None):
+        raw_data = preview_data.get("guide_extracted", {})
+
+    # 3. Find field using exact JSON path
+    def get_value_by_path(data, path_str):
+        if not path_str or not isinstance(data, dict):
+            return None
+            
+        parts = path_str.split('.')
+        current = data
+        
+        for part in parts:
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            elif isinstance(current, list) and part.isdigit():
+                idx = int(part)
+                if 0 <= idx < len(current):
+                    current = current[idx]
+                else:
+                    return None
+            else:
+                return None
+                
+        return current
+
+    raw_value = get_value_by_path(raw_data, payload.path)
+
+    if raw_value is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Path {payload.path} not found in this document")
+
+    # 4. Write to AuditLog
+    await log_action(
+        user=current_user,
+        action=AuditAction.READ, # Translates to UNMASK visually in audit logs based on details
+        resource_type=AuditResource.EXTRACTION,
+        resource_id=log_id,
+        details={
+            "unmask": True,
+            "path": payload.path,
+            "model_id": log.model_id
+        }
+    )
+
+    return {"path": payload.path, "value": raw_value}

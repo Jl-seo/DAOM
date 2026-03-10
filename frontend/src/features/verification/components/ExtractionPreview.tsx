@@ -5,7 +5,7 @@
 
 /* eslint-disable react-hooks/rules-of-hooks */
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Check, ChevronDown, ChevronUp, ChevronRight, Sparkles, Database, Plus, Edit2, Save } from 'lucide-react'
+import { Check, ChevronDown, ChevronUp, ChevronRight, Sparkles, Database, Plus, Edit2, Save, Eye, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,7 @@ interface ExtractionPreviewProps {
     onFieldSelect?: (fieldKey: string | null) => void
     onDataChange?: (data: { guide: Record<string, any>, other: any[] }) => void
     onSave?: (guide: Record<string, any>, other: any[]) => void
+    onUnmask?: (path: string) => Promise<string | undefined>
 
     selectedField?: string | null // Controlled selection prop
     readOnly?: boolean
@@ -242,13 +243,17 @@ function ResizableNestedTable({
     onUpdate,
     isExpanded = true,
     onToggleExpand,
-    dexValidation
+    dexValidation,
+    onUnmask,
+    basePath
 }: {
     data: any[]
     onUpdate?: (newData: any[]) => void
     isExpanded?: boolean
     onToggleExpand?: () => void
     dexValidation?: DexValidationData
+    onUnmask?: (path: string) => Promise<string | undefined>
+    basePath?: string
 }) {
     // Import useVirtualizer dynamically if possible, or assume it's imported at top
     // Since this is a replacement, I need to add the import at the top of the file separately.
@@ -259,6 +264,7 @@ function ResizableNestedTable({
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
     const [resizingColumn, setResizingColumn] = useState<string | null>(null)
     const tableContainerRef = useRef<HTMLDivElement>(null)
+    const [unmaskingFields, setUnmaskingFields] = useState<Set<string>>(new Set())
 
     // Local state to buffer edits and prevent lag from parent re-renders
     const [localData, setLocalData] = useState<any[]>([])
@@ -555,16 +561,56 @@ function ResizableNestedTable({
                                             }}
                                         >
                                             {onUpdate ? (
-                                                <input
-                                                    id={`table-cell-${virtualRow.index}-${key}`}
-                                                    name={`table-cell-${virtualRow.index}-${key}`}
-                                                    type="text"
-                                                    className="w-full h-full bg-transparent border-none hover:bg-accent/30 focus:bg-accent focus:ring-1 focus:ring-primary outline-none px-3 text-sm"
-                                                    value={renderValue(row != null ? row[key] : '')}
-                                                    onChange={(e) => {
-                                                        handleLocalUpdate(virtualRow.index, key, e.target.value)
-                                                    }}
-                                                />
+                                                <div className="flex h-full w-full">
+                                                    <input
+                                                        id={`table-cell-${virtualRow.index}-${key}`}
+                                                        name={`table-cell-${virtualRow.index}-${key}`}
+                                                        type="text"
+                                                        className={clsx(
+                                                            "w-full h-full bg-transparent border-none hover:bg-accent/30 focus:bg-accent focus:ring-1 focus:ring-primary outline-none px-3 text-sm flex-1",
+                                                            row != null && row[key] === '***' && "cursor-not-allowed"
+                                                        )}
+                                                        value={renderValue(row != null ? row[key] : '')}
+                                                        onChange={(e) => {
+                                                            if (row != null && row[key] !== '***') {
+                                                                handleLocalUpdate(virtualRow.index, key, e.target.value)
+                                                            }
+                                                        }}
+                                                        disabled={row != null && row[key] === '***'}
+                                                        title={row != null && row[key] === '***' ? "개인정보 처리 방침에 의해 마스킹 되었습니다." : undefined}
+                                                    />
+                                                    {onUnmask && basePath && row != null && row[key] === '***' && (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="icon"
+                                                            className="h-full w-8 shrink-0 rounded-none border-y-0 border-r-0 border-l"
+                                                            disabled={unmaskingFields.has(`${virtualRow.index}-${key}`)}
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                const cellId = `${virtualRow.index}-${key}`;
+                                                                setUnmaskingFields(prev => new Set(prev).add(cellId));
+                                                                try {
+                                                                    // Array field unmasking path: e.g. "tableKey[*].fieldKey" or "tableKey[0].fieldKey"
+                                                                    // For unmasking specific index, we use the specific index:
+                                                                    const unmaskPath = `${basePath}[${virtualRow.index}].${key}`
+                                                                    const unmaskedVal = await onUnmask(unmaskPath);
+                                                                    if (unmaskedVal !== undefined) {
+                                                                         handleLocalUpdate(virtualRow.index, key, unmaskedVal);
+                                                                    }
+                                                                } finally {
+                                                                    setUnmaskingFields(prev => {
+                                                                        const next = new Set(prev);
+                                                                        next.delete(cellId);
+                                                                        return next;
+                                                                    });
+                                                                }
+                                                            }}
+                                                            title="Unmask"
+                                                        >
+                                                            {unmaskingFields.has(`${virtualRow.index}-${key}`) ? <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" /> : <Eye className="w-3 h-3 text-muted-foreground" />}
+                                                        </Button>
+                                                    )}
+                                                </div>
                                             ) : (
                                                 <div className="px-3 py-2 truncate h-full flex flex-col justify-center">
                                                     <div>{renderValue(row != null ? row[key] : '')}</div>
@@ -616,12 +662,16 @@ function EditableValueCell({
     value,
     rawData,
     onChange,
-    dexValidation
+    dexValidation,
+    onUnmask,
+    isUnmasking
 }: {
-    value: any
-    rawData?: any
-    onChange: (newValue: any) => void
-    dexValidation?: DexValidationData
+    value: any,
+    rawData: any,
+    onChange: (val: any) => void,
+    dexValidation?: DexValidationData,
+    onUnmask?: () => Promise<void>,
+    isUnmasking?: boolean
 }) {
     // Try to parse JSON strings
     let parsedValue = value
@@ -697,17 +747,43 @@ function EditableValueCell({
     }
 
     // Default Text Input (changed to Textarea for better visibility of long content)
+    const isMasked = value === '***'
+
     return (
         <div className="w-full flex flex-col gap-1.5">
             {hasValue ? (
-                <textarea
-                    className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:bg-card outline-none text-foreground py-1 min-h-[24px] resize-y text-sm block"
-                    style={{ fieldSizing: 'content' } as any}
-                    value={renderValue(value)}
-                    onChange={(e) => onChange(e.target.value)}
-                    placeholder="값 입력..."
-                    rows={1}
-                />
+                isMasked ? (
+                    <div className="flex items-center gap-2 w-full">
+                        <input
+                            type="password"
+                            className="flex-1 bg-transparent border-b border-transparent text-muted-foreground py-1 text-sm outline-none cursor-not-allowed"
+                            value="＊＊＊＊＊＊＊＊"
+                            readOnly
+                            title="개인정보 처리 방침에 의해 마스킹 되었습니다."
+                        />
+                        {onUnmask && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs px-2 gap-1 shrink-0"
+                                onClick={(e) => { e.stopPropagation(); onUnmask(); }}
+                                disabled={isUnmasking}
+                            >
+                                {isUnmasking ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
+                                Unmask
+                            </Button>
+                        )}
+                    </div>
+                ) : (
+                    <textarea
+                        className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:bg-card outline-none text-foreground py-1 min-h-[24px] resize-y text-sm block"
+                        style={{ fieldSizing: 'content' } as any}
+                        value={renderValue(value)}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder="값 입력..."
+                        rows={1}
+                    />
+                )
             ) : (
                 <input
                     type="text"
@@ -758,6 +834,7 @@ export function ExtractionPreview({
     onFieldSelect,
     onDataChange,
     onSave,
+    onUnmask,
     selectedField: controlledSelectedField,
     readOnly = false,
     dexValidation
@@ -796,6 +873,9 @@ export function ExtractionPreview({
 
     // Track if initial sync is done to prevent triggering onDataChange during mount
     const isInitializedRef = useRef(false)
+
+    // Track unmasking status per field
+    const [unmaskingFields, setUnmaskingFields] = useState<Set<string>>(new Set())
 
     const [selectedOtherColumns, setSelectedOtherColumns] = useState<Set<string>>(new Set())
     const [showOtherData, setShowOtherData] = useState(false)
@@ -969,6 +1049,8 @@ export function ExtractionPreview({
                                     }
                                 } : undefined}
                                 isExpanded={true}
+                                onUnmask={onUnmask}
+                                basePath={activeTableKey || undefined}
                             />
                         </div>
                     ) : (() => {
@@ -1056,6 +1138,26 @@ export function ExtractionPreview({
                                                                         value={value}
                                                                         rawData={rawData}
                                                                         dexValidation={dexValidation?.target_field_key === field.key ? dexValidation : undefined}
+                                                                        isUnmasking={unmaskingFields.has(field.key)}
+                                                                        onUnmask={onUnmask && value === '***' ? async () => {
+                                                                            setUnmaskingFields(prev => new Set(prev).add(field.key))
+                                                                            try {
+                                                                                const rawVal = await onUnmask(field.key)
+                                                                                if (rawVal !== undefined) {
+                                                                                    updateGuideField(field.key,
+                                                                                        rawData && typeof rawData === 'object' && ('confidence' in rawData || 'raw_value' in rawData)
+                                                                                            ? { ...rawData, value: rawVal, raw_value: rawVal }
+                                                                                            : rawVal
+                                                                                    )
+                                                                                }
+                                                                            } finally {
+                                                                                setUnmaskingFields(prev => {
+                                                                                    const next = new Set(prev)
+                                                                                    next.delete(field.key)
+                                                                                    return next
+                                                                                })
+                                                                            }
+                                                                        } : undefined}
                                                                         onChange={(newValue) => updateGuideField(field.key,
                                                                             rawData && typeof rawData === 'object' && ('confidence' in rawData || 'raw_value' in rawData)
                                                                                 ? {

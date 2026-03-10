@@ -42,11 +42,21 @@ export function useExtractionActions(options: UseExtractionActionsOptions = {}) 
         }
     }
 
-    const handleDownload = (log: ExtractionLog) => {
+    const handleDownload = async (log: ExtractionLog) => {
         if (!log.extracted_data) {
             toast.error('추출 데이터가 없습니다')
             return
         }
+        
+        try {
+            await apiClient.post('/extraction/logs/audit/export', {
+                log_ids: [log.id],
+                model_id: log.model_id
+            })
+        } catch (e) {
+            console.error('Failed to log export audit', e)
+        }
+
         downloadAsExcel(
             [{ filename: log.filename, ...log.extracted_data }],
             `${log.filename}_${new Date(log.created_at).toLocaleDateString()}`
@@ -85,10 +95,22 @@ export function useExtractionActions(options: UseExtractionActionsOptions = {}) 
         }
     }
 
+    const handleUnmask = async (logId: string, path: string) => {
+        try {
+            const res = await apiClient.post(`/extraction/logs/${logId}/unmask`, { path })
+            toast.success('원본 데이터를 성공적으로 불러왔습니다', { position: 'top-center' })
+            return res.data.raw_value
+        } catch (e: any) {
+            toast.error('마스킹 해제 실패: ' + (e?.response?.data?.detail || '알 수 없는 오류'), { position: 'top-center' })
+            throw e
+        }
+    }
+
     return {
         handleRetry,
         handleDownload,
         handleDelete,
-        handleCancel
+        handleCancel,
+        handleUnmask
     }
 }
