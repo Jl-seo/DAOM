@@ -65,26 +65,88 @@ class IndexEngine:
         # Step 1: Pre-load ALL dictionary entries (1 API call per category)
         await self._preload_categories(dict_categories)
 
-        # Step 2: In-memory matching for each field
-        evidence = {}
+        # Step 2: Thread-pool processing to avoid blocking asyncio event loop
+        import asyncio
+        
+        def _cpu_bound_normalization():
+            evidence = {}
+            # Cache unique cell strings to avoid redundant O(N^2) fuzzy matching
+            matched_cache = {} 
+            
+            # Helper inside thread
+            def _get_match_from_cache(query: str):
+                if query not in matched_cache:
+                    matched_cache[query] = self._best_match_memory(query, dict_categories)
+                return matched_cache[query]
 
-        for key, val in list(guide_extracted.items()):
-            if key.startswith("_"):
-                continue
-
-            if isinstance(val, list):
-                # Table field — scan each row
-                for row_idx, row in enumerate(val):
-                    if not isinstance(row, dict):
+            def _normalize_row_local(row_dict: dict, row_path: str):
+                for col_key in list(row_dict.keys()):
+                    if col_key.startswith("_"):
                         continue
-                    self._normalize_row(row, dict_categories, evidence, f"{key}[{row_idx}]")
-            elif isinstance(val, dict) and "value" in val:
-                cell = val.get("value")
-                if isinstance(cell, str) and len(cell) >= 2:
-                    match = self._best_match_memory(cell, dict_categories)
+                    cell_val = row_dict[col_key]
+                    
+                    if isinstance(cell_val, dict):
+                        cell_str = str(cell_val.get("value", ""))
+                    elif isinstance(cell_val, str):
+                        cell_str = cell_val
+                    else:
+                        continue
+                        
+                    if len(cell_str) < 2:
+                        continue
+                        
+                    # Skip obviously numeric values
+                    try:
+                        float(cell_str.replace(",", ""))
+                        continue
+                    except (ValueError, AttributeError):
+                        pass
+
+                    match = _get_match_from_cache(cell_str)
                     if match:
-                        original = val["value"]
-                        val["value"] = match["code"]
+                        original = cell_str
+                        if isinstance(cell_val, dict):
+                            cell_val["value"] = match["code"]
+                        else:
+                            row_dict[col_key] = match["code"]
+
+                        evidence[f"{row_path}.{col_key}"] = {
+                            "original": original,
+                            "matched_code": match["code"],
+                            "matched_name": match["name"],
+                            "category": match["category"],
+                            "score": match["score"]
+                        }
+
+            for key, val in list(guide_extracted.items()):
+                if key.startswith("_"):
+                    continue
+
+                if isinstance(val, list):
+                    # Table field — scan each row
+                    for row_idx, row in enumerate(val):
+                        if not isinstance(row, dict):
+                            continue
+                        _normalize_row_local(row, f"{key}[{row_idx}]")
+                elif isinstance(val, dict) and "value" in val:
+                    cell = val.get("value")
+                    if isinstance(cell, str) and len(cell) >= 2:
+                        match = _get_match_from_cache(cell)
+                        if match:
+                            original = val["value"]
+                            val["value"] = match["code"]
+                            evidence[key] = {
+                                "original": original,
+                                "matched_code": match["code"],
+                                "matched_name": match["name"],
+                                "category": match["category"],
+                                "score": match["score"]
+                            }
+                elif isinstance(val, str) and len(val) >= 2:
+                    match = _get_match_from_cache(val)
+                    if match:
+                        original = val
+                        guide_extracted[key] = match["code"]
                         evidence[key] = {
                             "original": original,
                             "matched_code": match["code"],
@@ -92,64 +154,16 @@ class IndexEngine:
                             "category": match["category"],
                             "score": match["score"]
                         }
-            elif isinstance(val, str) and len(val) >= 2:
-                match = self._best_match_memory(val, dict_categories)
-                if match:
-                    original = val
-                    guide_extracted[key] = match["code"]
-                    evidence[key] = {
-                        "original": original,
-                        "matched_code": match["code"],
-                        "matched_name": match["name"],
-                        "category": match["category"],
-                        "score": match["score"]
-                    }
 
-        if evidence:
-            guide_extracted["_dict_evidence"] = evidence
+            if evidence:
+                guide_extracted["_dict_evidence"] = evidence
+                
+            return guide_extracted
+
+        # Run CPU heavy fuzzy matching in background thread
+        guide_extracted = await asyncio.to_thread(_cpu_bound_normalization)
 
         return guide_extracted
-
-    def _normalize_row(self, row: dict, dict_categories: List[str], evidence: dict, row_path: str):
-        """Normalize a single table row's string values (in-memory, no API calls)."""
-        for col_key in list(row.keys()):
-            if col_key.startswith("_"):
-                continue
-
-            cell_val = row[col_key]
-
-            if isinstance(cell_val, dict):
-                cell_str = str(cell_val.get("value", ""))
-            elif isinstance(cell_val, str):
-                cell_str = cell_val
-            else:
-                continue
-
-            if len(cell_str) < 2:
-                continue
-
-            # Skip obviously numeric values
-            try:
-                float(cell_str.replace(",", ""))
-                continue
-            except (ValueError, AttributeError):
-                pass
-
-            match = self._best_match_memory(cell_str, dict_categories)
-            if match:
-                original = cell_str
-                if isinstance(cell_val, dict):
-                    cell_val["value"] = match["code"]
-                else:
-                    row[col_key] = match["code"]
-
-                evidence[f"{row_path}.{col_key}"] = {
-                    "original": original,
-                    "matched_code": match["code"],
-                    "matched_name": match["name"],
-                    "category": match["category"],
-                    "score": match["score"]
-                }
 
     def _best_match_memory(self, query: str, categories: List[str]) -> Optional[dict]:
         """
