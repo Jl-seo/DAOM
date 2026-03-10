@@ -203,11 +203,15 @@ class DictionaryService:
         try:
             client = self._search_client(category)
             filter_expr = "doc_type eq 'data'"
-            search_results = await asyncio.to_thread(
-                client.search,
-                search_text=query, filter=filter_expr,
-                top=top_k, include_total_count=True
-            )
+            
+            def _do_search():
+                return list(client.search(
+                    search_text=query, filter=filter_expr,
+                    top=top_k, include_total_count=True
+                ))
+                
+            search_results = await asyncio.to_thread(_do_search)
+            
             matches = []
             for r in search_results:
                 # Use first two non-id fields as code/name for display

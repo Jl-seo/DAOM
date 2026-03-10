@@ -48,57 +48,79 @@ class RuleEngine:
             # Early exit if no fields have dictionary mapping
             return raw_result
 
-        async def _normalize_value(val: str, target_dictionary: str) -> Dict[str, Any]:
-            if not isinstance(val, str) or len(val.strip()) < 2:
-                return {"raw_value": val, "normalized_code": None, "dict_score": 0.0}
-            
-            best_match = None
-            best_score = 0.0
+        import asyncio
+        
+        # Pass 1: Collect unique (value, category) pairs to fetch
+        pending_tasks = set()
 
-            try:
-                matches = await dict_service.search(query=val, category=target_dictionary, top_k=1)
-                if matches and matches[0].score > best_score:
-                    best_match = matches[0]
-                    best_score = matches[0].score
-            except Exception as e:
-                logger.error(f"[RuleEngine] Dictionary search failed for val='{val}' in cat='{target_dictionary}': {e}")
-                pass
-            
-            if best_match and best_score > 0.5: # arbitrary threshold for now
-                return {
-                    "raw_value": val,
-                    "normalized_code": best_match.code,
-                    "dict_score": best_score,
-                    "normalized_category": best_match.category
-                }
-            
-            return {"raw_value": val, "normalized_code": None, "dict_score": 0.0}
-
-        # Apply to all top-level fields
         for key, item in guide_extracted.items():
             if isinstance(item, dict) and "value" in item:
                 val = item["value"]
                 
-                # Top level string
                 if isinstance(val, str):
                     dict_cat = field_dict_map.get(key)
-                    if dict_cat:
-                        norm = await _normalize_value(val, dict_cat)
-                        item["raw_value"] = norm["raw_value"]
-                        item["normalized_code"] = norm["normalized_code"]
-                        item["dict_score"] = norm["dict_score"]
+                    if dict_cat and len(val.strip()) >= 2:
+                        pending_tasks.add((val, dict_cat))
                 
-                # Table / Array
                 elif isinstance(val, list):
                     for row in val:
                         if isinstance(row, dict):
                             for sub_key, sub_val in row.items():
                                 if isinstance(sub_val, str):
-                                    # composite key for lookup: parentKey.subKey
-                                    # Fallback to parentKey for table-level generic dictionary cascading
+                                    sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}") or field_dict_map.get(key)
+                                    if sub_dict_cat and len(sub_val.strip()) >= 2:
+                                        pending_tasks.add((sub_val, sub_dict_cat))
+
+        # Pass 2: Fetch concurrently with caching and Semaphore
+        cache = {}
+        sem = asyncio.Semaphore(15) # Concurrent API limit
+
+        async def _fetch(val: str, target_dictionary: str):
+            best_match = None
+            best_score = 0.0
+            try:
+                async with sem:
+                    matches = await dict_service.search(query=val, category=target_dictionary, top_k=1)
+                    if matches and matches[0].score > best_score:
+                        best_match = matches[0]
+                        best_score = matches[0].score
+            except Exception as e:
+                logger.error(f"[RuleEngine] Dictionary search failed for val='{val}' in cat='{target_dictionary}': {e}")
+            
+            if best_match and best_score > 0.5: # arbitrary threshold
+                cache[(val, target_dictionary)] = {
+                    "raw_value": val,
+                    "normalized_code": best_match.code,
+                    "dict_score": best_score,
+                    "normalized_category": best_match.category
+                }
+            else:
+                cache[(val, target_dictionary)] = {"raw_value": val, "normalized_code": None, "dict_score": 0.0}
+
+        if pending_tasks:
+            await asyncio.gather(*[_fetch(v, d) for v, d in pending_tasks])
+
+        # Pass 3: Apply the cached results
+        for key, item in guide_extracted.items():
+            if isinstance(item, dict) and "value" in item:
+                val = item["value"]
+                
+                if isinstance(val, str):
+                    dict_cat = field_dict_map.get(key)
+                    if dict_cat:
+                        norm = cache.get((val, dict_cat), {"raw_value": val, "normalized_code": None, "dict_score": 0.0})
+                        item["raw_value"] = norm["raw_value"]
+                        item["normalized_code"] = norm["normalized_code"]
+                        item["dict_score"] = norm["dict_score"]
+                
+                elif isinstance(val, list):
+                    for row in val:
+                        if isinstance(row, dict):
+                            for sub_key, sub_val in row.items():
+                                if isinstance(sub_val, str):
                                     sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}") or field_dict_map.get(key)
                                     if sub_dict_cat:
-                                        norm = await _normalize_value(sub_val, sub_dict_cat)
+                                        norm = cache.get((sub_val, sub_dict_cat), {"raw_value": sub_val, "normalized_code": None, "dict_score": 0.0})
                                         row[sub_key] = {
                                             "raw_value": sub_val,
                                             "normalized_code": norm["normalized_code"],
