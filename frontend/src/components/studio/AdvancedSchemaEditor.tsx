@@ -99,8 +99,8 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                             e.target.style.height = (e.target.scrollHeight) + 'px';
                         }}
                         disabled={disabled}
-                        rows={field.description && field.description.length > 50 ? 2 : 1}
-                        className="text-[13px] leading-relaxed text-foreground bg-white dark:bg-background border border-border/80 rounded-md px-3 py-2 placeholder:text-muted-foreground/40 focus:border-primary outline-none transition-all disabled:cursor-not-allowed shadow-sm resize-none overflow-hidden min-h-[40px]"
+                        rows={field.description && field.description.length > 50 ? 4 : 3}
+                        className="text-[13px] leading-relaxed text-foreground bg-white dark:bg-background border border-border/80 rounded-md px-3 py-2 placeholder:text-muted-foreground/40 focus:border-primary outline-none transition-all disabled:cursor-not-allowed shadow-sm resize-y overflow-hidden min-h-[80px]"
                         placeholder="어디서 찾을지, 어떤 형식인지 상세히 적어주세요."
                     />
                 </div>
@@ -213,6 +213,21 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                             className="w-4 h-4 rounded border-border text-primary focus:ring-primary focus:ring-offset-background"
                         />
                         필수 수집 (Required)
+                    </label>
+
+                    <label className={clsx(
+                        "flex items-center gap-2.5 text-[13px] font-bold cursor-pointer transition-colors",
+                        disabled ? "opacity-60 cursor-not-allowed" : "hover:text-foreground",
+                        field.is_pii ? "text-red-500" : "text-muted-foreground"
+                    )}>
+                        <input
+                            type="checkbox"
+                            checked={field.is_pii || false}
+                            onChange={(e) => updateField(index, 'is_pii', e.target.checked)}
+                            disabled={disabled}
+                            className="w-4 h-4 rounded border-border accent-red-500"
+                        />
+                        개인정보 (PII Masking)
                     </label>
 
                     <div className="flex flex-col gap-1.5">

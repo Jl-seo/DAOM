@@ -127,6 +127,30 @@ export function ModelSettingsTab({
                     </p>
                 </div>
 
+                <div className="mt-4">
+                    <label className="block text-xs font-medium text-muted-foreground mb-2">
+                        ⏳ 데이터 보관 주기 (Data Retention - ISMS-P)
+                    </label>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="number"
+                            min="0"
+                            value={editingModel.retention_days || ''}
+                            onChange={(e) => onUpdate({ ...editingModel, retention_days: e.target.value ? parseInt(e.target.value) : undefined })}
+                            disabled={!isEditing}
+                            placeholder="예: 30"
+                            className={clsx(
+                                "w-32 px-4 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary transition-all bg-background",
+                                !isEditing && "bg-muted cursor-not-allowed"
+                            )}
+                        />
+                        <span className="text-sm text-foreground">일(Days)</span>
+                    </div>
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                        추출 데이터가 설정된 기간 후 저장소에서 자동 삭제됩니다. 개인정보가 포함된 모델의 경우 권장됩니다.
+                    </p>
+                </div>
+
                 <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-4">
                     <div>
                         <label className="block text-xs font-medium text-muted-foreground mb-2">

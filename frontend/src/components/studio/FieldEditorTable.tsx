@@ -155,6 +155,22 @@ function SortableRow({ field, index, id, modelDictionaries, updateField, removeF
                         필수 항목 (Required)
                     </label>
 
+                    {/* PII Toggle */}
+                    <label className={clsx(
+                        "flex items-center gap-1.5 text-[10px] cursor-pointer transition-colors w-full justify-end",
+                        disabled ? "opacity-60 cursor-not-allowed" : "hover:text-foreground",
+                        field.is_pii ? "text-red-500 font-bold" : "text-muted-foreground"
+                    )}>
+                        <input
+                            type="checkbox"
+                            checked={field.is_pii || false}
+                            onChange={(e) => updateField(index, 'is_pii', e.target.checked)}
+                            disabled={disabled}
+                            className="rounded border-border/50 bg-transparent w-3 h-3 accent-red-500"
+                        />
+                        개인정보 (PII Masking)
+                    </label>
+
                     {/* Validation Regex */}
                     <div className="flex items-center gap-1 border border-border/50 rounded px-1.5 py-0.5 focus-within:border-primary/50 overflow-hidden w-full max-w-[140px]">
                         <span className="text-[9px] text-muted-foreground/50 tracking-tighter">/^</span>

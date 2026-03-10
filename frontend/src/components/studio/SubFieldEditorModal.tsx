@@ -139,6 +139,20 @@ function SortableSubRow({ subField, index, id, modelDictionaries, updateSubField
                             필수 항목 (Required)
                         </label>
 
+                        {/* PII Toggle */}
+                        <label className={clsx(
+                            "flex items-center gap-1.5 text-[10px] cursor-pointer hover:text-foreground",
+                            subField.is_pii ? "text-red-500 font-bold" : "text-muted-foreground"
+                        )}>
+                            <input
+                                type="checkbox"
+                                checked={subField.is_pii || false}
+                                onChange={(e) => updateSubField(index, 'is_pii', e.target.checked)}
+                                className="rounded border-border/50 bg-transparent accent-red-500"
+                            />
+                            개인정보
+                        </label>
+
                         {/* Regex Input */}
                         <div className="flex-1 flex items-center border border-border/50 rounded px-1.5 overflow-hidden focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/20 transition-all">
                             <span className="text-[9px] text-muted-foreground/70 font-mono tracking-tighter mr-1 select-none">/^</span>
