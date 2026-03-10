@@ -258,10 +258,10 @@ export const DocumentPreviewPanel = forwardRef<ViewerHandle, DocumentPreviewPane
                                                     >
                                                         <div
                                                             className={`
-                                                                w-full h-full rounded-[2px] backdrop-blur-[1px]
+                                                                w-full h-full rounded-[2px] 
                                                                 ${isActive
-                                                                    ? 'bg-yellow-400/30 border-2 border-yellow-600 shadow-[0_0_15px_rgba(234,179,8,0.6)] animate-pulse'
-                                                                    : 'bg-yellow-300/10 border border-yellow-500/50 hover:bg-yellow-300/20 hover:border-yellow-600'
+                                                                    ? 'bg-transparent border-2 border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.7)] animate-pulse'
+                                                                    : 'bg-transparent border border-yellow-500/50 hover:bg-yellow-400/10 hover:border-yellow-500'
                                                                 }
                                                             `}
                                                         />

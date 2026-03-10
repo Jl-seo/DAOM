@@ -738,8 +738,15 @@ If a field is not found, return null.
         # - Or if `value_str` is contained in `word.content`
         
         # Best effort: find single word match
+        # 1. Exact match
         for w in words:
             if value_str == w["content"].strip():
+                return w["polygon"]
+                
+        # 2. Substring match (If the OCR word is part of the extracted value, or vice versa)
+        for w in words:
+            w_content = w["content"].strip()
+            if len(w_content) > 1 and (w_content in value_str or value_str in w_content):
                 return w["polygon"]
         
         return None
