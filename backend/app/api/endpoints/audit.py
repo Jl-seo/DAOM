@@ -100,13 +100,11 @@ async def list_audit_logs(
 
 @router.get("/stats")
 async def get_audit_stats(
+    days: int = Query(30, description="Period in days to fetch stats for"),
     user: CurrentUser = Depends(require_admin)
 ):
     """
     Get audit log statistics (Admin only)
     """
-    """
-    Get audit log statistics (Admin only)
-    """
-    stats = await stats_service.get_dashboard_stats()
+    stats = await stats_service.get_dashboard_stats(days=days)
     return stats

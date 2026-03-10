@@ -11,31 +11,34 @@ logger = logging.getLogger(__name__)
 
 async def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
     """
-    Get aggregated statistics for the dashboard
+    Get aggregated statistics for the dashboard for the given period
     """
     try:
         # Get exact total count first
-        total_extractions = await extraction_logs.get_all_logs_count()
-
-        # Get recent logs for aggregations (daily trend, models, recent activity)
-        # Using a higher limit for a more representative sample
+        # We now use period logs to get the count, as querying all partitions 
+        # is slow and hits aio SDK bugs.
         logs = await extraction_logs.get_all_logs(limit=10000)
+        
+        # Filter logs by the requested period (client time might differ, using UTC naive fallback)
+        cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        period_logs = [log for log in logs if log.created_at >= cutoff_date]
+
         all_models = await models.load_models()
         model_map = {m.id: m.name for m in all_models}
 
-        # Calculate success rate from the fetched sample (or we could run a separate COUNT query)
-        sample_total = len(logs)
-        success_count = sum(1 for log in logs if log.status == ExtractionStatus.SUCCESS.value)
-        error_count = sum(1 for log in logs if log.status == ExtractionStatus.ERROR.value)
+        # Counters for the period
+        total_extractions = len(period_logs)
+        success_count = sum(1 for log in period_logs if log.status == ExtractionStatus.SUCCESS.value)
+        error_count = sum(1 for log in period_logs if log.status == ExtractionStatus.ERROR.value)
         
-        # We calculate the success rate based on our recent 10000 sample
-        success_rate = round((success_count / sample_total * 100) if sample_total > 0 else 0, 1)
+        # We calculate the success rate based on the requested period
+        success_rate = round((success_count / total_extractions * 100) if total_extractions > 0 else 0, 1)
 
-        # 1. Daily Trend (Last 7 days)
-        daily_trend = _calculate_daily_trend(logs, days=7)
+        # 1. Daily Trend (for the requested period)
+        daily_trend = _calculate_daily_trend(period_logs, days=days)
 
         # 2. Model Usage Distribution
-        model_usage = _calculate_model_usage(logs, model_map)
+        model_usage = _calculate_model_usage(period_logs, model_map)
 
         # 3. Recent Activity (Top 5)
         recent_activity = [
@@ -48,14 +51,14 @@ async def get_dashboard_stats(days: int = 30) -> Dict[str, Any]:
                 "user": log.user_name or log.user_email or "Unknown",
                 "token_usage": log.token_usage
             }
-            for log in logs[:5]
+            for log in period_logs[:5]
         ]
 
         return {
             "summary": {
                 "total_extractions": total_extractions,
                 "success_rate": success_rate,
-                "active_models": len(model_map)
+                "active_models": len(model_usage)  # Active models in this period
             },
             "daily_trend": daily_trend,
             "model_usage": model_usage,
