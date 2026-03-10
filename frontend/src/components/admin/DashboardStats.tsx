@@ -112,32 +112,33 @@ export function DashboardStats() {
                             <AreaChart data={daily_trend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                 <defs>
                                     <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.8}/>
-                                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.0}/>
+                                        <stop offset="5%" stopColor="var(--color-chart-1)" stopOpacity={0.4}/>
+                                        <stop offset="95%" stopColor="var(--color-chart-1)" stopOpacity={0.0}/>
                                     </linearGradient>
                                 </defs>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--muted-foreground))" strokeOpacity={0.2} />
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.6} />
                                 <XAxis
                                     dataKey="date"
-                                    tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                                    tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }}
                                     axisLine={false}
                                     tickLine={false}
                                     tickFormatter={(val) => val.slice(5)} // Show MM-DD only
                                 />
                                 <YAxis
-                                    tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }}
+                                    tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }}
                                     axisLine={false}
                                     tickLine={false}
                                 />
                                 <Tooltip
                                     contentStyle={{
-                                        backgroundColor: 'hsl(var(--card))',
-                                        borderColor: 'hsl(var(--border))',
+                                        backgroundColor: 'var(--color-card)',
+                                        borderColor: 'var(--color-border)',
                                         borderRadius: '8px',
-                                        fontSize: '12px'
+                                        fontSize: '12px',
+                                        color: 'var(--color-foreground)'
                                     }}
                                 />
-                                <Area type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
+                                <Area type="monotone" dataKey="count" stroke="var(--color-chart-1)" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
                             </AreaChart>
                         </ResponsiveContainer>
                     </CardContent>
@@ -155,28 +156,29 @@ export function DashboardStats() {
                     <CardContent className="h-[280px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={topModels} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="hsl(var(--muted-foreground))" strokeOpacity={0.2} />
+                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="var(--color-border)" strokeOpacity={0.6} />
                                 <XAxis type="number" hide domain={[0, 'dataMax']} />
                                 <YAxis 
                                     type="category" 
                                     dataKey="name" 
                                     width={140} 
-                                    tick={{ fontSize: 11, fill: 'hsl(var(--foreground))' }} 
+                                    tick={{ fontSize: 11, fill: 'var(--color-muted-foreground)' }} 
                                     axisLine={false} 
                                     tickLine={false} 
                                     tickFormatter={(value) => value.length > 15 ? `${value.slice(0, 15)}...` : value}
                                 />
                                 <Tooltip
-                                    cursor={{ fill: 'hsl(var(--muted))' }}
+                                    cursor={{ fill: 'var(--color-muted)' }}
                                     contentStyle={{
-                                        backgroundColor: 'hsl(var(--card))',
-                                        borderColor: 'hsl(var(--border))',
+                                        backgroundColor: 'var(--color-card)',
+                                        borderColor: 'var(--color-border)',
                                         borderRadius: '8px',
-                                        fontSize: '12px'
+                                        fontSize: '12px',
+                                        color: 'var(--color-foreground)'
                                     }}
                                 />
-                                <Bar dataKey="value" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} barSize={20} background={{ fill: 'hsl(var(--muted))', radius: [0, 4, 4, 0] }} >
-                                    <LabelList dataKey="value" position="right" style={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
+                                <Bar dataKey="value" fill="var(--color-chart-2)" radius={4} barSize={20} background={{ fill: 'var(--color-muted)', radius: 4 }} >
+                                    <LabelList dataKey="value" position="right" style={{ fill: 'var(--color-muted-foreground)', fontSize: 11 }} />
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
