@@ -550,14 +550,13 @@ If a field is not found, return null.
                         
         return final_page_number, snapped_bbox
 
-    def _normalize_and_filter_bbox(self, bbox: Optional[List[float]], page_number: Optional[int], page_dims: Dict[int, Tuple[float, float]]) -> Optional[List[float]]:
+    def _normalize_and_filter_bbox(self, bbox: Optional[List[float]], page_number: Optional[int], page_dims: Dict[int, Tuple[float, float]], default_page: int = 1) -> Optional[List[float]]:
         """Helper to normalize bounding box to percentages and filter invalid ones."""
         normalized_bbox = None
         if bbox:
             if len(bbox) >= 8 or len(bbox) == 4:
-                p_w, p_h = 100, 100
-                if page_number and page_number in page_dims:
-                    p_w, p_h = page_dims[page_number]
+                target_page = page_number if (page_number and page_number in page_dims) else default_page
+                p_w, p_h = page_dims.get(target_page, (100, 100))
                 normalized_bbox = normalize_bbox(bbox, p_w, p_h)
         
         if normalized_bbox and len(normalized_bbox) == 4:
@@ -582,7 +581,7 @@ If a field is not found, return null.
                 logger.warning(f"[Validation] Invalid regex '{field.validation_regex}' for field '{field.key}': {e}")
         return validation_status
 
-    def _parse_complex_field(self, value: Any, field_key: str, page_number: Optional[int], page_dims: Dict[int, Tuple[float, float]]) -> Tuple[Any, str]:
+    def _parse_complex_field(self, value: Any, field_key: str, page_number: Optional[int], page_dims: Dict[int, Tuple[float, float]], default_page: int = 1) -> Tuple[Any, str]:
         """Helper to parse JSON array/object strings and recursively normalize bboxes."""
         validation_status = "valid"
         if isinstance(value, str):
@@ -615,9 +614,8 @@ If a field is not found, return null.
                                     _recursive_normalize_bbox(item, pg_w, pg_h)
                         return data
                         
-                    p_w, p_h = 100, 100
-                    if page_number and page_number in page_dims:
-                        p_w, p_h = page_dims[page_number]
+                    target_page = page_number if (page_number and page_number in page_dims) else default_page
+                    p_w, p_h = page_dims.get(target_page, (100, 100))
                     value = _recursive_normalize_bbox(value, p_w, p_h)
                     
                 except json.JSONDecodeError:
@@ -661,14 +659,14 @@ If a field is not found, return null.
 
             # 2. Normalize Bounding Box
             bbox_to_normalize = snapped_bbox if snapped_bbox else bbox
-            normalized_bbox = self._normalize_and_filter_bbox(bbox_to_normalize, page_number, page_dims)
+            normalized_bbox = self._normalize_and_filter_bbox(bbox_to_normalize, page_number, page_dims, default_page)
 
             # 3. Schema Constraints
             validation_status = self._validate_schema_constraints(value, field)
             
             # 4. Type Specific Parsing
             if field.type in ("array", "list", "object", "table"):
-                parsed_val, complex_status = self._parse_complex_field(value, key, page_number, page_dims)
+                parsed_val, complex_status = self._parse_complex_field(value, key, page_number, page_dims, default_page)
                 value = parsed_val
                 if complex_status != "valid":
                     validation_status = complex_status
