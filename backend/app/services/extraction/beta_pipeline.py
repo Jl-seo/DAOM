@@ -65,12 +65,10 @@ class BetaPipeline(ExtractionPipeline):
         is_excel = ocr_data.get("_is_direct_markdown", False)
         
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
-        TEXT_CHUNK_SIZE = 150_000 if is_excel else 4_000
+        TEXT_CHUNK_SIZE = 150_000 if is_excel else 8_000
         # SINGLE_SHOT_CHAR_LIMIT must equal TEXT_CHUNK_SIZE for PDF to ensure proper chunking.
-        # Reduced from 8,000 to 4,000. Math check: A 26-column table generating strict JSON
-        # uses ~30 output tokens per cell. 16,384 max tokens / 30 = 546 cells max.
-        # 546 cells / 26 cols = 21 rows per chunk max! 21 rows * 250 chars/row = ~5,250 chars.
-        # Therefore, 4,000 is the mathematical max safe chunk size for highly dense tables.
+        # Reduced from 15,000 to 8,000 to bypass GPT-4o "laziness" (stops generating after ~3 rows without throwing TokenLimit).
+        # This forces 50-row tables to be processed in parallel 8K chunks (perfect size for 20-30 rows to fit without error).
         SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else TEXT_CHUNK_SIZE
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
@@ -1208,7 +1206,10 @@ class BetaPipeline(ExtractionPipeline):
         return res
 
     async def call_llm(self, messages, is_table_model: bool = False, temperature: Optional[float] = None, response_format: Optional[Dict] = None):
-        """Direct LLM Call with table-aware max_tokens"""
+        """Direct LLM Call with table-aware max_tokens and resilient exponential backoff"""
+        import asyncio
+        import random
+        
         current_model_name = get_current_model()
         # Table models need more output tokens for many rows
         raw_max = settings.LLM_TABLE_MAX_TOKENS if is_table_model else settings.LLM_DEFAULT_MAX_TOKENS
@@ -1217,22 +1218,36 @@ class BetaPipeline(ExtractionPipeline):
         temp = temperature if temperature is not None else settings.LLM_DEFAULT_TEMPERATURE
         resp_fmt = response_format if response_format is not None else {"type": "json_object"}
         
-        try:
-            response = await self.azure_client.chat.completions.create(
-                model=current_model_name,
-                messages=messages,
-                temperature=temp,
-                seed=42,
-                max_completion_tokens=max_tokens,
-                response_format=resp_fmt
-            )
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"[BetaPipeline] Azure API Error: {error_msg}")
-            return {
-                "guide_extracted": {},
-                "error": f"LLM API Error: {error_msg}"
-            }
+        max_retries = 6
+        base_delay = 2.0
+        response = None
+        
+        for attempt in range(max_retries):
+            try:
+                response = await self.azure_client.chat.completions.create(
+                    model=current_model_name,
+                    messages=messages,
+                    temperature=temp,
+                    seed=42,
+                    max_completion_tokens=max_tokens,
+                    response_format=resp_fmt
+                )
+                break # Success
+            except Exception as e:
+                error_msg = str(e)
+                error_lower = error_msg.lower()
+                is_transient = any(term in error_lower for term in ["429", "rate limit", "timeout", "connection", "502", "503", "504"])
+                
+                if not is_transient or attempt == max_retries - 1:
+                    logger.error(f"[BetaPipeline] Azure API Fatal Error after {attempt+1} attempts: {error_msg}")
+                    return {
+                        "guide_extracted": {},
+                        "error": f"LLM API Error: {error_msg}"
+                    }
+                
+                delay = base_delay * (2 ** attempt) + random.uniform(0.1, 1.5)
+                logger.warning(f"[BetaPipeline] Azure API Transient Error: {error_msg[:100]}... Retrying {attempt+1}/{max_retries} in {delay:.1f}s")
+                await asyncio.sleep(delay)
         
         content = response.choices[0].message.content
         finish_reason = getattr(response.choices[0], "finish_reason", "stop")
