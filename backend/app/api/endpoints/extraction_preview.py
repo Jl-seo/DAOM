@@ -5,6 +5,7 @@ from app.services import doc_intel, extraction_logs
 from app.services.models import get_model_by_id
 from app.services import extraction_jobs
 from app.core.auth import get_current_user, is_admin, CurrentUser
+from app.core.config import settings
 from app.core.enums import ExtractionStatus
 import json
 import logging

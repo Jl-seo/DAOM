@@ -461,6 +461,9 @@ async def update_log_status(
 
         # Update fields
         log_dict = log.model_dump()
+        if log_dict.get("ttl") is None:
+            log_dict.pop("ttl", None)
+            
         log_dict["status"] = status
         log_dict["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         log_dict["type"] = ExtractionType.LOG.value

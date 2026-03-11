@@ -4,22 +4,28 @@ import { Upload, X, Loader2, FileText, Camera } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { extractionApi } from '@/lib/api'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ExtractionJob } from '@/types/extraction'
 import { toast } from 'sonner'
 
 // Simple polling hook for job status
-// This hook is not part of the QuickExtractionView component, it's a separate function.
-// Assuming it's defined outside or in a separate file, but for the context of this
-// change, I'll keep it as is, just fixing the syntax error (missing function name).
-// Let's assume it's a custom hook named `useJobPolling` as used later.
-function useJobPolling(jobId: string | null) { // Added function name
+function useJobPolling(jobId: string | null) {
+    const queryClient = useQueryClient()
+    
     return useQuery({
         queryKey: ['job', jobId],
         queryFn: async () => {
             if (!jobId) return null
             const res = await extractionApi.getJob(jobId)
-            return res.data as ExtractionJob
+            const job = res.data as ExtractionJob
+            
+            // Auto-invalidate logs list when job finishes
+            const isFinished = ['S100', 'S200', 'success', 'completed', 'confirmed', 'P500', 'E100', 'E200', 'error', 'cancelled'].includes(job.status)
+            if (isFinished) {
+                 queryClient.invalidateQueries({ queryKey: ['extraction-logs'] })
+            }
+            
+            return job
         },
         enabled: !!jobId,
         refetchInterval: (query) => {

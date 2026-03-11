@@ -286,6 +286,10 @@ async def update_job(
              logger.warning(f"[ExtractionJobs] Payload still huge ({final_size} bytes) after all offloading! Cosmos insert might fail.")
 
 
+        # Ensure no `null` TTL is sent to Cosmos
+        if job_data.get("ttl") is None:
+            job_data.pop("ttl", None)
+
         # Upsert
         try:
             await container.upsert_item(body=job_data)
