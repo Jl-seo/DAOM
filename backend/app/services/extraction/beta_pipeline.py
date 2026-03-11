@@ -65,10 +65,12 @@ class BetaPipeline(ExtractionPipeline):
         is_excel = ocr_data.get("_is_direct_markdown", False)
         
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
-        TEXT_CHUNK_SIZE = 150_000 if is_excel else 8_000
+        TEXT_CHUNK_SIZE = 150_000 if is_excel else 4_000
         # SINGLE_SHOT_CHAR_LIMIT must equal TEXT_CHUNK_SIZE for PDF to ensure proper chunking.
-        # Reduced from 15,000 to 8,000 to bypass GPT-4o "laziness" (stops generating after ~3 rows without throwing TokenLimit).
-        # This forces 50-row tables to be processed in parallel 8K chunks (perfect size for 20-30 rows to fit without error).
+        # Reduced from 8,000 to 4,000. Math check: A 26-column table generating strict JSON
+        # uses ~30 output tokens per cell. 16,384 max tokens / 30 = 546 cells max.
+        # 546 cells / 26 cols = 21 rows per chunk max! 21 rows * 250 chars/row = ~5,250 chars.
+        # Therefore, 4,000 is the mathematical max safe chunk size for highly dense tables.
         SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else TEXT_CHUNK_SIZE
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
