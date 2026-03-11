@@ -52,6 +52,7 @@ class RuleEngine:
         
         # Pass 1: Collect unique (value, category) pairs to fetch
         pending_tasks = set()
+        cache = {}
 
         for key, item in guide_extracted.items():
             if isinstance(item, dict) and "value" in item:
@@ -63,53 +64,47 @@ class RuleEngine:
                         pending_tasks.add((val, dict_cat))
                 
                 elif isinstance(val, list):
-                        if (val, dict_cat) not in cache:
-                            pending_tasks.append((val, dict_cat))
-                            cache[(val, dict_cat)] = None # Placeholder to mark as pending
-                
-                elif isinstance(val, list):
                     for row in val:
                         if isinstance(row, dict):
-                            for sub_key, sub_val in row.items():
-                                # IMPORTANT: Do NOT implicitly inherit the parent's dictionary binding. 
-                                # It causes O(N*M) lookups for every cell in a table.
-                                sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}")
-                                if sub_dict_cat and sub_val and isinstance(sub_val, str):
-                                    if (sub_val, sub_dict_cat) not in cache:
-                                        pending_tasks.append((sub_val, sub_dict_cat))
-                                        cache[(sub_val, sub_dict_cat)] = None
+                            for sub_key, sub_node in row.items():
+                                if isinstance(sub_node, dict) and "value" in sub_node:
+                                    sub_val = sub_node["value"]
+                                    if isinstance(sub_val, str):
+                                        sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}")
+                                        if sub_dict_cat and getattr(sub_val, "strip", lambda: "")() and len(sub_val.strip()) >= 2:
+                                            pending_tasks.add((sub_val, sub_dict_cat))
 
         # Pass 2: Execute concurrent searches with semaphore
         if pending_tasks:
             # Sort for deterministic processing
-            pending_tasks.sort()
+            sorted_tasks = sorted(list(pending_tasks))
             
             # Use smaller semaphore to avoid 429 Too Many Requests
             sem = asyncio.Semaphore(5)
             
-            async def _fetch(val, target_dictionary):
+            async def _fetch(task_val, target_dictionary):
                 best_match = None
                 best_score = 0.0
                 try:
                     async with sem:
-                        matches = await dict_service.search(query=val, model_id=model_id, category=target_dictionary, top_k=1)
+                        matches = await dict_service.search(query=task_val, model_id=model_id, category=target_dictionary, top_k=1)
                         if matches and matches[0].score > 0.5:
                             best_match = matches[0]
                             best_score = matches[0].score
                 except Exception as e:
-                    logger.error(f"[RuleEngine] Dictionary search failed for val='{val}' in cat='{target_dictionary}': {e}")
+                    logger.error(f"[RuleEngine] Dictionary search failed for val='{task_val}' in cat='{target_dictionary}': {e}")
                 
                 if best_match:
-                    cache[(val, target_dictionary)] = {
-                        "raw_value": val,
+                    cache[(task_val, target_dictionary)] = {
+                        "raw_value": task_val,
                         "normalized_code": best_match.code,
                         "dict_score": best_score,
                         "normalized_category": best_match.category
                     }
                 else:
-                    cache[(val, target_dictionary)] = {"raw_value": val, "normalized_code": None, "dict_score": 0.0}
+                    cache[(task_val, target_dictionary)] = {"raw_value": task_val, "normalized_code": None, "dict_score": 0.0}
 
-            await asyncio.gather(*[_fetch(v, d) for v, d in pending_tasks])
+            await asyncio.gather(*[_fetch(v, d) for v, d in sorted_tasks])
 
         # Pass 3: Apply the cached results
         for key, item in guide_extracted.items():
@@ -119,8 +114,8 @@ class RuleEngine:
                 if isinstance(val, str):
                     dict_cat = field_dict_map.get(key)
                     if dict_cat:
-                        norm = cache.get((val, dict_cat), {"raw_value": val, "normalized_code": None, "dict_score": 0.0})
-                        if norm and norm["normalized_code"]:
+                        norm = cache.get((val, dict_cat))
+                        if norm and norm.get("normalized_code"):
                             item["raw_value"] = norm["raw_value"]
                             item["normalized_code"] = norm["normalized_code"]
                             item["dict_score"] = norm["dict_score"]
@@ -128,17 +123,17 @@ class RuleEngine:
                 elif isinstance(val, list):
                     for row in val:
                         if isinstance(row, dict):
-                            for sub_key, sub_val in row.items():
-                                if isinstance(sub_val, str):
-                                    sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}")
-                                    if sub_dict_cat:
-                                        norm = cache.get((sub_val, sub_dict_cat), {"raw_value": sub_val, "normalized_code": None, "dict_score": 0.0})
-                                        if norm and norm["normalized_code"]:
-                                            row[sub_key] = {
-                                                "raw_value": sub_val,
-                                                "normalized_code": norm["normalized_code"],
-                                                "dict_score": norm["dict_score"]
-                                            }
+                            for sub_key, sub_node in row.items():
+                                if isinstance(sub_node, dict) and "value" in sub_node:
+                                    sub_val = sub_node["value"]
+                                    if isinstance(sub_val, str):
+                                        sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}")
+                                        if sub_dict_cat:
+                                            norm = cache.get((sub_val, sub_dict_cat))
+                                            if norm and norm.get("normalized_code"):
+                                                sub_node["raw_value"] = norm["raw_value"]
+                                                sub_node["normalized_code"] = norm["normalized_code"]
+                                                sub_node["dict_score"] = norm["dict_score"]
 
         raw_result["guide_extracted"] = guide_extracted
         return raw_result
