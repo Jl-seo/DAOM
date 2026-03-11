@@ -159,11 +159,11 @@ export function QuickExtractionView() {
             const subDoc = job.preview_data?.sub_documents?.[0]
             
             // Fallbacks for legacy/quick structure where data might just be in preview_data.guide_extracted
-            let data = {}
+            let data: Record<string, any> = {}
             if (subDoc) {
                 data = subDoc.data?.guide_extracted || {}
-            } else if (job.preview_data?.guide_extracted) {
-                data = job.preview_data.guide_extracted
+            } else if ((job.preview_data as any)?.guide_extracted) {
+                data = (job.preview_data as any).guide_extracted
             }
 
             const keys = Object.keys(data)
