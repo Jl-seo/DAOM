@@ -320,6 +320,7 @@ async def _save_multi_doc_logs(
                     extracted_data=split_data,
                     preview_data=sub.get("data"),
                     job_id=job_id,
+                    log_id=target_log_id,
                     tenant_id=tenant_id,
                     debug_data=job.debug_data,
                     token_usage=sub.get("data", {}).get("_token_usage")

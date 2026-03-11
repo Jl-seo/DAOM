@@ -151,15 +151,21 @@ export function QuickExtractionView() {
             )
         }
 
-        if (job.status === 'completed' || job.status === 'success') { // Handle both
+        if (isSuccess(job.status)) {
             // Universal extraction result is in preview_data.sub_documents[0].data.guide_extracted
             // Or handle legacy structure if extraction_service didn't update preview_data structure specifically for universal?
             // In universal mode, we saved it into sub_documents[0].data.guide_extracted inside extraction_service.
 
             const subDoc = job.preview_data?.sub_documents?.[0]
-            if (!subDoc) return <div>데이터 없음</div>
+            
+            // Fallbacks for legacy/quick structure where data might just be in preview_data.guide_extracted
+            let data = {}
+            if (subDoc) {
+                data = subDoc.data?.guide_extracted || {}
+            } else if (job.preview_data?.guide_extracted) {
+                data = job.preview_data.guide_extracted
+            }
 
-            const data = subDoc.data?.guide_extracted || {}
             const keys = Object.keys(data)
 
             if (keys.length === 0) {
