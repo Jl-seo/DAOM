@@ -65,10 +65,10 @@ class BetaPipeline(ExtractionPipeline):
         is_excel = ocr_data.get("_is_direct_markdown", False)
         
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
-        TEXT_CHUNK_SIZE = 150_000 if is_excel else 15_000
+        TEXT_CHUNK_SIZE = 150_000 if is_excel else 8_000
         # SINGLE_SHOT_CHAR_LIMIT must equal TEXT_CHUNK_SIZE for PDF to ensure proper chunking.
-        # Previously 50,000 for PDF, which caused 15K-50K documents to bypass chunking and
-        # trigger LLM lazy completion (outputting only ~20 rows of large tables).
+        # Reduced from 15,000 to 8,000 to bypass GPT-4o "laziness" (stops generating after ~3 rows without throwing TokenLimit).
+        # This forces 50-row tables to be processed in parallel 8K chunks (perfect size for 20-30 rows to fit without error).
         SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else TEXT_CHUNK_SIZE
         
         if content_len <= SINGLE_SHOT_CHAR_LIMIT:
