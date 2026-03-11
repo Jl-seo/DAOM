@@ -106,7 +106,7 @@ export function QuickExtractionView() {
                         onClick={async () => {
                             if (!confirm('분석을 중단하시겠습니까?')) return;
                             try {
-                                await extractionApi.cancelJob(jobId!); // jobId is guaranteed if job exists and we are polling
+                                await extractionApi.cancelJob(job.job_id || job.id || jobId!);
                                 toast.success('분석이 취소되었습니다.');
                                 setJobId(null); // Stop polling
                                 setFile(null); // Return to upload
@@ -135,8 +135,8 @@ export function QuickExtractionView() {
                             onClick={async () => {
                                 if (!confirm('정말로 기록을 삭제하시겠습니까?')) return;
                                 try {
-                                    // Use job.job_id since ExtractionJob uses job_id
-                                    await extractionApi.deleteJob(job.job_id || jobId!);
+                                    // Use fallback IDs since ExtractionJob might use id or job_id depending on backend
+                                    await extractionApi.deleteJob(job.job_id || job.id || jobId!);
                                     toast.success('삭제되었습니다.');
                                     handleReset();
                                 } catch {

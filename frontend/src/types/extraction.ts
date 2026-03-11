@@ -16,6 +16,7 @@ export type ExtractionStatus =
 
 export interface ExtractionJob {
     job_id: string
+    id?: string
     status: ExtractionStatus
     filename: string
     upload_time: string

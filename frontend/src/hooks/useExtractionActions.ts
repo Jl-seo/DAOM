@@ -79,13 +79,14 @@ export function useExtractionActions(options: UseExtractionActionsOptions = {}) 
     }
 
     const handleCancel = async (log: ExtractionLog) => {
-        if (!log.job_id) {
+        const cancelId = log.job_id || log.id;
+        if (!cancelId) {
             toast.error('취소할 작업이 없습니다')
             return false
         }
         if (!confirm('정말로 이 작업을 취소하시겠습니까?')) return false
         try {
-            await extractionApi.cancelJob(log.job_id)
+            await extractionApi.cancelJob(cancelId)
             toast.success('작업이 취소되었습니다.')
             await invalidateLogs()
             return true
