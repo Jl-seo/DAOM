@@ -147,7 +147,7 @@ export function TransformationRulesEditor({ model, onUpdate }: TransformationRul
     }
 
     return (
-        <div className="flex flex-col h-full p-1 space-y-4">
+        <div className="flex flex-col h-full p-1 space-y-4 overflow-y-auto pr-2">
             {/* Header */}
             <div className="bg-amber-50/50 p-3 rounded-lg border border-amber-100 dark:bg-amber-900/10 dark:border-amber-800">
                 <h3 className="text-sm font-semibold mb-1 text-amber-800 dark:text-amber-300 flex items-center gap-2">
@@ -211,7 +211,7 @@ export function TransformationRulesEditor({ model, onUpdate }: TransformationRul
             </div>
 
             {/* Rules List */}
-            <div className="flex-1 overflow-auto space-y-2">
+            <div className="space-y-2">
                 {rules.length === 0 ? (
                     <div className="text-center py-12 text-muted-foreground">
                         <ArrowRightLeft className="w-8 h-8 mx-auto mb-3 opacity-30" />
