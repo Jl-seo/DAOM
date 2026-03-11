@@ -93,30 +93,11 @@ class BetaPipeline(ExtractionPipeline):
             engineer_output, ref_map
         )
         
-        # --- 4a. Dictionary Auto-Normalization ---
-        if model.dictionaries:
-            try:
-                from app.services.extraction.index_engine import IndexEngine
-                index_engine = IndexEngine()
-                guide_data = final_guide.get("guide_extracted", {})
-                final_guide["guide_extracted"] = await index_engine.normalize(
-                    guide_data, model.id, model.dictionaries
-                )
-                logger.info(f"[BetaPipeline] Dictionary normalization applied for categories: {model.dictionaries}")
-            except Exception as e:
-                logger.warning(f"[BetaPipeline] Dictionary normalization skipped: {e}")
-        
-        # --- 4b. Transform Rules (Row Expansion) ---
-        if model.transform_rules:
-            try:
-                from app.services.extraction.transform_engine import TransformEngine
-                guide_data = final_guide.get("guide_extracted", {})
-                final_guide["guide_extracted"] = TransformEngine.apply(
-                    guide_data, model.transform_rules
-                )
-                logger.info(f"[BetaPipeline] Transform rules applied: {len(model.transform_rules)} rules")
-            except Exception as e:
-                logger.warning(f"[BetaPipeline] Transform rules skipped: {e}")
+        # --- 4a & 4b. Dictionary Auto-Normalization & Transform Rules ---
+        # NOTE: Removed from BetaPipeline. These operations are now handled 
+        # globally at the end of `ExtractionService.run_extraction_pipeline()` 
+        # via the `rule_engine` module to ensure consistency across all extraction engines.
+
         
         # --- 4c. Extract unmapped_critical_info → other_data ---
         other_data = []

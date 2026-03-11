@@ -22,9 +22,11 @@ class Settings(BaseSettings):
             import json
             try:
                 parsed = json.loads(self.BACKEND_CORS_ORIGINS)
-                return [str(origin) for origin in parsed]
-            except (json.JSONDecodeError, TypeError):
-                return []
+                if isinstance(parsed, list):
+                    return [str(origin) for origin in parsed]
+            except Exception:
+                pass
+            return [str(origin).strip() for origin in self.BACKEND_CORS_ORIGINS.split(",") if origin.strip()]
         return [str(origin) for origin in self.BACKEND_CORS_ORIGINS]
 
     # Azure AI Document Intelligence
