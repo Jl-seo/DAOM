@@ -292,6 +292,7 @@ async def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[
         items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
+            enable_cross_partition_query=True
         )]
         return [ExtractionLog(**item) for item in items]
     except Exception as e:
@@ -326,6 +327,7 @@ async def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> Lis
         items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
+            enable_cross_partition_query=True
         )]
         return [ExtractionLog(**item) for item in items]
     except Exception as e:
@@ -392,6 +394,7 @@ async def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[s
         items = [item async for item in container.query_items(
             query=query,
             parameters=parameters,
+            enable_cross_partition_query=True
         )]
         return [ExtractionLog(**item) for item in items]
     except Exception as e:
@@ -426,6 +429,7 @@ async def get_log(log_id: str) -> Optional[ExtractionLog]:
         items = [item async for item in container.query_items(
             query=query,
             parameters=[{"name": "@id", "value": log_id}],
+            enable_cross_partition_query=True
         )]
         if items:
             return ExtractionLog(**items[0])
