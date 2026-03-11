@@ -64,6 +64,10 @@ class BetaPipeline(ExtractionPipeline):
         # --- 3. Engineer LLM (Extraction) ---
         is_excel = ocr_data.get("_is_direct_markdown", False)
         
+        # Dynamically adjust semaphore to avoid Azure TPM drops on massive Excel payloads (150K chunks)
+        # Using 3 for Excel, 15 for PDF 
+        self.semaphore = asyncio.Semaphore(3 if is_excel else 15)
+        
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
         TEXT_CHUNK_SIZE = 150_000 if is_excel else 8_000
         # SINGLE_SHOT_CHAR_LIMIT must equal TEXT_CHUNK_SIZE for PDF to ensure proper chunking.
@@ -408,7 +412,11 @@ class BetaPipeline(ExtractionPipeline):
         
         doc_context = tagged_text[:500].rstrip()
         context_preamble = (
-            f"DOCUMENT CONTEXT (from earlier pages):\n{doc_context}\n...\n\n"
+            f"--- START PAST CONTEXT (FOR QUICK REFERENCE ONLY) ---\n"
+            f"{doc_context}\n...\n"
+            f"--- END PAST CONTEXT ---\n\n"
+            f"CRITICAL WARNING: NEVER extract table rows or list items from the PAST CONTEXT. It is only provided so you know what the document is about.\n"
+            f"You MUST extract data ONLY from the ACTUAL CHUNK DATA below.\n\n"
             f"EXPECTED FIELD KEYS: {', '.join(field_keys)}\n\n"
         )
         
@@ -421,9 +429,10 @@ class BetaPipeline(ExtractionPipeline):
             
             user_prompt = (
                 f"{prefix}"
-                f"DOCUMENT DATA (Tagged Layout Format — Chunk {chunk_idx + 1}/{len(chunks)}):\n"
-                f"{chunk_text}\n\n"
-                f"Extract all fields from this section. Return valid JSON with guide_extracted wrapper."
+                f"--- START ACTUAL CHUNK DATA (Chunk {chunk_idx + 1}/{len(chunks)}) ---\n"
+                f"{chunk_text}\n"
+                f"--- END ACTUAL CHUNK DATA ---\n\n"
+                f"Extract all fields from the ACTUAL CHUNK DATA only. Return valid JSON with guide_extracted wrapper."
             )
             messages = [
                 {"role": "system", "content": system_prompt},
@@ -629,7 +638,12 @@ class BetaPipeline(ExtractionPipeline):
                 
             # Merge extracted data
             for key, val in res.get("guide_extracted", {}).items():
-                 merged_guide[key] = val
+                 if isinstance(val, list):
+                     if key not in merged_guide:
+                         merged_guide[key] = []
+                     merged_guide[key].extend(val)
+                 else:
+                     merged_guide[key] = val
                  
         return {
             "guide_extracted": merged_guide,
