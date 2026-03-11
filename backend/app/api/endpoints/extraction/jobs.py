@@ -79,9 +79,8 @@ async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str
 @router.post("/start-job")
 async def start_job_with_upload(
     background_tasks: BackgroundTasks,
+    files: List[UploadFile] = File(...), # Changed to List, expects 'files' key or 'file' if compatible?
     model_id: str = Form(...),
-    file: Optional[UploadFile] = File(None),
-    files: Optional[List[UploadFile]] = File(None),
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """
@@ -111,13 +110,9 @@ async def start_job_with_upload(
 
     upload_tasks = []
     filenames = []
-    
-    combined_files = []
-    if file: combined_files.append(file)
-    if files: combined_files.extend(files)
 
     # Filter out empty/null files sent by Power Automate's IF logic
-    valid_files = [f for f in combined_files if f is not None and getattr(f, "filename", None) and getattr(f, "size", 1) > 0]
+    valid_files = [f for f in files if f is not None and getattr(f, "filename", None) and getattr(f, "size", 1) > 0]
     
     if not valid_files:
         raise HTTPException(status_code=400, detail="No valid files received. If using Power Automate, check your file array logic for null/empty items.")
