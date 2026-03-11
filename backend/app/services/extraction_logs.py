@@ -122,6 +122,8 @@ async def save_extraction_log(
 
     try:
         log_dict = log.model_dump()
+        if log_dict.get("ttl") is None:
+            log_dict.pop("ttl", None)
         log_dict["type"] = ExtractionType.LOG.value
         
         # --- BLOB OFFLOADING LOGIC FOR LOGS ---

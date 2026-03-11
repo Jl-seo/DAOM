@@ -90,10 +90,11 @@ async def create_job(
     container = get_extractions_container()
     if container:
         try:
-            await container.create_item(body={
-                **job.model_dump(),
-                "type": "extraction_job"
-            })
+            body = job.model_dump()
+            if body.get("ttl") is None:
+                body.pop("ttl", None)
+            body["type"] = "extraction_job"
+            await container.create_item(body=body)
         except Exception as e:
             logger.error(f"[ExtractionJobs] Failed to save job: {e}")
 
