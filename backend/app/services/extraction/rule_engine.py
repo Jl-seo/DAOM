@@ -63,41 +63,52 @@ class RuleEngine:
                         pending_tasks.add((val, dict_cat))
                 
                 elif isinstance(val, list):
+                        if (val, dict_cat) not in cache:
+                            pending_tasks.append((val, dict_cat))
+                            cache[(val, dict_cat)] = None # Placeholder to mark as pending
+                
+                elif isinstance(val, list):
                     for row in val:
                         if isinstance(row, dict):
                             for sub_key, sub_val in row.items():
-                                if isinstance(sub_val, str):
-                                    sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}") or field_dict_map.get(key)
-                                    if sub_dict_cat and len(sub_val.strip()) >= 2:
-                                        pending_tasks.add((sub_val, sub_dict_cat))
+                                # IMPORTANT: Do NOT implicitly inherit the parent's dictionary binding. 
+                                # It causes O(N*M) lookups for every cell in a table.
+                                sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}")
+                                if sub_dict_cat and sub_val and isinstance(sub_val, str):
+                                    if (sub_val, sub_dict_cat) not in cache:
+                                        pending_tasks.append((sub_val, sub_dict_cat))
+                                        cache[(sub_val, sub_dict_cat)] = None
 
-        # Pass 2: Fetch concurrently with caching and Semaphore
-        cache = {}
-        sem = asyncio.Semaphore(15) # Concurrent API limit
-
-        async def _fetch(val: str, target_dictionary: str):
-            best_match = None
-            best_score = 0.0
-            try:
-                async with sem:
-                    matches = await dict_service.search(query=val, model_id=model_id, category=target_dictionary, top_k=1)
-                    if matches and matches[0].score > best_score:
-                        best_match = matches[0]
-                        best_score = matches[0].score
-            except Exception as e:
-                logger.error(f"[RuleEngine] Dictionary search failed for val='{val}' in cat='{target_dictionary}': {e}")
-            
-            if best_match and best_score > 0.5: # arbitrary threshold
-                cache[(val, target_dictionary)] = {
-                    "raw_value": val,
-                    "normalized_code": best_match.code,
-                    "dict_score": best_score,
-                    "normalized_category": best_match.category
-                }
-            else:
-                cache[(val, target_dictionary)] = {"raw_value": val, "normalized_code": None, "dict_score": 0.0}
-
+        # Pass 2: Execute concurrent searches with semaphore
         if pending_tasks:
+            # Sort for deterministic processing
+            pending_tasks.sort()
+            
+            # Use smaller semaphore to avoid 429 Too Many Requests
+            sem = asyncio.Semaphore(5)
+            
+            async def _fetch(val, target_dictionary):
+                best_match = None
+                best_score = 0.0
+                try:
+                    async with sem:
+                        matches = await dict_service.search(query=val, model_id=model_id, category=target_dictionary, top_k=1)
+                        if matches and matches[0].score > 0.5:
+                            best_match = matches[0]
+                            best_score = matches[0].score
+                except Exception as e:
+                    logger.error(f"[RuleEngine] Dictionary search failed for val='{val}' in cat='{target_dictionary}': {e}")
+                
+                if best_match:
+                    cache[(val, target_dictionary)] = {
+                        "raw_value": val,
+                        "normalized_code": best_match.code,
+                        "dict_score": best_score,
+                        "normalized_category": best_match.category
+                    }
+                else:
+                    cache[(val, target_dictionary)] = {"raw_value": val, "normalized_code": None, "dict_score": 0.0}
+
             await asyncio.gather(*[_fetch(v, d) for v, d in pending_tasks])
 
         # Pass 3: Apply the cached results
@@ -109,34 +120,68 @@ class RuleEngine:
                     dict_cat = field_dict_map.get(key)
                     if dict_cat:
                         norm = cache.get((val, dict_cat), {"raw_value": val, "normalized_code": None, "dict_score": 0.0})
-                        item["raw_value"] = norm["raw_value"]
-                        item["normalized_code"] = norm["normalized_code"]
-                        item["dict_score"] = norm["dict_score"]
+                        if norm and norm["normalized_code"]:
+                            item["raw_value"] = norm["raw_value"]
+                            item["normalized_code"] = norm["normalized_code"]
+                            item["dict_score"] = norm["dict_score"]
                 
                 elif isinstance(val, list):
                     for row in val:
                         if isinstance(row, dict):
                             for sub_key, sub_val in row.items():
                                 if isinstance(sub_val, str):
-                                    sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}") or field_dict_map.get(key)
+                                    sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}")
                                     if sub_dict_cat:
                                         norm = cache.get((sub_val, sub_dict_cat), {"raw_value": sub_val, "normalized_code": None, "dict_score": 0.0})
-                                        row[sub_key] = {
-                                            "raw_value": sub_val,
-                                            "normalized_code": norm["normalized_code"],
-                                            "dict_score": norm["dict_score"]
-                                        }
+                                        if norm and norm["normalized_code"]:
+                                            row[sub_key] = {
+                                                "raw_value": sub_val,
+                                                "normalized_code": norm["normalized_code"],
+                                                "dict_score": norm["dict_score"]
+                                            }
 
         raw_result["guide_extracted"] = guide_extracted
         return raw_result
 
-    def apply_vibe_dictionary(self, normalized_result: Dict[str, Any], reference_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def apply_vibe_dictionary(self, normalized_result: Dict[str, Any], model_id: str) -> Dict[str, Any]:
         """
         Step 2.5: Normalization Engine - Deterministically replaces raw values with standard values
         if they match a Vibe Dictionary entry that is verified (`is_verified == True`).
         """
-        if not reference_data:
+        if not model_id:
             return normalized_result
+        
+        from app.db.cosmos import get_vibe_dictionary_container
+        vibe_container = get_vibe_dictionary_container()
+        if not vibe_container:
+            return normalized_result
+
+        # Fetch all verified vibe dictionary entries for this model
+        query = "SELECT * FROM c WHERE c.model_id = @model_id AND c.is_verified = true"
+        parameters = [{"name": "@model_id", "value": model_id}]
+        
+        try:
+            entries = [v async for v in vibe_container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True)]
+        except Exception as e:
+            logger.error(f"[RuleEngine] Failed to fetch Vibe Dictionary entries: {e}")
+            entries = []
+
+        if not entries:
+            return normalized_result
+
+        # Build a fast lookup map: { "field_name": { "raw_val": "standard_val" } }
+        reference_data = {}
+        for entry in entries:
+            field = entry.get("field_name")
+            raw_val = entry.get("raw_val")
+            standard_val = entry.get("value")
+            
+            if not field or not raw_val or not standard_val:
+                continue
+                
+            if field not in reference_data:
+                reference_data[field] = {}
+            reference_data[field][raw_val] = standard_val
 
         guide_extracted = normalized_result.get("guide_extracted", {})
         if not isinstance(guide_extracted, dict):
@@ -151,19 +196,15 @@ class RuleEngine:
                 return cell
 
             # Check if this field has dictionary entries in reference_data
-            field_dict = reference_data.get(field_name)
-            if not isinstance(field_dict, dict):
-                return cell
+            field_dict = reference_data.get(field_name, {})
             
-            # Check if the exact raw_val is in the dictionary and is verified
-            entry = field_dict.get(raw_val)
-            if isinstance(entry, dict) and entry.get("is_verified") is True:
-                standard_val = entry.get("value")
-                if standard_val:
-                    cell["value"] = standard_val
-                    cell["_modifier"] = "Vibe Dictionary" # Tag for UI badge
-                    if "raw_value" not in cell:
-                        cell["raw_value"] = raw_val       # Keep original for tracing
+            # Check if the exact raw_val is in the dictionary (we already filtered for is_verified=true)
+            standard_val = field_dict.get(raw_val)
+            if standard_val:
+                cell["value"] = standard_val
+                cell["_modifier"] = "Vibe Dictionary" # Tag for UI badge
+                if "raw_value" not in cell:
+                    cell["raw_value"] = raw_val       # Keep original for tracing
             
             return cell
 

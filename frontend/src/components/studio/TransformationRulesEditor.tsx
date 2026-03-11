@@ -61,7 +61,18 @@ export function TransformationRulesEditor({ model, onUpdate }: TransformationRul
     const tableFields = model.fields
         .filter(f => f.type === 'array' as any)
         .map(f => f.key)
-    const allFieldKeys = model.fields.map(f => f.key)
+
+    const allFields = model.fields.reduce((acc, f) => {
+        acc.push({ key: f.key, display: f.key })
+        if (f.sub_fields && Array.isArray(f.sub_fields)) {
+            f.sub_fields.forEach((sf: any) => {
+                if (sf.key) {
+                    acc.push({ key: sf.key, display: `${f.key} > ${sf.key}` })
+                }
+            })
+        }
+        return acc
+    }, [] as { key: string, display: string }[])
     const postProcessRules: PostProcessRule[] = (model.post_process_rules || [])
 
     const updateRules = (newRules: TransformRule[]) => {
@@ -155,16 +166,17 @@ export function TransformationRulesEditor({ model, onUpdate }: TransformationRul
                     간편 데이터 정제 규칙 (Post-Processing Actions)
                 </h3>
                 <div className="space-y-3">
-                    {allFieldKeys.length === 0 ? (
+                    {allFields.length === 0 ? (
                         <p className="text-xs text-muted-foreground italic">스키마에 필드가 없습니다.</p>
                     ) : (
-                        allFieldKeys.map(fieldKey => {
+                        allFields.map(field => {
+                            const fieldKey = field.key
                             const fieldRules = postProcessRules.filter(r => r.target_field === fieldKey)
                             if (!fieldKey) return null; // Skip empty keys
                             return (
                                 <div key={fieldKey} className="flex flex-col sm:flex-row sm:items-center justify-between p-2 rounded bg-background/50 border border-indigo-100/50 dark:border-indigo-800/50">
                                     <span className="text-xs font-bold text-foreground w-1/3 truncate pr-2" title={fieldKey}>
-                                        {fieldKey}
+                                        {field.display}
                                     </span>
                                     <div className="flex flex-wrap gap-1.5 flex-1 justify-end">
                                         {[
@@ -263,8 +275,8 @@ export function TransformationRulesEditor({ model, onUpdate }: TransformationRul
                                                 className="w-full mt-1 text-sm px-2 py-1.5 rounded border bg-background"
                                             >
                                                 <option value="">선택</option>
-                                                {allFieldKeys.map(k => (
-                                                    <option key={k} value={k}>{k}</option>
+                                                {allFields.map(f => (
+                                                    <option key={f.key} value={f.key}>{f.display}</option>
                                                 ))}
                                             </select>
                                         </div>

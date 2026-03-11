@@ -48,12 +48,14 @@ class DictionaryService:
     Each category becomes a separate index with dynamically-created fields
     based on the uploaded Excel columns.
     """
+    _search_clients = {}  # Class-level cache for SearchClient instances
 
     def __init__(self):
         endpoint = settings.AZURE_SEARCH_ENDPOINT
         key = settings.AZURE_SEARCH_KEY
 
         self._initialized = False
+
         if not endpoint or not key:
             logger.warning("[DictionaryService] AZURE_SEARCH_ENDPOINT/KEY not set. Dictionary features disabled.")
             return
@@ -75,11 +77,14 @@ class DictionaryService:
         return self._initialized
 
     def _search_client(self, model_id: str, category: str) -> SearchClient:
-        return SearchClient(
-            endpoint=self._endpoint,
-            index_name=_get_index_name(model_id, category),
-            credential=AzureKeyCredential(self._key)
-        )
+        index_name = _get_index_name(model_id, category)
+        if index_name not in DictionaryService._search_clients:
+            DictionaryService._search_clients[index_name] = SearchClient(
+                endpoint=self._endpoint,
+                index_name=index_name,
+                credential=AzureKeyCredential(self._key)
+            )
+        return DictionaryService._search_clients[index_name]
 
     async def upload_from_excel(self, file_bytes: bytes, model_id: str, category: str, filename: str = "") -> dict:
         """

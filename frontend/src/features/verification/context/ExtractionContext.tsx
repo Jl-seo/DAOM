@@ -218,6 +218,7 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
             clearInterval(pollingRef.current)
         }
         pollingAttemptRef.current = 0
+        let hasShownInitialPreview = false
 
         const poll = async () => {
             pollingAttemptRef.current += 1
@@ -242,39 +243,61 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
 
                 devLog('[Polling] Status:', jobStatus, 'Preview:', !!preview_data, 'Result:', !!effectiveResult, 'Attempt:', pollingAttemptRef.current)
 
-                // Check for SUCCESS(S100) or legacy 'completed'
-                const isSuccess = (jobStatus === EXTRACTION_STATUS.SUCCESS || jobStatus === 'completed' || jobStatus === 'preview_ready' || jobStatus === EXTRACTION_STATUS.PREVIEW_READY)
+                const isSuccess = (jobStatus === EXTRACTION_STATUS.SUCCESS || jobStatus === 'completed')
+                const isPreviewReady = (jobStatus === 'preview_ready' || jobStatus === EXTRACTION_STATUS.PREVIEW_READY)
 
-                if (isSuccess) {
-                    if (pollingRef.current) {
-                        clearInterval(pollingRef.current)
-                        pollingRef.current = null
+                if (isSuccess || isPreviewReady) {
+                    // Stop polling when fully S100
+                    if (isSuccess) {
+                        if (pollingRef.current) {
+                            clearInterval(pollingRef.current)
+                            pollingRef.current = null
+                        }
+                        if (hasShownInitialPreview) {
+                             toast.success('Vibe Dictionary 보정이 완료되어 표준어가 적용되었습니다.', { icon: '✨' })
+                        }
                     }
 
-                    // 1. First, set intermediate rendering state to let React paint the spinner
-                    setStatus((EXTRACTION_STATUS as any).RENDERING)
+                    if (!hasShownInitialPreview) {
+                        hasShownInitialPreview = true
+                        
+                        // 1. First, set intermediate rendering state to let React paint the spinner
+                        setStatus((EXTRACTION_STATUS as any).RENDERING)
 
-                    // 2. Wait a tick for the browser to paint the spinner before locking the main thread with massive data (e.g. 6000+ rows)
-                    setTimeout(() => {
-                        // Force update status to ready
-                        setStatus(EXTRACTION_STATUS.PREVIEW_READY)
+                        // 2. Wait a tick for the browser to paint the spinner before locking the main thread with massive data (e.g. 6000+ rows)
+                        setTimeout(() => {
+                            // Force update status to ready
+                            setStatus(isSuccess ? EXTRACTION_STATUS.SUCCESS : EXTRACTION_STATUS.PREVIEW_READY)
 
-                        // Update result and preview data
+                            // Update result and preview data
+                            setResult(effectiveResult)
+                            if (preview_data) {
+                                setPreviewData({
+                                    ...preview_data,
+                                    // Ensure model fields are populated
+                                    model_fields: preview_data.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
+                                })
+                            } else if (res.data.preview_data) {
+                                setPreviewData(res.data.preview_data)
+                            }
+
+                            // Move to raw_data step
+                            setActiveStep('raw_data')
+                            toast.success('추출이 완료되었습니다')
+                        }, 50)
+                    } else {
+                        // Stealth update of data for live-change (S100 arrival)
+                        setStatus(isSuccess ? EXTRACTION_STATUS.SUCCESS : EXTRACTION_STATUS.PREVIEW_READY)
                         setResult(effectiveResult)
                         if (preview_data) {
                             setPreviewData({
                                 ...preview_data,
-                                // Ensure model fields are populated
                                 model_fields: preview_data.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
                             })
                         } else if (res.data.preview_data) {
                             setPreviewData(res.data.preview_data)
                         }
-
-                        // Move to raw_data step
-                        setActiveStep('raw_data')
-                        toast.success('추출이 완료되었습니다')
-                    }, 50)
+                    }
                 } else if (jobStatus === EXTRACTION_STATUS.FAILED || jobStatus === EXTRACTION_STATUS.ERROR || jobError) {
                     if (pollingRef.current) {
                         clearInterval(pollingRef.current)

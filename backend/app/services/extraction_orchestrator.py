@@ -117,8 +117,7 @@ async def run_pipeline_job(
              # Trigger Async Vibe Dictionary Generator
              try:
                  import asyncio
-                 from app.services.dictionary.vibe_dictionary import generate_vibe_dictionary_async
-                 asyncio.create_task(generate_vibe_dictionary_async(model_id, result))
+                 asyncio.create_task(run_vibe_processing_background(job_id, model_id, result))
                  logger.info(f"[Background] Launched Vibe Dictionary AI generator for job {job_id}")
              except Exception as vibe_error:
                  logger.error(f"[Background] Failed to launch Vibe Dictionary generator: {vibe_error}")
@@ -365,3 +364,43 @@ async def _call_webhook(
         webhook_result = {"error": str(webhook_err)}
 
     return webhook_result
+
+async def run_vibe_processing_background(job_id: str, model_id: str, result: Dict[str, Any]):
+    """Background task to run Vibe Dictionary correction and auto-discovery AFTER extraction completes."""
+    try:
+        from app.services.extraction import rule_engine
+        from app.services import extraction_jobs, extraction_logs
+        from app.services.dictionary.vibe_dictionary import generate_vibe_dictionary_async
+        from app.core.enums import ExtractionStatus
+
+        logger.info(f"[Background Vibe] Starting Phase 1: Local Dict Correction for {job_id}")
+        # 1. Apply rules & vibe correction (Fast)
+        sql_result = await rule_engine.apply_vibe_dictionary(result, model_id)
+        
+        # 2. Re-save to DB and transition to S100 (Seamless UX Update)
+        await extraction_jobs.update_job(
+            job_id,
+            status=ExtractionStatus.SUCCESS.value,
+            preview_data=sql_result,
+            extracted_data=sql_result
+        )
+        job = await extraction_jobs.get_job(job_id)
+        # Update log structure if it exists
+        if job and getattr(job, "original_log_id", None):
+            await extraction_logs.update_log_status(
+                log_id=str(job.original_log_id),
+                status=ExtractionStatus.SUCCESS.value,
+                preview_data=sql_result,
+                extracted_data=sql_result
+            )
+        logger.info(f"[Background Vibe] Phase 1 Complete. Job {job_id} updated to S100.")
+            
+        # 3. Trigger Discovery (LLM Background Learning)
+        logger.info(f"[Background Vibe] Starting Phase 2: AI Auto-Discovery for {job_id}")
+        await generate_vibe_dictionary_async(model_id, result)
+        logger.info(f"[Background Vibe] Phase 2 Complete for {job_id}")
+        
+    except Exception as e:
+        logger.error(f"[Background Vibe] Failed: {e}")
+        import traceback
+        traceback.print_exc()

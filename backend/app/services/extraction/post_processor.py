@@ -26,7 +26,7 @@ def apply_post_processing(guide_extracted: Dict[str, Any], rules: List[Any], fie
     
     return guide_extracted
 
-def _traverse_and_apply(data: Any, rules_by_target: Dict[str, list], parent_row: Dict[str, Any] = None):
+def _traverse_and_apply(data: Any, rules_by_target: Dict[str, list], parent_row: Dict[str, Any] = None, current_path: str = ""):
     """
     Recursively traverse the guide_extracted payload.
     data format is usually {"value": "...", "confidence": 0.9} 
@@ -37,19 +37,21 @@ def _traverse_and_apply(data: Any, rules_by_target: Dict[str, list], parent_row:
         # e.g., the parent_row context
         
         for key, node in data.items():
+            path_key = f"{current_path}.{key}" if current_path else key
+            
             if isinstance(node, dict) and "value" in node:
                 # 1. If it's a table array
                 if isinstance(node["value"], list):
                     for row in node["value"]:
-                        _traverse_and_apply(row, rules_by_target, parent_row=row)
+                        _traverse_and_apply(row, rules_by_target, parent_row=row, current_path=path_key)
                 
                 # 2. If it's a scalar value
-                elif key in rules_by_target:
-                    _apply_rules_to_field(key, node, rules_by_target[key], parent_row=data)
+                elif path_key in rules_by_target:
+                    _apply_rules_to_field(path_key, node, rules_by_target[path_key], parent_row=data)
             
             elif isinstance(node, dict):
                 # Dig deeper just in case
-                _traverse_and_apply(node, rules_by_target, parent_row=data)
+                _traverse_and_apply(node, rules_by_target, parent_row=data, current_path=path_key)
 
 def _apply_rules_to_field(field_key: str, node: Dict[str, Any], rules: list, parent_row: Dict[str, Any]):
     val = str(node.get("value", ""))
