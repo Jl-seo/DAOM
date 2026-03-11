@@ -286,16 +286,18 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
                             toast.success('추출이 완료되었습니다')
                         }, 50)
                     } else {
-                        // Stealth update of data for live-change (S100 arrival)
-                        setStatus(isSuccess ? EXTRACTION_STATUS.SUCCESS : EXTRACTION_STATUS.PREVIEW_READY)
-                        setResult(effectiveResult)
-                        if (preview_data) {
-                            setPreviewData({
-                                ...preview_data,
-                                model_fields: preview_data.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
-                            })
-                        } else if (res.data.preview_data) {
-                            setPreviewData(res.data.preview_data)
+                        // Stealth update of data for live-change only when S100 arrival happens
+                        if (isSuccess) {
+                            setStatus(EXTRACTION_STATUS.SUCCESS)
+                            setResult(effectiveResult)
+                            if (preview_data) {
+                                setPreviewData({
+                                    ...preview_data,
+                                    model_fields: preview_data.model_fields || model?.fields?.map((f: any) => ({ key: f.key, label: f.label })) || []
+                                })
+                            } else if (res.data.preview_data) {
+                                setPreviewData(res.data.preview_data)
+                            }
                         }
                     }
                 } else if (jobStatus === EXTRACTION_STATUS.FAILED || jobStatus === EXTRACTION_STATUS.ERROR || jobError) {
