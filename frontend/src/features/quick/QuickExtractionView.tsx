@@ -87,7 +87,7 @@ export function QuickExtractionView() {
     // --- Render Result ---
     const isProcessing = (status: string) => ['P100', 'P200', 'P300', 'pending', 'processing', 'analyzing'].includes(status)
     const isError = (status: string) => ['E100', 'E200', 'error', 'cancelled'].includes(status)
-    const isSuccess = (status: string) => ['S100', 'S200', 'success', 'completed', 'confirmed'].includes(status)
+    const isSuccess = (status: string) => ['S100', 'S200', 'success', 'completed', 'confirmed', 'P500'].includes(status)
 
     const renderResult = () => {
         if (!job) return null

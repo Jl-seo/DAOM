@@ -14,8 +14,9 @@ api_router.include_router(groups.router, prefix="/groups", tags=["groups"])
 api_router.include_router(graph.router, prefix="/graph", tags=["graph"])
 api_router.include_router(menus.router, prefix="/menus", tags=["menus"])
 api_router.include_router(extraction_preview.router, prefix="/extraction", tags=["extraction"])
-from app.api.endpoints.extraction import logs
+from app.api.endpoints.extraction import logs, jobs
 api_router.include_router(logs.router, prefix="/extraction", tags=["extraction"])
+api_router.include_router(jobs.router, prefix="/extraction", tags=["extraction"])
 
 api_router.include_router(comparison.router, prefix="/comparison", tags=["comparison"])
 
