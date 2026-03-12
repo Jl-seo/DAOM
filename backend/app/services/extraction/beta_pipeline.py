@@ -61,7 +61,7 @@ class BetaPipeline(ExtractionPipeline):
         # --- 2. Designer LLM (Work Order — Cached) ---
         work_order = await self._run_designer(model)
         
-        # --- 3. Engineer LLM (Extraction) ---
+        # --- 3. Parallel Extraction (Text + Table Division) ---
         is_excel = ocr_data.get("_is_direct_markdown", False)
         
         # Dynamically adjust semaphore to avoid Azure TPM drops on massive Excel payloads (150K chunks)
@@ -70,27 +70,63 @@ class BetaPipeline(ExtractionPipeline):
         
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
         TEXT_CHUNK_SIZE = 150_000 if is_excel else 8_000
-        # SINGLE_SHOT_CHAR_LIMIT must equal TEXT_CHUNK_SIZE for PDF to ensure proper chunking.
-        # Reduced from 15,000 to 8,000 to bypass GPT-4o "laziness" (stops generating after ~3 rows without throwing TokenLimit).
-        # This forces 50-row tables to be processed in parallel 8K chunks (perfect size for 20-30 rows to fit without error).
         SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else TEXT_CHUNK_SIZE
         
-        if content_len <= SINGLE_SHOT_CHAR_LIMIT:
-            logger.info("[BetaPipeline] Route: Single-Shot Engineer")
-            engineer_output = await self._run_engineer(work_order, tagged_text, model)
-            
-            # Fallback 1: Input too large
-            if engineer_output.get("_truncated"):
-                logger.warning("[BetaPipeline] Single-Shot truncated! Falling back to Chunked Engineer.")
-                engineer_output = await self._run_engineer_chunked(work_order, tagged_text, TEXT_CHUNK_SIZE, model)
+        has_table_fields = len(work_order.get("table_fields", [])) > 0
+        
+        # If Excel or no tables, use traditional unified LLM extraction. 
+        # Otherwise, split the work order to save LLM tokens and guarantee 100% row yield.
+        if is_excel or not has_table_fields:
+            text_work_order = work_order
+            should_run_table_mapper = False
         else:
-            logger.info("[BetaPipeline] Route: Chunked Engineer with Header Preservation")
-            engineer_output = await self._run_engineer_chunked(work_order, tagged_text, TEXT_CHUNK_SIZE, model)
+            # Create a copy of work_order with empty table_fields so Engineer ignores tables
+            text_work_order = dict(work_order)
+            text_work_order["table_fields"] = []
+            should_run_table_mapper = True
+
+        async def run_engineer_pipeline():
+            if content_len <= SINGLE_SHOT_CHAR_LIMIT:
+                logger.info("[BetaPipeline] Route: Single-Shot Engineer")
+                output = await self._run_engineer(text_work_order, tagged_text, model)
+                
+                # Fallback 1: Input too large
+                if output.get("_truncated"):
+                    logger.warning("[BetaPipeline] Single-Shot truncated! Falling back to Chunked Engineer.")
+                    output = await self._run_engineer_chunked(text_work_order, tagged_text, TEXT_CHUNK_SIZE, model)
+            else:
+                logger.info("[BetaPipeline] Route: Chunked Engineer with Header Preservation")
+                output = await self._run_engineer_chunked(text_work_order, tagged_text, TEXT_CHUNK_SIZE, model)
+                
+            # Fallback 2: Output schema too large (Massive Tables)
+            if output.get("_truncated"):
+                logger.warning("[BetaPipeline] Chunked Engineer ALSO truncated! Falling back to Schema Split (Per Table).")
+                output = await self._run_engineer_per_table(text_work_order, tagged_text, TEXT_CHUNK_SIZE, model)
             
-        # Fallback 2: Output schema too large (Massive Tables)
-        if engineer_output.get("_truncated"):
-            logger.warning("[BetaPipeline] Chunked Engineer ALSO truncated! Falling back to Schema Split (Per Table).")
-            engineer_output = await self._run_engineer_per_table(work_order, tagged_text, TEXT_CHUNK_SIZE, model)
+            return output
+            
+        async def run_table_mapper_pipeline():
+            if not should_run_table_mapper:
+                return {}
+            try:
+                from app.services.extraction.table_mapper import DirectTableMapper
+                logger.info("[BetaPipeline] Route: DirectTableMapper (Parallel)")
+                return await DirectTableMapper.extract_tables(work_order, tagged_text)
+            except Exception as e:
+                logger.error(f"[BetaPipeline] DirectTableMapper failed: {e}")
+                return {}
+
+        # Execute both pipelines concurrently
+        engineer_output, table_output = await asyncio.gather(
+            run_engineer_pipeline(),
+            run_table_mapper_pipeline()
+        )
+        
+        # Merge the fast deterministic table output into the LLM text output
+        if table_output and engineer_output.get("guide_extracted"):
+            engineer_output["guide_extracted"].update(table_output)
+        elif table_output and not engineer_output.get("guide_extracted"):
+            engineer_output["guide_extracted"] = table_output
         
         # --- 4. Post-Process (ref → bbox) ---
         final_guide = RefinerEngine.post_process_with_ref(
