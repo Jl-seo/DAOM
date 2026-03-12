@@ -93,16 +93,8 @@ class BetaPipeline(ExtractionPipeline):
                 
             should_run_table_mapper = True
             
-            # Text Diet: Strip all markdown table lines for the Engineer LLM to avoid token bloat and attention distraction
-            diet_lines = []
-            for line in tagged_text.split('\n'):
-                stripped = line.strip()
-                if stripped.startswith('|') and stripped.endswith('|'):
-                    continue
-                diet_lines.append(line)
-            
-            engineer_text_payload = "\n".join(diet_lines)
-            logger.info(f"[BetaPipeline] Text Diet Applied: Reduced context from {content_len} to {len(engineer_text_payload)} chars.")
+            logger.info("[BetaPipeline] Bypassing Text Diet: Passing full text to engineer to preserve common field context near tables.")
+            engineer_text_payload = tagged_text
 
         async def run_engineer_pipeline():
             current_len = len(engineer_text_payload)
@@ -259,13 +251,24 @@ class BetaPipeline(ExtractionPipeline):
         return work_order
 
     @staticmethod
-    def _build_engineer_schema(model: ExtractionModel) -> dict:
+    def _build_engineer_schema(model: ExtractionModel, work_order: dict = None) -> dict:
         """Create a Strict Structured Outputs JSON Schema from the model."""
         properties = {}
         required_keys = []
         is_strict = True
         
+        allowed_keys = set()
+        if work_order:
+            wo_inner = work_order.get("work_order", work_order)
+            for cf in wo_inner.get("common_fields", []):
+                allowed_keys.add(cf.get("key"))
+            for tf in wo_inner.get("table_fields", []):
+                allowed_keys.add(tf.get("key"))
+        
         for f in model.fields:
+            if work_order and f.key not in allowed_keys:
+                continue
+                
             # If a field is explicitly marked as required by the user, add it to required_keys
             # Otherwise, for strict JSON schema compatibility, ALL keys defined in properties MUST be in the required list
             # We enforce all keys to be required in the schema, but allow their type to be ["object", "null"] so they can return null if not found
