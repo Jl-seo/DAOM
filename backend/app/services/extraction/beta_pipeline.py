@@ -379,10 +379,19 @@ class BetaPipeline(ExtractionPipeline):
             }
             if f.description:
                 entry["instruction"] += f" Description: {f.description}"
-            if f.rules:
-                entry["rules"].append(f.rules)
-            if f.type in TABLE_FIELD_TYPES or bool(f.sub_fields):
+            if f.type in TABLE_FIELD_TYPES or bool(getattr(f, 'sub_fields', None)):
                 entry["columns"] = {}
+                sub_fields = getattr(f, 'sub_fields', None) or []
+                for sf in sub_fields:
+                    sf_key = sf.get("key")
+                    sf_label = sf.get("label", sf_key)
+                    if sf_key:
+                        col_dict = {"instruction": f"Extract '{sf_label}'."}
+                        if sf.get("description"):
+                            col_dict["instruction"] += f" Description: {sf.get('description')}"
+                        if sf.get("rules"):
+                            col_dict["rules"] = [sf.get("rules")]
+                        entry["columns"][sf_key] = col_dict
                 entry["rules"].append("Extract ALL rows.")
                 table_fields.append(entry)
             else:
@@ -497,7 +506,17 @@ class BetaPipeline(ExtractionPipeline):
                 try:
                     response_format = self._build_engineer_schema(model) if model else {"type": "json_object"}
                     temp = model.temperature if model else None
-                    result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
+                    try:
+                        result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
+                    except Exception as llm_err:
+                        error_str = str(llm_err).lower()
+                        # Fallback to json_object if strict structured outputs are not supported by this model deployment
+                        if "json_schema" in error_str or "response_format" in error_str or "unsupported" in error_str or "400" in error_str:
+                            logger.warning(f"[BetaPipeline] Strict JSON Schema failed for Chunk {chunk_idx}, falling back to json_object. Error: {llm_err}")
+                            result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format={"type": "json_object"})
+                        else:
+                            raise llm_err
+
                     # Validate result structure
                     if not isinstance(result, dict):
                         logger.error(f"[BetaPipeline] Chunk {chunk_idx}: call_llm returned {type(result).__name__}, expected dict")
