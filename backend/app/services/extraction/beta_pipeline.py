@@ -74,9 +74,9 @@ class BetaPipeline(ExtractionPipeline):
         
         has_table_fields = len(work_order.get("table_fields", [])) > 0
         
-        # If Excel or no tables, use traditional unified LLM extraction. 
+        # If no tables exist, use traditional unified LLM extraction. 
         # Otherwise, split the work order to save LLM tokens and guarantee 100% row yield.
-        if is_excel or not has_table_fields:
+        if not has_table_fields:
             text_work_order = work_order
             should_run_table_mapper = False
         else:
