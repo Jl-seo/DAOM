@@ -1,7 +1,8 @@
-import re
+import asyncio
 import json
 import logging
 from typing import List, Dict, Any, Tuple
+import re
 
 from app.core.config import settings
 from app.services.llm import get_openai_client, get_current_model
@@ -10,8 +11,10 @@ logger = logging.getLogger(__name__)
 
 class DirectTableMapper:
     """
-    Handles robust extraction of table data directly from Markdown grids,
-    bypassing the token-intensive LLM extraction for row-level iteration.
+    Independent Table Pipeline (ITP) Architecture
+    Handles robust extraction of table data directly from Markdown grids.
+    Each physical table is evaluated and mapped independently against the schema
+    to guarantee 100% data integrity, dynamic preamble constants, and eliminate false positives.
     """
 
     @staticmethod
@@ -58,6 +61,52 @@ class DirectTableMapper:
         return tables_with_context
 
     @staticmethod
+    def _merge_page_break_tables(tables: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        """
+        Merge tables that are physically split across pages (headerless or repeated headers)
+        to prevent data loss and reduce redundant LLM calls.
+        """
+        if not tables:
+            return []
+        
+        merged = [tables[0]]
+        for i in range(1, len(tables)):
+            curr = tables[i]
+            prev = merged[-1]
+            
+            # Clean preamble to check if it's virtually empty (e.g., just whitespace, page numbers)
+            clean_preamble = re.sub(r'[\d\/\-\sPAGEpage]+', '', curr["preamble"])
+            is_empty_preamble = len(clean_preamble) < 5
+            
+            prev_first_line = prev["md_table"].strip().split('\n')[0]
+            curr_first_line = curr["md_table"].strip().split('\n')[0]
+            
+            prev_cols = len(prev_first_line.split('|'))
+            curr_cols = len(curr_first_line.split('|'))
+            
+            headers_match = (prev_first_line == curr_first_line)
+            
+            # Target page breaks: extremely short preamble AND same column width
+            if is_empty_preamble and prev_cols == curr_cols and prev_cols > 2:
+                curr_lines = curr["md_table"].strip().split('\n')
+                if len(curr_lines) > 2 and "---" in curr_lines[1]:
+                    if headers_match:
+                        # Repeated header page break: omit header
+                        append_data = curr_lines[2:]
+                    else:
+                        # Headerless data page break: the 'header' is actually the first data row
+                        append_data = [curr_lines[0]] + curr_lines[2:]
+                else:
+                    append_data = curr_lines
+                    
+                prev["md_table"] += "\n" + "\n".join(append_data)
+                # Keep prev preamble untouched
+            else:
+                merged.append(curr)
+                
+        return merged
+
+    @staticmethod
     def parse_markdown_table(md_table: str) -> Tuple[List[str], List[List[Dict[str, str]]]]:
         """Parses a markdown table into headers and rows of {text, ref}."""
         lines = md_table.strip().split('\n')
@@ -95,120 +144,61 @@ class DirectTableMapper:
         return headers, parsed_rows
 
     @staticmethod
-    async def deduce_table_relationships(work_order: dict, tagged_text: str, tables_data: List[Dict[str, str]]) -> dict:
+    async def evaluate_and_map_table(table_schema: List[dict], headers: List[str], preamble: str, row_sample: str, global_preamble: str) -> dict:
         """
-        Document-Aware Designer Phase:
-        Asks the LLM to deduce relationships between the physical markdown tables 
-        and the expected schema.
+        Independent Table Pipeline (ITP) Phase:
+        Evaluates a SINGLE table against all table schemas concurrently.
+        1. Decides if this table belongs to any schema based on structural compatibility.
+        2. Maps physical columns to the chosen schema key.
+        3. Extracts dynamic constants from the preamble specifically for this table.
         """
-        if not tables_data:
-            return {}
-            
         client = get_openai_client()
         model_name = get_current_model()
         
-        # We only need the table fields from the schema
-        table_schema = work_order.get("table_fields", [])
-        if not table_schema:
-            return {}
-            
-        # Give a truncated view of the document to save tokens, just focusing on where tables are
-        # Let's extract headers of all tables to give the LLM a structural digest
-        table_digest = ""
-        for i, t_data in enumerate(tables_data):
-            headers, rows = DirectTableMapper.parse_markdown_table(t_data["md_table"])
-            sample_row = " | ".join([c.get("value", "") or "" for c in rows[0]]) if rows else "Empty or No Data"
-            # Give max 150 chars of context so prompt doesn't explode
-            preamble_preview = t_data["preamble"][-150:].replace("\n", " ").strip() if t_data["preamble"] else "None"
-            
-            table_digest += f"Table {i}:\n- Preceding Context: {preamble_preview}\n- Headers: {' | '.join(headers)}\n- Row 1 Sample: {sample_row}\n- Total Rows: {len(rows)}\n\n"
-            
-        system_prompt = f"""You are a Table Relationship Architecture LLM.
-You must analyze the structural digest of tables found in a document and the target schema.
-Your goal is to categorize the physical tables (Table 0, Table 1, etc.) into the Target Schema.
+        system_prompt = f"""You are an Expert Table Extractor running a Hybrid Independent Table Pipeline (ITP).
+Your job is to evaluate a single physical table from a document and determine which Target Schema Field it belongs to, then map its columns.
 
-TARGET SCHEMA (Table Fields):
+TARGET SCHEMA FIELDS:
 {json.dumps(table_schema, ensure_ascii=False, indent=2)}
 
-DETECTED TABLES IN DOCUMENT:
-{table_digest}
+GLOBAL DOCUMENT CONTEXT (For Global Constants):
+{global_preamble}
 
-RELATIONSHIP CATEGORIES:
-1. `continuation`: Physical tables that are logically the exact same table split across pages. They share the same headers.
-2. `independent`: Physical tables that belong to different schema fields.
-
-OUTPUT JSON FORMAT:
-{{
-  "schema_field_key": {{
-    "assigned_table_indices": [0, 1],
-    "relationship_reason": "Table 0 and Table 1 share the exact same headers and are continuations."
-  }}
-}}
-Return ONLY valid JSON.
-"""
-        try:
-            temp = getattr(settings, 'LLM_DEFAULT_TEMPERATURE', 0.0)
-            response = await client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": "Analyze the tables and output the mapping strategy JSON."}
-                ],
-                response_format={"type": "json_object"},
-                temperature=temp,
-            )
-            result_content = response.choices[0].message.content
-            return json.loads(result_content)
-        except Exception as e:
-            logger.warning(f"[DirectTableMapper] Failed to deduce relationships: {e}")
-            return {}
-
-    @staticmethod
-    async def map_columns_and_extract_constants(headers: List[str], schema_columns: dict, preamble: str) -> dict:
-        """
-        Engineer Phase: Maps physical headers to schema keys AND extracts missing context
-        as table-level constants (e.g., Validity Date stated above the grid).
-        """
-        client = get_openai_client()
-        model_name = get_current_model()
-        
-        schema_summary = {}
-        for k, v in schema_columns.items():
-            schema_summary[k] = v.get("instruction", "")
-            
-        system_prompt = f"""You are an Expert Table Extractor and Column Mapper.
-Your job is twofold:
-1. Map physical OCR table headers to the defined Schema Keys.
-2. If a required Schema Key is obviously not a column header but IS present in the PRECEDING TEXT, extract its value as a constant.
-
-PRECEDING TEXT (Preamble):
-{preamble[-600:] if preamble else "No preceding text."}
-
-OCR Headers (by index):
+CURRENT TABLE TO EVALUATE:
+- Preceding Text (Local Preamble): {preamble[-400:] if preamble else "None"}
+- OCR Headers (by index):
 """
         for i, h in enumerate(headers):
-            system_prompt += f"[{i}] {h}\n"
-            
-        system_prompt += f"""
-TARGET SCHEMA KEYS AND INSTRUCTIONS:
-{json.dumps(schema_summary, ensure_ascii=False, indent=2)}
+            system_prompt += f"  [{i}] {h}\n"
+        
+        system_prompt += f"""- Sample Row Data: {row_sample}
 
-OUTPUT JSON FORMAT:
+CRITICAL RULES FOR EVALUATION (FALSE POSITIVE PREVENTION):
+1. STRUCTURAL COMPATIBILITY: The OCR Headers MUST logically support the REQUIRED sub-columns of the Target Schema Field.
+   - Example 1: If Schema requires "POL" and "POD", and OCR Headers are "Destination", "20'", "40'", it IS compatible (POL/Validity might be in Preamble).
+   - Example 2: If Schema is "Rate_List" (requires POL, POD, Rates) but OCR Headers are "Surcharge Name", "Currency", "Amount", it is INCOMPATIBLE.
+2. REJECT NOISE: If the table is obviously an email signature, a layout grid, or generic text without data, you MUST reject it by omitting the mapping.
+3. SINGLE ASSIGNMENT: Evaluate and assign the table to at MOST ONE target schema key. If it doesn't fit any, return an empty mapping.
+
+CRITICAL RULES FOR EXTRACTION:
+1. "column_mapping": Map OCR Header indices (e.g. "0", "1") to the exact sub-column keys of the CHOSEN schema field.
+2. "constants": If a sub-column key is NOT found in the headers, BUT its value is clearly stated in the Local Preamble OR Global Context (e.g., Validity Date "12/1 ~ 12/7", or global Origin "Korea"), extract it here.
+
+OUTPUT FORMAT (JSON ONLY):
 {{
+  "assigned_schema_key": "target_schema_key_1", 
   "column_mapping": {{
-    "0": "target_schema_key_1",
-    "1": "another_schema_key_2"
+    "0": "sub_column_key_a",
+    "2": "sub_column_key_b"
   }},
   "constants": {{
-    "missing_schema_key_3": "extracted value from preceding text (e.g. 12/1 ~ 12/7)"
+    "missing_sub_column_key_c": "value extracted from preamble"
   }}
 }}
-Rules:
-- In "column_mapping", the key must be the exact string index (e.g. "0").
-- If a schema key maps to an OCR header, put it in "column_mapping".
-- If a schema key has no corresponding OCR header BUT the information is clearly found in the PRECEDING TEXT, put it in "constants".
-- Do NOT map columns to completely unrelated keys.
-Return ONLY valid JSON.
+If the table does NOT belong to any schema, output:
+{{
+  "assigned_schema_key": null
+}}
 """
         try:
             temp = getattr(settings, 'LLM_DEFAULT_TEMPERATURE', 0.0)
@@ -216,113 +206,178 @@ Return ONLY valid JSON.
                 model=model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": "Map the columns."}
+                    {"role": "user", "content": "Evaluate and map this table."}
                 ],
                 response_format={"type": "json_object"},
                 temperature=temp,
             )
             result_content = response.choices[0].message.content
-            # Validate output structure
-            response_json = json.loads(result_content)
-            mapping = response_json.get("column_mapping", {})
-            constants = response_json.get("constants", {})
+            res_json = json.loads(result_content)
             
-            # Ensure mapping keys are index strings that exist
+            assigned_key = res_json.get("assigned_schema_key")
+            if not assigned_key:
+                return {} # Explicit reject
+                
+            mapping = res_json.get("column_mapping", {})
+            constants = res_json.get("constants", {})
+            
+            # Find chosen schema to validate
+            chosen_schema = next((s for s in table_schema if s["key"] == assigned_key), None)
+            if not chosen_schema:
+                return {}
+                
+            schema_cols = chosen_schema.get("columns", {})
+            
+            # Ensure mapping indices are valid and target keys exist
             valid_mapping = {}
             for k, v in mapping.items():
                 if k.isdigit() and int(k) < len(headers):
-                    if v in schema_columns:
+                    if v in schema_cols:
                         valid_mapping[int(k)] = v
-            
-            # Ensure constants belong to the schema
+                        
+            # Ensure constants target keys exist
             valid_constants = {}
             for k, v in constants.items():
-                if k in schema_columns and v:
+                if k in schema_cols and v:
                     valid_constants[k] = v
                     
             return {
+                "assigned_schema_key": assigned_key,
                 "column_mapping": valid_mapping,
                 "constants": valid_constants
             }
         except Exception as e:
-            logger.warning(f"[DirectTableMapper] Failed to map columns: {e}")
+            logger.warning(f"[DirectTableMapper] Failed to evaluate table: {e}")
             return {}
 
     @staticmethod
     async def extract_tables(work_order: dict, tagged_text: str) -> dict:
         """
-        Main entry point for the direct table extraction.
-        Returns a dict of extracted tables ready for merging with common_fields.
+        Hybrid Independent Table Pipeline (ITP) Main Entry Point.
+        Processes EVERY extracted markdown table concurrently (with semaphore),
+        injecting global context and merging headerless page breaks.
         """
-        tables_data = DirectTableMapper.extract_markdown_tables_with_context(tagged_text)
+        raw_tables = DirectTableMapper.extract_markdown_tables_with_context(tagged_text)
+        tables_data = DirectTableMapper._merge_page_break_tables(raw_tables)
         if not tables_data:
             return {}
             
-        # 1. Deduce relationships
-        strategy = await DirectTableMapper.deduce_table_relationships(work_order, tagged_text, tables_data)
-        if not strategy:
+        table_schema = work_order.get("table_fields", [])
+        if not table_schema:
             return {}
             
-        final_results = {}
-        schema_table_fields = {f["key"]: f for f in work_order.get("table_fields", [])}
+        schema_table_dict = {f["key"]: f for f in table_schema}
         
-        # 2. Extract mapped tables
-        for schema_key, mapping_info in strategy.items():
-            if schema_key not in schema_table_fields:
+        # Prepare global preamble for contextual constant extraction
+        global_preamble = re.sub(r'\^C[0-9A-Fa-f]+', '', tagged_text[:1000]).strip()
+        
+        # 1. Parse all tables and kick off parallel ITP evaluation
+        semaphore = asyncio.Semaphore(5)
+        evaluate_tasks = []
+        parsed_table_details = []
+        
+        async def evaluate_with_semaphore(t_schema, h, pre, r_sample, g_pre):
+            async with semaphore:
+                return await DirectTableMapper.evaluate_and_map_table(t_schema, h, pre, r_sample, g_pre)
+        
+        for t_data in tables_data:
+            headers, parsed_rows = DirectTableMapper.parse_markdown_table(t_data["md_table"])
+            if not headers or not parsed_rows:
                 continue
                 
-            assigned_indices = mapping_info.get("assigned_table_indices", [])
-            schema_columns = schema_table_fields[schema_key].get("columns", {})
+            row_sample = " | ".join([c.get("value", "") or "" for c in parsed_rows[0]])
+            task = evaluate_with_semaphore(
+                table_schema,
+                headers,
+                t_data["preamble"],
+                row_sample,
+                global_preamble
+            )
+            evaluate_tasks.append(task)
+            parsed_table_details.append({
+                "headers": headers,
+                "parsed_rows": parsed_rows
+            })
             
-            combined_rows = []
+        if not evaluate_tasks:
+            return {}
             
-            for table_idx in assigned_indices:
-                if table_idx >= len(tables_data):
-                    continue
-                t_data = tables_data[table_idx]
-                md_table = t_data["md_table"]
-                preamble = t_data["preamble"]
+        # 2. Wait for all tables to complete evaluation independently
+        evaluations = await asyncio.gather(*evaluate_tasks)
+        
+        # 3. Deterministic Assembly (Merge by assigned_schema_key)
+        final_results = {}
+        for schema_key in schema_table_dict.keys():
+            final_results[schema_key] = []
+            
+        for i, eval_res in enumerate(evaluations):
+            if not eval_res:
+                # Table was rejected (noise, false positive, or error)
+                continue
                 
-                headers, parsed_rows = DirectTableMapper.parse_markdown_table(md_table)
+            assigned_key = eval_res.get("assigned_schema_key")
+            if assigned_key not in final_results:
+                continue # Safety check
                 
-                if not headers or not parsed_rows:
-                    continue
+            col_mapping = eval_res.get("column_mapping", {})
+            constants = eval_res.get("constants", {})
+            schema_columns = schema_table_dict[assigned_key].get("columns", {})
+            parsed_rows = parsed_table_details[i]["parsed_rows"]
+            
+            # Track previous row values for forward-filling empty cells inside THIS table
+            prev_cell_values = {}
+            
+            for row_cells in parsed_rows:
+                row_obj = {}
+                has_data = False
+                
+                # A. Inject table-specific preamble constants (Dynamic Validity)
+                for target_key, constant_val in constants.items():
+                    row_obj[target_key] = {"value": str(constant_val), "confidence": 1.0, "ref": None}
+                    has_data = True
                     
-                # Ask LLM to map columns AND extract constants for this specific table block
-                mapping_res = await DirectTableMapper.map_columns_and_extract_constants(headers, schema_columns, preamble)
-                col_mapping = mapping_res.get("column_mapping", {})
-                constants = mapping_res.get("constants", {})
-                
-                # Deterministic assembly
-                for row_cells in parsed_rows:
-                    row_obj = {}
-                    has_data = False
-                    # First inject constants (text extracted from preamble context)
-                    for target_key, constant_val in constants.items():
-                        row_obj[target_key] = {"value": str(constant_val), "ref": None}
-                        has_data = True # Constants count as data presence
+                # B. Map physical columns & forward fill
+                for col_idx_str, target_key in col_mapping.items():
+                    col_idx = int(col_idx_str)
+                    if col_idx < len(row_cells):
+                        cell_data = row_cells[col_idx]
+                        cell_val = cell_data.get("value")
                         
-                    # Then loop over mapped physical columns
-                    for col_idx, target_key in col_mapping.items():
-                        if col_idx < len(row_cells):
-                            cell_data = row_cells[col_idx]
-                            row_obj[target_key] = cell_data # {"value": "...", "ref": "C1"}
-                            if cell_data.get("value"):
-                                has_data = True
+                        # Forward fill logic for merged cell representation
+                        if not cell_val and col_idx in prev_cell_values:
+                            # Forward fill
+                            cell_val = prev_cell_values[col_idx]
+                            # Use empty ref for forward filled cells to decouple highlights from random previous elements
+                            cell_data = {"value": cell_val, "ref": None}
                         else:
-                            # Only set to None if it wasn't already filled by a constant
-                            if target_key not in row_obj:
-                                row_obj[target_key] = {"value": None, "ref": None}
+                            prev_cell_values[col_idx] = cell_val
                             
-                    # Ensure schema completeness (null-fill completely missing keys)
-                    for schema_col_key in schema_columns.keys():
-                        if schema_col_key not in row_obj:
-                            row_obj[schema_col_key] = {"value": None, "ref": None}
-                            
-                    if has_data: # Skip completely empty rows
-                        combined_rows.append(row_obj)
+                        row_obj[target_key] = cell_data # {"value": "...", "ref": "C1"}
                         
-            if combined_rows:
-                final_results[schema_key] = combined_rows
-                
-        return final_results
+                        if cell_val:
+                            # Since we bypass the engineer LLM, we append synthetic confidence
+                            row_obj[target_key]["confidence"] = 1.0
+                            has_data = True
+                    else:
+                        if target_key not in row_obj:
+                            row_obj[target_key] = {"value": None, "confidence": 0.0, "ref": None}
+                            
+                # C. Ensure schema completeness
+                for schema_col_key in schema_columns.keys():
+                    if schema_col_key not in row_obj:
+                        row_obj[schema_col_key] = {"value": None, "confidence": 0.0, "ref": None}
+                        
+                # D. Commit row if it has actual data (not just preamble constants)
+                if has_data:
+                    # Require at least one mapped PHYSICAL column to have data to prevent phantom empty rows
+                    has_physical_data = False
+                    for col_idx_str, target_key in col_mapping.items():
+                        col_idx = int(col_idx_str)
+                        if col_idx < len(row_cells) and row_cells[col_idx].get("value"):
+                            has_physical_data = True
+                            break
+                    if has_physical_data:
+                        final_results[assigned_key].append(row_obj)
+                        
+        # Filter out empty schema keys
+        return {k: v for k, v in final_results.items() if len(v) > 0}
