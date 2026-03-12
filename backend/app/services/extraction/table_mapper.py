@@ -123,7 +123,13 @@ class DirectTableMapper:
             if clean_line.endswith('|'): clean_line = clean_line[:-1]
             return [c.strip() for c in clean_line.split('|')]
             
-        headers = [re.sub(r'\^C[0-9A-Fa-f]+', '', h).strip() for h in parse_row(header_line)]
+        raw_headers = parse_row(header_line)
+        headers = []
+        for i, h in enumerate(raw_headers):
+            clean_h = re.sub(r'\^C[0-9A-Fa-f]+', '', h).strip()
+            if not clean_h:
+                clean_h = f"Empty_Col_{i+1}"
+            headers.append(clean_h)
         
         parsed_rows = []
         for line in data_lines:

@@ -131,7 +131,7 @@ class BetaPipeline(ExtractionPipeline):
             try:
                 from app.services.extraction.table_mapper import DirectTableMapper
                 logger.info("[BetaPipeline] Route: DirectTableMapper (Parallel)")
-                return await DirectTableMapper.extract_tables(work_order, tagged_text)
+                return await DirectTableMapper.extract_tables(wo_inner, tagged_text)
             except Exception as e:
                 logger.error(f"[BetaPipeline] DirectTableMapper failed: {e}")
                 return {}
