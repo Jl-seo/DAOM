@@ -381,8 +381,7 @@ class BetaPipeline(ExtractionPipeline):
                 entry["instruction"] += f" Description: {f.description}"
             if f.rules:
                 entry["rules"].append(f.rules)
-            
-            if f.type in TABLE_FIELD_TYPES:
+            if f.type in TABLE_FIELD_TYPES or bool(f.sub_fields):
                 entry["columns"] = {}
                 entry["rules"].append("Extract ALL rows.")
                 table_fields.append(entry)
@@ -408,7 +407,7 @@ class BetaPipeline(ExtractionPipeline):
         """Compute deterministic cache key from model schema."""
         fields_json = json.dumps(
             [{"key": f.key, "label": f.label, "description": f.description, 
-              "rules": f.rules, "type": f.type} for f in model.fields],
+              "rules": f.rules, "type": f.type, "sub_fields": getattr(f, 'sub_fields', None)} for f in model.fields],
             sort_keys=True, ensure_ascii=False
         )
         global_rules = model.global_rules or ""

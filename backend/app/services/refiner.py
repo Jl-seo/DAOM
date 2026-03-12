@@ -112,15 +112,16 @@ INSTRUCTIONS FOR REFERENCE DATA:
 
         # 4. Output Formatting — detect table from field types (data_structure manual selector deprecated)
         # data_structure = get_attr(model, 'data_structure', 'data')  # DEPRECATED
-        is_table = any(
-            getattr(f, 'type', '') in TABLE_FIELD_TYPES for f in fields
-        )
+        def is_table_field(f):
+            return getattr(f, 'type', '') in TABLE_FIELD_TYPES or bool(getattr(f, 'sub_fields', None))
+
+        is_table = any(is_table_field(f) for f in fields)
 
         if is_table:
             # Unified TABLE MODE: Always use guide_extracted root key with actual field keys.
             # This prevents data loss from _legacy_rows key mismatch.
-            non_table_fields = [f for f in fields if getattr(f, 'type', 'text') not in TABLE_FIELD_TYPES]
-            table_fields = [f for f in fields if getattr(f, 'type', 'text') in TABLE_FIELD_TYPES]
+            non_table_fields = [f for f in fields if not is_table_field(f)]
+            table_fields = [f for f in fields if is_table_field(f)]
 
             example_parts = []
             for f in non_table_fields:
