@@ -368,10 +368,19 @@ If the table does NOT belong to any schema, output:
                         if target_key not in row_obj:
                             row_obj[target_key] = {"value": None, "confidence": 0.0, "ref": None}
                             
-                # C. Ensure schema completeness
+                # C. Ensure schema completeness and enforce explicit schema column ordering
+                ordered_row_obj = {}
                 for schema_col_key in schema_columns.keys():
-                    if schema_col_key not in row_obj:
-                        row_obj[schema_col_key] = {"value": None, "confidence": 0.0, "ref": None}
+                    if schema_col_key in row_obj:
+                        ordered_row_obj[schema_col_key] = row_obj[schema_col_key]
+                    else:
+                        ordered_row_obj[schema_col_key] = {"value": None, "confidence": 0.0, "ref": None}
+                
+                for k, v in row_obj.items():
+                    if k not in ordered_row_obj:
+                        ordered_row_obj[k] = v
+                        
+                row_obj = ordered_row_obj
                         
                 # D. Commit row if it has actual data (not just preamble constants)
                 if has_data:
