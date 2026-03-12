@@ -45,13 +45,11 @@ class ExtractionService:
             logger.error(f"[Extraction] Model not found: {e}")
             return {"error": f"Model {model_id} not found"}
 
-        # 1a. Native Python Engine Mode (Legacy Excel extraction)
+        # 1a. Native Python Engine Mode (For Excel files unconditionally)
         use_beta = model.beta_features.get("use_optimized_prompt", False) if model.beta_features else False
         is_excel = mime_type in ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel", "text/csv"] or filename.lower().endswith(('.xlsx', '.xls', '.csv'))
         
-        # If Beta mode is ON, we want Excel to flow down to BetaPipeline -> Excel Direct Markdown -> DirectTableMapper
-        # Therefore, we only trap it here for the legacy SQL engine if Beta mode is OFF.
-        if is_excel and not use_beta:
+        if is_excel:
             logger.info("[Extraction] Route: NATIVE PYTHON ENGINE (Two-Track Architecture)")
             try:
                 from app.services.extraction.sql_extraction import run_sql_extraction
