@@ -71,37 +71,57 @@ class BetaPipeline(ExtractionPipeline):
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
         TEXT_CHUNK_SIZE = 150_000 if is_excel else 8_000
         SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else TEXT_CHUNK_SIZE
-        
-        has_table_fields = len(work_order.get("table_fields", [])) > 0
+        wo_inner = work_order.get("work_order", work_order)
+        has_table_fields = bool(wo_inner.get("table_fields", []))
         
         # If no tables exist, use traditional unified LLM extraction. 
         # Otherwise, split the work order to save LLM tokens and guarantee 100% row yield.
         if not has_table_fields:
             text_work_order = work_order
             should_run_table_mapper = False
+            engineer_text_payload = tagged_text
         else:
-            # Create a copy of work_order with empty table_fields so Engineer ignores tables
-            text_work_order = dict(work_order)
-            text_work_order["table_fields"] = []
+            import copy
+            import re
+            
+            # Create a Deep Copy to safely mutate 'work_order' nested keys
+            text_work_order = copy.deepcopy(work_order)
+            if "work_order" in text_work_order:
+                text_work_order["work_order"]["table_fields"] = []
+            else:
+                text_work_order["table_fields"] = []
+                
             should_run_table_mapper = True
+            
+            # Text Diet: Strip all markdown table lines for the Engineer LLM to avoid token bloat and attention distraction
+            diet_lines = []
+            for line in tagged_text.split('\n'):
+                stripped = line.strip()
+                if stripped.startswith('|') and stripped.endswith('|'):
+                    continue
+                diet_lines.append(line)
+            
+            engineer_text_payload = "\n".join(diet_lines)
+            logger.info(f"[BetaPipeline] Text Diet Applied: Reduced context from {content_len} to {len(engineer_text_payload)} chars.")
 
         async def run_engineer_pipeline():
-            if content_len <= SINGLE_SHOT_CHAR_LIMIT:
+            current_len = len(engineer_text_payload)
+            if current_len <= SINGLE_SHOT_CHAR_LIMIT:
                 logger.info("[BetaPipeline] Route: Single-Shot Engineer")
-                output = await self._run_engineer(text_work_order, tagged_text, model)
+                output = await self._run_engineer(text_work_order, engineer_text_payload, model)
                 
                 # Fallback 1: Input too large
                 if output.get("_truncated"):
                     logger.warning("[BetaPipeline] Single-Shot truncated! Falling back to Chunked Engineer.")
-                    output = await self._run_engineer_chunked(text_work_order, tagged_text, TEXT_CHUNK_SIZE, model)
+                    output = await self._run_engineer_chunked(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
             else:
                 logger.info("[BetaPipeline] Route: Chunked Engineer with Header Preservation")
-                output = await self._run_engineer_chunked(text_work_order, tagged_text, TEXT_CHUNK_SIZE, model)
+                output = await self._run_engineer_chunked(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
                 
             # Fallback 2: Output schema too large (Massive Tables)
             if output.get("_truncated"):
                 logger.warning("[BetaPipeline] Chunked Engineer ALSO truncated! Falling back to Schema Split (Per Table).")
-                output = await self._run_engineer_per_table(text_work_order, tagged_text, TEXT_CHUNK_SIZE, model)
+                output = await self._run_engineer_per_table(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
             
             return output
             
