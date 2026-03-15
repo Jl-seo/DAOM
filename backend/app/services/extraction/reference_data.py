@@ -483,10 +483,10 @@ class ReferenceDataService:
 
         try:
             if model_id:
-                query = "SELECT * FROM c WHERE c.entry_type = 'synonym' AND c.model_id IN (@model_id, '__global__') ORDER BY c.hit_count DESC"
+                query = "SELECT * FROM c WHERE c.entry_type = 'synonym' AND c.model_id IN (@model_id, '__global__')"
                 params = [{"name": "@model_id", "value": model_id}]
             else:
-                query = "SELECT * FROM c WHERE c.entry_type = 'synonym' ORDER BY c.hit_count DESC"
+                query = "SELECT * FROM c WHERE c.entry_type = 'synonym'"
                 params = []
             
             entries = []
@@ -494,6 +494,8 @@ class ReferenceDataService:
                 query=query, parameters=params, enable_cross_partition_query=True
             ):
                 entries.append(item)
+            # Sort in Python to avoid Cosmos composite index requirement
+            entries.sort(key=lambda x: x.get("hit_count", 0), reverse=True)
             return entries
         except Exception as e:
             logger.error(f"[ReferenceData] list_synonyms failed: {e}")
