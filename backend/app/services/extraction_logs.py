@@ -284,8 +284,9 @@ async def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[
 
         parameters = [{"name": "@model_id", "value": model_id}]
 
-        # Enforce Tenant Isolation (include legacy 'default' records)
-        if tenant_id:
+        # Enforce Tenant Isolation (skip when multi-tenant 'common' mode — guest users have different tid)
+        from app.core.config import settings
+        if tenant_id and settings.AZURE_AD_TENANT_ID not in ("common", ""):
             query += " AND (c.tenant_id = @tenant_id OR c.tenant_id = 'default' OR NOT IS_DEFINED(c.tenant_id))"
             parameters.append({"name": "@tenant_id", "value": tenant_id})
 
@@ -318,8 +319,9 @@ async def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> Lis
         """
         parameters = []
 
-        # Enforce Tenant Isolation (include legacy 'default' records)
-        if tenant_id:
+        # Enforce Tenant Isolation (skip when multi-tenant 'common' mode — guest users have different tid)
+        from app.core.config import settings
+        if tenant_id and settings.AZURE_AD_TENANT_ID not in ("common", ""):
             query += " AND (c.tenant_id = @tenant_id OR c.tenant_id = 'default' OR NOT IS_DEFINED(c.tenant_id))"
             parameters.append({"name": "@tenant_id", "value": tenant_id})
 
@@ -349,8 +351,9 @@ async def get_all_logs_count(tenant_id: Optional[str] = None) -> int:
         query = "SELECT VALUE 1 FROM c WHERE (NOT IS_DEFINED(c.type) OR c.type = 'log')"
         parameters = []
 
-        if tenant_id:
-            query += " AND c.tenant_id = @tenant_id"
+        from app.core.config import settings
+        if tenant_id and settings.AZURE_AD_TENANT_ID not in ("common", ""):
+            query += " AND (c.tenant_id = @tenant_id OR c.tenant_id = 'default' OR NOT IS_DEFINED(c.tenant_id))"
             parameters.append({"name": "@tenant_id", "value": tenant_id})
 
         count = 0
@@ -384,9 +387,9 @@ async def get_logs_by_user(user_id: str, limit: int = 100, tenant_id: Optional[s
         """
         parameters = [{"name": "@user_id", "value": user_id}]
 
-        # Enforce Tenant Isolation (Redundant if user_id is unique, but safer for depth-defense)
-        if tenant_id:
-            query += " AND c.tenant_id = @tenant_id"
+        from app.core.config import settings
+        if tenant_id and settings.AZURE_AD_TENANT_ID not in ("common", ""):
+            query += " AND (c.tenant_id = @tenant_id OR c.tenant_id = 'default' OR NOT IS_DEFINED(c.tenant_id))"
             parameters.append({"name": "@tenant_id", "value": tenant_id})
 
         query += " ORDER BY c.created_at DESC"
