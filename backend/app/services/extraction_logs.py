@@ -284,9 +284,9 @@ async def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[
 
         parameters = [{"name": "@model_id", "value": model_id}]
 
-        # Enforce Tenant Isolation
+        # Enforce Tenant Isolation (include legacy 'default' records)
         if tenant_id:
-            query += " AND c.tenant_id = @tenant_id"
+            query += " AND (c.tenant_id = @tenant_id OR c.tenant_id = 'default' OR NOT IS_DEFINED(c.tenant_id))"
             parameters.append({"name": "@tenant_id", "value": tenant_id})
 
         query += " ORDER BY c.created_at DESC"
@@ -318,9 +318,9 @@ async def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> Lis
         """
         parameters = []
 
-        # Enforce Tenant Isolation
+        # Enforce Tenant Isolation (include legacy 'default' records)
         if tenant_id:
-            query += " AND c.tenant_id = @tenant_id"
+            query += " AND (c.tenant_id = @tenant_id OR c.tenant_id = 'default' OR NOT IS_DEFINED(c.tenant_id))"
             parameters.append({"name": "@tenant_id", "value": tenant_id})
 
         query += " ORDER BY c.created_at DESC"

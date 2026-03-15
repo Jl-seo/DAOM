@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from app.core.auth import get_current_user, CurrentUser
-from app.core.permissions import require_admin
+from app.core.permissions import require_admin, require_admin_or_model_admin
 from app.services import user_service, startup_service
 
 import logging
@@ -71,7 +71,7 @@ async def get_current_user_info(current_user: CurrentUser = Depends(get_current_
 async def list_users(
     search: Optional[str] = None,
     all_tenants: bool = False,
-    current_user: CurrentUser = Depends(require_admin)
+    current_user: CurrentUser = Depends(require_admin_or_model_admin)
 ):
     """
     List users (Admin only)
