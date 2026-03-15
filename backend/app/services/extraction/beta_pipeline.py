@@ -60,6 +60,18 @@ class BetaPipeline(ExtractionPipeline):
 
         # --- 2. Designer LLM (Work Order — Cached) ---
         work_order = await self._run_designer(model)
+
+        # --- 2.5 Analyst LLM (Pre-flight Edge Case Detection) ---
+        # We only pass a skeleton of the document to avoid massive token costs.
+        skeleton_text = self._build_document_skeleton(tagged_text)
+        analyst_result = await self._run_analyst(model, skeleton_text)
+        
+        if analyst_result and "dynamic_hints" in analyst_result:
+            if "work_order" in work_order:
+                work_order["work_order"]["dynamic_hints"] = analyst_result["dynamic_hints"]
+            else:
+                work_order["dynamic_hints"] = analyst_result["dynamic_hints"]
+            logger.info(f"[BetaPipeline] Analyst added {len(analyst_result['dynamic_hints'])} dynamic hints.")
         
         # --- 3. Parallel Extraction (Text + Table Division) ---
         is_excel = ocr_data.get("_is_direct_markdown", False)
@@ -236,6 +248,54 @@ class BetaPipeline(ExtractionPipeline):
         logger.info(f"[BetaPipeline] Designer: Work order cached (key={cache_key[:16]}...)")
         
         return work_order
+
+    def _build_document_skeleton(self, tagged_text: str) -> str:
+        """
+        Creates a 'skeleton' of the document by taking the first 3000 chars 
+        and extracting any markdown table headers. This prevents token bloat.
+        """
+        skeleton = tagged_text[:3000]
+        
+        # Add table headers if not already in the first 3000 chars
+        table_headers = []
+        in_table = False
+        lines = tagged_text.splitlines()
+        for i, line in enumerate(lines):
+            if "|" in line:
+                if not in_table:
+                    # Likely start of a table
+                    table_headers.append(f"Table Header found at line {i}: " + line)
+                    in_table = True
+            else:
+                in_table = False
+                
+        if table_headers:
+            skeleton += "\n\n--- DISCOVERED TABLE HEADERS ---\n"
+            # Only include first 10 tables to avoid bloat
+            skeleton += "\n".join(table_headers[:10])
+            
+        return skeleton
+
+    async def _run_analyst(self, model: ExtractionModel, skeleton_text: str) -> dict:
+        """
+        Phase 1.5: Identify dynamic hints from the document skeleton.
+        """
+        logger.info(f"[BetaPipeline] Analyst: Analyzing document skeleton ({len(skeleton_text)} chars)")
+        
+        system_prompt = RefinerEngine.construct_analyst_prompt(model)
+        user_prompt = f"DOCUMENT SKELETON:\n{skeleton_text}"
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        try:
+            result = await self.call_llm(messages, response_format={"type": "json_object"})
+            return result
+        except Exception as e:
+            logger.warning(f"[BetaPipeline] Analyst LLM failed, continuing without hints. Error: {e}")
+            return {}
 
     @staticmethod
     def _build_engineer_schema(model: ExtractionModel, work_order: dict = None, is_beta_mode: bool = True) -> dict:

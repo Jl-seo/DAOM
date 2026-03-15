@@ -444,6 +444,36 @@ STYLE CONSTRAINTS:
         return prompt
 
     @staticmethod
+    def construct_analyst_prompt(model: ExtractionModel) -> str:
+        """
+        Phase 1.5: Generates the Analyst LLM system prompt for pre-flight scanning.
+        Input: Model schema → Output: JSON with dynamic extraction hints.
+        """
+        prompt = f"""You are a Senior Data Analyst and Extraction Expert.
+
+Your task is to analyze the 'document skeleton' (headers, context) alongside the extraction schema 
+to identify potential edge cases, traps, or format inconsistencies that extraction engineers should watch out for.
+
+MODEL SCHEMA EXPECTATIONS:
+{model.model_dump_json(include={'fields'}, indent=2)}
+
+INSTRUCTIONS:
+1. Review the provided document skeleton.
+2. Identify 2 to 3 critical dynamic hints or warnings for the extraction engineer based on this specific document's layout and the schema.
+   - Example 1: "The currency is globally indicated as 'EUR' at the top, so assume all unit prices in the table are EUR."
+   - Example 2: "The 'POL' and 'POD' values are combined in a single column separated by a slash (e.g., KRPUS/USLAX). You must split them."
+   - Example 3: "Row items spanning multiple pages have their headers repeated. Do NOT extract the repeated header row as a data row."
+3. Output MUST be ONLY valid JSON in the following format:
+{{
+  "dynamic_hints": [
+    "Hint 1",
+    "Hint 2"
+  ]
+}}
+"""
+        return prompt
+
+    @staticmethod
     def construct_engineer_prompt(work_order: dict, reference_data: dict = None) -> str:
         """
         Phase ②: Generates the Engineer LLM system prompt.
@@ -456,6 +486,12 @@ STYLE CONSTRAINTS:
         wo_inner = work_order.get("work_order", work_order)
         integrity_rules = wo_inner.get("integrity_rules", [])
         integrity_rules_str = "\n".join(f"- {r}" for r in integrity_rules) if integrity_rules else "- Extract values exactly as written."
+
+        # Extract dynamic hints (added by Analyst phase)
+        dynamic_hints = wo_inner.get("dynamic_hints", [])
+        dynamic_hints_str = ""
+        if dynamic_hints:
+            dynamic_hints_str = "\nDYNAMIC ANALYSIS HINTS (CRITICAL - FOR THIS SPECIFIC DOCUMENT):\n" + "\n".join(f"!!! {h}" for h in dynamic_hints) + "\n"
 
         # Build dynamic output example from field keys in work_order
         example_parts = []
@@ -489,7 +525,7 @@ Follow the WORK ORDER below EXACTLY. Do not deviate.
 
 WORK ORDER:
 {work_order_json}
-
+{dynamic_hints_str}
 TAG FORMAT GUIDE (Critical — read before processing document):
 The document text contains inline tags that mark source locations:
 - ^W{{id}} = Word tag. Example: "^W3 Invoice" means the word "Invoice" is tagged as W3.
