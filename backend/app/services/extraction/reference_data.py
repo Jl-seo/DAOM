@@ -153,6 +153,7 @@ class ReferenceDataService:
             doc = {
                 "id": doc_id,
                 "model_id": model_id,
+                "entry_type": "reference",
                 "category": category,
                 "standard_code": code,
                 "standard_label": label,
@@ -192,18 +193,21 @@ class ReferenceDataService:
     async def list_categories(self, model_id: str) -> List[dict]:
         """List all reference data categories for the given model.
         When model_id is '__global__' or '__all__', lists ALL categories across all models.
+        Includes both entry_type='reference' and legacy docs without entry_type.
         """
         container = self._get_container()
         if not container:
             return []
 
+        # Filter: entry_type='reference' OR entry_type is missing (legacy)
+        type_filter = "(c.entry_type = 'reference' OR NOT IS_DEFINED(c.entry_type))"
+
         try:
-            # For global/all view, show ALL reference data categories
             if model_id in ('__global__', '__all__'):
-                query = "SELECT DISTINCT VALUE c.category FROM c WHERE c.entry_type != 'synonym' OR NOT IS_DEFINED(c.entry_type)"
+                query = f"SELECT DISTINCT VALUE c.category FROM c WHERE {type_filter}"
                 params = []
             else:
-                query = "SELECT DISTINCT VALUE c.category FROM c WHERE c.model_id IN (@model_id, '__global__') AND (c.entry_type != 'synonym' OR NOT IS_DEFINED(c.entry_type))"
+                query = f"SELECT DISTINCT VALUE c.category FROM c WHERE c.model_id IN (@model_id, '__global__') AND {type_filter}"
                 params = [{"name": "@model_id", "value": model_id}]
             
             categories = [cat async for cat in container.query_items(
@@ -212,12 +216,11 @@ class ReferenceDataService:
             
             result = []
             for cat in categories:
-                # Count entries per category
                 if model_id in ('__global__', '__all__'):
-                    count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.category = @cat AND (c.entry_type != 'synonym' OR NOT IS_DEFINED(c.entry_type))"
+                    count_query = f"SELECT VALUE COUNT(1) FROM c WHERE c.category = @cat AND {type_filter}"
                     count_params = [{"name": "@cat", "value": cat}]
                 else:
-                    count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.model_id IN (@model_id, '__global__') AND c.category = @cat AND (c.entry_type != 'synonym' OR NOT IS_DEFINED(c.entry_type))"
+                    count_query = f"SELECT VALUE COUNT(1) FROM c WHERE c.model_id IN (@model_id, '__global__') AND c.category = @cat AND {type_filter}"
                     count_params = [
                         {"name": "@model_id", "value": model_id},
                         {"name": "@cat", "value": cat}

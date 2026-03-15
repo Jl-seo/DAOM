@@ -217,6 +217,7 @@ async def main():
             doc = {
                 "id": doc_id,
                 "model_id": model_id,
+                "entry_type": "reference",
                 "category": cat_name,
                 "standard_code": entry["code"],
                 "standard_label": entry["label"],
