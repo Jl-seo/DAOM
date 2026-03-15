@@ -821,11 +821,13 @@ class BetaPipeline(ExtractionPipeline):
             # Merge extracted data
             for key, val in res.get("guide_extracted", {}).items():
                  if isinstance(val, list):
-                     if key not in merged_guide:
+                     if key not in merged_guide or not isinstance(merged_guide[key], list):
                          merged_guide[key] = []
                      merged_guide[key].extend(val)
-                 else:
-                     merged_guide[key] = val
+                 elif val is not None:
+                     # Common field — keep first non-null value
+                     if key not in merged_guide or merged_guide.get(key) is None:
+                         merged_guide[key] = val
                  
         return {
             "guide_extracted": merged_guide,
