@@ -82,6 +82,7 @@ async def call_llm_unified(
     max_tokens: int = 16384,
     response_format: Optional[Dict] = None,
     seed: Optional[int] = None,
+    json_schema: Optional[Dict] = None,
 ) -> Dict[str, Any]:
     """
     Unified LLM call that routes to the correct provider based on model name.
@@ -93,10 +94,12 @@ async def call_llm_unified(
         max_tokens: Max completion tokens.
         response_format: {"type": "json_object"} or {"type": "json_schema", ...}
         seed: Optional seed for reproducibility.
+        json_schema: Optional JSON Schema dict for Tool Use extraction (Claude only).
+                     If provided, Claude uses tool_choice for guaranteed schema compliance.
 
     Returns:
         Raw response dict with:
-        - "content": str (response text)
+        - "content": str (response text — always valid JSON for extraction)
         - "usage": {"prompt_tokens", "completion_tokens", "total_tokens"}
         - "finish_reason": str
     """
@@ -104,11 +107,11 @@ async def call_llm_unified(
         model_name = get_current_model()
 
     if is_anthropic_model(model_name):
-        return await _call_anthropic(messages, model_name, temperature, max_tokens)
+        return await _call_anthropic(messages, model_name, temperature, max_tokens, json_schema)
     elif is_openai_model(model_name):
         return await _call_openai(messages, model_name, temperature, max_tokens, response_format, seed)
     else:
-        # Other non-OpenAI models: try OpenAI SDK path first (some work via /openai/deployments)
+        # Other non-OpenAI models: try OpenAI SDK path first
         return await _call_openai(messages, model_name, temperature, max_tokens, response_format, seed)
 
 
@@ -160,14 +163,14 @@ async def _call_anthropic(
     model_name: str,
     temperature: float,
     max_tokens: int,
+    json_schema: Optional[Dict] = None,
 ) -> Dict[str, Any]:
     """
     Route to Anthropic Claude via Azure AI Foundry native endpoint.
     
-    Azure AI Foundry hosts Claude models at: {endpoint}/anthropic/v1/messages
-    Auth: x-api-key header with the same API key used for Azure OpenAI.
-    The model field should be the DEPLOYMENT NAME (e.g., "claude-sonnet-4-5").
-    response_format is NOT supported — JSON extraction is done via prompt engineering.
+    Two modes:
+    1. Tool Use Mode (json_schema provided): Uses tools + tool_choice for guaranteed JSON schema.
+    2. Prompt Mode (no schema): Uses system prompt to request JSON output.
     """
     endpoint = (settings.AZURE_OPENAI_ENDPOINT or settings.AZURE_AIPROJECT_ENDPOINT or "").rstrip("/")
     api_key = settings.AZURE_OPENAI_API_KEY
@@ -177,7 +180,7 @@ async def _call_anthropic(
 
     url = f"{endpoint}/anthropic/v1/messages"
 
-    # Convert messages: Anthropic requires system to be separate from messages
+    # Split system messages from user/assistant messages (Anthropic requires this)
     system_content = ""
     anthropic_messages = []
     for msg in messages:
@@ -188,10 +191,6 @@ async def _call_anthropic(
         else:
             anthropic_messages.append({"role": role, "content": content})
 
-    # Ensure JSON output via system prompt (Anthropic doesn't support response_format)
-    if system_content and "json" not in system_content.lower():
-        system_content += "\n\nIMPORTANT: Respond with valid JSON only. No markdown, no code fences, no explanation."
-
     payload: Dict[str, Any] = {
         "model": model_name,
         "max_tokens": max_tokens,
@@ -199,8 +198,26 @@ async def _call_anthropic(
     }
     if temperature > 0:
         payload["temperature"] = temperature
-    if system_content.strip():
-        payload["system"] = system_content.strip()
+    
+    use_tool_mode = json_schema is not None and isinstance(json_schema, dict)
+
+    if use_tool_mode:
+        # ── Tool Use Mode: guaranteed schema compliance ──
+        logger.info(f"[LLM-Service] Anthropic Tool Use mode → schema keys: {list(json_schema.get('properties', {}).keys())[:5]}")
+        
+        # Build the extraction tool from the JSON schema
+        tool_schema = _build_anthropic_tool_schema(json_schema)
+        payload["tools"] = [tool_schema]
+        payload["tool_choice"] = {"type": "tool", "name": "extract_data"}
+        
+        if system_content.strip():
+            payload["system"] = system_content.strip()
+    else:
+        # ── Prompt Mode: request JSON via system prompt ──
+        if "json" not in system_content.lower():
+            system_content += "\n\nIMPORTANT: Respond with valid JSON only. No markdown, no code fences, no explanation."
+        if system_content.strip():
+            payload["system"] = system_content.strip()
 
     headers = {
         "x-api-key": api_key,
@@ -208,7 +225,7 @@ async def _call_anthropic(
         "anthropic-version": "2023-06-01",
     }
 
-    logger.info(f"[LLM-Service] Anthropic route → model={model_name} at {url}")
+    logger.info(f"[LLM-Service] Anthropic route → model={model_name}, tool_mode={use_tool_mode}")
 
     async with httpx.AsyncClient() as client:
         response = await client.post(url, headers=headers, json=payload, timeout=120.0)
@@ -219,18 +236,14 @@ async def _call_anthropic(
         raise RuntimeError(f"Anthropic API error {response.status_code}: {error_body}")
 
     data = response.json()
-
-    # Extract content from Anthropic's response format
-    content = ""
-    for block in data.get("content", []):
-        if block.get("type") == "text":
-            content += block["text"]
-
-    # Strip markdown code fences if Claude wraps JSON in them
-    content = _strip_code_fences(content)
-
-    finish_reason = data.get("stop_reason", "end_turn")
     usage = data.get("usage", {})
+    finish_reason = data.get("stop_reason", "end_turn")
+
+    # Extract content based on mode
+    if use_tool_mode:
+        content = _extract_tool_use_content(data)
+    else:
+        content = _extract_text_content(data)
 
     return {
         "content": content,
@@ -243,17 +256,46 @@ async def _call_anthropic(
     }
 
 
+def _build_anthropic_tool_schema(json_schema: Dict) -> Dict:
+    """Build an Anthropic tool definition from a JSON Schema for extraction."""
+    return {
+        "name": "extract_data",
+        "description": "Extract structured data from the document according to the given schema.",
+        "input_schema": json_schema,
+    }
+
+
+def _extract_tool_use_content(data: Dict) -> str:
+    """Extract JSON content from Anthropic Tool Use response."""
+    for block in data.get("content", []):
+        if block.get("type") == "tool_use":
+            # tool_use block has "input" which is already a parsed dict
+            tool_input = block.get("input", {})
+            return json.dumps(tool_input, ensure_ascii=False)
+    
+    # Fallback: if no tool_use block, try text blocks
+    logger.warning("[LLM-Service] No tool_use block found in Anthropic response, falling back to text")
+    return _extract_text_content(data)
+
+
+def _extract_text_content(data: Dict) -> str:
+    """Extract text content from Anthropic response and strip code fences."""
+    content = ""
+    for block in data.get("content", []):
+        if block.get("type") == "text":
+            content += block["text"]
+    return _strip_code_fences(content)
+
+
 def _strip_code_fences(text: str) -> str:
     """Strip markdown code fences (```json...```) that Claude sometimes wraps around JSON."""
     text = text.strip()
     if text.startswith("```"):
-        # Remove opening fence (```json or ```)
         first_newline = text.find("\n")
         if first_newline > 0:
             text = text[first_newline + 1:]
         else:
             text = text[3:]
-        # Remove closing fence
         if text.endswith("```"):
             text = text[:-3].strip()
     return text
