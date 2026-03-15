@@ -155,7 +155,8 @@ You must extract ALL rows from the document. Do NOT truncate or sample.
    - **CRITICAL**: If a table field lacks an explicit list of sub-field column keys, you MUST infer the required column keys by reading the field's `Description` or `Refinement Rule`. Convert the requested column names to clean `snake_case`. DO NOT just blindly copy the exact document header text (like Excel headers) as the JSON key!
 
 **CRITICAL: STRICT VALIDATION RULES**
-- If a field is marked **[REQUIRED]**, it must NOT be null. If the value cannot be found, make your best absolute guess or infer it.
+- If a [REQUIRED] field's value is not explicitly present in the document, set "value": null and "confidence": 0.1. NEVER invent, guess, or infer a value.
+- A missing value is ALWAYS better than a wrong value. Nulls can be corrected by users; hallucinated values cannot be detected.
 - If a field has a **Validation Regex**, the extracted string MUST conform to that REGEX exactly. If it does not naturally conform, you must format or clean up the string so that it matches. Do not return failing strings.
 
 **CRITICAL: DO NOT FLATTEN**
@@ -192,7 +193,7 @@ CRITICAL RULES:
 1. "source_text" MUST be the EXACT substring found in the document.
 2. If a field is not found, set "value": null.
 3. Do not add fields that are not in the REQUIRED EXTRACTION FIELDS list.
-4. VALIDATION: If a field is marked **[REQUIRED]**, you must do your best to find it. Make formatting adjustments so it strictly meets any **Validation Regex**.
+4. VALIDATION: If a [REQUIRED] field's value is not explicitly present in the document, set "value": null and "confidence": 0.1. NEVER invent or guess a value. If found, apply formatting adjustments so it strictly meets any **Validation Regex**.
 
 
 LANGUAGE INSTRUCTION:
@@ -439,7 +440,7 @@ ALWAYS APPEND THIS ENTRY to common_fields (after all schema fields):
 STYLE CONSTRAINTS:
 - Do NOT write prose or rationale. Write explicit commands.
 - Do NOT repeat generic integrity rules per field — use the shared integrity_rules array.
-- Target: entire work_order JSON under 3000 tokens.
+- COMPLETENESS over brevity: include ALL columns for every table field. The work order is cached and reused, so length is not a concern.
 """
         return prompt
 

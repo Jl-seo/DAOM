@@ -84,18 +84,24 @@ class BetaPipeline(ExtractionPipeline):
         TEXT_CHUNK_SIZE = 150_000 if is_excel else 8_000
         SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else TEXT_CHUNK_SIZE
         wo_inner = work_order.get("work_order", work_order)
-        has_table_fields = bool(wo_inner.get("table_fields", []))
+        table_fields = wo_inner.get("table_fields", [])
+        num_table_fields = len(table_fields)
         
-        # If no tables exist, use traditional unified LLM extraction. 
-        # Otherwise, split the work order to save LLM tokens and guarantee 100% row yield.
-        # Always let the LLM extract both common and table fields so advanced reasoning 
-        # (like exploding multi-port rows or date inference) can execute.
-        # Token limits are handled by _run_engineer_chunked.
+        # Per-Table Schema Split: When 2+ table fields exist, extract each table independently
+        # to prevent completion token exhaustion that causes only the first table to survive.
+        # Single-table and no-table schemas use the original optimized unified path.
         text_work_order = work_order
         should_run_table_mapper = False
         engineer_text_payload = tagged_text
 
         async def run_engineer_pipeline():
+            # Route: Multi-Table → Always use Per-Table Schema Split
+            if num_table_fields >= 2:
+                logger.info(f"[BetaPipeline] Route: Per-Table Schema Split (proactive, {num_table_fields} table fields detected)")
+                output = await self._run_engineer_per_table(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
+                return output
+            
+            # Route: 0-1 table fields → Standard path (Single-Shot or Chunked)
             current_len = len(engineer_text_payload)
             if current_len <= SINGLE_SHOT_CHAR_LIMIT:
                 logger.info("[BetaPipeline] Route: Single-Shot Engineer")
@@ -109,7 +115,7 @@ class BetaPipeline(ExtractionPipeline):
                 logger.info("[BetaPipeline] Route: Chunked Engineer with Header Preservation")
                 output = await self._run_engineer_chunked(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
                 
-            # Fallback 2: Output schema too large (Massive Tables)
+            # Fallback 2: Output schema too large (even single table can be massive)
             if output.get("_truncated"):
                 logger.warning("[BetaPipeline] Chunked Engineer ALSO truncated! Falling back to Schema Split (Per Table).")
                 output = await self._run_engineer_per_table(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
@@ -741,14 +747,17 @@ class BetaPipeline(ExtractionPipeline):
 
     async def _run_engineer_per_table(self, work_order: dict, tagged_text: str, chunk_size: int, model: ExtractionModel = None) -> dict:
         """
-        [Schema Split Fallback]
-        If chunked extraction still hits completion token limits due to massive tables,
-        we split the schema (work_order) and extract each table INDEPENDENTLY.
+        [Per-Table Schema Split]
+        Splits the schema (work_order) so each table is extracted INDEPENDENTLY,
+        preventing completion token exhaustion when multiple tables exist.
+        Now used proactively when 2+ table fields exist (not just as fallback).
         """
-        table_fields = work_order.get("table_fields", [])
-        common_fields = work_order.get("common_fields", [])
+        # Unwrap the work_order wrapper to access actual fields
+        wo_inner = work_order.get("work_order", work_order)
+        table_fields = wo_inner.get("table_fields", [])
+        common_fields = wo_inner.get("common_fields", [])
         
-        logger.warning(f"[BetaPipeline] Falling back to Schema Split (Per-Table). Found {len(table_fields)} tables.")
+        logger.info(f"[BetaPipeline] Per-Table Schema Split: {len(table_fields)} tables, {len(common_fields)} common fields.")
         
         if not table_fields:
             # If there are no tables but it still truncated, just return what we have (rare).
@@ -760,30 +769,32 @@ class BetaPipeline(ExtractionPipeline):
         all_logs = []
         
         # We need to extract common fields once, and tables separately.
-        # Create sub-work orders
+        # Create sub-work orders (properly wrapped in {"work_order": {...}} structure)
         sub_orders = []
         
         # 1. Common Fields Only (if any exist)
         if common_fields:
-            sub_orders.append({
-                **work_order,
+            sub_orders.append({"work_order": {
+                **wo_inner,
                 "table_fields": [],  # Exclude tables
                 "extraction_mode": "data"
-            })
+            }})
             
         # 2. Each Table Separately
         for t_field in table_fields:
-            sub_orders.append({
-                **work_order,
+            sub_orders.append({"work_order": {
+                **wo_inner,
                 "common_fields": [], # Exclude common
                 "table_fields": [t_field], # ONLY this table
                 "extraction_mode": "table"
-            })
+            }})
             
-        # Process each sub-order sequentially or via gather (gather is faster)
-        # We will use Chunked extraction under the hood for EACH sub-order to handle input limits too!
+        # Process each sub-order via gather for maximum parallelism
         async def process_sub_order(sub_wo):
-            logger.info(f"[BetaPipeline] Schema Split: Extracting {sub_wo['extraction_mode']} payload")
+            sub_inner = sub_wo.get("work_order", sub_wo)
+            mode = sub_inner.get("extraction_mode", "unknown")
+            table_key = sub_inner.get("table_fields", [{}])[0].get("key", "common") if sub_inner.get("table_fields") else "common"
+            logger.info(f"[BetaPipeline] Schema Split: Extracting {mode} → {table_key}")
             return await self._run_engineer_chunked(sub_wo, tagged_text, chunk_size, model)
             
         tasks = [process_sub_order(wo) for wo in sub_orders]
