@@ -218,7 +218,7 @@ class ReferenceDataService:
             # Get total count
             count_query = f"SELECT VALUE COUNT(1) FROM c {where}"
             counts = [c async for c in container.query_items(
-                query=count_query, parameters=params, enable_cross_partition_query=True
+                query=count_query, parameters=params
             )]
             total = counts[0] if counts else 0
 
@@ -229,7 +229,7 @@ class ReferenceDataService:
                 {"name": "@limit", "value": limit}
             ])
             entries = [item async for item in container.query_items(
-                query=query, parameters=params, enable_cross_partition_query=True
+                query=query, parameters=params
             )]
 
             return {"entries": entries, "total": total}
@@ -281,6 +281,7 @@ class ReferenceDataService:
         """
         container = self._get_container()
         if not container:
+            logger.warning("[ReferenceData] list_categories: container is None")
             return []
 
         # Filter: entry_type='reference' OR entry_type is missing (legacy)
@@ -294,9 +295,11 @@ class ReferenceDataService:
                 query = f"SELECT DISTINCT VALUE c.category FROM c WHERE c.model_id IN (@model_id, '__global__') AND {type_filter}"
                 params = [{"name": "@model_id", "value": model_id}]
             
+            logger.info(f"[ReferenceData] list_categories query: {query}")
             categories = [cat async for cat in container.query_items(
-                query=query, parameters=params, enable_cross_partition_query=True
+                query=query, parameters=params
             )]
+            logger.info(f"[ReferenceData] list_categories found {len(categories)} categories: {categories}")
             
             result = []
             for cat in categories:
@@ -310,13 +313,13 @@ class ReferenceDataService:
                         {"name": "@cat", "value": cat}
                     ]
                 counts = [c async for c in container.query_items(
-                    query=count_query, parameters=count_params, enable_cross_partition_query=True
+                    query=count_query, parameters=count_params
                 )]
                 result.append({"category": cat, "count": counts[0] if counts else 0})
             
             return result
         except Exception as e:
-            logger.error(f"[ReferenceData] list_categories failed: {e}")
+            logger.error(f"[ReferenceData] list_categories failed: {type(e).__name__}: {e}", exc_info=True)
             return []
 
     async def delete_category(self, model_id: str, category: str) -> int:
@@ -334,7 +337,7 @@ class ReferenceDataService:
         deleted = 0
         try:
             items = [item async for item in container.query_items(
-                query=query, parameters=params, enable_cross_partition_query=True
+                query=query, parameters=params
             )]
             for item in items:
                 await container.delete_item(item=item["id"], partition_key=item["id"])
@@ -372,7 +375,7 @@ class ReferenceDataService:
             ]
             entries = []
             async for item in container.query_items(
-                query=query, parameters=params, enable_cross_partition_query=True
+                query=query, parameters=params
             ):
                 entries.append(ReferenceEntry(
                     id=item["id"],
@@ -590,7 +593,7 @@ class ReferenceDataService:
             
             entries = []
             async for item in container.query_items(
-                query=query, parameters=params, enable_cross_partition_query=True
+                query=query, parameters=params
             ):
                 entries.append(item)
             # Sort in Python to avoid Cosmos composite index requirement
@@ -698,7 +701,7 @@ class ReferenceDataService:
             
             entries = []
             async for item in container.query_items(
-                query=query, parameters=params, enable_cross_partition_query=True
+                query=query, parameters=params
             ):
                 entries.append(item)
         except Exception as e:

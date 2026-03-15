@@ -37,7 +37,7 @@ async def get_vibe_dictionary_entries(current_user: CurrentUser = Depends(get_cu
         if models_container:
             try:
                 models_query = "SELECT c.id, c.name FROM c WHERE c.model_type = 'extraction' AND c.is_active = true"
-                async for item in models_container.query_items(query=models_query, enable_cross_partition_query=True):
+                async for item in models_container.query_items(query=models_query):
                     model_name_map[item["id"]] = item["name"]
             except Exception as e:
                 logger.warning(f"[VibeDictionary] Failed to fetch model names: {e}")

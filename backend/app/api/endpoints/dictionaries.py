@@ -21,11 +21,13 @@ router = APIRouter()
 async def list_categories(model_id: str, current_user: CurrentUser = Depends(get_current_user)):
     """List all registered dictionary categories with item counts."""
     service = get_reference_data_service()
+    logger.info(f"[Dict API] list_categories called: model_id={model_id}, service.is_available={service.is_available}")
     if not service.is_available:
-        # Return empty list instead of 503 — more graceful for UI
+        logger.warning("[Dict API] Service not available — returning empty")
         return {"categories": []}
 
     categories = await service.list_categories(model_id)
+    logger.info(f"[Dict API] list_categories returned {len(categories)} categories")
     return {"categories": categories}
 
 

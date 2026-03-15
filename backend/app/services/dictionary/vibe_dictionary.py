@@ -52,7 +52,7 @@ async def generate_vibe_dictionary_async(model_id: str, raw_extracted: Dict[str,
         
         try:
             existing_entries = [v async for v in container.query_items(
-                query=query, parameters=parameters, enable_cross_partition_query=True
+                query=query, parameters=parameters
             )]
         except Exception as e:
             logger.error(f"[VibeDictionary] Failed to fetch synonym entries: {e}")
