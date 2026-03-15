@@ -238,7 +238,7 @@ class BetaPipeline(ExtractionPipeline):
         return work_order
 
     @staticmethod
-    def _build_engineer_schema(model: ExtractionModel, work_order: dict = None) -> dict:
+    def _build_engineer_schema(model: ExtractionModel, work_order: dict = None, is_beta_mode: bool = True) -> dict:
         """Create a Strict Structured Outputs JSON Schema from the model."""
         properties = {}
         required_keys = []
@@ -279,16 +279,30 @@ class BetaPipeline(ExtractionPipeline):
                             else:
                                 sf_schema_type = ["string", "null", "number", "boolean"] # loose fallback
 
-                            sub_props[sf_key] = {
-                                "type": ["object", "null"],
-                                "properties": {
-                                    "value": {"type": sf_schema_type},
-                                    "confidence": {"type": "number"},
-                                    "page_number": {"type": ["integer", "null"]}
-                                },
-                                "required": ["value", "confidence", "page_number"],
-                                "additionalProperties": False
-                            }
+                            if is_beta_mode:
+                                sub_props[sf_key] = {
+                                    "type": ["object", "null"],
+                                    "properties": {
+                                        "value": {"type": sf_schema_type},
+                                        "ref": {"type": ["string", "null"]},
+                                        "is_uncertain": {"type": ["boolean", "null"]},
+                                        "warning_msg": {"type": ["string", "null"]}
+                                    },
+                                    "required": ["value", "ref", "is_uncertain", "warning_msg"],
+                                    "additionalProperties": False
+                                }
+                            else:
+                                sub_props[sf_key] = {
+                                    "type": ["object", "null"],
+                                    "properties": {
+                                        "value": {"type": sf_schema_type},
+                                        "confidence": {"type": ["number", "null"]},
+                                        "page_number": {"type": ["integer", "null"]},
+                                        "source_text": {"type": ["string", "null"]}
+                                    },
+                                    "required": ["value", "confidence", "page_number", "source_text"],
+                                    "additionalProperties": False
+                                }
                             sub_req.append(sf_key)
                     
                     properties[f.key] = {
@@ -316,16 +330,30 @@ class BetaPipeline(ExtractionPipeline):
                 else:
                     f_schema_type = ["string", "null", "number", "boolean"] # loose fallback
 
-                properties[f.key] = {
-                    "type": ["object", "null"],
-                    "properties": {
-                        "value": {"type": f_schema_type},
-                        "confidence": {"type": "number"},
-                        "page_number": {"type": ["integer", "null"]}
-                    },
-                    "required": ["value", "confidence", "page_number"],
-                    "additionalProperties": False
-                }
+                if is_beta_mode:
+                    properties[f.key] = {
+                        "type": ["object", "null"],
+                        "properties": {
+                            "value": {"type": f_schema_type},
+                            "ref": {"type": ["string", "null"]},
+                            "is_uncertain": {"type": ["boolean", "null"]},
+                            "warning_msg": {"type": ["string", "null"]}
+                        },
+                        "required": ["value", "ref", "is_uncertain", "warning_msg"],
+                        "additionalProperties": False
+                    }
+                else:
+                    properties[f.key] = {
+                        "type": ["object", "null"],
+                        "properties": {
+                            "value": {"type": f_schema_type},
+                            "confidence": {"type": ["number", "null"]},
+                            "page_number": {"type": ["integer", "null"]},
+                            "source_text": {"type": ["string", "null"]}
+                        },
+                        "required": ["value", "confidence", "page_number", "source_text"],
+                        "additionalProperties": False
+                    }
                 
         if not is_strict:
             return {"type": "json_object"}
@@ -433,7 +461,7 @@ class BetaPipeline(ExtractionPipeline):
             {"role": "user", "content": user_prompt}
         ]
         
-        response_format = self._build_engineer_schema(model) if model else {"type": "json_object"}
+        response_format = self._build_engineer_schema(model, is_beta_mode=True) if model else {"type": "json_object"}
         temp = model.temperature if model else None
         
         raw_result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
@@ -494,7 +522,7 @@ class BetaPipeline(ExtractionPipeline):
             ]
             async with self.semaphore:
                 try:
-                    response_format = self._build_engineer_schema(model) if model else {"type": "json_object"}
+                    response_format = self._build_engineer_schema(model, is_beta_mode=True) if model else {"type": "json_object"}
                     temp = model.temperature if model else None
                     try:
                         result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
