@@ -129,3 +129,59 @@ async def delete_category(
     )
 
     return {"deleted": count, "category": category}
+
+
+@router.get("/entries")
+async def list_entries(
+    model_id: str,
+    category: str,
+    offset: int = 0,
+    limit: int = 100,
+    search: str = "",
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """List entries in a dictionary category with pagination."""
+    service = get_reference_data_service()
+    if not service.is_available:
+        return {"entries": [], "total": 0}
+
+    result = await service.list_entries(model_id, category, offset, limit, search)
+    return result
+
+
+@router.put("/entries/{entry_id}", dependencies=[Depends(require_admin)])
+async def update_entry(
+    entry_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Update a single dictionary entry."""
+    service = get_reference_data_service()
+    if not service.is_available:
+        raise HTTPException(status_code=503, detail="Dictionary service not configured.")
+
+    body = await request.json()
+    model_id = body.pop("model_id", "__global__")
+
+    try:
+        updated = await service.update_entry(entry_id, model_id, body)
+        return {"ok": True, "entry": updated}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/entries/{entry_id}", dependencies=[Depends(require_admin)])
+async def delete_entry(
+    entry_id: str,
+    model_id: str = "__global__",
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Delete a single dictionary entry."""
+    service = get_reference_data_service()
+    if not service.is_available:
+        raise HTTPException(status_code=503, detail="Dictionary service not configured.")
+
+    ok = await service.delete_entry(entry_id, model_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    return {"ok": True}

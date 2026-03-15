@@ -190,6 +190,90 @@ class ReferenceDataService:
             "columns": col_names
         }
 
+    async def list_entries(self, model_id: str, category: str,
+                           offset: int = 0, limit: int = 100,
+                           search: str = "") -> dict:
+        """List entries in a category with pagination and optional search."""
+        container = self._get_container()
+        if not container:
+            return {"entries": [], "total": 0}
+
+        try:
+            type_filter = "(c.entry_type = 'reference' OR NOT IS_DEFINED(c.entry_type))"
+            
+            if model_id in ('__global__', '__all__'):
+                where = f"WHERE c.category = @cat AND {type_filter}"
+                params = [{"name": "@cat", "value": category}]
+            else:
+                where = f"WHERE c.model_id IN (@model_id, '__global__') AND c.category = @cat AND {type_filter}"
+                params = [
+                    {"name": "@model_id", "value": model_id},
+                    {"name": "@cat", "value": category}
+                ]
+
+            if search:
+                where += " AND (CONTAINS(LOWER(c.standard_code), @search) OR CONTAINS(LOWER(c.standard_label), @search))"
+                params.append({"name": "@search", "value": search.lower()})
+
+            # Get total count
+            count_query = f"SELECT VALUE COUNT(1) FROM c {where}"
+            counts = [c async for c in container.query_items(
+                query=count_query, parameters=params, enable_cross_partition_query=True
+            )]
+            total = counts[0] if counts else 0
+
+            # Get paginated entries
+            query = f"SELECT c.id, c.model_id, c.category, c.standard_code, c.standard_label, c.aliases, c.source, c.hit_count, c.is_verified, c.extra FROM c {where} OFFSET @offset LIMIT @limit"
+            params.extend([
+                {"name": "@offset", "value": offset},
+                {"name": "@limit", "value": limit}
+            ])
+            entries = [item async for item in container.query_items(
+                query=query, parameters=params, enable_cross_partition_query=True
+            )]
+
+            return {"entries": entries, "total": total}
+        except Exception as e:
+            logger.error(f"[ReferenceData] list_entries failed: {e}")
+            return {"entries": [], "total": 0}
+
+    async def update_entry(self, entry_id: str, model_id: str, updates: dict) -> dict:
+        """Update a single reference data entry."""
+        container = self._get_container()
+        if not container:
+            raise Exception("Reference data service not configured")
+
+        try:
+            item = await container.read_item(item=entry_id, partition_key=model_id)
+            for key in ['standard_code', 'standard_label', 'aliases', 'is_verified']:
+                if key in updates:
+                    item[key] = updates[key]
+            item["updated_at"] = datetime.utcnow().isoformat()
+            await container.upsert_item(body=item)
+            # Invalidate cache
+            self.invalidate_cache(model_id, item.get("category", ""))
+            return item
+        except Exception as e:
+            logger.error(f"[ReferenceData] update_entry failed: {e}")
+            raise
+
+    async def delete_entry(self, entry_id: str, model_id: str) -> bool:
+        """Delete a single reference data entry."""
+        container = self._get_container()
+        if not container:
+            raise Exception("Reference data service not configured")
+
+        try:
+            # Read first to get category for cache invalidation
+            item = await container.read_item(item=entry_id, partition_key=model_id)
+            category = item.get("category", "")
+            await container.delete_item(item=entry_id, partition_key=model_id)
+            self.invalidate_cache(model_id, category)
+            return True
+        except Exception as e:
+            logger.error(f"[ReferenceData] delete_entry failed: {e}")
+            return False
+
     async def list_categories(self, model_id: str) -> List[dict]:
         """List all reference data categories for the given model.
         When model_id is '__global__' or '__all__', lists ALL categories across all models.

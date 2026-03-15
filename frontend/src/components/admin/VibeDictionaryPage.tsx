@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { Loader2, Plus, Search, Globe, BrainCircuit, Building2, BookOpen, Upload, Trash2, X } from 'lucide-react'
+import { Loader2, Plus, Search, Globe, BrainCircuit, Building2, BookOpen, Upload, Trash2, ArrowLeft, Edit2, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import apiClient from '@/lib/api'
 
@@ -47,6 +47,42 @@ export function VibeDictionaryPage() {
     const [searchResults, setSearchResults] = useState<any[]>([])
     const [isSearching, setIsSearching] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+    const [entrySearch, setEntrySearch] = useState('')
+    const [editingRefEntry, setEditingRefEntry] = useState<any | null>(null)
+
+    // Fetch entries for selected category
+    const { data: entriesData, isLoading: isLoadingEntries, refetch: refetchEntries } = useQuery({
+        queryKey: ['global-dict-entries', selectedCategory, entrySearch],
+        queryFn: async () => {
+            if (!selectedCategory) return { entries: [], total: 0 }
+            const res = await apiClient.get('/dictionaries/entries', {
+                params: { model_id: '__global__', category: selectedCategory, search: entrySearch, limit: 200 }
+            })
+            return res.data as { entries: any[], total: number }
+        },
+        enabled: !!selectedCategory
+    })
+
+    const updateRefEntryMutation = useMutation({
+        mutationFn: async ({ id, model_id, ...updates }: any) => {
+            await apiClient.put(`/dictionaries/entries/${id}`, { model_id, ...updates })
+        },
+        onSuccess: () => { refetchEntries(); toast.success('수정 완료'); setEditingRefEntry(null) },
+        onError: () => toast.error('수정 실패')
+    })
+
+    const deleteRefEntryMutation = useMutation({
+        mutationFn: async ({ id, model_id }: { id: string, model_id: string }) => {
+            await apiClient.delete(`/dictionaries/entries/${id}`, { params: { model_id } })
+        },
+        onSuccess: () => {
+            refetchEntries()
+            queryClient.invalidateQueries({ queryKey: ['global-dictionary-categories'] })
+            toast.success('삭제 완료')
+        },
+        onError: () => toast.error('삭제 실패')
+    })
 
     // Fetch synonym entries (AI + model-specific)
     const { data: entries = [], isLoading } = useQuery({
@@ -322,56 +358,214 @@ export function VibeDictionaryPage() {
                             </p>
                         </Card>
 
-                        {/* Categories Grid */}
-                        <Card className="bg-white shadow-sm border-slate-200 p-5">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                                    <Globe className="w-4 h-4 text-blue-600" />
-                                    등록된 카테고리
-                                </h3>
-                                <div className="text-xs text-slate-500">
-                                    총 <span className="font-bold text-blue-600">{totalGlobalEntries}</span>개 항목
+                        {/* Categories Grid OR Detail Table */}
+                        {selectedCategory ? (
+                            /* ── Entry Detail Table ── */
+                            <Card className="bg-white shadow-sm border-slate-200 p-5">
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => { setSelectedCategory(null); setEntrySearch(''); setEditingRefEntry(null) }}
+                                            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
+                                        >
+                                            <ArrowLeft className="w-4 h-4" />
+                                        </button>
+                                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                            <span className="uppercase text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{selectedCategory}</span>
+                                            항목 목록
+                                        </h3>
+                                        <span className="text-xs text-slate-400">({entriesData?.total ?? 0}개)</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            id="entry-search"
+                                            name="entry-search"
+                                            placeholder="코드 또는 이름 검색..."
+                                            value={entrySearch}
+                                            onChange={e => setEntrySearch(e.target.value)}
+                                            className="h-8 w-48 text-xs"
+                                        />
+                                    </div>
                                 </div>
-                            </div>
 
-                            {isLoadingGlobal ? (
-                                <div className="h-24 flex items-center justify-center">
-                                    <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                                {isLoadingEntries ? (
+                                    <div className="h-32 flex items-center justify-center">
+                                        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                                    </div>
+                                ) : (
+                                    <div className="border rounded-lg overflow-hidden">
+                                        <table className="w-full text-sm">
+                                            <thead className="bg-slate-50">
+                                                <tr>
+                                                    <th className="px-3 py-2 text-left text-xs text-slate-500 font-medium w-32">코드</th>
+                                                    <th className="px-3 py-2 text-left text-xs text-slate-500 font-medium">이름</th>
+                                                    <th className="px-3 py-2 text-left text-xs text-slate-500 font-medium">별칭 (Aliases)</th>
+                                                    <th className="px-3 py-2 text-center text-xs text-slate-500 font-medium w-20">히트</th>
+                                                    <th className="px-3 py-2 text-right text-xs text-slate-500 font-medium w-24">작업</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {(entriesData?.entries ?? []).map((entry: any) => (
+                                                    <tr key={entry.id} className="border-t hover:bg-slate-50/50 transition-colors">
+                                                        {editingRefEntry?.id === entry.id ? (
+                                                            /* Editing row */
+                                                            <>
+                                                                <td className="px-3 py-1.5">
+                                                                    <Input
+                                                                        id={`edit-code-${entry.id}`}
+                                                                        name={`edit-code-${entry.id}`}
+                                                                        value={editingRefEntry.standard_code}
+                                                                        onChange={e => setEditingRefEntry({ ...editingRefEntry, standard_code: e.target.value })}
+                                                                        className="h-7 text-xs font-mono"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-3 py-1.5">
+                                                                    <Input
+                                                                        id={`edit-label-${entry.id}`}
+                                                                        name={`edit-label-${entry.id}`}
+                                                                        value={editingRefEntry.standard_label}
+                                                                        onChange={e => setEditingRefEntry({ ...editingRefEntry, standard_label: e.target.value })}
+                                                                        className="h-7 text-xs"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-3 py-1.5">
+                                                                    <Input
+                                                                        id={`edit-aliases-${entry.id}`}
+                                                                        name={`edit-aliases-${entry.id}`}
+                                                                        value={(editingRefEntry.aliases || []).join(', ')}
+                                                                        onChange={e => setEditingRefEntry({ ...editingRefEntry, aliases: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean) })}
+                                                                        className="h-7 text-xs"
+                                                                        placeholder="쉼표로 구분"
+                                                                    />
+                                                                </td>
+                                                                <td className="px-3 py-1.5 text-center text-xs text-slate-400">{entry.hit_count || 0}</td>
+                                                                <td className="px-3 py-1.5 text-right">
+                                                                    <div className="flex items-center justify-end gap-1">
+                                                                        <Button
+                                                                            size="sm"
+                                                                            className="h-6 px-2 text-xs gap-1"
+                                                                            onClick={() => updateRefEntryMutation.mutate(editingRefEntry)}
+                                                                            disabled={updateRefEntryMutation.isPending}
+                                                                        >
+                                                                            <Save className="w-3 h-3" /> 저장
+                                                                        </Button>
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="ghost"
+                                                                            className="h-6 px-2 text-xs"
+                                                                            onClick={() => setEditingRefEntry(null)}
+                                                                        >
+                                                                            취소
+                                                                        </Button>
+                                                                    </div>
+                                                                </td>
+                                                            </>
+                                                        ) : (
+                                                            /* Display row */
+                                                            <>
+                                                                <td className="px-3 py-2 font-mono text-blue-700 font-bold text-xs">{entry.standard_code}</td>
+                                                                <td className="px-3 py-2 text-xs">{entry.standard_label}</td>
+                                                                <td className="px-3 py-2">
+                                                                    <div className="flex flex-wrap gap-1">
+                                                                        {(entry.aliases || []).slice(0, 5).map((a: string, i: number) => (
+                                                                            <span key={i} className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">{a}</span>
+                                                                        ))}
+                                                                        {(entry.aliases || []).length > 5 && (
+                                                                            <span className="text-[10px] text-slate-400">+{entry.aliases.length - 5}개</span>
+                                                                        )}
+                                                                    </div>
+                                                                </td>
+                                                                <td className="px-3 py-2 text-center text-xs text-slate-400">{entry.hit_count || 0}</td>
+                                                                <td className="px-3 py-2 text-right">
+                                                                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100" style={{ opacity: 1 }}>
+                                                                        <button
+                                                                            onClick={() => setEditingRefEntry({ ...entry })}
+                                                                            className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                                                                            title="수정"
+                                                                        >
+                                                                            <Edit2 className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                if (!confirm(`'${entry.standard_code}' 항목을 삭제하시겠습니까?`)) return
+                                                                                deleteRefEntryMutation.mutate({ id: entry.id, model_id: entry.model_id || '__global__' })
+                                                                            }}
+                                                                            className="p-1 text-slate-400 hover:text-red-600 transition-colors"
+                                                                            title="삭제"
+                                                                        >
+                                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                            </>
+                                                        )}
+                                                    </tr>
+                                                ))}
+                                                {(entriesData?.entries ?? []).length === 0 && (
+                                                    <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-400 text-sm">항목이 없습니다.</td></tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </Card>
+                        ) : (
+                            /* ── Category Grid ── */
+                            <Card className="bg-white shadow-sm border-slate-200 p-5">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                        <Globe className="w-4 h-4 text-blue-600" />
+                                        등록된 카테고리
+                                    </h3>
+                                    <div className="text-xs text-slate-500">
+                                        총 <span className="font-bold text-blue-600">{totalGlobalEntries}</span>개 항목
+                                    </div>
                                 </div>
-                            ) : globalCategories.length === 0 ? (
-                                <div className="h-24 flex flex-col items-center justify-center text-slate-400">
-                                    <Globe className="w-6 h-6 mb-2 opacity-50" />
-                                    <p className="text-sm">등록된 글로벌 사전이 없습니다.</p>
-                                    <p className="text-xs mt-1">위에서 Excel 파일을 업로드하세요.</p>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                                    {globalCategories.map(cat => (
-                                        <div key={cat.category} className="p-4 border rounded-xl bg-gradient-to-br from-slate-50 to-white hover:shadow-sm transition-shadow group">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="text-sm font-bold text-slate-800 uppercase">{cat.category}</span>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">{cat.count}개</span>
-                                                    <button
-                                                        onClick={() => handleDeleteCategory(cat.category)}
-                                                        className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600"
-                                                        title="카테고리 삭제"
-                                                    >
-                                                        <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
+
+                                {isLoadingGlobal ? (
+                                    <div className="h-24 flex items-center justify-center">
+                                        <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                                    </div>
+                                ) : globalCategories.length === 0 ? (
+                                    <div className="h-24 flex flex-col items-center justify-center text-slate-400">
+                                        <Globe className="w-6 h-6 mb-2 opacity-50" />
+                                        <p className="text-sm">등록된 글로벌 사전이 없습니다.</p>
+                                        <p className="text-xs mt-1">위에서 Excel 파일을 업로드하세요.</p>
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                        {globalCategories.map(cat => (
+                                            <div
+                                                key={cat.category}
+                                                onClick={() => setSelectedCategory(cat.category)}
+                                                className="p-4 border rounded-xl bg-gradient-to-br from-slate-50 to-white hover:shadow-md hover:border-blue-300 transition-all cursor-pointer group"
+                                            >
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-sm font-bold text-slate-800 uppercase">{cat.category}</span>
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">{cat.count}개</span>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.category) }}
+                                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600"
+                                                            title="카테고리 삭제"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
                                                 </div>
+                                                <p className="text-xs text-slate-500">
+                                                    {cat.category === 'port' && '항구 코드 (UN/LOCODE 기반)'}
+                                                    {cat.category === 'carrier' && '선사 코드 (SCAC 기반)'}
+                                                    {cat.category === 'route' && '항로 코드'}
+                                                    {!['port', 'carrier', 'route'].includes(cat.category) && '사용자 정의 카테고리'}
+                                                </p>
+                                                <p className="text-[10px] text-blue-500 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">클릭하여 항목 보기 →</p>
                                             </div>
-                                            <p className="text-xs text-slate-500">
-                                                {cat.category === 'port' && '항구 코드 (UN/LOCODE 기반)'}
-                                                {cat.category === 'carrier' && '선사 코드 (SCAC 기반)'}
-                                                {cat.category === 'route' && '항로 코드'}
-                                                {!['port', 'carrier', 'route'].includes(cat.category) && '사용자 정의 카테고리'}
-                                            </p>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </Card>
+                                        ))}
+                                    </div>
+                                )}
+                            </Card>
+                        )}
 
                         {/* Search Test */}
                         <Card className="bg-white shadow-sm border-slate-200 p-5">
