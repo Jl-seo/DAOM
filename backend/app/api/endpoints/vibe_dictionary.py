@@ -3,6 +3,7 @@ Vibe Dictionary API Endpoints
 Manage synonym entries (AI-learned and manual) in the unified reference_data container.
 """
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import JSONResponse
 from typing import List, Dict, Any
 from app.core.auth import get_current_user, CurrentUser
 from app.core.permissions import require_admin
@@ -12,49 +13,59 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(redirect_slashes=False)
 
 
+@router.get("")
 @router.get("/")
 async def get_vibe_dictionary_entries(current_user: CurrentUser = Depends(get_current_user)):
     """
     Fetch all synonym (Vibe Dictionary) entries from the unified reference_data container.
     """
-    service = get_reference_data_service()
-    if not service.is_available:
-        raise HTTPException(status_code=503, detail="Database not configured")
-    
-    # Get all synonyms (no model filter = list all)
-    entries = await service.list_synonyms()
-    
-    # Fetch model name map
-    from app.db.cosmos import get_models_container
-    models_container = get_models_container()
-    model_name_map = {}
-    if models_container:
-        models_query = "SELECT c.id, c.name FROM c WHERE c.model_type = 'extraction' AND c.is_active = true"
-        async for item in models_container.query_items(query=models_query, enable_cross_partition_query=True):
-            model_name_map[item["id"]] = item["name"]
+    try:
+        service = get_reference_data_service()
+        if not service.is_available:
+            return []
+        
+        # Get all synonyms (no model filter = list all)
+        entries = await service.list_synonyms()
+        
+        # Fetch model name map
+        from app.db.cosmos import get_models_container
+        models_container = get_models_container()
+        model_name_map = {}
+        if models_container:
+            try:
+                models_query = "SELECT c.id, c.name FROM c WHERE c.model_type = 'extraction' AND c.is_active = true"
+                async for item in models_container.query_items(query=models_query, enable_cross_partition_query=True):
+                    model_name_map[item["id"]] = item["name"]
+            except Exception as e:
+                logger.warning(f"[VibeDictionary] Failed to fetch model names: {e}")
 
-    result = []
-    for item in entries:
-        model_id = item.get("model_id", "")
-        # Include entries where the model exists or is global
-        if model_id in model_name_map or model_id == "__global__":
-            result.append({
-                "model_id": model_id,
-                "model_name": model_name_map.get(model_id, "🌐 Global"),
-                "field_name": item.get("field_name", "default"),
-                "raw_val": item.get("raw_val", ""),
-                "standard_val": item.get("value", ""),
-                "source": item.get("source", "MANUAL"),
-                "hit_count": item.get("hit_count", 0),
-                "is_verified": item.get("is_verified", False)
-            })
+        result = []
+        for item in entries:
+            model_id = item.get("model_id", "")
+            # Include entries where the model exists or is global
+            if model_id in model_name_map or model_id == "__global__":
+                result.append({
+                    "model_id": model_id,
+                    "model_name": model_name_map.get(model_id, "🌐 Global"),
+                    "field_name": item.get("field_name", "default"),
+                    "raw_val": item.get("raw_val", ""),
+                    "standard_val": item.get("value", ""),
+                    "source": item.get("source", "MANUAL"),
+                    "hit_count": item.get("hit_count", 0),
+                    "is_verified": item.get("is_verified", False)
+                })
 
-    # Sort by hit_count descending
-    result.sort(key=lambda x: x["hit_count"], reverse=True)
-    return result
+        # Sort by hit_count descending
+        result.sort(key=lambda x: x["hit_count"], reverse=True)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[VibeDictionary] GET / failed: {e}", exc_info=True)
+        return JSONResponse(status_code=500, content={"detail": f"Internal error: {str(e)}"})
 
 
 @router.post("/", dependencies=[Depends(require_admin)])
