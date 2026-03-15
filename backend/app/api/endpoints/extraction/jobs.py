@@ -43,7 +43,8 @@ async def start_job_with_upload(
             current_user.id,
             current_user.tenant_id,
             model_id,
-            access_token=getattr(current_user, 'access_token', None)
+            access_token=getattr(current_user, 'access_token', None),
+            user_groups=getattr(current_user, 'groups', None)
         )
         if model_role is None:
             raise HTTPException(

@@ -32,15 +32,16 @@ async def check_model_permission(user: CurrentUser, model_id: str, required_role
     from app.core.group_permission_utils import check_initial_admin, is_super_admin_by_group, get_model_role_by_group
 
     access_token = getattr(user, 'access_token', None)
+    user_groups = getattr(user, 'groups', None)
 
     # 1. Super Admin / Initial Admin is always allowed
     if check_initial_admin(user.email):
         return True
-    if await is_super_admin_by_group(user.id, user.tenant_id, access_token=access_token):
+    if await is_super_admin_by_group(user.id, user.tenant_id, access_token=access_token, user_groups=user_groups):
         return True
 
     # 2. Check granular model permission
-    role = await get_model_role_by_group(user.id, user.tenant_id, model_id, access_token=access_token)
+    role = await get_model_role_by_group(user.id, user.tenant_id, model_id, access_token=access_token, user_groups=user_groups)
     if not role:
         return False
 

@@ -138,7 +138,7 @@ async def is_admin(user: CurrentUser) -> bool:
         return True
 
     # 2. Production: Check Cosmos DB group membership with superAdmin=true
-    if await is_super_admin_by_group(user.id, user.tenant_id, access_token=getattr(user, 'access_token', None)):
+    if await is_super_admin_by_group(user.id, user.tenant_id, access_token=getattr(user, 'access_token', None), user_groups=getattr(user, 'groups', None)):
         return True
 
     return False
@@ -155,7 +155,7 @@ async def is_super_admin(user: CurrentUser) -> bool:
         return True
 
     # 2. Production: Check Cosmos DB group superAdmin
-    if await is_super_admin_by_group(user.id, user.tenant_id, access_token=getattr(user, 'access_token', None)):
+    if await is_super_admin_by_group(user.id, user.tenant_id, access_token=getattr(user, 'access_token', None), user_groups=getattr(user, 'groups', None)):
         return True
 
     return False

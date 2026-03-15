@@ -50,7 +50,7 @@ async def _check_entra_membership_cached(access_token: str, user_id: str, entra_
         return False
 
 
-async def is_member_of_daom_group(user_id: str, group, access_token: Optional[str] = None) -> bool:
+async def is_member_of_daom_group(user_id: str, group, access_token: Optional[str] = None, user_groups: Optional[list[str]] = None) -> bool:
     """
     Check if user is a member of a DAOM group.
     Supports both direct user members and Entra group inheritance.
@@ -58,7 +58,8 @@ async def is_member_of_daom_group(user_id: str, group, access_token: Optional[st
     Args:
         user_id: The user's object ID
         group: DAOM Group object with members list
-        access_token: Optional access token for Entra group checks (required for entra_group members)
+        access_token: Optional access token for Graph API fallback
+        user_groups: Optional list of Entra group IDs from JWT 'groups' claim (preferred)
     
     Returns:
         True if user is a member (directly or via Entra group)
@@ -69,16 +70,21 @@ async def is_member_of_daom_group(user_id: str, group, access_token: Optional[st
 
         if member_type == "user" and member_id == user_id:
             return True
-        elif member_type == "entra_group" and access_token:
-            # Check if user is in the Entra group
-            is_in_entra = await _check_entra_membership_cached(access_token, user_id, member_id)
-            if is_in_entra:
+        elif member_type == "entra_group":
+            # Priority 1: Check JWT groups claim (no API call needed, always available)
+            if user_groups and member_id in user_groups:
+                logger.debug(f"[Permission] JWT groups claim match: user in Entra group {member_id}")
                 return True
+            # Priority 2: Fallback to Graph API (requires Graph-scoped token)
+            if access_token:
+                is_in_entra = await _check_entra_membership_cached(access_token, user_id, member_id)
+                if is_in_entra:
+                    return True
 
     return False
 
 
-async def is_super_admin_by_group(user_id: str, tenant_id: str, access_token: Optional[str] = None) -> bool:
+async def is_super_admin_by_group(user_id: str, tenant_id: str, access_token: Optional[str] = None, user_groups: Optional[list[str]] = None) -> bool:
     """
     사용자가 superAdmin=true 그룹의 멤버인지 확인
     Now supports Entra group inheritance!
@@ -88,7 +94,7 @@ async def is_super_admin_by_group(user_id: str, tenant_id: str, access_token: Op
     groups = await group_service.get_groups_by_tenant(tenant_id)
     for group in groups:
         # Enhanced: Check membership including Entra groups
-        is_member = await is_member_of_daom_group(user_id, group, access_token)
+        is_member = await is_member_of_daom_group(user_id, group, access_token, user_groups=user_groups)
         if is_member:
             # permissions가 객체인 경우와 dict인 경우 모두 처리
             if hasattr(group.permissions, 'superAdmin'):
@@ -100,7 +106,7 @@ async def is_super_admin_by_group(user_id: str, tenant_id: str, access_token: Op
     return False
 
 
-async def get_model_role_by_group(user_id: str, tenant_id: str, model_id: str, access_token: Optional[str] = None) -> Optional[str]:
+async def get_model_role_by_group(user_id: str, tenant_id: str, model_id: str, access_token: Optional[str] = None, user_groups: Optional[list[str]] = None) -> Optional[str]:
     """
     사용자의 특정 모델에 대한 role 반환 ("Admin" | "User" | None)
     Now supports Entra group inheritance!
@@ -109,7 +115,7 @@ async def get_model_role_by_group(user_id: str, tenant_id: str, model_id: str, a
 
     groups = await group_service.get_groups_by_tenant(tenant_id)
     for group in groups:
-        is_member = await is_member_of_daom_group(user_id, group, access_token)
+        is_member = await is_member_of_daom_group(user_id, group, access_token, user_groups=user_groups)
         if is_member:
             # permissions.models 접근
             models_list = []
@@ -125,7 +131,7 @@ async def get_model_role_by_group(user_id: str, tenant_id: str, model_id: str, a
     return None
 
 
-async def get_accessible_model_ids(user_id: str, tenant_id: str, access_token: Optional[str] = None) -> set[str]:
+async def get_accessible_model_ids(user_id: str, tenant_id: str, access_token: Optional[str] = None, user_groups: Optional[list[str]] = None) -> set[str]:
     """
     사용자가 속한 그룹들의 권한을 확인하여 접근 가능한 모든 모델 ID 집합 반환
     Now supports Entra group inheritance!
@@ -136,7 +142,7 @@ async def get_accessible_model_ids(user_id: str, tenant_id: str, access_token: O
     groups = await group_service.get_groups_by_tenant(tenant_id)
 
     for group in groups:
-        is_member = await is_member_of_daom_group(user_id, group, access_token)
+        is_member = await is_member_of_daom_group(user_id, group, access_token, user_groups=user_groups)
         if is_member:
             models_list = []
             if hasattr(group.permissions, 'models'):
@@ -152,7 +158,7 @@ async def get_accessible_model_ids(user_id: str, tenant_id: str, access_token: O
     return accessible_models
 
 
-async def get_accessible_menu_ids(user_id: str, tenant_id: str, access_token: Optional[str] = None) -> set[str]:
+async def get_accessible_menu_ids(user_id: str, tenant_id: str, access_token: Optional[str] = None, user_groups: Optional[list[str]] = None) -> set[str]:
     """
     사용자가 속한 그룹들의 메뉴 권한을 확인하여 접근 가능한 모든 메뉴 ID 집합 반환
     """
@@ -162,7 +168,7 @@ async def get_accessible_menu_ids(user_id: str, tenant_id: str, access_token: Op
     groups = await group_service.get_groups_by_tenant(tenant_id)
 
     for group in groups:
-        is_member = await is_member_of_daom_group(user_id, group, access_token)
+        is_member = await is_member_of_daom_group(user_id, group, access_token, user_groups=user_groups)
         if is_member:
             # Check if superAdmin - gets all menus
             is_super = False

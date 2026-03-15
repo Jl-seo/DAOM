@@ -32,7 +32,8 @@ async def list_models(current_user: CurrentUser = Depends(get_current_user)):
     accessible_ids = await get_accessible_model_ids(
         current_user.id,
         current_user.tenant_id,
-        access_token=getattr(current_user, 'access_token', None)
+        access_token=getattr(current_user, 'access_token', None),
+        user_groups=getattr(current_user, 'groups', None)
     )
     return [m for m in all_models if m.id in accessible_ids]
 

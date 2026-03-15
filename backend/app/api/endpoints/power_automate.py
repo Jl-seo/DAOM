@@ -237,7 +237,8 @@ async def upload_document(
             current_user.id,
             current_user.tenant_id,
             payload.model_id,
-            access_token=getattr(current_user, 'access_token', None)
+            access_token=getattr(current_user, 'access_token', None),
+            user_groups=getattr(current_user, 'groups', None)
         )
         if model_role is None:
             raise HTTPException(
@@ -842,7 +843,8 @@ async def query_extraction_results(
             current_user.id,
             current_user.tenant_id,
             model_id,
-            access_token=getattr(current_user, 'access_token', None)
+            access_token=getattr(current_user, 'access_token', None),
+            user_groups=getattr(current_user, 'groups', None)
         )
         if not model_role or model_role not in ["View", "Admin"]:
             raise HTTPException(status_code=403, detail="Not authorized to query this model")
@@ -976,7 +978,8 @@ async def list_available_models(
         accessible_ids = await get_accessible_model_ids(
             current_user.id,
             current_user.tenant_id,
-            access_token=getattr(current_user, 'access_token', None)
+            access_token=getattr(current_user, 'access_token', None),
+            user_groups=getattr(current_user, 'groups', None)
         )
         accessible = [m for m in all_models if m.id in accessible_ids]
 

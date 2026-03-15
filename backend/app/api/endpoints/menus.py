@@ -56,7 +56,8 @@ async def get_accessible_menus(current_user: CurrentUser = Depends(get_current_u
     accessible_menu_ids = await get_accessible_menu_ids(
         current_user.id,
         current_user.tenant_id,
-        access_token=getattr(current_user, 'access_token', None)
+        access_token=getattr(current_user, 'access_token', None),
+        user_groups=getattr(current_user, 'groups', None)
     )
 
     # Get all menus and filter

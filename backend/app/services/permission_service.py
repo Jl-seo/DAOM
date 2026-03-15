@@ -39,7 +39,7 @@ class ModelPermissions:
         }
 
 
-async def can_access_model(user: User, model_id: str, access_token: str = None) -> bool:
+async def can_access_model(user: User, model_id: str, access_token: str = None, user_groups: list = None) -> bool:
     """
     Check if user can access a model
     
@@ -63,11 +63,11 @@ async def can_access_model(user: User, model_id: str, access_token: str = None) 
         return True
 
     # 2. Group superAdmin -> access all models
-    if await is_super_admin_by_group(user.id, user.tenant_id, access_token=access_token):
+    if await is_super_admin_by_group(user.id, user.tenant_id, access_token=access_token, user_groups=user_groups):
         return True
 
     # 3. Group-based model permission
-    role = await get_model_role_by_group(user.id, user.tenant_id, model_id, access_token=access_token)
+    role = await get_model_role_by_group(user.id, user.tenant_id, model_id, access_token=access_token, user_groups=user_groups)
     if role:  # "Admin" or "User" both grant access
         return True
 
@@ -173,7 +173,7 @@ async def get_model_permissions(model_id: str) -> Optional[ModelPermissions]:
         return None
 
 
-async def get_accessible_models(user: User, access_token: str = None) -> list[str]:
+async def get_accessible_models(user: User, access_token: str = None, user_groups: list = None) -> list[str]:
     """Get list of model IDs user can access"""
     from app.core.group_permission_utils import check_initial_admin, is_super_admin_by_group
 
@@ -183,7 +183,7 @@ async def get_accessible_models(user: User, access_token: str = None) -> list[st
 
     try:
         # Bootstrap admin or superAdmin can access all models
-        is_admin = check_initial_admin(user.email) or await is_super_admin_by_group(user.id, user.tenant_id, access_token=access_token)
+        is_admin = check_initial_admin(user.email) or await is_super_admin_by_group(user.id, user.tenant_id, access_token=access_token, user_groups=user_groups)
         if is_admin:
             items = [item async for item in container.query_items(
                 query="SELECT c.id FROM c",
