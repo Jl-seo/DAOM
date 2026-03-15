@@ -50,7 +50,15 @@ async def set_llm_model(model_name: str):
     
     _current_model = model_name
     _openai_client = None # 클라이언트 캐시 초기화 (Stale connection 방지 / 새 API 연결 강제)
-    logger.info(f"[LLM] Model changed to: {_current_model} & Client cache cleared")
+    
+    # Reset inference client too (for non-OpenAI model switches)
+    try:
+        from app.services.llm_service import reset_inference_client
+        reset_inference_client()
+    except Exception:
+        pass
+    
+    logger.info(f"[LLM] Model changed to: {_current_model} & All client caches cleared")
 
     # DB 저장
     try:
@@ -437,6 +445,7 @@ async def call_llm_single(
 ) -> dict:
     """
     Stateless single LLM call with optional Structured Outputs.
+    Automatically routes to azure-ai-inference for non-OpenAI models (Claude, Llama, etc.).
     
     Args:
         system_prompt: System prompt (e.g. from RefinerEngine.construct_prompt)
@@ -448,6 +457,13 @@ async def call_llm_single(
         On success: {"result": <parsed_json>, "_token_usage": {...}}
         On error: {"error": "<message>"}
     """
+    # ── Multi-Model Routing ──
+    # Non-OpenAI models (Claude, Llama, Mistral, etc.) use azure-ai-inference SDK
+    from app.services.llm_service import is_openai_model
+    if not is_openai_model(_current_model):
+        return await _call_llm_single_inference(system_prompt, user_prompt, model_info)
+
+    # ── OpenAI Path ──
     client = get_openai_client()
 
     # Detect table-type models: strict Structured Outputs enforce exact schema.
@@ -522,6 +538,64 @@ async def call_llm_single(
         logger.error(f"[LLM-Single] Error: {error_msg}")
         return {"error": error_msg}
 
+
+async def _call_llm_single_inference(
+    system_prompt: str,
+    user_prompt: str,
+    model_info=None,
+) -> dict:
+    """
+    Single LLM call routed through azure-ai-inference for non-OpenAI models.
+    Used automatically when the current model is Claude, Llama, Mistral, etc.
+    """
+    from app.services.llm_service import call_llm_unified
+
+    messages = [
+        {"role": "system", "content": system_prompt + "\n\nIMPORTANT: Respond with valid JSON only."},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    is_table_model = False
+    if model_info and hasattr(model_info, 'fields') and model_info.fields:
+        for f in model_info.fields:
+            if getattr(f, 'type', '') in ['table', 'list', 'array']:
+                is_table_model = True
+                break
+
+    raw_max = settings.LLM_TABLE_MAX_TOKENS if is_table_model else settings.LLM_DEFAULT_MAX_TOKENS
+    max_tokens = min(raw_max, MODEL_MAX_COMPLETION_TOKENS)
+    temp = model_info.temperature if model_info and hasattr(model_info, 'temperature') else getattr(settings, 'LLM_DEFAULT_TEMPERATURE', 0.0)
+
+    try:
+        result = await call_llm_unified(
+            messages=messages,
+            model_name=_current_model,
+            temperature=temp,
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+        )
+
+        content = result.get("content", "{}")
+        logger.info(f"[LLM-Single-Inference] Response received. Length: {len(content)}")
+
+        llm_json = json.loads(content)
+        output = {"result": llm_json}
+
+        usage = result.get("usage", {})
+        if usage:
+            output["_token_usage"] = {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            }
+            logger.info(f"[LLM-Single-Inference] Token usage: {output['_token_usage']}")
+
+        return output
+
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"[LLM-Single-Inference] Error: {error_msg}")
+        return {"error": error_msg}
 
 async def generate_schema_from_content(content_text: str, tables: List[dict] = None) -> List[dict]:
     """
