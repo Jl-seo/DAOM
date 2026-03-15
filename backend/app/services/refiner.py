@@ -569,17 +569,11 @@ CHECKBOXES & SELECTION MARKS (CRITICAL):
 - If your instruction asks to extract ONLY selected items, you MUST filter and extract only rows/values that have a `:selected:` mark next to them. If it has `:unselected:`, IGNORE it.
 - If your instruction asks for the state of a checkbox, map `:selected:` to true/Yes and `:unselected:` to false/No.
 
-SELF-VERIFICATION RULES (CRITICAL):
-When extracting a value, if ANY of these conditions apply,
-add "is_uncertain": true and "warning_msg": "reason" to that field:
-
-1. AMBIGUITY: 2+ candidate values. State both candidates in warning_msg.
-2. DATA CORRUPTION: Text truncated, garbled, or OCR errors (0 vs O, 1 vs l).
-   Copy raw text as-is but flag it.
-3. FORMAT MISMATCH: Work order expects format X but document has format Y.
-4. LOW CONFIDENCE: Not fully certain for any reason. When in doubt, flag it.
-
-If certain, do NOT include is_uncertain or warning_msg.
+TOKEN EFFICIENCY (CRITICAL):
+- Each cell MUST be ONLY: {{"value": "extracted value", "ref": "TAG_ID"}}
+- Do NOT add confidence, source_text, is_uncertain, or warning_msg.
+- Maximize the number of rows you output. Data COMPLETENESS is more important than verbosity.
+- If a value is missing, return {{"value": null, "ref": null}}. Nothing more.
 
 ALLOWED FIELD KEYS (output ONLY these keys, do not invent new ones):
 {field_key_list}

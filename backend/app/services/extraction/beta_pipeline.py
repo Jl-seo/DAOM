@@ -344,11 +344,9 @@ class BetaPipeline(ExtractionPipeline):
                                     "type": ["object", "null"],
                                     "properties": {
                                         "value": {"type": sf_schema_type},
-                                        "ref": {"type": ["string", "null"]},
-                                        "is_uncertain": {"type": ["boolean", "null"]},
-                                        "warning_msg": {"type": ["string", "null"]}
+                                        "ref": {"type": ["string", "null"]}
                                     },
-                                    "required": ["value", "ref", "is_uncertain", "warning_msg"],
+                                    "required": ["value", "ref"],
                                     "additionalProperties": False
                                 }
                             else:
@@ -395,11 +393,9 @@ class BetaPipeline(ExtractionPipeline):
                         "type": ["object", "null"],
                         "properties": {
                             "value": {"type": f_schema_type},
-                            "ref": {"type": ["string", "null"]},
-                            "is_uncertain": {"type": ["boolean", "null"]},
-                            "warning_msg": {"type": ["string", "null"]}
+                            "ref": {"type": ["string", "null"]}
                         },
-                        "required": ["value", "ref", "is_uncertain", "warning_msg"],
+                        "required": ["value", "ref"],
                         "additionalProperties": False
                     }
                 else:
@@ -553,10 +549,33 @@ class BetaPipeline(ExtractionPipeline):
         field_keys = [k for k in field_keys if k]
         
         doc_context = tagged_text[:500].rstrip()
+        
+        # Extract section headers (e.g., "1. Validity: 12/1 ~ 12/7") for context preservation
+        import re
+        section_headers = []
+        for line in tagged_text.splitlines():
+            stripped = line.strip()
+            # Match numbered sections, validity lines, or standalone date-like headers
+            if re.match(r'^\d+\.', stripped) or 'validity' in stripped.lower():
+                # Remove tag markers for cleaner context
+                clean = re.sub(r'\^[WPC][0-9A-Fa-f]+\s*', '', stripped).strip()
+                if clean and len(clean) < 200:
+                    section_headers.append(clean)
+        
+        section_header_str = ""
+        if section_headers:
+            section_header_str = (
+                "--- SECTION HEADERS (USE FOR DATE CONTEXT) ---\n"
+                + "\n".join(section_headers[:10])
+                + "\n--- END SECTION HEADERS ---\n\n"
+                "CRITICAL: Match each table's rows to the nearest preceding section header for date/validity context.\n\n"
+            )
+        
         context_preamble = (
             f"--- START PAST CONTEXT (FOR QUICK REFERENCE ONLY) ---\n"
             f"{doc_context}\n...\n"
             f"--- END PAST CONTEXT ---\n\n"
+            f"{section_header_str}"
             f"CRITICAL WARNING: NEVER extract table rows or list items from the PAST CONTEXT. It is only provided so you know what the document is about.\n"
             f"You MUST extract data ONLY from the ACTUAL CHUNK DATA below.\n\n"
             f"EXPECTED FIELD KEYS: {', '.join(field_keys)}\n\n"
@@ -1394,7 +1413,7 @@ class BetaPipeline(ExtractionPipeline):
         return res
 
     async def call_llm(self, messages, is_table_model: bool = False, temperature: Optional[float] = None, response_format: Optional[Dict] = None):
-        """Direct LLM Call with table-aware max_tokens and resilient exponential backoff"""
+        """Direct LLM Call with table-aware max_tokens, multi-model routing, and resilient exponential backoff"""
         import asyncio
         import random
         
@@ -1406,6 +1425,13 @@ class BetaPipeline(ExtractionPipeline):
         temp = temperature if temperature is not None else settings.LLM_DEFAULT_TEMPERATURE
         resp_fmt = response_format if response_format is not None else {"type": "json_object"}
         
+        # ── Multi-Model Routing ──
+        # Non-OpenAI models (Claude, Llama, Mistral, etc.) use azure-ai-inference SDK
+        from app.services.llm_service import is_openai_model
+        if not is_openai_model(current_model_name):
+            return await self._call_llm_inference(messages, current_model_name, temp, max_tokens, resp_fmt)
+        
+        # ── OpenAI Path (existing logic with retries) ──
         max_retries = 6
         base_delay = 2.0
         response = None
@@ -1424,6 +1450,13 @@ class BetaPipeline(ExtractionPipeline):
             except Exception as e:
                 error_msg = str(e)
                 error_lower = error_msg.lower()
+                
+                # Fallback: if strict JSON Schema is not supported, retry with json_object
+                if resp_fmt.get("type") == "json_schema" and any(term in error_lower for term in ["json_schema", "response_format", "unsupported"]):
+                    logger.warning(f"[BetaPipeline] Strict JSON Schema not supported, falling back to json_object: {error_msg[:100]}")
+                    resp_fmt = {"type": "json_object"}
+                    continue
+                
                 is_transient = any(term in error_lower for term in ["429", "rate limit", "timeout", "connection", "502", "503", "504"])
                 
                 if not is_transient or attempt == max_retries - 1:
@@ -1440,6 +1473,66 @@ class BetaPipeline(ExtractionPipeline):
         content = response.choices[0].message.content
         finish_reason = getattr(response.choices[0], "finish_reason", "stop")
         
+        return self._parse_llm_response(content, finish_reason, response.usage)
+
+    async def _call_llm_inference(self, messages, model_name: str, temperature: float, max_tokens: int, response_format: Optional[Dict] = None):
+        """
+        Call non-OpenAI models (Claude, Llama, Mistral, etc.) via azure-ai-inference SDK.
+        This is the routing path for Anthropic and other third-party models deployed on Azure AI Foundry.
+        """
+        import asyncio
+        import random
+        
+        from app.services.llm_service import call_llm_unified
+        
+        max_retries = 6
+        base_delay = 2.0
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"[BetaPipeline] Inference route → model={model_name} (attempt {attempt+1})")
+                result = await call_llm_unified(
+                    messages=messages,
+                    model_name=model_name,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format=response_format,
+                )
+                
+                content = result.get("content", "")
+                finish_reason = result.get("finish_reason", "stop")
+                usage = result.get("usage", {})
+                
+                # Build a mock usage object for _parse_llm_response compatibility
+                class _MockUsage:
+                    def __init__(self, d):
+                        self.prompt_tokens = d.get("prompt_tokens", 0)
+                        self.completion_tokens = d.get("completion_tokens", 0)
+                        self.total_tokens = d.get("total_tokens", 0)
+                
+                return self._parse_llm_response(content, finish_reason, _MockUsage(usage))
+                
+            except Exception as e:
+                error_msg = str(e)
+                error_lower = error_msg.lower()
+                is_transient = any(term in error_lower for term in ["429", "rate limit", "timeout", "connection", "502", "503", "504"])
+                
+                if not is_transient or attempt == max_retries - 1:
+                    logger.error(f"[BetaPipeline] Inference API Fatal Error after {attempt+1} attempts: {error_msg}")
+                    return {
+                        "guide_extracted": {},
+                        "error": f"LLM Inference API Error: {error_msg}"
+                    }
+                
+                delay = base_delay * (2 ** attempt) + random.uniform(0.1, 1.5)
+                logger.warning(f"[BetaPipeline] Inference API Transient Error: {error_msg[:100]}... Retrying {attempt+1}/{max_retries} in {delay:.1f}s")
+                await asyncio.sleep(delay)
+        
+        # Should not reach here
+        return {"guide_extracted": {}, "error": "LLM Inference API: All retries exhausted"}
+
+    def _parse_llm_response(self, content: str, finish_reason: str, usage) -> Dict:
+        """Shared response parser for both OpenAI and Inference paths."""
         try:
             result = json.loads(content)
         except json.JSONDecodeError as e:
@@ -1465,14 +1558,11 @@ class BetaPipeline(ExtractionPipeline):
                 logger.info(f"[BetaPipeline] LLM returned flat dict without guide_extracted wrapper. Wrapping.")
                 result = {"guide_extracted": result}
         
-        # Detect LLM output truncation: if finish_reason is 'length', the output
-        # was cut off by max_completion_tokens. Flag it so the pipeline can fall back
-        # to chunked extraction or per-table extraction.
+        # Detect LLM output truncation
         if finish_reason == "length":
             logger.warning(f"[BetaPipeline] LLM output truncated (finish_reason='length'). Setting _truncated=True.")
             result["_truncated"] = True
         
-        usage = response.usage
         if usage:
              result["_token_usage"] = {
                 "prompt_tokens": usage.prompt_tokens,
@@ -1480,3 +1570,4 @@ class BetaPipeline(ExtractionPipeline):
                 "total_tokens": usage.total_tokens
             }
         return result
+
