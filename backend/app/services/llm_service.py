@@ -4,18 +4,19 @@ LLM Service — Unified Multi-Model Abstraction Layer
 Provides a single interface for calling LLMs regardless of the underlying provider.
 
 Supported Providers:
-- Azure OpenAI (GPT-4o, GPT-4.1, etc.) via `openai.AsyncAzureOpenAI`
-- Azure AI Inference (Claude, Llama, Mistral, etc.) via `azure.ai.inference.aio.ChatCompletionsClient`
+- Azure OpenAI (GPT-4o, GPT-4.1, GPT-5.x, etc.) via `openai.AsyncAzureOpenAI`
+- Anthropic (Claude) via Azure AI Foundry native `/anthropic/v1/messages` endpoint
 
 The routing is automatic based on the model/deployment name:
-- "gpt-*" → AsyncAzureOpenAI (supports Strict JSON Schema, Structured Outputs)
-- "claude-*", "meta-*", "mistral-*", etc. → ChatCompletionsClient (json_object mode only)
+- "gpt-*", "o1/o3/o4-*" → AsyncAzureOpenAI (supports Strict JSON Schema, Structured Outputs)
+- "claude-*" → Anthropic Messages API on Azure AI Foundry
 """
 import json
 import logging
+import re
 from typing import Optional, List, Dict, Any
 
-from openai import AsyncAzureOpenAI
+import httpx
 from app.core.config import settings
 from app.services.llm import get_openai_client, get_current_model
 
@@ -25,7 +26,8 @@ logger = logging.getLogger(__name__)
 # Model Type Detection
 # ──────────────────────────────────────────────
 
-# Prefixes that indicate non-OpenAI models deployed on Azure AI Foundry
+_ANTHROPIC_PREFIXES = ("claude",)
+
 _NON_OPENAI_PREFIXES = (
     "claude",
     "meta",
@@ -35,6 +37,9 @@ _NON_OPENAI_PREFIXES = (
     "command",
     "jamba",
     "phi",
+    "deepseek",
+    "grok",
+    "kimi",
 )
 
 def is_openai_model(model_name: str) -> bool:
@@ -42,7 +47,7 @@ def is_openai_model(model_name: str) -> bool:
     if not model_name:
         return True  # Default to OpenAI
     name_lower = model_name.lower().strip()
-    # Explicit GPT check
+    # Explicit GPT/O-series check
     if name_lower.startswith("gpt") or name_lower.startswith("o1") or name_lower.startswith("o3") or name_lower.startswith("o4"):
         return True
     # Check against known non-OpenAI prefixes
@@ -53,59 +58,17 @@ def is_openai_model(model_name: str) -> bool:
     return True
 
 
-# ──────────────────────────────────────────────
-# Azure AI Inference Client (Singleton)
-# ──────────────────────────────────────────────
-
-_inference_client = None
-
-def get_inference_client():
-    """
-    Singleton Azure AI Inference ChatCompletionsClient.
-    Uses AzureKeyCredential with the same API key as OpenAI for simplicity.
-    """
-    global _inference_client
-    if _inference_client is not None:
-        return _inference_client
-
-    try:
-        from azure.ai.inference.aio import ChatCompletionsClient
-        from azure.core.credentials import AzureKeyCredential
-    except ImportError:
-        logger.error("[LLM-Service] azure-ai-inference is not installed. Run: pip install azure-ai-inference")
-        raise ImportError("azure-ai-inference package is required for non-OpenAI models. Install with: pip install azure-ai-inference")
-
-    endpoint = settings.AZURE_OPENAI_ENDPOINT or settings.AZURE_AIPROJECT_ENDPOINT
-    endpoint = endpoint.rstrip('/')
-    api_key = settings.AZURE_OPENAI_API_KEY
-
-    if not endpoint or not api_key:
-        raise ValueError("Azure AI endpoint and API key must be configured for Inference Client")
-
-    logger.info(f"[LLM-Service] Creating Inference Client — Endpoint: {endpoint}")
-
-    _inference_client = ChatCompletionsClient(
-        endpoint=endpoint,
-        credential=AzureKeyCredential(api_key),
-    )
-    return _inference_client
+def is_anthropic_model(model_name: str) -> bool:
+    """Returns True if the model is Anthropic/Claude and needs the /anthropic/v1/messages endpoint."""
+    if not model_name:
+        return False
+    name_lower = model_name.lower().strip()
+    return any(name_lower.startswith(p) for p in _ANTHROPIC_PREFIXES)
 
 
 def reset_inference_client():
-    """Reset the inference client singleton (called when model changes)."""
-    global _inference_client
-    if _inference_client is not None:
-        # Schedule close in background — don't block
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(_inference_client.close())
-            else:
-                loop.run_until_complete(_inference_client.close())
-        except Exception:
-            pass
-    _inference_client = None
+    """Reset any cached state (called when model changes). Currently a no-op since we use httpx per-request."""
+    pass
 
 
 # ──────────────────────────────────────────────
@@ -140,10 +103,13 @@ async def call_llm_unified(
     if model_name is None:
         model_name = get_current_model()
 
-    if is_openai_model(model_name):
+    if is_anthropic_model(model_name):
+        return await _call_anthropic(messages, model_name, temperature, max_tokens)
+    elif is_openai_model(model_name):
         return await _call_openai(messages, model_name, temperature, max_tokens, response_format, seed)
     else:
-        return await _call_inference(messages, model_name, temperature, max_tokens, response_format)
+        # Other non-OpenAI models: try OpenAI SDK path first (some work via /openai/deployments)
+        return await _call_openai(messages, model_name, temperature, max_tokens, response_format, seed)
 
 
 async def _call_openai(
@@ -186,74 +152,114 @@ async def _call_openai(
         else:
             raise
 
-    return _extract_response(response)
+    return _extract_openai_response(response)
 
 
-async def _call_inference(
+async def _call_anthropic(
     messages: List[Dict[str, str]],
     model_name: str,
     temperature: float,
     max_tokens: int,
-    response_format: Optional[Dict],
 ) -> Dict[str, Any]:
-    """Route to Azure AI Inference ChatCompletionsClient (Claude, Llama, etc.)."""
-    client = get_inference_client()
+    """
+    Route to Anthropic Claude via Azure AI Foundry native endpoint.
+    
+    Azure AI Foundry hosts Claude models at: {endpoint}/anthropic/v1/messages
+    Auth: x-api-key header with the same API key used for Azure OpenAI.
+    The model field should be the DEPLOYMENT NAME (e.g., "claude-sonnet-4-5").
+    response_format is NOT supported — JSON extraction is done via prompt engineering.
+    """
+    endpoint = (settings.AZURE_OPENAI_ENDPOINT or settings.AZURE_AIPROJECT_ENDPOINT or "").rstrip("/")
+    api_key = settings.AZURE_OPENAI_API_KEY
 
-    # Convert standard message dicts to azure-ai-inference message objects
-    from azure.ai.inference.models import (
-        SystemMessage,
-        UserMessage,
-        AssistantMessage,
-    )
+    if not endpoint or not api_key:
+        raise ValueError("Azure AI endpoint and API key must be configured for Anthropic models")
 
-    converted_messages = []
+    url = f"{endpoint}/anthropic/v1/messages"
+
+    # Convert messages: Anthropic requires system to be separate from messages
+    system_content = ""
+    anthropic_messages = []
     for msg in messages:
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if role == "system":
-            converted_messages.append(SystemMessage(content=content))
-        elif role == "assistant":
-            converted_messages.append(AssistantMessage(content=content))
+            system_content += content + "\n"
         else:
-            converted_messages.append(UserMessage(content=content))
+            anthropic_messages.append({"role": role, "content": content})
 
-    kwargs = {
-        "messages": converted_messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
+    # Ensure JSON output via system prompt (Anthropic doesn't support response_format)
+    if system_content and "json" not in system_content.lower():
+        system_content += "\n\nIMPORTANT: Respond with valid JSON only. No markdown, no code fences, no explanation."
+
+    payload: Dict[str, Any] = {
         "model": model_name,
+        "max_tokens": max_tokens,
+        "messages": anthropic_messages,
+    }
+    if temperature > 0:
+        payload["temperature"] = temperature
+    if system_content.strip():
+        payload["system"] = system_content.strip()
+
+    headers = {
+        "x-api-key": api_key,
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
     }
 
-    # Azure AI Inference supports response_format for some models
-    # but NOT strict json_schema — always use json_object or omit
-    if response_format:
-        # Force to json_object for non-OpenAI models (strict schema not supported)
-        kwargs["response_format"] = {"type": "json_object"}
+    logger.info(f"[LLM-Service] Anthropic route → model={model_name} at {url}")
 
-    logger.info(f"[LLM-Service] Inference route → model={model_name}")
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, headers=headers, json=payload, timeout=120.0)
 
-    response = await client.complete(**kwargs)
+    if response.status_code != 200:
+        error_body = response.text[:500]
+        logger.error(f"[LLM-Service] Anthropic API error {response.status_code}: {error_body}")
+        raise RuntimeError(f"Anthropic API error {response.status_code}: {error_body}")
 
-    # Extract response in unified format
-    content = response.choices[0].message.content if response.choices else ""
-    finish_reason = response.choices[0].finish_reason if response.choices else "stop"
+    data = response.json()
 
-    usage = {}
-    if response.usage:
-        usage = {
-            "prompt_tokens": response.usage.prompt_tokens,
-            "completion_tokens": response.usage.completion_tokens,
-            "total_tokens": response.usage.total_tokens,
-        }
+    # Extract content from Anthropic's response format
+    content = ""
+    for block in data.get("content", []):
+        if block.get("type") == "text":
+            content += block["text"]
+
+    # Strip markdown code fences if Claude wraps JSON in them
+    content = _strip_code_fences(content)
+
+    finish_reason = data.get("stop_reason", "end_turn")
+    usage = data.get("usage", {})
 
     return {
         "content": content,
-        "usage": usage,
-        "finish_reason": str(finish_reason),
+        "usage": {
+            "prompt_tokens": usage.get("input_tokens", 0),
+            "completion_tokens": usage.get("output_tokens", 0),
+            "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+        },
+        "finish_reason": finish_reason,
     }
 
 
-def _extract_response(response) -> Dict[str, Any]:
+def _strip_code_fences(text: str) -> str:
+    """Strip markdown code fences (```json...```) that Claude sometimes wraps around JSON."""
+    text = text.strip()
+    if text.startswith("```"):
+        # Remove opening fence (```json or ```)
+        first_newline = text.find("\n")
+        if first_newline > 0:
+            text = text[first_newline + 1:]
+        else:
+            text = text[3:]
+        # Remove closing fence
+        if text.endswith("```"):
+            text = text[:-3].strip()
+    return text
+
+
+def _extract_openai_response(response) -> Dict[str, Any]:
     """Extract unified response dict from AsyncAzureOpenAI response."""
     content = response.choices[0].message.content if response.choices else ""
     finish_reason = getattr(response.choices[0], "finish_reason", "stop") if response.choices else "stop"
