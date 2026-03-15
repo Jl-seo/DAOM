@@ -92,7 +92,20 @@ class ExtractionService:
                 
                 # Rule Engine Hook (Normalization & Validation)
                 if model.dictionaries:
-                    sql_result = await rule_engine.apply_dictionary_normalization(sql_result, model.id, model.dictionaries)
+                    try:
+                        from app.services.extraction.reference_data import get_reference_data_service
+                        from app.services.extraction.rule_engine import build_field_dict_map
+                        ref_service = get_reference_data_service()
+                        if ref_service.is_available:
+                            field_dict_map = build_field_dict_map(model.fields, model.dictionaries)
+                            if field_dict_map:
+                                guide = sql_result.get("guide_extracted", {})
+                                if isinstance(guide, dict):
+                                    sql_result["guide_extracted"] = await ref_service.normalize_extracted_data(
+                                        guide, model.id, field_dict_map
+                                    )
+                    except Exception as e:
+                        logger.warning(f"[Extraction] Excel pipeline dict normalization failed (non-fatal): {e}")
                 # Step 3: Global Rule Validation
                 if model.reference_data:
                     sql_result = rule_engine.apply_validation_rules(sql_result, model.reference_data)
@@ -161,8 +174,20 @@ class ExtractionService:
 
                 # Rule Engine Hook (Normalization & Validation)
                 if model.dictionaries:
-                    # Pass fields definition for O(1) field-level mapping
-                    final_result = await rule_engine.apply_dictionary_normalization(final_result, model.id, model.dictionaries, model.fields)
+                    try:
+                        from app.services.extraction.reference_data import get_reference_data_service
+                        from app.services.extraction.rule_engine import build_field_dict_map
+                        ref_service = get_reference_data_service()
+                        if ref_service.is_available:
+                            field_dict_map = build_field_dict_map(model.fields, model.dictionaries)
+                            if field_dict_map:
+                                guide = final_result.get("guide_extracted", {})
+                                if isinstance(guide, dict):
+                                    final_result["guide_extracted"] = await ref_service.normalize_extracted_data(
+                                        guide, model.id, field_dict_map
+                                    )
+                    except Exception as e:
+                        logger.warning(f"[Extraction] Vision pipeline dict normalization failed (non-fatal): {e}")
                 # Step 3: Global Rule Validation
                 if model.reference_data:
                     final_result = rule_engine.apply_validation_rules(final_result, model.reference_data)
@@ -247,9 +272,38 @@ class ExtractionService:
             "timestamp": start_time.isoformat()
         }
 
-        # Step 4: Dictionary Normalization & Validation (Global)
+        # Step 4: Unified Normalization Pipeline
+        # Phase 1: Synonym Dictionary — exact match from Cosmos DB (verified synonyms)
+        vibe_config = getattr(model, "vibe_dictionary", None)
+        if vibe_config:
+            vibe_enabled = vibe_config.get("enabled", False) if isinstance(vibe_config, dict) else getattr(vibe_config, "enabled", False)
+            if vibe_enabled:
+                try:
+                    from app.services.extraction.reference_data import get_reference_data_service
+                    ref_service = get_reference_data_service()
+                    final_result = await ref_service.apply_synonyms(final_result, model.id)
+                except Exception as e:
+                    logger.warning(f"[Extraction] Synonym normalization failed (non-fatal): {e}")
+
+        # Phase 2: Reference Data — Cosmos DB + in-memory fuzzy matching
         if model.dictionaries:
-            final_result = await rule_engine.apply_dictionary_normalization(final_result, model.id, model.dictionaries, model.fields)
+            try:
+                from app.services.extraction.reference_data import get_reference_data_service
+                from app.services.extraction.rule_engine import build_field_dict_map
+                
+                ref_service = get_reference_data_service()
+                if ref_service.is_available:
+                    field_dict_map = build_field_dict_map(model.fields, model.dictionaries)
+                    if field_dict_map:
+                        guide = final_result.get("guide_extracted", {})
+                        if isinstance(guide, dict):
+                            final_result["guide_extracted"] = await ref_service.normalize_extracted_data(
+                                guide, model.id, field_dict_map
+                            )
+            except Exception as e:
+                logger.warning(f"[Extraction] ReferenceData normalization failed (non-fatal): {e}")
+
+        # Phase 3: Validation Rules — cross-field checks & constraints
         if model.reference_data:
             final_result = rule_engine.apply_validation_rules(final_result, model.reference_data)
 

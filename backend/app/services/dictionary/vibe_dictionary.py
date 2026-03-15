@@ -1,20 +1,27 @@
+"""
+Vibe Dictionary Background Service — AI synonym auto-discovery.
+
+Uses the unified reference_data container (entry_type='synonym') instead of
+the deprecated vibe_dictionaries container.
+"""
 import logging
 import json
-import uuid
+import hashlib
 from typing import Dict, Any, List, Set, Optional
+from datetime import datetime
 
 from app.services.llm_service import AzureOpenAIService
 from app.schemas.model import VibeDictionarySource
 from app.services.models import get_model_by_id
-from app.db.cosmos import get_vibe_dictionary_container
+from app.db.cosmos import get_reference_data_container
 
 logger = logging.getLogger(__name__)
 
 async def generate_vibe_dictionary_async(model_id: str, raw_extracted: Dict[str, Any]):
     """
     Background Task: Evaluates raw extracted data against the Model's Vibe Dictionary Persona.
-    If it finds valid synonyms for existing standard codes, it writes them into the standalone
-    vibe_dictionaries container as unverified AI_GENERATED entries for Admin review.
+    If it finds valid synonyms for existing standard codes, it writes them into the
+    reference_data container as unverified AI_GENERATED synonym entries for Admin review.
     """
     try:
         model = await get_model_by_id(model_id)
@@ -34,19 +41,21 @@ async def generate_vibe_dictionary_async(model_id: str, raw_extracted: Dict[str,
         if not vibe_config_enabled or not target_fields or not persona_prompt:
             return
 
-        vibe_container = get_vibe_dictionary_container()
-        if not vibe_container:
-            logger.error("[VibeDictionary] Container not configured.")
+        container = get_reference_data_container()
+        if not container:
+            logger.error("[VibeDictionary] reference_data container not configured.")
             return
 
-        # 1. Fetch existing dictionary from the generic vibe_dictionaries container
-        query = "SELECT * FROM c WHERE c.model_id = @model_id"
+        # 1. Fetch existing synonym entries for this model from reference_data
+        query = "SELECT * FROM c WHERE c.entry_type = 'synonym' AND c.model_id IN (@model_id, '__global__')"
         parameters = [{"name": "@model_id", "value": model_id}]
         
         try:
-            existing_entries = [v async for v in vibe_container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True)]
+            existing_entries = [v async for v in container.query_items(
+                query=query, parameters=parameters, enable_cross_partition_query=True
+            )]
         except Exception as e:
-            logger.error(f"[VibeDictionary] Failed to fetch Vibe Dictionary entries: {e}")
+            logger.error(f"[VibeDictionary] Failed to fetch synonym entries: {e}")
             existing_entries = []
 
         # Build a lookup map to collect existing standards and prevent duplicates
@@ -61,7 +70,7 @@ async def generate_vibe_dictionary_async(model_id: str, raw_extracted: Dict[str,
                 
             if field not in ref_data:
                 ref_data[field] = {}
-            ref_data[field][raw_val] = entry  # Save the whole entry for upsert reference
+            ref_data[field][raw_val] = entry
         
         # 2. Collect Raw Data that isn't already mapped
         unmapped_candidates: Dict[str, Set[str]] = {}
@@ -117,7 +126,7 @@ If no matches are found, return {{}}.
             logger.info(f"[VibeDictionary] LLM found no valid mappings for candidates: {candidates_json}")
             return
             
-        # 4. Upsert evaluated new mappings into standalone vibe_dictionaries container
+        # 4. Upsert evaluated new mappings into unified reference_data container
         updates_made = False
         for field, mappings in new_mappings.items():
             if not isinstance(mappings, dict): continue
@@ -125,30 +134,41 @@ If no matches are found, return {{}}.
             
             for raw_val, standard_code in mappings.items():
                 if field in ref_data and raw_val in ref_data[field]:
-                    # Synonym is somehow already mapped (edge case, hit count update)
+                    # Synonym already mapped — increment hit count
                     existing = ref_data[field][raw_val]
                     existing["hit_count"] = existing.get("hit_count", 0) + 1
                     try:
-                        await vibe_container.upsert_item(body=existing)
-                        logger.info(f"[VibeDictionary] Synonym hit count incremented via DB Upsert: {field} | '{raw_val}' -> {existing['hit_count']} hits")
+                        await container.upsert_item(body=existing)
+                        logger.info(f"[VibeDictionary] Hit count incremented: {field} | '{raw_val}' -> {existing['hit_count']} hits")
                         updates_made = True
                     except Exception as e:
                         logger.error(f"[VibeDictionary] Failed to update hit_count for '{raw_val}': {e}")
                 else:
-                    # Brand new synonym candidate auto-discovered
+                    # Brand new synonym candidate — store as entry_type=synonym
+                    doc_id = hashlib.md5(
+                        f"{model_id}_synonym_{field}_{raw_val}".encode()
+                    ).hexdigest()
+                    
                     doc = {
-                        "id": str(uuid.uuid4()),
+                        "id": doc_id,
                         "model_id": model_id,
+                        "category": "vibe",
+                        "entry_type": "synonym",
                         "field_name": field,
                         "raw_val": raw_val,
                         "value": standard_code,
+                        "standard_code": standard_code,
+                        "standard_label": raw_val,
+                        "aliases": [raw_val.lower()],
                         "source": VibeDictionarySource.AI_GENERATED.value,
                         "is_verified": False,
-                        "hit_count": 1
+                        "hit_count": 1,
+                        "extra": {},
+                        "created_at": datetime.utcnow().isoformat()
                     }
                     try:
-                        await vibe_container.create_item(body=doc)
-                        logger.info(f"[VibeDictionary] Auto-Learned synonym securely saved: {field} | '{raw_val}' -> '{standard_code}'")
+                        await container.upsert_item(body=doc)
+                        logger.info(f"[VibeDictionary] Auto-Learned synonym saved: {field} | '{raw_val}' -> '{standard_code}'")
                         updates_made = True
                     except Exception as e:
                         logger.error(f"[VibeDictionary] Failed to insert new synonym '{raw_val}': {e}")
@@ -169,9 +189,7 @@ def _collect_unmapped(data: Any, target_fields: List[str], ref_data: Dict[str, D
                         _collect_unmapped(row, target_fields, ref_data, results)
                 else:
                     if key in target_fields:
-                        # Check if it was modified by the dictionary
                         is_modified = node.get("_modifier", "").startswith("Vibe Dictionary") or node.get("_modifier", "") == "Dictionary"
-                        # Extra safeguard: ensure raw_val actually isn't in ref_data
                         raw_val = str(node.get("value", "")).strip()
                         if not is_modified and raw_val:
                             if key not in ref_data or raw_val not in ref_data[key]:

@@ -366,37 +366,19 @@ async def _call_webhook(
     return webhook_result
 
 async def run_vibe_processing_background(job_id: str, model_id: str, result: Dict[str, Any]):
-    """Background task to run Vibe Dictionary correction and auto-discovery AFTER extraction completes."""
+    """Background task to run Vibe Dictionary auto-discovery AFTER extraction completes.
+    
+    NOTE: Dictionary correction (apply_vibe_dictionary) is now handled synchronously 
+    in extraction_service.py. This background task only runs LLM-based auto-discovery
+    to generate new synonym suggestions for admin review.
+    """
     try:
-        from app.services.extraction import rule_engine
         from app.services import extraction_jobs, extraction_logs
         from app.services.dictionary.vibe_dictionary import generate_vibe_dictionary_async
         from app.core.enums import ExtractionStatus
 
-        logger.info(f"[Background Vibe] Starting Phase 1: Local Dict Correction for {job_id}")
-        # 1. Apply rules & vibe correction (Fast)
-        sql_result = await rule_engine.apply_vibe_dictionary(result, model_id)
-        
-        # 2. Re-save to DB and transition to S100 (Seamless UX Update)
-        await extraction_jobs.update_job(
-            job_id,
-            status=ExtractionStatus.SUCCESS.value,
-            preview_data=sql_result,
-            extracted_data=sql_result
-        )
-        job = await extraction_jobs.get_job(job_id)
-        # Update log structure if it exists
-        if job and getattr(job, "original_log_id", None):
-            await extraction_logs.update_log_status(
-                log_id=str(job.original_log_id),
-                status=ExtractionStatus.SUCCESS.value,
-                preview_data=sql_result,
-                extracted_data=sql_result
-            )
-        logger.info(f"[Background Vibe] Phase 1 Complete. Job {job_id} updated to S100.")
-            
-        # 3. Trigger Discovery (LLM Background Learning)
-        logger.info(f"[Background Vibe] Starting Phase 2: AI Auto-Discovery for {job_id}")
+        # Trigger Discovery (LLM Background Learning)
+        logger.info(f"[Background Vibe] Starting AI Auto-Discovery for {job_id}")
         await generate_vibe_dictionary_async(model_id, result)
         logger.info(f"[Background Vibe] Phase 2 Complete for {job_id}")
         

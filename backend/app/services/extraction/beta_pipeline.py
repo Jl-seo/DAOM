@@ -331,13 +331,13 @@ class BetaPipeline(ExtractionPipeline):
                         if sf_key:
                             # Parse expected type from sub_field
                             sf_type = sf.get("type", "string")
-                            sf_schema_type = ["string", "null"]
                             if sf_type == "number":
                                 sf_schema_type = ["number", "null"]
                             elif sf_type == "boolean":
                                 sf_schema_type = ["boolean", "null"]
                             else:
-                                sf_schema_type = ["string", "null", "number", "boolean"] # loose fallback
+                                # Default to string+null for string and unknown types
+                                sf_schema_type = ["string", "null"]
 
                             if is_beta_mode:
                                 sub_props[sf_key] = {
@@ -380,13 +380,13 @@ class BetaPipeline(ExtractionPipeline):
                         "items": {"type": "object"}
                     }
             else:
-                f_schema_type = ["string", "null"]
                 if f.type == "number":
                     f_schema_type = ["number", "null"]
                 elif f.type == "boolean":
                     f_schema_type = ["boolean", "null"]
                 else:
-                    f_schema_type = ["string", "null", "number", "boolean"] # loose fallback
+                    # Default to string+null for string and unknown types
+                    f_schema_type = ["string", "null"]
 
                 if is_beta_mode:
                     properties[f.key] = {
@@ -905,7 +905,7 @@ class BetaPipeline(ExtractionPipeline):
                         current_chunk.append(context_block)
                         current_len += len(context_block)
                         
-                    clean_header = re.sub(r"\^C[0-9A-F]+", "", active_header[0])
+                    clean_header = re.sub(r"\^[CWP][0-9A-Fa-f]+", "", active_header[0])
                     current_chunk.append(clean_header + "\n")  # header row
                     current_chunk.append(active_header[1] + "\n")  # separator
                     current_len += len(clean_header) + len(active_header[1]) + 2
@@ -1420,7 +1420,7 @@ class BetaPipeline(ExtractionPipeline):
         current_model_name = get_current_model()
         # Table models need more output tokens for many rows
         raw_max = settings.LLM_TABLE_MAX_TOKENS if is_table_model else settings.LLM_DEFAULT_MAX_TOKENS
-        max_tokens = min(raw_max, 16384)  # Clamp to model's actual limit to prevent 15-min hangs
+        max_tokens = min(raw_max, 32768)  # GPT-4.1 supports up to 32K completion tokens
         
         temp = temperature if temperature is not None else settings.LLM_DEFAULT_TEMPERATURE
         resp_fmt = response_format if response_format is not None else {"type": "json_object"}

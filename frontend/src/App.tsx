@@ -202,7 +202,7 @@ function App() {
           </AppLayout>
         } />
 
-        <Route path="/admin/vibe-dictionary" element={
+        <Route path="/admin/dictionary" element={
           <AppLayout>
             <div className="flex-1 overflow-auto bg-slate-50">
               <VibeDictionaryPage />

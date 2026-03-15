@@ -21,6 +21,7 @@ GROUPS_CONTAINER = "groups"
 MENUS_CONTAINER = "menus"
 PROMPTS_CONTAINER = "prompts"
 VIBE_DICTIONARY_CONTAINER = "vibe_dictionaries"
+REFERENCE_DATA_CONTAINER = "reference_data"
 
 # Singleton client instance
 _client: Optional[CosmosClient] = None
@@ -146,6 +147,10 @@ def get_vibe_dictionary_container():
     """Get cached vibe_dictionaries container"""
     return _containers.get(VIBE_DICTIONARY_CONTAINER)
 
+def get_reference_data_container():
+    """Get cached reference_data container"""
+    return _containers.get(REFERENCE_DATA_CONTAINER)
+
 
 async def init_cosmos():
     """Initialize Cosmos DB async connection.
@@ -184,6 +189,7 @@ async def init_cosmos():
         await _init_container(_database, CONFIG_CONTAINER, "/id")
         await _init_container(_database, PROMPTS_CONTAINER, "/id")
         await _init_container(_database, VIBE_DICTIONARY_CONTAINER, "/model_id")
+        await _init_container(_database, REFERENCE_DATA_CONTAINER, "/model_id")
 
         logger.info(f"[Cosmos] Initialization complete — {len(_containers)} containers registered")
 

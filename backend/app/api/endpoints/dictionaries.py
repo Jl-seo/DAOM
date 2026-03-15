@@ -1,11 +1,13 @@
 """
 Dictionary API Endpoints
 Manage dictionary indexes for auto-normalization (port codes, charge codes, etc.)
+
+Backend: ReferenceDataService (Cosmos DB + in-memory fuzzy matching)
 """
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
 from app.core.auth import get_current_user, CurrentUser
 from app.core.permissions import require_admin
-from app.services.dictionary_service import get_dictionary_service
+from app.services.extraction.reference_data import get_reference_data_service
 from app.services.audit import log_action, AuditAction, AuditResource
 
 import logging
@@ -18,9 +20,10 @@ router = APIRouter()
 @router.get("/categories")
 async def list_categories(model_id: str, current_user: CurrentUser = Depends(get_current_user)):
     """List all registered dictionary categories with item counts."""
-    service = get_dictionary_service()
+    service = get_reference_data_service()
     if not service.is_available:
-        raise HTTPException(status_code=503, detail="Dictionary service not configured.")
+        # Return empty list instead of 503 — more graceful for UI
+        return {"categories": []}
 
     categories = await service.list_categories(model_id)
     return {"categories": categories}
@@ -35,7 +38,7 @@ async def upload_dictionary(
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Upload an Excel/CSV file to create or update a dictionary."""
-    service = get_dictionary_service()
+    service = get_reference_data_service()
     if not service.is_available:
         raise HTTPException(status_code=503, detail="Dictionary service not configured.")
 
@@ -71,18 +74,25 @@ async def search_dictionary(
     top_k: int = 5,
     current_user: CurrentUser = Depends(get_current_user)
 ):
-    """Search dictionary entries. Supports keyword search with category filter."""
-    service = get_dictionary_service()
+    """Search dictionary entries. Uses in-memory fuzzy matching."""
+    service = get_reference_data_service()
     if not service.is_available:
         raise HTTPException(status_code=503, detail="Dictionary service not configured.")
 
-    matches = await service.search(q, model_id, category=category, top_k=top_k)
+    result = await service.match(q, model_id, category or "", threshold=0.3)
+    matches = []
+    if result:
+        matches.append({
+            "code": result.standard_code,
+            "name": result.standard_label,
+            "category": result.category,
+            "score": result.score,
+            **result.extra
+        })
+    
     return {
         "query": q,
-        "matches": [
-            {"code": m.code, "name": m.name, "category": m.category, "score": m.score, **m.extra}
-            for m in matches
-        ]
+        "matches": matches
     }
 
 
@@ -94,7 +104,7 @@ async def delete_category(
     current_user: CurrentUser = Depends(get_current_user)
 ):
     """Delete all entries for a dictionary category."""
-    service = get_dictionary_service()
+    service = get_reference_data_service()
     if not service.is_available:
         raise HTTPException(status_code=503, detail="Dictionary service not configured.")
 

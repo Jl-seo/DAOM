@@ -1,248 +1,73 @@
 import logging
 from typing import Dict, Any, List
 
-from app.services.dictionary_service import get_dictionary_service
-
 logger = logging.getLogger(__name__)
 
+# Auto-infer dictionary categories from common field key names
+# This eliminates the need for users to manually set "dictionary" on every sub_field
+AUTO_DICT_MAP = {
+    "pol": "port", "pod": "port", "por": "port", "pvy": "port",
+    "carrier": "carrier",
+    "currency": "currency",
+    "route": "route", "route_kr": "route",
+}
+
+
+def build_field_dict_map(fields: List[Any], dictionaries: List[str]) -> Dict[str, str]:
+    """
+    Build a lookup map of field_key -> dictionary_category.
+    Handles both top-level fields and sub_fields in tables.
+    Falls back to AUTO_DICT_MAP for common field names (pol, pod, carrier, etc.)
+    
+    Returns: {"pol": "port", "Rate_List.pol": "port", ...}
+    """
+    available_cats = set(dictionaries) if dictionaries else set()
+    field_dict_map = {}
+    
+    for f in (fields or []):
+        key = getattr(f, "key", None) if not isinstance(f, dict) else f.get("key")
+        dict_cat = getattr(f, "dictionary", None) if not isinstance(f, dict) else f.get("dictionary")
+        
+        if key and dict_cat:
+            field_dict_map[key] = dict_cat
+        elif key and not dict_cat:
+            auto_cat = AUTO_DICT_MAP.get(key.lower())
+            if auto_cat and auto_cat in available_cats:
+                field_dict_map[key] = auto_cat
+        
+        # Sub-fields in tables
+        sub_fields = (getattr(f, "sub_fields", None) if not isinstance(f, dict) else f.get("sub_fields")) or []
+        if isinstance(sub_fields, list):
+            for sub in sub_fields:
+                sub_key = sub.get("key") if isinstance(sub, dict) else getattr(sub, "key", None)
+                sub_dict = sub.get("dictionary") if isinstance(sub, dict) else getattr(sub, "dictionary", None)
+                if sub_key and sub_dict:
+                    field_dict_map[f"{key}.{sub_key}"] = sub_dict
+                elif sub_key and not sub_dict:
+                    auto_cat = AUTO_DICT_MAP.get(sub_key.lower())
+                    if auto_cat and auto_cat in available_cats:
+                        field_dict_map[f"{key}.{sub_key}"] = auto_cat
+    
+    return field_dict_map
+
+
 class RuleEngine:
-
-    async def apply_dictionary_normalization(self, raw_result: Dict[str, Any], model_id: str, dictionaries: List[str], fields: List[Any] = None) -> Dict[str, Any]:
-        """
-        Step 2: Normalizes raw extracted texts using active dictionary categories mapped at the field-level.
-        Only wraps fields if a dictionary is mapped in the field schema and a match is found.
-        """
-        # If no fields schema is provided, we no longer do global search to prevent false positives.
-        if not fields:
-            # Note: For backward compatibility with tests/legacy, if you want global search you could check dictionaries. 
-            # But Enterprise spec says 1:1 mapping only.
-            return raw_result
-
-        guide_extracted = raw_result.get("guide_extracted", {})
-        if not isinstance(guide_extracted, dict):
-            return raw_result
-
-        dict_service = get_dictionary_service()
-        if not dict_service.is_available:
-            logger.warning("[RuleEngine] DictionaryService unavailable. Skipping normalization.")
-            return raw_result
-
-        # Build a lookup map of field_key -> dictionary_category
-        # Handle both top-level fields and sub_fields
-        field_dict_map = {}
-        for f in fields:
-            key = getattr(f, "key", None)
-            dict_cat = getattr(f, "dictionary", None)
-            if key and dict_cat:
-                field_dict_map[key] = dict_cat
-            
-            # Check for sub_fields in tables
-            sub_fields = getattr(f, "sub_fields", None)
-            if sub_fields and isinstance(sub_fields, list):
-                for sub in sub_fields:
-                    sub_key = sub.get("key")
-                    sub_dict = sub.get("dictionary")
-                    if sub_key and sub_dict:
-                        field_dict_map[f"{key}.{sub_key}"] = sub_dict
-
-        if not field_dict_map:
-            # Early exit if no fields have dictionary mapping
-            return raw_result
-
-        import asyncio
-        
-        # Pass 1: Collect unique (value, category) pairs to fetch
-        pending_tasks = set()
-        cache = {}
-
-        for key, item in guide_extracted.items():
-            if isinstance(item, dict) and "value" in item:
-                val = item["value"]
-                
-                if isinstance(val, str):
-                    dict_cat = field_dict_map.get(key)
-                    if dict_cat and len(val.strip()) >= 2:
-                        pending_tasks.add((val, dict_cat))
-                
-                elif isinstance(val, list):
-                    for row in val:
-                        if isinstance(row, dict):
-                            for sub_key, sub_node in row.items():
-                                if isinstance(sub_node, dict) and "value" in sub_node:
-                                    sub_val = sub_node["value"]
-                                    if isinstance(sub_val, str):
-                                        sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}")
-                                        if sub_dict_cat and getattr(sub_val, "strip", lambda: "")() and len(sub_val.strip()) >= 2:
-                                            pending_tasks.add((sub_val, sub_dict_cat))
-
-        # Pass 2: Execute concurrent searches with semaphore
-        if pending_tasks:
-            # Sort for deterministic processing
-            sorted_tasks = sorted(list(pending_tasks))
-            
-            # Use smaller semaphore to avoid 429 Too Many Requests
-            sem = asyncio.Semaphore(5)
-            
-            async def _fetch(task_val, target_dictionary):
-                best_match = None
-                best_score = 0.0
-                try:
-                    async with sem:
-                        matches = await dict_service.search(query=task_val, model_id=model_id, category=target_dictionary, top_k=1)
-                        if matches and matches[0].score > 0.5:
-                            best_match = matches[0]
-                            best_score = matches[0].score
-                except Exception as e:
-                    logger.error(f"[RuleEngine] Dictionary search failed for val='{task_val}' in cat='{target_dictionary}': {e}")
-                
-                if best_match:
-                    cache[(task_val, target_dictionary)] = {
-                        "raw_value": task_val,
-                        "normalized_code": best_match.code,
-                        "dict_score": best_score,
-                        "normalized_category": best_match.category
-                    }
-                else:
-                    cache[(task_val, target_dictionary)] = {"raw_value": task_val, "normalized_code": None, "dict_score": 0.0}
-
-            await asyncio.gather(*[_fetch(v, d) for v, d in sorted_tasks])
-
-        # Pass 3: Apply the cached results
-        for key, item in guide_extracted.items():
-            if isinstance(item, dict) and "value" in item:
-                val = item["value"]
-                
-                if isinstance(val, str):
-                    dict_cat = field_dict_map.get(key)
-                    if dict_cat:
-                        norm = cache.get((val, dict_cat))
-                        if norm and norm.get("normalized_code"):
-                            item["raw_value"] = norm["raw_value"]
-                            item["normalized_code"] = norm["normalized_code"]
-                            item["dict_score"] = norm["dict_score"]
-                
-                elif isinstance(val, list):
-                    for row in val:
-                        if isinstance(row, dict):
-                            for sub_key, sub_node in row.items():
-                                if isinstance(sub_node, dict) and "value" in sub_node:
-                                    sub_val = sub_node["value"]
-                                    if isinstance(sub_val, str):
-                                        sub_dict_cat = field_dict_map.get(f"{key}.{sub_key}")
-                                        if sub_dict_cat:
-                                            norm = cache.get((sub_val, sub_dict_cat))
-                                            if norm and norm.get("normalized_code"):
-                                                sub_node["raw_value"] = norm["raw_value"]
-                                                sub_node["normalized_code"] = norm["normalized_code"]
-                                                sub_node["dict_score"] = norm["dict_score"]
-
-        raw_result["guide_extracted"] = guide_extracted
-        return raw_result
-
-    async def apply_vibe_dictionary(self, normalized_result: Dict[str, Any], model_id: str) -> Dict[str, Any]:
-        """
-        Step 2.5: Normalization Engine - Deterministically replaces raw values with standard values
-        if they match a Vibe Dictionary entry that is verified (`is_verified == True`).
-        """
-        if not model_id:
-            return normalized_result
-        
-        from app.db.cosmos import get_vibe_dictionary_container
-        vibe_container = get_vibe_dictionary_container()
-        if not vibe_container:
-            return normalized_result
-
-        # Fetch all verified vibe dictionary entries for this model
-        query = "SELECT * FROM c WHERE c.model_id = @model_id AND c.is_verified = true"
-        parameters = [{"name": "@model_id", "value": model_id}]
-        
-        try:
-            entries = [v async for v in vibe_container.query_items(query=query, parameters=parameters, enable_cross_partition_query=True)]
-        except Exception as e:
-            logger.error(f"[RuleEngine] Failed to fetch Vibe Dictionary entries: {e}")
-            entries = []
-
-        if not entries:
-            return normalized_result
-
-        # Build a fast lookup map: { "field_name": { "raw_val": "standard_val" } }
-        reference_data = {}
-        for entry in entries:
-            field = entry.get("field_name")
-            raw_val = entry.get("raw_val")
-            standard_val = entry.get("value")
-            
-            if not field or not raw_val or not standard_val:
-                continue
-                
-            if field not in reference_data:
-                reference_data[field] = {}
-            reference_data[field][raw_val] = standard_val
-
-        guide_extracted = normalized_result.get("guide_extracted", {})
-        if not isinstance(guide_extracted, dict):
-            return normalized_result
-
-        def _apply_dict(cell: Any, field_name: str) -> Any:
-            if not isinstance(cell, dict) or "value" not in cell:
-                return cell
-
-            raw_val = cell.get("value")
-            if not isinstance(raw_val, str) or not raw_val:
-                return cell
-
-            # Check if this field has dictionary entries in reference_data
-            field_dict = reference_data.get(field_name, {})
-            
-            # Check if the exact raw_val is in the dictionary (we already filtered for is_verified=true)
-            standard_val = field_dict.get(raw_val)
-            if standard_val:
-                cell["value"] = standard_val
-                cell["_modifier"] = "Vibe Dictionary" # Tag for UI badge
-                if "raw_value" not in cell:
-                    cell["raw_value"] = raw_val       # Keep original for tracing
-            
-            return cell
-
-        def _process_recursive(data: Any) -> Any:
-            if isinstance(data, dict):
-                processed = {}
-                for key, node in data.items():
-                    if isinstance(node, dict) and "value" in node:
-                        if isinstance(node["value"], list):
-                            # It's an array of rows
-                            processed_rows = []
-                            for row in node["value"]:
-                                processed_rows.append(_process_recursive(row))
-                            processed_node = dict(node)
-                            processed_node["value"] = processed_rows
-                            processed[key] = processed_node
-                        else:
-                            # It's a leaf cell
-                            processed[key] = _apply_dict(dict(node), key)
-                    elif isinstance(node, dict):
-                        processed[key] = _process_recursive(node)
-                    else:
-                        processed[key] = node
-                return processed
-            elif isinstance(data, list):
-                return [_process_recursive(item) for item in data]
-            return data
-
-        # Apply to guide_extracted tree
-        normalized_result["guide_extracted"] = _process_recursive(guide_extracted)
-        return normalized_result
 
     def apply_validation_rules(self, normalized_result: Dict[str, Any], reference_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Step 3: Applies cross-field validation rules and composite unique constraints.
-        reference_data format expected:
+        
+        reference_data format:
         {
             "validation_rules": [
-                {"type": "block", "condition": "...", "message": "..."}
+                {"type": "required", "field": "pol", "message": "POL is required"},
+                {"type": "format", "field": "start_date", "pattern": "\\d{4}-\\d{2}-\\d{2}", "message": "..."},
+                {"type": "value_check", "field": "currency", "allowed": ["USD","EUR","KRW"], "message": "..."},
+                {"type": "cross_field", "condition": "pol != pod", "severity": "error", "message": "POL and POD must differ"},
+                {"type": "value_check", "field": "20ft", "min": 0, "severity": "warning", "message": "..."}
             ],
             "unique_constraints": [
-                {"target_array": "shipping_charges", "unique_keys": ["container_no", "charge_code"]}
+                {"target_array": "Rate_List", "unique_keys": ["pol", "pod", "container_type"]}
             ]
         }
         """
@@ -250,8 +75,9 @@ class RuleEngine:
             return normalized_result
 
         guide_extracted = normalized_result.get("guide_extracted", {})
+        warnings_list = normalized_result.get("_warnings", [])
         
-        # 1. Unique Constraints (Composite Keys)
+        # ── 1. Unique Constraints (Composite Keys) ──
         unique_constraints = reference_data.get("unique_constraints", [])
         for constraint in unique_constraints:
             target_array = constraint.get("target_array")
@@ -268,14 +94,11 @@ class RuleEngine:
                 if not isinstance(row, dict):
                     continue
                 
-                # Build composite key
-                # row[k] could be a primitive or a dict {"raw_value": "...", "normalized_code": "..."}
                 composite_parts = []
                 for k in keys:
                     v = row.get(k)
                     if isinstance(v, dict):
-                        # Use normalized_code if available, else raw_value
-                        part = v.get("normalized_code") or v.get("raw_value") or ""
+                        part = v.get("value") or v.get("normalized_code") or v.get("raw_value") or ""
                     else:
                         part = str(v) if v is not None else ""
                     composite_parts.append(str(part).strip().lower())
@@ -283,7 +106,6 @@ class RuleEngine:
                 composite_str = "|".join(composite_parts)
                 
                 if composite_str in seen_keys:
-                    # Mark row as duplicate
                     if "_row_warnings" not in row:
                         row["_row_warnings"] = []
                     row["_row_warnings"].append(f"중복된 값이 감지되었습니다. (고유 키: {', '.join(keys)})")
@@ -291,16 +113,187 @@ class RuleEngine:
                 else:
                     seen_keys.add(composite_str)
 
-        # 2. Cross-Field Logic (If-Then)
-        # To be implemented fully with a safe eval or a typed rule parser in Phase 2
-        # For now, we stub it to allow UI testing
+        # ── 2. Declarative Validation Rules ──
+        import re
         validation_rules = reference_data.get("validation_rules", [])
+        
         for rule in validation_rules:
-            # We can implement a simple parser later.
-            pass
+            rule_type = rule.get("type")
+            severity = rule.get("severity", "warning")
+            message = rule.get("message", "Validation failed")
+            field = rule.get("field")
+            
+            if rule_type == "required":
+                # Check if a field has a non-empty value
+                self._validate_field_values(
+                    guide_extracted, field, severity, message, warnings_list,
+                    check_fn=lambda v: v is not None and str(v).strip() != ""
+                )
+                
+            elif rule_type == "format":
+                # Check if a field matches a regex pattern
+                pattern = rule.get("pattern")
+                if not pattern:
+                    continue
+                compiled = re.compile(pattern)
+                self._validate_field_values(
+                    guide_extracted, field, severity, message, warnings_list,
+                    check_fn=lambda v: v is None or str(v).strip() == "" or bool(compiled.match(str(v)))
+                )
+                
+            elif rule_type == "value_check":
+                # Check allowed values or numeric ranges
+                allowed = rule.get("allowed")
+                min_val = rule.get("min")
+                max_val = rule.get("max")
+                
+                def _value_check(v):
+                    if v is None or str(v).strip() == "":
+                        return True  # Empty values skip (use "required" rule instead)
+                    val_str = str(v).strip()
+                    if allowed:
+                        return val_str.upper() in [a.upper() for a in allowed]
+                    if min_val is not None or max_val is not None:
+                        try:
+                            num = float(val_str.replace(",", ""))
+                            if min_val is not None and num < min_val:
+                                return False
+                            if max_val is not None and num > max_val:
+                                return False
+                        except ValueError:
+                            return True  # Non-numeric, skip range check
+                    return True
+                
+                self._validate_field_values(
+                    guide_extracted, field, severity, message, warnings_list,
+                    check_fn=_value_check
+                )
+                
+            elif rule_type == "cross_field":
+                # Cross-field comparison (e.g., "pol != pod")
+                condition = rule.get("condition", "")
+                self._validate_cross_field(
+                    guide_extracted, condition, severity, message, warnings_list
+                )
 
+        if warnings_list:
+            normalized_result["_warnings"] = warnings_list
         normalized_result["guide_extracted"] = guide_extracted
         return normalized_result
+
+    def _get_field_value(self, data: dict, field_key: str):
+        """Extract a field's effective value from guide_extracted."""
+        node = data.get(field_key)
+        if node is None:
+            return None
+        if isinstance(node, dict):
+            return node.get("value")
+        return node
+
+    def _validate_field_values(self, guide_extracted: dict, field: str, 
+                                severity: str, message: str, warnings_list: list,
+                                check_fn):
+        """Validate a field across top-level and table rows."""
+        if not field:
+            return
+        
+        # Check if field is in a table (e.g., "Rate_List.pol")
+        parts = field.split(".", 1) if "." in field else [field]
+        
+        if len(parts) == 1:
+            # Top-level field
+            val = self._get_field_value(guide_extracted, field)
+            if not check_fn(val):
+                warnings_list.append({
+                    "field": field,
+                    "severity": severity,
+                    "message": message.replace("{value}", str(val) if val else ""),
+                    "value": str(val) if val else None
+                })
+        else:
+            # Table sub-field: parts[0] = table key, parts[1] = sub_field key
+            table_key, sub_key = parts
+            table_node = guide_extracted.get(table_key, {})
+            rows = table_node.get("value") if isinstance(table_node, dict) else None
+            if isinstance(rows, list):
+                for idx, row in enumerate(rows):
+                    if not isinstance(row, dict):
+                        continue
+                    val = self._get_field_value(row, sub_key)
+                    if not check_fn(val):
+                        if "_row_warnings" not in row:
+                            row["_row_warnings"] = []
+                        row["_row_warnings"].append(message.replace("{value}", str(val) if val else ""))
+
+    def _validate_cross_field(self, guide_extracted: dict, condition: str,
+                               severity: str, message: str, warnings_list: list):
+        """
+        Evaluate simple cross-field conditions like "pol == pod" or "start_date < end_date".
+        Supports operators: ==, !=, <, >, <=, >=
+        """
+        import re as _re
+        match = _re.match(r'^\s*(\w+)\s*(==|!=|<=|>=|<|>)\s*(\w+)\s*$', condition)
+        if not match:
+            logger.warning(f"[RuleEngine] Invalid cross-field condition: '{condition}'")
+            return
+        
+        left_key, operator, right_key = match.groups()
+        
+        # Try top-level first
+        left_val = self._get_field_value(guide_extracted, left_key)
+        right_val = self._get_field_value(guide_extracted, right_key)
+        
+        if left_val is not None and right_val is not None:
+            if self._compare(left_val, operator, right_val) is False:
+                warnings_list.append({
+                    "field": f"{left_key}, {right_key}",
+                    "severity": severity,
+                    "message": message,
+                    "condition": condition
+                })
+            return
+        
+        # Try in table rows (both fields in same table)
+        for key, node in guide_extracted.items():
+            if isinstance(node, dict) and isinstance(node.get("value"), list):
+                for idx, row in enumerate(node["value"]):
+                    if not isinstance(row, dict):
+                        continue
+                    lv = self._get_field_value(row, left_key)
+                    rv = self._get_field_value(row, right_key)
+                    if lv is not None and rv is not None:
+                        if self._compare(lv, operator, rv) is False:
+                            if "_row_warnings" not in row:
+                                row["_row_warnings"] = []
+                            row["_row_warnings"].append(message)
+
+    @staticmethod
+    def _compare(left, operator: str, right) -> bool:
+        """Safe comparison of two values."""
+        left_s = str(left).strip() if left is not None else ""
+        right_s = str(right).strip() if right is not None else ""
+        
+        if operator == "==":
+            return left_s.lower() == right_s.lower()
+        elif operator == "!=":
+            return left_s.lower() != right_s.lower()
+        
+        # Numeric comparisons
+        try:
+            left_n = float(left_s.replace(",", ""))
+            right_n = float(right_s.replace(",", ""))
+        except (ValueError, AttributeError):
+            return True  # Can't compare non-numeric, skip
+        
+        if operator == "<":
+            return left_n < right_n
+        elif operator == ">":
+            return left_n > right_n
+        elif operator == "<=":
+            return left_n <= right_n
+        elif operator == ">=":
+            return left_n >= right_n
+        return True
 
 
 rule_engine = RuleEngine()

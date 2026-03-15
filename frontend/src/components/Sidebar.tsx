@@ -11,7 +11,8 @@ import {
     Loader2,
     ClipboardList,
     PanelLeftClose,
-    PanelLeftOpen
+    PanelLeftOpen,
+    BookOpen
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { modelsApi } from '../lib/api'
@@ -270,16 +271,16 @@ export function Sidebar({ className, onClose, collapsed = false, onToggleCollaps
                                 <span className="flex-1 text-left">활동 로그</span>
                             </button>
                             <button
-                                onClick={() => handleNavigate('/admin/vibe-dictionary')}
+                                onClick={() => handleNavigate('/admin/dictionary')}
                                 className={clsx(
                                     "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                                    isPathActive('/admin/vibe-dictionary')
+                                    isPathActive('/admin/dictionary')
                                         ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
                                         : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
                                 )}
                             >
-                                <FileText className="w-4 h-4" />
-                                <span className="flex-1 text-left">바이브 딕셔너리</span>
+                                <BookOpen className="w-4 h-4" />
+                                <span className="flex-1 text-left">통합 사전 관리</span>
                             </button>
                             <button
                                 onClick={() => handleNavigate('/admin/settings')}
