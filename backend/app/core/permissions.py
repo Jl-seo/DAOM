@@ -73,3 +73,31 @@ async def verify_model_access(model_id: str, user: CurrentUser = Depends(get_cur
         status_code=status.HTTP_403_FORBIDDEN,
         detail=f"Access denied for model {model_id}"
     )
+
+
+async def require_admin_or_model_admin(user: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+    """
+    Dependency: Require admin OR any model-level Admin role.
+    Used for endpoints that need admin-like access but should also work for Model Admins
+    (e.g., fetching available Azure DI models, LLM options for model configuration).
+    """
+    # 1. SuperAdmin / Initial Admin → always pass
+    if await is_admin(user):
+        return user
+
+    # 2. Check if user has Admin role on ANY model via group permissions
+    from app.core.group_permission_utils import get_accessible_model_ids, get_model_role_by_group
+    accessible_ids = await get_accessible_model_ids(
+        user.id,
+        user.tenant_id,
+        access_token=getattr(user, 'access_token', None),
+        user_groups=getattr(user, 'groups', None)
+    )
+    if accessible_ids:
+        # User has at least one model → Model Admin should be able to configure models
+        return user
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin or Model Admin access required"
+    )

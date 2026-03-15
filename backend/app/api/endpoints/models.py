@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
 from app.schemas.model import ExtractionModel, ExtractionModelCreate
 from app.services.models import load_models, save_models, get_model_by_id
-from app.core.permissions import require_admin, verify_model_admin, verify_model_access
+from app.core.permissions import require_admin, verify_model_admin, verify_model_access, require_admin_or_model_admin
 from app.services.audit import log_action, AuditAction, AuditResource
 from app.core.auth import get_current_user, CurrentUser
 
@@ -139,13 +139,13 @@ async def delete_model(
 
     raise HTTPException(status_code=404, detail="Model not found")
 
-@router.get("/options/list", dependencies=[Depends(require_admin)])
+@router.get("/options/list", dependencies=[Depends(require_admin_or_model_admin)])
 def list_model_options():
     """Get available Azure model types"""
     from app.services.doc_intel import get_supported_models
     return get_supported_models()
 
-@router.get("/options/llms", dependencies=[Depends(require_admin)])
+@router.get("/options/llms", dependencies=[Depends(require_admin_or_model_admin)])
 async def list_llm_options():
     """Get available Azure OpenAI / API Foundry deployments"""
     from app.services.llm import fetch_available_models
