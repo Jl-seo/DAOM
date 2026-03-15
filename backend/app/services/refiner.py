@@ -397,7 +397,7 @@ OUTPUT: A JSON object with this structure:
       }}
     ],
     "integrity_rules": [
-      "Copy values exactly as written, UNLESS explicitly instructed to calculate, transform, or translate by the user's field rule.",
+      "Copy values exactly as written. No conversion/calculation/translation.",
       "Missing values must be null.",
       "Extract in original language. Do NOT translate unless field rule says so."
     ]
@@ -517,7 +517,7 @@ DENORMALIZATION (Table fields only):
 - Every row object MUST be complete — no empty inherited fields.
 
 NULL HANDLING (CRITICAL):
-- If a field's value DOES NOT EXIST in the document, return {{"value": null, "ref": null}}.
+- If a field's value DOES NOT EXIST in the document, return {"value": null, "ref": null}.
 - Do NOT guess, infer, or extrapolate from other rows or fields.
 - A missing value is ALWAYS better than a wrong value.
 - For table rows: if a cell is empty, return null. Do NOT copy from adjacent rows.

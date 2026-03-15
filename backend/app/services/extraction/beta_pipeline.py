@@ -76,25 +76,12 @@ class BetaPipeline(ExtractionPipeline):
         
         # If no tables exist, use traditional unified LLM extraction. 
         # Otherwise, split the work order to save LLM tokens and guarantee 100% row yield.
-        if not has_table_fields:
-            text_work_order = work_order
-            should_run_table_mapper = False
-            engineer_text_payload = tagged_text
-        else:
-            import copy
-            import re
-            
-            # Create a Deep Copy to safely mutate 'work_order' nested keys
-            text_work_order = copy.deepcopy(work_order)
-            if "work_order" in text_work_order:
-                text_work_order["work_order"]["table_fields"] = []
-            else:
-                text_work_order["table_fields"] = []
-                
-            should_run_table_mapper = True
-            
-            logger.info("[BetaPipeline] Bypassing Text Diet: Passing full text to engineer to preserve common field context near tables.")
-            engineer_text_payload = tagged_text
+        # Always let the LLM extract both common and table fields so advanced reasoning 
+        # (like exploding multi-port rows or date inference) can execute.
+        # Token limits are handled by _run_engineer_chunked.
+        text_work_order = work_order
+        should_run_table_mapper = False
+        engineer_text_payload = tagged_text
 
         async def run_engineer_pipeline():
             current_len = len(engineer_text_payload)
@@ -407,7 +394,7 @@ class BetaPipeline(ExtractionPipeline):
                 "common_fields": common_fields,
                 "table_fields": table_fields,
                 "integrity_rules": [
-                    "Copy values exactly as written. No conversion/calculation/translation.",
+                    "Copy values exactly as written, UNLESS explicitly instructed to calculate, transform, or translate by the field rule.",
                     "Missing values must be null.",
                     "Extract in original language. Do NOT translate unless field rule says so."
                 ]
@@ -735,13 +722,16 @@ class BetaPipeline(ExtractionPipeline):
         Split tagged text into chunks with markdown table header preservation.
         When a chunk boundary falls inside a table, the header row + separator
         are injected at the start of each new chunk.
+        ALSO: Injects the text paragraph immediately preceding the table to preserve context (e.g., Date, Category).
         """
         import re
         lines = tagged_text.split("\n")
         
         # Detect markdown table headers: | ... | followed by |---|
-        # We allow spaces and tags inside headers and separators.
         table_headers: Dict[int, tuple] = {}  # line_idx -> (header_row, separator_row)
+        table_contexts: Dict[int, str] = {}   # line_idx -> context_string
+        
+        current_context_buffer = []
         for i, line in enumerate(lines):
             stripped = line.strip()
             if stripped.startswith("|") and i + 1 < len(lines):
@@ -750,11 +740,22 @@ class BetaPipeline(ExtractionPipeline):
                     # Check if next_stripped is mostly a markdown divider e.g. |---|:---|
                     if re.match(r"^\|[\s\-\:\|]+\|$", next_stripped):
                         table_headers[i] = (line, lines[i + 1])
+                        # Preserve last 3 non-empty lines before table as context
+                        context_str = "\n".join([c for c in current_context_buffer if c.strip()][-3:])
+                        table_contexts[i] = context_str
+            
+            if stripped and not stripped.startswith("|"):
+                current_context_buffer.append(line)
+            elif not stripped:
+                current_context_buffer.append(line)
+            # If inside a table (starts with |), we don't clear the context buffer.
+            # We let it persist so if there are multiple tight tables, they might share context.
         
         chunks = []
         current_chunk: List[str] = []
         current_len = 0
         active_header: Optional[tuple] = None
+        active_context: str = ""
         consecutive_non_table_lines = 0
         
         for i, line in enumerate(lines):
@@ -762,6 +763,7 @@ class BetaPipeline(ExtractionPipeline):
             # Track table context
             if i in table_headers:
                 active_header = table_headers[i]
+                active_context = table_contexts.get(i, "")
                 consecutive_non_table_lines = 0
             elif stripped.startswith("|"):
                 consecutive_non_table_lines = 0
@@ -770,13 +772,14 @@ class BetaPipeline(ExtractionPipeline):
                 consecutive_non_table_lines += 1
                 if consecutive_non_table_lines > 0:
                     active_header = None
+                    active_context = ""
             else:
                 # It's an empty line (\n inside a table). Give it some tolerance.
                 consecutive_non_table_lines += 1
                 if consecutive_non_table_lines > 2:
                     active_header = None
+                    active_context = ""
             
-            # Since we split by \n, we must add it back to accurately track length and content
             line_with_newline = line + "\n"
             line_len = len(line_with_newline)
             
@@ -786,9 +789,15 @@ class BetaPipeline(ExtractionPipeline):
                 current_chunk = []
                 current_len = 0
                 
-                # If inside a table, inject header
+                # If inside a table, inject header and preceding context
                 if active_header:
-                    # Clean tags from the injected header so LLM doesn't extract duplicated tags
+                    if active_context:
+                        # Strip raw tags from context so it doesn't cause extraction hallucinations
+                        clean_context = re.sub(r"\^[CWP][0-9A-F]+", "", active_context)
+                        context_block = f"--- TABLE CONTEXT (Inherited) ---\n{clean_context}\n---------------------------------\n"
+                        current_chunk.append(context_block)
+                        current_len += len(context_block)
+                        
                     clean_header = re.sub(r"\^C[0-9A-F]+", "", active_header[0])
                     current_chunk.append(clean_header + "\n")  # header row
                     current_chunk.append(active_header[1] + "\n")  # separator

@@ -91,6 +91,7 @@ class ExtractionService:
                 })
                 
                 # Rule Engine Hook (Normalization & Validation)
+                sql_result = rule_engine.apply_data_cleaning(sql_result)
                 if model.dictionaries:
                     sql_result = await rule_engine.apply_dictionary_normalization(sql_result, model.id, model.dictionaries)
                 # Step 3: Global Rule Validation
@@ -160,6 +161,7 @@ class ExtractionService:
                 }
 
                 # Rule Engine Hook (Normalization & Validation)
+                final_result = rule_engine.apply_data_cleaning(final_result)
                 if model.dictionaries:
                     # Pass fields definition for O(1) field-level mapping
                     final_result = await rule_engine.apply_dictionary_normalization(final_result, model.id, model.dictionaries, model.fields)
@@ -248,6 +250,7 @@ class ExtractionService:
         }
 
         # Step 4: Dictionary Normalization & Validation (Global)
+        final_result = rule_engine.apply_data_cleaning(final_result)
         if model.dictionaries:
             final_result = await rule_engine.apply_dictionary_normalization(final_result, model.id, model.dictionaries, model.fields)
         if model.reference_data:

@@ -6,6 +6,59 @@ from app.services.dictionary_service import get_dictionary_service
 logger = logging.getLogger(__name__)
 
 class RuleEngine:
+    def apply_data_cleaning(self, raw_result: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Step 1.5: Cleans up UI artifacts (e.g., Markdown checkboxes, stray dashes) 
+        from the extracted text before dictionary normalization.
+        """
+        guide_extracted = raw_result.get("guide_extracted", {})
+        if not isinstance(guide_extracted, dict):
+            return raw_result
+            
+        def _clean_value(val: Any) -> Any:
+            if not isinstance(val, str):
+                return val
+            
+            stripped = val.strip()
+            if stripped in ("-", ".", "X", "x", "", ":selected:", ":unselected:"):
+                return None
+                
+            import re
+            cleaned = re.sub(r'(:selected:|:unselected:)', '', stripped).strip()
+            
+            if not cleaned or cleaned in ("-", ".", "X", "x"):
+                return None
+                
+            return cleaned
+
+        def _process_recursive(data: Any) -> Any:
+            if isinstance(data, dict):
+                processed = {}
+                for key, node in data.items():
+                    if isinstance(node, dict) and "value" in node:
+                        if isinstance(node["value"], list):
+                            processed_rows = []
+                            for row in node["value"]:
+                                processed_rows.append(_process_recursive(row))
+                            processed_node = dict(node)
+                            processed_node["value"] = processed_rows
+                            processed[key] = processed_node
+                        else:
+                            processed_node = dict(node)
+                            processed_node["value"] = _clean_value(node.get("value"))
+                            processed[key] = processed_node
+                    elif isinstance(node, dict):
+                        processed[key] = _process_recursive(node)
+                    else:
+                        processed[key] = node
+                return processed
+            elif isinstance(data, list):
+                return [_process_recursive(item) for item in data]
+            return data
+
+        raw_result["guide_extracted"] = _process_recursive(guide_extracted)
+        return raw_result
+
     async def apply_dictionary_normalization(self, raw_result: Dict[str, Any], model_id: str, dictionaries: List[str], fields: List[Any] = None) -> Dict[str, Any]:
         """
         Step 2: Normalizes raw extracted texts using active dictionary categories mapped at the field-level.
