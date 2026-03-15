@@ -553,7 +553,7 @@ DENORMALIZATION (Table fields only):
 - Every row object MUST be complete — no empty inherited fields.
 
 NULL HANDLING (CRITICAL):
-- If a field's value DOES NOT EXIST in the document, return {"value": null, "ref": null}.
+- If a field's value DOES NOT EXIST in the document, return {{"value": null, "ref": null}}.
 - Do NOT guess, infer, or extrapolate from other rows or fields.
 - A missing value is ALWAYS better than a wrong value.
 - For table rows: if a cell is empty, return null. Do NOT copy from adjacent rows.
