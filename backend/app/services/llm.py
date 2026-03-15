@@ -77,52 +77,91 @@ def get_current_model() -> str:
     return _current_model
 
 async def fetch_available_models() -> List[str]:
-    """Azure AI Foundry/OpenAI에서 사용 가능한 배포(Deployment) 목록만 가져오기"""
+    """Azure AI Foundry에서 실제 배포(Deployment)된 모델 목록만 가져오기.
+    
+    Azure AI Foundry (services.ai.azure.com) 엔드포인트에서는 Data Plane의
+    /openai/deployments API가 404를 반환하므로, Management Plane API를 사용하여
+    실제 배포 목록을 조회합니다.
+    """
+    models = []
+    
+    # Strategy 1: Management Plane API (정확한 배포 목록)
+    resource_id = settings.AZURE_RESOURCE_ID
+    if resource_id:
+        try:
+            from azure.identity import DefaultAzureCredential
+            
+            credential = DefaultAzureCredential()
+            token = credential.get_token("https://management.azure.com/.default")
+            
+            mgmt_url = f"https://management.azure.com{resource_id}/deployments?api-version=2024-10-01"
+            logger.info(f"[LLM] Fetching deployments from Management API: {mgmt_url[:80]}...")
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    mgmt_url,
+                    headers={"Authorization": f"Bearer {token.token}"},
+                    timeout=15.0
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    for dep in data.get("value", []):
+                        dep_name = dep.get("name")
+                        props = dep.get("properties", {})
+                        status = props.get("provisioningState", "")
+                        
+                        # Only include successfully deployed models
+                        if dep_name and status == "Succeeded":
+                            models.append(dep_name)
+                    
+                    if models:
+                        logger.info(f"[LLM] Found {len(models)} deployments via Management API: {models}")
+                        return models
+                    else:
+                        logger.warning("[LLM] Management API returned 200 but 0 succeeded deployments")
+                else:
+                    logger.warning(f"[LLM] Management API returned {response.status_code}: {response.text[:200]}")
+        except ImportError:
+            logger.warning("[LLM] azure-identity not installed, cannot use Management API")
+        except Exception as e:
+            logger.error(f"[LLM] Management API failed: {e}")
+    else:
+        logger.debug("[LLM] AZURE_RESOURCE_ID not set, skipping Management API")
+    
+    # Strategy 2: Data Plane fallback (classic Azure OpenAI endpoints)
     try:
         endpoint = settings.AZURE_OPENAI_ENDPOINT or settings.AZURE_AIPROJECT_ENDPOINT
         endpoint = endpoint.rstrip('/')
         api_key = settings.AZURE_OPENAI_API_KEY
         api_version = settings.AZURE_OPENAI_API_VERSION
 
-        models = []
-
         async with httpx.AsyncClient() as client:
-            # Only query deployments endpoint (NOT /openai/models which returns ALL base models)
-            try:
-                deployments_url = f"{endpoint}/openai/deployments?api-version={api_version}"
-                logger.info(f"[LLM] Fetching deployments from: {deployments_url}")
-                response = await client.get(
-                    deployments_url,
-                    headers={"api-key": api_key},
-                    timeout=10.0
-                )
+            deployments_url = f"{endpoint}/openai/deployments?api-version={api_version}"
+            logger.info(f"[LLM] Fallback: trying Data Plane {deployments_url}")
+            response = await client.get(
+                deployments_url,
+                headers={"api-key": api_key},
+                timeout=10.0
+            )
 
-                logger.info(f"[LLM] Deployments API status: {response.status_code}")
+            if response.status_code == 200:
+                data = response.json()
+                for dep in data.get("data", []):
+                    dep_id = dep.get("id") or dep.get("deployment_id") or dep.get("name")
+                    if dep_id:
+                        models.append(dep_id)
 
-                if response.status_code == 200:
-                    data = response.json()
-                    logger.debug(f"[LLM] Deployments API raw keys: {list(data.keys())}")
-                    
-                    for dep in data.get("data", []):
-                        dep_id = dep.get("id") or dep.get("deployment_id") or dep.get("name")
-                        if dep_id:
-                            models.append(dep_id)
-
-                    if models:
-                        logger.info(f"[LLM] Found {len(models)} deployments: {models}")
-                    else:
-                        logger.warning(f"[LLM] Deployments API returned 200 but 0 deployments. Raw: {json.dumps(data)[:500]}")
-                else:
-                    logger.warning(f"[LLM] Deployments endpoint returned {response.status_code}: {response.text[:300]}")
-            except Exception as e:
-                logger.error(f"[LLM] Deployments endpoint failed: {e}")
-
+                if models:
+                    logger.info(f"[LLM] Found {len(models)} deployments via Data Plane: {models}")
+                    return models
+            else:
+                logger.debug(f"[LLM] Data Plane /openai/deployments returned {response.status_code}")
     except Exception as e:
-        logger.error(f"[LLM] Error fetching deployments: {e}")
+        logger.error(f"[LLM] Data Plane fallback failed: {e}")
 
-    # Return whatever deployments we found (may be empty)
     if not models:
-        logger.warning("[LLM] No deployments found. The model dropdown will be empty. Verify your Azure AI Foundry endpoint and API version.")
+        logger.warning("[LLM] No deployments found from any source. Model dropdown will be empty.")
     return models
 
 def get_openai_client() -> AsyncAzureOpenAI:
