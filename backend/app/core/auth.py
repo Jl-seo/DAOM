@@ -25,6 +25,7 @@ class CurrentUser:
     tenant_id: str    # tid (Tenant ID)
     roles: list[str]  # app roles
     groups: list[str] = None # security groups
+    access_token: str = None  # Raw bearer token for Graph API calls
 
 
 class AzureADAuth(HTTPBearer):
@@ -57,6 +58,8 @@ class AzureADAuth(HTTPBearer):
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Invalid or expired token"
                 )
+            # Store raw token for downstream Graph API calls (Entra group checks)
+            user.access_token = credentials.credentials
             return user
 
         if self.auto_error:
@@ -135,7 +138,7 @@ async def is_admin(user: CurrentUser) -> bool:
         return True
 
     # 2. Production: Check Cosmos DB group membership with superAdmin=true
-    if await is_super_admin_by_group(user.id, user.tenant_id):
+    if await is_super_admin_by_group(user.id, user.tenant_id, access_token=getattr(user, 'access_token', None)):
         return True
 
     return False
@@ -152,7 +155,7 @@ async def is_super_admin(user: CurrentUser) -> bool:
         return True
 
     # 2. Production: Check Cosmos DB group superAdmin
-    if await is_super_admin_by_group(user.id, user.tenant_id):
+    if await is_super_admin_by_group(user.id, user.tenant_id, access_token=getattr(user, 'access_token', None)):
         return True
 
     return False

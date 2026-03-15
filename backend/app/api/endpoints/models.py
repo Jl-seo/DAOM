@@ -29,7 +29,11 @@ async def list_models(current_user: CurrentUser = Depends(get_current_user)):
         return all_models
 
     # Standard User / Model Admin sees only accessible models
-    accessible_ids = await get_accessible_model_ids(current_user.id, current_user.tenant_id)
+    accessible_ids = await get_accessible_model_ids(
+        current_user.id,
+        current_user.tenant_id,
+        access_token=getattr(current_user, 'access_token', None)
+    )
     return [m for m in all_models if m.id in accessible_ids]
 
 @router.post("/", response_model=ExtractionModel, dependencies=[Depends(require_admin)])
