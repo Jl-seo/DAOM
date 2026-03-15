@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     AZURE_AIPROJECT_ENDPOINT: str = ""
     AZURE_AIPROJECT_RESOURCE_ID: str = ""
     AZURE_RESOURCE_ID: str = ""
+    AZURE_DEPLOYMENT_NAMES: str = ""  # Comma-separated: "gpt-4.1,gpt-5.4,claude-sonnet-4-5"
 
     # Azure OpenAI (Legacy - kept for backward compatibility)
     AZURE_OPENAI_ENDPOINT: str = ""
