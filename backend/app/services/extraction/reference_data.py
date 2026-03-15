@@ -190,14 +190,22 @@ class ReferenceDataService:
         }
 
     async def list_categories(self, model_id: str) -> List[dict]:
-        """List all reference data categories for the given model."""
+        """List all reference data categories for the given model.
+        When model_id is '__global__' or '__all__', lists ALL categories across all models.
+        """
         container = self._get_container()
         if not container:
             return []
 
         try:
-            query = "SELECT DISTINCT VALUE c.category FROM c WHERE c.model_id IN (@model_id, '__global__')"
-            params = [{"name": "@model_id", "value": model_id}]
+            # For global/all view, show ALL reference data categories
+            if model_id in ('__global__', '__all__'):
+                query = "SELECT DISTINCT VALUE c.category FROM c WHERE c.entry_type != 'synonym' OR NOT IS_DEFINED(c.entry_type)"
+                params = []
+            else:
+                query = "SELECT DISTINCT VALUE c.category FROM c WHERE c.model_id IN (@model_id, '__global__') AND (c.entry_type != 'synonym' OR NOT IS_DEFINED(c.entry_type))"
+                params = [{"name": "@model_id", "value": model_id}]
+            
             categories = [cat async for cat in container.query_items(
                 query=query, parameters=params, enable_cross_partition_query=True
             )]
@@ -205,11 +213,15 @@ class ReferenceDataService:
             result = []
             for cat in categories:
                 # Count entries per category
-                count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.model_id IN (@model_id, '__global__') AND c.category = @cat"
-                count_params = [
-                    {"name": "@model_id", "value": model_id},
-                    {"name": "@cat", "value": cat}
-                ]
+                if model_id in ('__global__', '__all__'):
+                    count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.category = @cat AND (c.entry_type != 'synonym' OR NOT IS_DEFINED(c.entry_type))"
+                    count_params = [{"name": "@cat", "value": cat}]
+                else:
+                    count_query = "SELECT VALUE COUNT(1) FROM c WHERE c.model_id IN (@model_id, '__global__') AND c.category = @cat AND (c.entry_type != 'synonym' OR NOT IS_DEFINED(c.entry_type))"
+                    count_params = [
+                        {"name": "@model_id", "value": model_id},
+                        {"name": "@cat", "value": cat}
+                    ]
                 counts = [c async for c in container.query_items(
                     query=count_query, parameters=count_params, enable_cross_partition_query=True
                 )]
