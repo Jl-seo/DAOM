@@ -90,13 +90,13 @@ async def save_config(config: dict):
 @router.get("/site")
 async def get_site_config():
     """Get current site configuration"""
-    return load_config()
+    return await load_config()
 
 @router.put("/site")
 async def update_site_config(config: SiteConfig):
     """Update site configuration"""
     config_dict = config.model_dump(exclude_none=True)
-    save_config(config_dict)
+    await save_config(config_dict)
     return config_dict
 
 @router.post("/site/reset")
@@ -104,5 +104,5 @@ async def reset_site_config():
     """Reset site configuration to defaults"""
     default_config = SiteConfig()
     config_dict = default_config.model_dump(exclude_none=True)
-    save_config(config_dict)
+    await save_config(config_dict)
     return config_dict
