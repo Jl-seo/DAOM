@@ -523,7 +523,7 @@ class BetaPipeline(ExtractionPipeline):
             {"role": "user", "content": user_prompt}
         ]
         
-        response_format = self._build_engineer_schema(model, is_beta_mode=True) if model else {"type": "json_object"}
+        response_format = self._build_engineer_schema(model, work_order=work_order, is_beta_mode=True) if model else {"type": "json_object"}
         temp = model.temperature if model else None
         
         raw_result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
@@ -607,7 +607,7 @@ class BetaPipeline(ExtractionPipeline):
             ]
             async with self.semaphore:
                 try:
-                    response_format = self._build_engineer_schema(model, is_beta_mode=True) if model else {"type": "json_object"}
+                    response_format = self._build_engineer_schema(model, work_order=work_order, is_beta_mode=True) if model else {"type": "json_object"}
                     temp = model.temperature if model else None
                     try:
                         result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
