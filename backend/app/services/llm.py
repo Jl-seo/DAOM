@@ -77,7 +77,7 @@ def get_current_model() -> str:
     return _current_model
 
 async def fetch_available_models() -> List[str]:
-    """Azure AI Foundry/OpenAI에서 사용 가능한 모델 목록 가져오기"""
+    """Azure AI Foundry/OpenAI에서 사용 가능한 배포(Deployment) 목록만 가져오기"""
     try:
         endpoint = settings.AZURE_OPENAI_ENDPOINT or settings.AZURE_AIPROJECT_ENDPOINT
         endpoint = endpoint.rstrip('/')
@@ -87,18 +87,22 @@ async def fetch_available_models() -> List[str]:
         models = []
 
         async with httpx.AsyncClient() as client:
-            # Try deployments endpoint first (Azure OpenAI standard)
+            # Only query deployments endpoint (NOT /openai/models which returns ALL base models)
             try:
                 deployments_url = f"{endpoint}/openai/deployments?api-version={api_version}"
+                logger.info(f"[LLM] Fetching deployments from: {deployments_url}")
                 response = await client.get(
                     deployments_url,
                     headers={"api-key": api_key},
                     timeout=10.0
                 )
 
+                logger.info(f"[LLM] Deployments API status: {response.status_code}")
+
                 if response.status_code == 200:
                     data = response.json()
-                    # Get deployment names
+                    logger.debug(f"[LLM] Deployments API raw keys: {list(data.keys())}")
+                    
                     for dep in data.get("data", []):
                         dep_id = dep.get("id") or dep.get("deployment_id") or dep.get("name")
                         if dep_id:
@@ -106,44 +110,20 @@ async def fetch_available_models() -> List[str]:
 
                     if models:
                         logger.info(f"[LLM] Found {len(models)} deployments: {models}")
-                        return models
+                    else:
+                        logger.warning(f"[LLM] Deployments API returned 200 but 0 deployments. Raw: {json.dumps(data)[:500]}")
+                else:
+                    logger.warning(f"[LLM] Deployments endpoint returned {response.status_code}: {response.text[:300]}")
             except Exception as e:
-                logger.debug(f"[LLM] Deployments endpoint failed: {e}")
-
-            # Fallback to models endpoint
-            try:
-                models_url = f"{endpoint}/openai/models?api-version={api_version}"
-                response = await client.get(
-                    models_url,
-                    headers={"api-key": api_key},
-                    timeout=10.0
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    logger.debug(f"[LLM] Models API raw response: {data}")
-
-                    for m in data.get("data", []):
-                        model_id = m.get("id")
-                        caps = m.get("capabilities", {})
-
-                        # Include if it has chat_completion OR if no capabilities info (be permissive)
-                        if caps.get("chat_completion", False) or not caps:
-                            if model_id:
-                                models.append(model_id)
-
-                    if models:
-                        logger.info(f"[LLM] Found {len(models)} models: {models}")
-                        return models
-            except Exception as e:
-                logger.debug(f"[LLM] Models endpoint failed: {e}")
+                logger.error(f"[LLM] Deployments endpoint failed: {e}")
 
     except Exception as e:
-        logger.error(f"[LLM] Error fetching models: {e}")
+        logger.error(f"[LLM] Error fetching deployments: {e}")
 
-    # Fallback - return empty list
-    logger.warning("[LLM] Could not fetch models from Azure API, returning empty list")
-    return []
+    # Return whatever deployments we found (may be empty)
+    if not models:
+        logger.warning("[LLM] No deployments found. The model dropdown will be empty. Verify your Azure AI Foundry endpoint and API version.")
+    return models
 
 def get_openai_client() -> AsyncAzureOpenAI:
     """싱글톤 Azure OpenAI 클라이언트 — 연결 재사용"""
