@@ -63,14 +63,17 @@ class BetaPipeline(ExtractionPipeline):
         page_count = len(ocr_data.get("pages", []))
         logger.info(f"[BetaPipeline] Analysis: pages={page_count}, content_len={content_len} chars")
 
-        # --- 2. Designer LLM (Work Order — Cached) ---
-        work_order = await self._run_designer(model)
-
-        # --- 2.5 Mapping Designer (Document-Aware Mapping Plan) ---
-        # Analyzes document skeleton + schema to produce structured mapping plan.
+        # --- 2. Designer + Mapping Designer (PARALLEL) ---
+        # Designer needs only the model schema (cached).
+        # Analyst needs model + document skeleton (no dependency on work_order).
+        # Run both concurrently to hide Analyst latency.
         skeleton_text = self._build_document_skeleton(tagged_text)
-        analyst_result = await self._run_analyst(model, skeleton_text)
+        work_order, analyst_result = await asyncio.gather(
+            self._run_designer(model),
+            self._run_analyst(model, skeleton_text)
+        )
         
+        # Inject mapping plan into work_order
         if analyst_result:
             wo_target = work_order.get("work_order", work_order)
             mapping_keys = ("dynamic_hints", "field_mappings", "inheritance_rules", "table_structure")
