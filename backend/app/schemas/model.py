@@ -53,6 +53,11 @@ class FieldDefinition(BaseModel):
     is_pii: bool = False # 개인정보 필드 여부 (마스킹 대상)
     validation_regex: Optional[str] = None # 값 검증 정규식 (e.g., ^[A-Z0-9]+$)
     sub_fields: Optional[List[Dict[str, Any]]] = None # 하위 컬러 정의 (e.g. [{"key": "pol", "label": "POL", "dictionary": "port"}])
+    # Row classification rules (table/list fields only)
+    include_when: Optional[List[str]] = None  # Row 포함 조건 (자연어 리스트, e.g. ["row has freight amount columns"])
+    exclude_when: Optional[List[str]] = None  # Row 제외 조건 (자연어 리스트, e.g. ["row is only a group header"])
+    group_row_behavior: Optional[str] = None  # "context_label" | "skip" | "prefix_to_children"
+    field_inheritance: Optional[Dict[str, str]] = None  # Sub-field → source 매핑 (e.g. {"Start_Date": "nearest_validity_section.start"})
 
 class ComparisonSettings(BaseModel):
     """비교 설정 (comparison 모델 전용)"""

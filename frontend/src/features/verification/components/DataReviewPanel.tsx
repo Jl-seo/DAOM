@@ -32,7 +32,7 @@ interface DataReviewPanelProps {
 }
 
 // Internal fields to strip from export JSON
-const INTERNAL_FIELDS = ['bbox', 'page_number', 'original_value', 'low_confidence', 'validation_status']
+const INTERNAL_FIELDS = ['bbox', 'page_number', 'original_value', 'low_confidence', 'validation_status', 'source_text', '_source_chunk']
 
 function cleanForExport(data: Record<string, any>): Record<string, any> {
     const stripInternal = (obj: any): any => {

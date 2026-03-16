@@ -421,6 +421,12 @@ CRITICAL TABLE SUB-COLUMN EXTRACTION:
 - If "sub_fields" is empty or missing, fallback to reading the user's field description (e.g., "Extract POL, POD") to determine required column keys. Convert the names intended by the user into clean snake_case keys. DO NOT blindly copy the exact document header text (like Excel headers) as the JSON key!
 - DO NOT use generic keys like "col1".
 
+ROW CLASSIFICATION RULES PASSTHROUGH:
+- If a table field has "include_when", "exclude_when", "group_row_behavior", or "field_inheritance" in its schema definition, copy them VERBATIM into the work order table_field entry.
+- These are business-logic rules that define which rows belong to this table field. DO NOT summarize, modify, or omit them.
+- Example: if schema has {{"key": "Basic_Rate_List", "include_when": ["row has freight amounts"]}},
+  the work order table_field must have: {{"key": "Basic_Rate_List", "include_when": ["row has freight amounts"], ...}}
+
 ZERO TOLERANCE — FIELD COVERAGE:
 - You MUST generate exactly one instruction entry for EVERY field in the schema.
 - Input schema has {len(fields)} fields → output MUST have exactly {len(fields)} entries
@@ -520,6 +526,20 @@ TABLE STRUCTURE GUIDELINES:
 - group_row_behavior: "context_label" = preserve as context for child rows; "skip" = ignore entirely; "prefix_to_children" = prepend to a field in child rows
 - notes_location: where supplementary notes/remarks appear relative to the table
 
+ROW CLASSIFICATION RULES (for table/list fields ONLY):
+- If a table field does NOT already have include_when/exclude_when in its schema definition, you MAY generate row_classification_rules.
+- This helps the engineer decide which source rows belong to which target list field.
+- Format:
+  "row_classification_rules": [
+    {{
+      "table_field": "Basic_Rate_List",
+      "include_when": ["row has freight amount in numeric columns"],
+      "exclude_when": ["row is only a group header label"]
+    }}
+  ]
+- ONLY generate these for table fields where it's genuinely ambiguous which rows belong.
+- If the schema already defines include_when/exclude_when, do NOT generate row_classification_rules for that field.
+
 RULES:
 - ALL sections except "dynamic_hints" are OPTIONAL. If you cannot determine mappings or structure, omit that section entirely.
 - dynamic_hints should contain 2-5 critical observations about this specific document.
@@ -617,6 +637,36 @@ For unmapped fields, fall back to generic work order instructions.
                         mapping_plan_str += f"- GROUP HEADERS: Rows containing [{', '.join(gh)}] are group labels. Prefix their value to the appropriate field in each child row below them.\n"
                 if nl := table_structure.get("notes_location"):
                     mapping_plan_str += f"- NOTES: Supplementary notes are located {nl}.\n"
+
+        # Build ROW CLASSIFICATION RULES section from table_fields
+        classification_str = ""
+        for tf in wo_inner.get("table_fields", []):
+            inc = tf.get("include_when", [])
+            exc = tf.get("exclude_when", [])
+            grb = tf.get("group_row_behavior")
+            fi = tf.get("field_inheritance", {})
+            if inc or exc or grb or fi:
+                classification_str += f"\n- {tf.get('key', '?')}:\n"
+                if inc:
+                    for rule in inc:
+                        classification_str += f"  INCLUDE when: {rule}\n"
+                if exc:
+                    for rule in exc:
+                        classification_str += f"  EXCLUDE when: {rule}\n"
+                if grb:
+                    if grb == "context_label":
+                        classification_str += f"  Group headers are context labels — do NOT extract as data rows, use as context for rows below.\n"
+                    elif grb == "skip":
+                        classification_str += f"  Group headers must be SKIPPED entirely.\n"
+                    elif grb == "prefix_to_children":
+                        classification_str += f"  Group header values should be prefixed to the appropriate field in each child row.\n"
+                if fi:
+                    classification_str += f"  FIELD INHERITANCE (do NOT extract these per-row):\n"
+                    for sub_key, source in fi.items():
+                        classification_str += f"    - {sub_key}: derive from {source}. If section not found, return null.\n"
+        
+        if classification_str:
+            mapping_plan_str += f"\nROW CLASSIFICATION RULES (MANDATORY — determines which rows go into which list):{classification_str}"
 
         # Build dynamic output example from field keys in work_order
         example_parts = []

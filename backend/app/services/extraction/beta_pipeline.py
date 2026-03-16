@@ -74,8 +74,8 @@ class BetaPipeline(ExtractionPipeline):
         )
         
         # Inject mapping plan into work_order
+        wo_target = work_order.get("work_order", work_order)
         if analyst_result:
-            wo_target = work_order.get("work_order", work_order)
             mapping_keys = ("dynamic_hints", "field_mappings", "inheritance_rules", "table_structure")
             injected = []
             for key in mapping_keys:
@@ -84,6 +84,44 @@ class BetaPipeline(ExtractionPipeline):
                     injected.append(key)
             if injected:
                 logger.info(f"[BetaPipeline] Mapping Designer injected: {', '.join(injected)}")
+        
+        # --- 2.6 Schema Rule Injection (DETERMINISTIC — no LLM interpretation) ---
+        # Directly inject include_when/exclude_when/group_row_behavior/field_inheritance
+        # from model schema into work_order table_fields. Schema rules have absolute precedence.
+        schema_rules_by_key = {}
+        for f in model.fields:
+            rules = {}
+            if f.include_when:
+                rules["include_when"] = f.include_when
+            if f.exclude_when:
+                rules["exclude_when"] = f.exclude_when
+            if f.group_row_behavior:
+                rules["group_row_behavior"] = f.group_row_behavior
+            if f.field_inheritance:
+                rules["field_inheritance"] = f.field_inheritance
+            if rules:
+                schema_rules_by_key[f.key] = rules
+        
+        if schema_rules_by_key:
+            for tf in wo_target.get("table_fields", []):
+                key = tf.get("key", "")
+                if key in schema_rules_by_key:
+                    tf.update(schema_rules_by_key[key])
+            logger.info(f"[BetaPipeline] Schema rules injected for: {', '.join(schema_rules_by_key.keys())}")
+        
+        # Merge Analyst row_classification_rules ONLY for fields WITHOUT schema rules
+        analyst_row_rules = analyst_result.get("row_classification_rules", []) if analyst_result else []
+        if analyst_row_rules:
+            for rule in analyst_row_rules:
+                table_key = rule.get("table_field", "")
+                if table_key and table_key not in schema_rules_by_key:
+                    for tf in wo_target.get("table_fields", []):
+                        if tf.get("key") == table_key:
+                            if rule.get("include_when") and not tf.get("include_when"):
+                                tf["include_when"] = rule["include_when"]
+                            if rule.get("exclude_when") and not tf.get("exclude_when"):
+                                tf["exclude_when"] = rule["exclude_when"]
+                    logger.info(f"[BetaPipeline] Analyst row_classification augmented: {table_key}")
         
         # --- 3. Parallel Extraction (Text + Table Division) ---
         is_excel = ocr_data.get("_is_direct_markdown", False)
