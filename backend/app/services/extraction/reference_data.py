@@ -525,9 +525,14 @@ class ReferenceDataService:
                     if cat:
                         result = await _match_cached(val, cat)
                         if result:
+                            if "_original_value" not in item:
+                                item["_original_value"] = val
                             item["raw_value"] = val
                             item["value"] = result.standard_code
                             item["_modifier"] = "Reference Data"
+                            hist = item.get("_modifier_history", [])
+                            hist.append({"stage": "Reference Data", "from": val, "to": result.standard_code, "score": result.score})
+                            item["_modifier_history"] = hist
                             evidence[key] = {
                                 "original": val,
                                 "matched_code": result.standard_code,
@@ -557,9 +562,14 @@ class ReferenceDataService:
                                     if cat:
                                         result = await _match_cached(sub_val, cat)
                                         if result:
+                                            if "_original_value" not in sub_node:
+                                                sub_node["_original_value"] = sub_val
                                             sub_node["raw_value"] = sub_val
                                             sub_node["value"] = result.standard_code
                                             sub_node["_modifier"] = "Reference Data"
+                                            hist = sub_node.get("_modifier_history", [])
+                                            hist.append({"stage": "Reference Data", "from": sub_val, "to": result.standard_code, "score": result.score})
+                                            sub_node["_modifier_history"] = hist
                                             evidence[f"{key}[{row_idx}].{sub_key}"] = {
                                                 "original": sub_val,
                                                 "matched_code": result.standard_code,
@@ -741,9 +751,14 @@ class ReferenceDataService:
                 field_dict = lookup.get(fn, {})
                 std = field_dict.get(val)
                 if std:
+                    if "_original_value" not in cell:
+                        cell["_original_value"] = val
                     cell["raw_value"] = val
                     cell["value"] = std
                     cell["_modifier"] = "Vibe Dictionary"
+                    hist = cell.get("_modifier_history", [])
+                    hist.append({"stage": "Vibe Dictionary", "from": val, "to": std})
+                    cell["_modifier_history"] = hist
                     return cell
             return cell
 
