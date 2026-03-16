@@ -76,7 +76,7 @@ class BetaPipeline(ExtractionPipeline):
             mapping_keys = ("dynamic_hints", "field_mappings", "inheritance_rules", "table_structure")
             injected = []
             for key in mapping_keys:
-                if key in analyst_result and analyst_result[key]:
+                if key in analyst_result:
                     wo_target[key] = analyst_result[key]
                     injected.append(key)
             if injected:
@@ -299,8 +299,11 @@ class BetaPipeline(ExtractionPipeline):
                         clean_header = re.sub(REF_TAG_PATTERN, '', stripped).strip()
                         table_headers.append(f"L{i}: {clean_header}")
         
-        # 4. Document tail (last 500 chars for notes/footer)
-        tail = tagged_text[-500:] if len(tagged_text) > 3500 else ""
+        # 4. Document tail (last 500 chars for notes/footer), stripped of ref tags
+        tail = ""
+        if len(tagged_text) > 3500:
+            raw_tail = tagged_text[-500:]
+            tail = re.sub(REF_TAG_PATTERN, '', raw_tail).strip()
         
         # Assemble skeleton
         parts = [head]
@@ -807,6 +810,9 @@ class BetaPipeline(ExtractionPipeline):
         merged_guide = {}
         total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
         any_truncated = False
+        any_partial = False
+        total_chunks = 0
+        failed_chunks = 0
         all_logs = []
         
         # We need to extract common fields once, and tables separately.
@@ -849,6 +855,13 @@ class BetaPipeline(ExtractionPipeline):
             if res.get("_truncated"):
                 # If even a single table extraction truncates, we flag it (though we can't split further)
                 any_truncated = True
+            
+            # Aggregate partial/chunk stats from sub-results
+            if res.get("_partial"):
+                any_partial = True
+            sub_stats = res.get("_chunk_stats", {})
+            total_chunks += sub_stats.get("total", 0)
+            failed_chunks += sub_stats.get("failed", 0)
                 
             # Accumulate token usage
             usage = res.get("_token_usage", {})
@@ -869,13 +882,20 @@ class BetaPipeline(ExtractionPipeline):
                      # Common field — keep first non-null value
                      if key not in merged_guide or merged_guide.get(key) is None:
                          merged_guide[key] = val
-                 
-        return {
+        
+        result = {
             "guide_extracted": merged_guide,
             "_token_usage": total_usage,
             "_truncated": any_truncated,
             "logs": all_logs
         }
+        # Propagate aggregated partial/chunk stats
+        if any_partial or failed_chunks > 0:
+            result["_partial"] = True
+            result["_chunk_stats"] = {"total": total_chunks, "failed": failed_chunks}
+            logger.warning(f"[BetaPipeline] Per-Table Split: partial results — {failed_chunks}/{total_chunks} chunks failed across {len(sub_orders)} sub-orders")
+        
+        return result
 
     @staticmethod
     def _chunk_with_headers(tagged_text: str, chunk_size: int) -> List[str]:
