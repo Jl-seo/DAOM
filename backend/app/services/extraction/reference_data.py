@@ -23,9 +23,20 @@ from thefuzz import fuzz
 
 logger = logging.getLogger(__name__)
 
-# Minimum similarity ratio (0-1) to accept a fuzzy match
-FUZZY_MATCH_THRESHOLD = 0.85
+# Default similarity ratio (0-1) to accept a fuzzy match if not defined in map
+FUZZY_MATCH_THRESHOLD_DEFAULT = 0.85
 
+# Category-specific thresholds
+CATEGORY_MATCH_THRESHOLDS = {
+    "currency": 0.90,     # Must be highly exact (USD vs AUD)
+    "port": 0.85,         # Codes like KRPUS, JEAJE need high accuracy
+    "carrier": 0.80,      # "HMM Co., Ltd." vs "HMM"
+    "route": 0.85,        # Codes like "USEC"
+    "surcharge": 0.60,    # High variance in names (BAF vs Bunker Adj Factor)
+}
+
+def get_threshold_for_category(category: str) -> float:
+    return CATEGORY_MATCH_THRESHOLDS.get(category, FUZZY_MATCH_THRESHOLD_DEFAULT)
 
 class ReferenceEntry:
     """A single reference data entry with multiple matchable aliases."""
@@ -75,6 +86,7 @@ class ReferenceDataService:
     def __init__(self):
         self._cache: Dict[str, List[ReferenceEntry]] = {}  # "model_id:category" -> entries
         self._cache_loaded: Set[str] = set()
+        self._load_locks: Dict[str, asyncio.Lock] = {}
     
     def _cache_key(self, model_id: str, category: str) -> str:
         return f"{model_id}:{category}"
@@ -134,11 +146,25 @@ class ReferenceDataService:
             label = str(row.get(label_col, code)).strip()
             
             # Collect all aliases (code + label + extra columns)
-            aliases = {code.lower(), label.lower()}
+            def normalize_alias(s):
+                if pd.isna(s): return None
+                s = str(s).strip().lower()
+                s = " ".join(s.split())  # Fix continuous whitespace
+                if s in {"nan", "none", "null", ""}:
+                    return None
+                return s
+
+            aliases = set()
+            code_norm = normalize_alias(code)
+            if code_norm: aliases.add(code_norm)
+            
+            label_norm = normalize_alias(label)
+            if label_norm: aliases.add(label_norm)
+            
             for ac in alias_cols:
-                val = row.get(ac)
-                if pd.notna(val) and str(val).strip():
-                    aliases.add(str(val).strip().lower())
+                val_norm = normalize_alias(row.get(ac))
+                if val_norm:
+                    aliases.add(val_norm)
             
             row_str = "|".join(str(v) for v in row.values)
             doc_id = hashlib.md5(f"{model_id}_{category}_{idx}_{row_str}".encode()).hexdigest()
@@ -340,7 +366,7 @@ class ReferenceDataService:
                 query=query, parameters=params
             )]
             for item in items:
-                await container.delete_item(item=item["id"], partition_key=item["id"])
+                await container.delete_item(item=item["id"], partition_key=model_id)
                 deleted += 1
         except Exception as e:
             logger.error(f"[ReferenceData] delete_category failed: {e}")
@@ -361,14 +387,21 @@ class ReferenceDataService:
         cache_key = self._cache_key(model_id, category)
         if cache_key in self._cache_loaded:
             return
-        
-        container = self._get_container()
-        if not container:
-            return
+            
+        if cache_key not in self._load_locks:
+            self._load_locks[cache_key] = asyncio.Lock()
+            
+        async with self._load_locks[cache_key]:
+            if cache_key in self._cache_loaded:
+                return
+                
+            container = self._get_container()
+            if not container:
+                return
 
         try:
-            # Load model-specific entries + global entries
-            query = "SELECT * FROM c WHERE c.model_id IN (@model_id, '__global__') AND c.category = @cat"
+            # Load model-specific entries + global entries (Filter for reference type exclusively)
+            query = "SELECT * FROM c WHERE c.model_id IN (@model_id, '__global__') AND c.category = @cat AND (c.entry_type = 'reference' OR NOT IS_DEFINED(c.entry_type))"
             params = [
                 {"name": "@model_id", "value": model_id},
                 {"name": "@cat", "value": category}
@@ -399,13 +432,16 @@ class ReferenceDataService:
             self._cache_loaded.add(cache_key)
 
     async def match(self, query: str, model_id: str, category: str, 
-                    threshold: float = FUZZY_MATCH_THRESHOLD) -> Optional[MatchResult]:
+                    threshold: Optional[float] = None) -> Optional[MatchResult]:
         """
         Find the best matching reference entry for a query string.
         Uses exact match first, then fuzzy matching.
         """
         if not query or len(query.strip()) < 2:
             return None
+
+        # Resolve threshold dynamically if not provided
+        effective_threshold = threshold if threshold is not None else get_threshold_for_category(category)
 
         await self._load_category(model_id, category)
         
@@ -442,24 +478,35 @@ class ReferenceDataService:
                     )
             
             # Phase 3: Fuzzy match
-            # Check against code
-            code_score = fuzz.ratio(query_lower, entry.standard_code.lower()) / 100.0
-            # Check against label
-            label_score = max(
-                fuzz.token_set_ratio(query_lower, entry.standard_label.lower()) / 100.0,
-                fuzz.ratio(query_lower, entry.standard_label.lower()) / 100.0
-            )
-            # Check against all aliases
-            alias_score = 0.0
-            best_alias_candidate = ""
-            for alias in entry.aliases:
-                a_score = max(
-                    fuzz.ratio(query_lower, alias.lower()) / 100.0,
-                    fuzz.token_set_ratio(query_lower, alias.lower()) / 100.0
+            # Adaptive Scoring Policy based on category
+            if category in ["currency", "port", "route"]:
+                # Strict matching (e.g. "US" vs "USD")
+                code_score = fuzz.ratio(query_lower, entry.standard_code.lower()) / 100.0
+                label_score = fuzz.ratio(query_lower, entry.standard_label.lower()) / 100.0
+                alias_score = 0.0
+                best_alias_candidate = ""
+                for alias in entry.aliases:
+                    a_score = fuzz.ratio(query_lower, alias.lower()) / 100.0
+                    if a_score > alias_score:
+                        alias_score = a_score
+                        best_alias_candidate = alias
+            else:
+                # Permissive matching (e.g. surcharge "DG", carrier "HMM Co.")
+                code_score = fuzz.ratio(query_lower, entry.standard_code.lower()) / 100.0
+                label_score = max(
+                    fuzz.token_set_ratio(query_lower, entry.standard_label.lower()) / 100.0,
+                    fuzz.ratio(query_lower, entry.standard_label.lower()) / 100.0
                 )
-                if a_score > alias_score:
-                    alias_score = a_score
-                    best_alias_candidate = alias
+                alias_score = 0.0
+                best_alias_candidate = ""
+                for alias in entry.aliases:
+                    a_score = max(
+                        fuzz.ratio(query_lower, alias.lower()) / 100.0,
+                        fuzz.token_set_ratio(query_lower, alias.lower()) / 100.0
+                    )
+                    if a_score > alias_score:
+                        alias_score = a_score
+                        best_alias_candidate = alias
             
             score = max(code_score, label_score, alias_score)
             
@@ -468,7 +515,7 @@ class ReferenceDataService:
                 best_match = entry
                 best_alias = best_alias_candidate or entry.standard_code
         
-        if best_match and best_score >= threshold:
+        if best_match and best_score >= effective_threshold:
             return MatchResult(
                 standard_code=best_match.standard_code,
                 standard_label=best_match.standard_label,
@@ -516,8 +563,55 @@ class ReferenceDataService:
         for key, item in guide_extracted.items():
             if key.startswith("_"):
                 continue
+                
+            # Table field as top-level plain list vs dict wrapper
+            is_list_val = False
+            list_val = None
+            if isinstance(item, list):
+                is_list_val = True
+                list_val = item
+            elif isinstance(item, dict) and "value" in item and isinstance(item["value"], list):
+                is_list_val = True
+                list_val = item["value"]
 
-            if isinstance(item, dict) and "value" in item:
+            if is_list_val and list_val:
+                for row_idx, row in enumerate(list_val):
+                    if not isinstance(row, dict):
+                        continue
+                    for sub_key, sub_node in row.items():
+                        if sub_key.startswith("_"):
+                            continue
+                        if isinstance(sub_node, dict) and "value" in sub_node:
+                            sub_val = sub_node["value"]
+                            if isinstance(sub_val, str) and len(sub_val.strip()) >= 2:
+                                # Skip numeric values
+                                try:
+                                    float(sub_val.replace(",", ""))
+                                    continue
+                                except (ValueError, AttributeError):
+                                    pass
+                                
+                                cat = field_dict_map.get(f"{key}.{sub_key}")
+                                if cat:
+                                    result = await _match_cached(sub_val, cat)
+                                    if result:
+                                        if "_original_value" not in sub_node:
+                                            sub_node["_original_value"] = sub_val
+                                        sub_node["raw_value"] = sub_val
+                                        sub_node["value"] = result.standard_code
+                                        sub_node["_modifier"] = "Reference Data"
+                                        hist = sub_node.get("_modifier_history", [])
+                                        hist.append({"stage": "Reference Data", "from": sub_val, "to": result.standard_code, "score": result.score})
+                                        sub_node["_modifier_history"] = hist
+                                        evidence[f"{key}[{row_idx}].{sub_key}"] = {
+                                            "original": sub_val,
+                                            "matched_code": result.standard_code,
+                                            "matched_label": result.standard_label,
+                                            "category": result.category,
+                                            "score": result.score
+                                        }
+
+            elif isinstance(item, dict) and "value" in item:
                 val = item["value"]
                 
                 if isinstance(val, str) and len(val.strip()) >= 2:
@@ -540,43 +634,6 @@ class ReferenceDataService:
                                 "category": result.category,
                                 "score": result.score
                             }
-                
-                elif isinstance(val, list):
-                    for row_idx, row in enumerate(val):
-                        if not isinstance(row, dict):
-                            continue
-                        for sub_key, sub_node in row.items():
-                            if sub_key.startswith("_"):
-                                continue
-                            if isinstance(sub_node, dict) and "value" in sub_node:
-                                sub_val = sub_node["value"]
-                                if isinstance(sub_val, str) and len(sub_val.strip()) >= 2:
-                                    # Skip numeric values
-                                    try:
-                                        float(sub_val.replace(",", ""))
-                                        continue
-                                    except (ValueError, AttributeError):
-                                        pass
-                                    
-                                    cat = field_dict_map.get(f"{key}.{sub_key}")
-                                    if cat:
-                                        result = await _match_cached(sub_val, cat)
-                                        if result:
-                                            if "_original_value" not in sub_node:
-                                                sub_node["_original_value"] = sub_val
-                                            sub_node["raw_value"] = sub_val
-                                            sub_node["value"] = result.standard_code
-                                            sub_node["_modifier"] = "Reference Data"
-                                            hist = sub_node.get("_modifier_history", [])
-                                            hist.append({"stage": "Reference Data", "from": sub_val, "to": result.standard_code, "score": result.score})
-                                            sub_node["_modifier_history"] = hist
-                                            evidence[f"{key}[{row_idx}].{sub_key}"] = {
-                                                "original": sub_val,
-                                                "matched_code": result.standard_code,
-                                                "matched_label": result.standard_label,
-                                                "category": result.category,
-                                                "score": result.score
-                                            }
 
         if evidence:
             guide_extracted["_dict_evidence"] = evidence

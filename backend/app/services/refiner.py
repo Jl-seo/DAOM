@@ -666,7 +666,10 @@ For unmapped fields, fall back to generic work order instructions.
                         classification_str += f"    - {sub_key}: derive from {source}. If section not found, return null.\n"
         
         if classification_str:
-            mapping_plan_str += f"\nROW CLASSIFICATION RULES (MANDATORY — determines which rows go into which list):{classification_str}"
+            mapping_plan_str += f"\nROW CLASSIFICATION RULES (CRITICAL MANDATORY):\n"
+            mapping_plan_str += f"You MUST STRICTLY classify rows according to these rules. If a row does NOT uniquely match the INCLUDE rules of a specific table_field, or if it matches EXCLUDE rules, DO NOT place it in that field!\n"
+            mapping_plan_str += f"CRITICAL: Do not mix unrelated notes, freetimes, route add-ons, or generic remarks into monetary surcharge tables.\n"
+            mapping_plan_str += f"{classification_str}"
 
         # Build dynamic output example from field keys in work_order
         example_parts = []

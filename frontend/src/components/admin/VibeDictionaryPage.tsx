@@ -50,6 +50,7 @@ export function VibeDictionaryPage() {
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
     const [entrySearch, setEntrySearch] = useState('')
     const [editingRefEntry, setEditingRefEntry] = useState<any | null>(null)
+    const [editAliasesRaw, setEditAliasesRaw] = useState('')
 
     // Fetch entries for selected category
     const { data: entriesData, isLoading: isLoadingEntries, refetch: refetchEntries } = useQuery({
@@ -432,8 +433,8 @@ export function VibeDictionaryPage() {
                                                                     <Input
                                                                         id={`edit-aliases-${entry.id}`}
                                                                         name={`edit-aliases-${entry.id}`}
-                                                                        value={(editingRefEntry.aliases || []).join(', ')}
-                                                                        onChange={e => setEditingRefEntry({ ...editingRefEntry, aliases: e.target.value.split(',').map((s: string) => s.trim()).filter(Boolean) })}
+                                                                        value={editAliasesRaw}
+                                                                        onChange={e => setEditAliasesRaw(e.target.value)}
                                                                         className="h-7 text-xs"
                                                                         placeholder="쉼표로 구분"
                                                                     />
@@ -444,7 +445,10 @@ export function VibeDictionaryPage() {
                                                                         <Button
                                                                             size="sm"
                                                                             className="h-6 px-2 text-xs gap-1"
-                                                                            onClick={() => updateRefEntryMutation.mutate(editingRefEntry)}
+                                                                            onClick={() => {
+                                                                                const parsedAliases = editAliasesRaw.split(',').map((s: string) => s.trim()).filter(Boolean)
+                                                                                updateRefEntryMutation.mutate({ ...editingRefEntry, aliases: parsedAliases })
+                                                                            }}
                                                                             disabled={updateRefEntryMutation.isPending}
                                                                         >
                                                                             <Save className="w-3 h-3" /> 저장
@@ -479,7 +483,10 @@ export function VibeDictionaryPage() {
                                                                 <td className="px-3 py-2 text-right">
                                                                     <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100" style={{ opacity: 1 }}>
                                                                         <button
-                                                                            onClick={() => setEditingRefEntry({ ...entry })}
+                                                                            onClick={() => {
+                                                                            setEditingRefEntry({ ...entry })
+                                                                            setEditAliasesRaw((entry.aliases || []).join(', '))
+                                                                        }}
                                                                             className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
                                                                             title="수정"
                                                                         >

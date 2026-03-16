@@ -90,6 +90,10 @@ class ExtractionService:
                     "pipeline_mode": "python-excel-engine"
                 })
                 
+                # Preserve raw ML output
+                import copy
+                sql_result["raw_extracted"] = copy.deepcopy(sql_result.get("guide_extracted", {}))
+                
                 # Rule Engine Hook (Normalization & Validation)
                 if model.dictionaries:
                     try:
@@ -171,6 +175,10 @@ class ExtractionService:
                     "timestamp": start_time.isoformat(),
                     "pipeline_mode": "vision-extraction",
                 }
+
+                # Preserve raw ML output
+                import copy
+                final_result["raw_extracted"] = copy.deepcopy(final_result.get("guide_extracted", {}))
 
                 # Rule Engine Hook (Normalization & Validation)
                 if model.dictionaries:
@@ -271,6 +279,10 @@ class ExtractionService:
             "model_name": model.name,
             "timestamp": start_time.isoformat()
         }
+
+        # Preserve raw ML output
+        import copy
+        final_result["raw_extracted"] = copy.deepcopy(final_result.get("guide_extracted", {}))
 
         # Step 4: Unified Normalization Pipeline
         # Phase 1: Synonym Dictionary — exact match from Cosmos DB (verified synonyms)
@@ -739,9 +751,16 @@ If a field is not found, return null.
                 "validation_status": validation_status
             }
 
+        def _strip_internal_keys(obj):
+            if isinstance(obj, dict):
+                return {k: _strip_internal_keys(v) for k, v in obj.items() if k not in ("source_text", "_source_chunk")}
+            elif isinstance(obj, list):
+                return [_strip_internal_keys(i) for i in obj]
+            return obj
+
         # Initialize result container
         result = {
-            "guide_extracted": validated_extracted,
+            "guide_extracted": _strip_internal_keys(validated_extracted),
         }
 
         # Commmon metadata pass-through

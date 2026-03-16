@@ -15,6 +15,48 @@ from app.services.llm import call_llm_single, get_current_model
 from app.core.config import settings
 from openai import AsyncAzureOpenAI
 
+class AdaptiveSemaphore:
+    """
+    AIMD (Additive Increase Multiplicative Decrease) Semaphore
+    Dynamically adjusts concurrency based on success/429 failures.
+    """
+    def __init__(self, initial_value: float, min_value: float = 1.0, max_value: float = 20.0):
+        self._value = float(initial_value)
+        self._min_value = float(min_value)
+        self._max_value = float(max_value)
+        self._active = 0
+        self._cond = asyncio.Condition()
+
+    async def acquire(self):
+        async with self._cond:
+            while self._active >= int(self._value):
+                await self._cond.wait()
+            self._active += 1
+
+    async def release(self, is_429: bool = False):
+        async with self._cond:
+            self._active -= 1
+            if is_429:
+                # Multiplicative decrease on 429 (halve concurrency)
+                self._value = max(self._min_value, self._value * 0.5)
+                logger.warning(f"[AdaptiveSemaphore] 429 Hit. Scaling down concurrency to {int(self._value)}")
+            else:
+                # Additive increase on success
+                self._value = min(self._max_value, self._value + 0.1)
+            self._cond.notify(1)
+
+class _AdaptiveContext:
+    def __init__(self, sem: AdaptiveSemaphore):
+        self.sem = sem
+        self.is_429 = False
+
+    async def __aenter__(self):
+        await self.sem.acquire()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.sem.release(is_429=self.is_429)
+
 logger = logging.getLogger(__name__)
 
 # Shared constant for reference tag stripping across the pipeline
@@ -34,7 +76,7 @@ class BetaPipeline(ExtractionPipeline):
     
     def __init__(self, azure_client: AsyncAzureOpenAI):
         self.azure_client = azure_client
-        self.semaphore = asyncio.Semaphore(2)
+        self.semaphore = AdaptiveSemaphore(initial_value=5.0)
 
     # ==================================================================
     # Main Entry Point
@@ -125,10 +167,17 @@ class BetaPipeline(ExtractionPipeline):
         
         # --- 3. Parallel Extraction (Text + Table Division) ---
         is_excel = ocr_data.get("_is_direct_markdown", False)
+        page_count = len(ocr_data.get("pages", []))
         
-        # Dynamically adjust semaphore to avoid Azure TPM drops on massive Excel payloads (150K chunks)
-        # Limiting to 2 universally to fix random table drops
-        self.semaphore = asyncio.Semaphore(2)
+        # Adaptive Semaphore Initialization
+        # Base concurrency on doc type & size
+        if is_excel:
+            initial_concurrency = 4.0
+        else:
+            initial_concurrency = max(3.0, min(15.0, 30.0 / max(1, page_count)))
+            
+        self.semaphore = AdaptiveSemaphore(initial_value=initial_concurrency, min_value=1.0, max_value=20.0)
+        logger.info(f"[BetaPipeline] Dynamic Concurrency Initialized: {int(initial_concurrency)} (Excel: {is_excel}, Pages: {page_count})")
         
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
         TEXT_CHUNK_SIZE = 150_000 if is_excel else 8_000
@@ -640,7 +689,7 @@ class BetaPipeline(ExtractionPipeline):
         for line in tagged_text.splitlines():
             stripped = line.strip()
             # Match numbered sections, validity lines, or standalone date-like headers
-            if re.match(r'^\d+\.', stripped) or 'validity' in stripped.lower():
+            if re.match(r'^\d+\.', stripped) or any(k in stripped.lower() for k in ['validity', 'date', 'period', 'duration', 'route', 'port', 'service']):
                 # Remove tag markers for cleaner context
                 clean = re.sub(REF_TAG_PATTERN + r'\s*', '', stripped).strip()
                 if clean and len(clean) < 200:
@@ -660,8 +709,9 @@ class BetaPipeline(ExtractionPipeline):
             f"{doc_context}\n...\n"
             f"--- END PAST CONTEXT ---\n\n"
             f"{section_header_str}"
-            f"CRITICAL WARNING: NEVER extract table rows or list items from the PAST CONTEXT. It is only provided so you know what the document is about.\n"
-            f"You MUST extract data ONLY from the ACTUAL CHUNK DATA below.\n\n"
+            f"CRITICAL WARNING: NEVER extract your primary list items or table rows from the PAST CONTEXT.\n"
+            f"You MUST extract data rows ONLY from the ACTUAL CHUNK DATA below.\n"
+            f"HOWEVER, if a field requires INHERITANCE (e.g., Start_Date, End_Date, Route, Currency from a Section Header), you MUST look at the PAST CONTEXT or SECTION HEADERS to find the inherited values that apply to the current chunk's rows.\n\n"
             f"EXPECTED FIELD KEYS: {', '.join(field_keys)}\n\n"
         )
         
@@ -683,7 +733,7 @@ class BetaPipeline(ExtractionPipeline):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ]
-            async with self.semaphore:
+            async with _AdaptiveContext(self.semaphore) as sem_ctx:
                 try:
                     response_format = self._build_engineer_schema(model, work_order=work_order, is_beta_mode=True) if model else {"type": "json_object"}
                     temp = model.temperature if model else None
@@ -696,13 +746,28 @@ class BetaPipeline(ExtractionPipeline):
                             logger.warning(f"[BetaPipeline] Strict JSON Schema failed for Chunk {chunk_idx}, falling back to json_object. Error: {llm_err}")
                             result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format={"type": "json_object"})
                         else:
+                            if "429" in error_str:
+                                sem_ctx.is_429 = True
                             raise llm_err
 
+                    if result.get("_had_429"):
+                        sem_ctx.is_429 = True
+                        
                     # Validate result structure
                     if not isinstance(result, dict):
                         logger.error(f"[BetaPipeline] Chunk {chunk_idx}: call_llm returned {type(result).__name__}, expected dict")
                         return {"guide_extracted": {}, "error": f"Unexpected LLM result type: {type(result).__name__}"}
-                    return result
+                        
+                    # Apply normalization to unwrap mistaken {value: [...]} and clean up
+                    # We pass empty dicts for ocr_data and ref_map since this is just for structural cleanup
+                    normalized_res = self._normalize_output(result, {}, {}, chunk_text)
+                    
+                    # _normalize_output returns an ExtractionResult object, we need to return a dict for _run_engineer_chunked
+                    return {
+                        "guide_extracted": normalized_res.guide_extracted,
+                        "_token_usage": result.get("_token_usage", {}), # Preserve from raw result
+                        "_had_429": result.get("_had_429")
+                    }
                 except Exception as e:
                     import traceback
                     logger.error(f"[BetaPipeline] Engineer Chunk {chunk_idx} CRASHED: {e}\n{traceback.format_exc()}")
@@ -1180,11 +1245,15 @@ class BetaPipeline(ExtractionPipeline):
             {"role": "user", "content": user_prompt}
         ]
         
-        async with self.semaphore:
+        async with _AdaptiveContext(self.semaphore) as sem_ctx:
             try:
                 raw_result = await self.call_llm(messages, is_table_model=True, temperature=temperature, response_format=response_format)
+                if isinstance(raw_result, dict) and raw_result.get("_had_429"):
+                    sem_ctx.is_429 = True
                 return self._normalize_output(raw_result, ocr_data, ref_map, chunk_text)
             except Exception as e:
+                if "429" in str(e):
+                    sem_ctx.is_429 = True
                 logger.error(f"[BetaPipeline] Table Chunk {chunk_idx} in {section_name} failed: {e}")
                 res = ExtractionResult()
                 res.error = str(e)
@@ -1334,7 +1403,7 @@ class BetaPipeline(ExtractionPipeline):
 
     async def _process_chunk_safe(self, model: ExtractionModel, ocr_data: Dict[str, Any], chunk_pages: List[int]) -> ExtractionResult:
         """Wrapper to use Semaphore and filter OCR"""
-        async with self.semaphore:
+        async with _AdaptiveContext(self.semaphore) as sem_ctx:
             # Filter OCR
             chunk_ocr = self._filter_ocr_data(ocr_data, chunk_pages)
             
@@ -1342,6 +1411,8 @@ class BetaPipeline(ExtractionPipeline):
             try:
                 result = await self._execute_single_shot(model, chunk_ocr, focus_pages=None)
             except Exception as e:
+                if "429" in str(e):
+                    sem_ctx.is_429 = True
                 # [ADAPTIVE CHUNKING ALERT]
                 # If a chunk fails (esp. JSONDecodeError via Unterminated string == Token Limit),
                 # and chunk size > 1, we must SPLIT THE CHUNK and retry.
@@ -1550,6 +1621,7 @@ class BetaPipeline(ExtractionPipeline):
         max_retries = 6
         base_delay = 2.0
         response = None
+        had_429 = False
         
         for attempt in range(max_retries):
             try:
@@ -1574,6 +1646,9 @@ class BetaPipeline(ExtractionPipeline):
                 
                 is_transient = any(term in error_lower for term in ["429", "rate limit", "timeout", "connection", "502", "503", "504"])
                 
+                if "429" in error_lower or "rate limit" in error_lower:
+                    had_429 = True
+
                 if not is_transient or attempt == max_retries - 1:
                     logger.error(f"[BetaPipeline] Azure API Fatal Error after {attempt+1} attempts: {error_msg}")
                     return {
@@ -1588,7 +1663,10 @@ class BetaPipeline(ExtractionPipeline):
         content = response.choices[0].message.content
         finish_reason = getattr(response.choices[0], "finish_reason", "stop")
         
-        return self._parse_llm_response(content, finish_reason, response.usage)
+        result = self._parse_llm_response(content, finish_reason, response.usage)
+        if had_429:
+            result["_had_429"] = True
+        return result
 
     async def _call_llm_inference(self, messages, model_name: str, temperature: float, max_tokens: int, response_format: Optional[Dict] = None):
         """
@@ -1602,6 +1680,7 @@ class BetaPipeline(ExtractionPipeline):
         
         max_retries = 6
         base_delay = 2.0
+        had_429 = False
         
         for attempt in range(max_retries):
             try:
@@ -1625,12 +1704,18 @@ class BetaPipeline(ExtractionPipeline):
                         self.completion_tokens = d.get("completion_tokens", 0)
                         self.total_tokens = d.get("total_tokens", 0)
                 
-                return self._parse_llm_response(content, finish_reason, _MockUsage(usage))
+                parsed_res = self._parse_llm_response(content, finish_reason, _MockUsage(usage))
+                if had_429:
+                    parsed_res["_had_429"] = True
+                return parsed_res
                 
             except Exception as e:
                 error_msg = str(e)
                 error_lower = error_msg.lower()
                 is_transient = any(term in error_lower for term in ["429", "rate limit", "timeout", "connection", "502", "503", "504"])
+                
+                if "429" in error_lower or "rate limit" in error_lower:
+                    had_429 = True
                 
                 if not is_transient or attempt == max_retries - 1:
                     logger.error(f"[BetaPipeline] Inference API Fatal Error after {attempt+1} attempts: {error_msg}")
