@@ -66,17 +66,21 @@ class BetaPipeline(ExtractionPipeline):
         # --- 2. Designer LLM (Work Order — Cached) ---
         work_order = await self._run_designer(model)
 
-        # --- 2.5 Analyst LLM (Pre-flight Edge Case Detection) ---
-        # We only pass a skeleton of the document to avoid massive token costs.
+        # --- 2.5 Mapping Designer (Document-Aware Mapping Plan) ---
+        # Analyzes document skeleton + schema to produce structured mapping plan.
         skeleton_text = self._build_document_skeleton(tagged_text)
         analyst_result = await self._run_analyst(model, skeleton_text)
         
-        if analyst_result and "dynamic_hints" in analyst_result:
-            if "work_order" in work_order:
-                work_order["work_order"]["dynamic_hints"] = analyst_result["dynamic_hints"]
-            else:
-                work_order["dynamic_hints"] = analyst_result["dynamic_hints"]
-            logger.info(f"[BetaPipeline] Analyst added {len(analyst_result['dynamic_hints'])} dynamic hints.")
+        if analyst_result:
+            wo_target = work_order.get("work_order", work_order)
+            mapping_keys = ("dynamic_hints", "field_mappings", "inheritance_rules", "table_structure")
+            injected = []
+            for key in mapping_keys:
+                if key in analyst_result and analyst_result[key]:
+                    wo_target[key] = analyst_result[key]
+                    injected.append(key)
+            if injected:
+                logger.info(f"[BetaPipeline] Mapping Designer injected: {', '.join(injected)}")
         
         # --- 3. Parallel Extraction (Text + Table Division) ---
         is_excel = ocr_data.get("_is_direct_markdown", False)
@@ -264,30 +268,53 @@ class BetaPipeline(ExtractionPipeline):
 
     def _build_document_skeleton(self, tagged_text: str) -> str:
         """
-        Creates a 'skeleton' of the document by taking the first 3000 chars 
-        and extracting any markdown table headers. This prevents token bloat.
+        Creates a 'skeleton' of the document for the Mapping Designer.
+        Includes: first 3000 chars, section headers, table headers, document tail.
         """
-        skeleton = tagged_text[:3000]
-        
-        # Add table headers if not already in the first 3000 chars
-        table_headers = []
+        import re
         lines = tagged_text.splitlines()
+        
+        # 1. Document head (first 3000 chars)
+        head = tagged_text[:3000]
+        
+        # 2. Section headers (Validity, Subject, etc.)
+        section_headers = []
         for i, line in enumerate(lines):
             stripped = line.strip()
-            # Robust markdown table detection: require |...| row followed by |---|...| separator
+            # Match numbered sections, validity lines, subject lines, date ranges
+            if (re.match(r'^\d+\.', stripped) or 
+                re.search(r'(?i)(validity|effective|subject|amendment|surcharge|service)', stripped)):
+                clean = re.sub(REF_TAG_PATTERN + r'\s*', '', stripped).strip()
+                if clean and len(clean) < 200:
+                    section_headers.append(f"L{i}: {clean}")
+        
+        # 3. Table headers (robust markdown detection)
+        table_headers = []
+        for i, line in enumerate(lines):
+            stripped = line.strip()
             if stripped.startswith("|") and i + 1 < len(lines):
                 next_stripped = lines[i + 1].strip()
                 if next_stripped.startswith("|") and "-" in next_stripped:
-                    import re
                     if re.match(r"^\|[\s\-\:\|]+\|$", next_stripped):
-                        table_headers.append(f"Table Header found at line {i}: " + line)
-                
+                        clean_header = re.sub(REF_TAG_PATTERN, '', stripped).strip()
+                        table_headers.append(f"L{i}: {clean_header}")
+        
+        # 4. Document tail (last 500 chars for notes/footer)
+        tail = tagged_text[-500:] if len(tagged_text) > 3500 else ""
+        
+        # Assemble skeleton
+        parts = [head]
+        if section_headers:
+            parts.append("\n--- SECTION HEADERS ---")
+            parts.append("\n".join(section_headers[:15]))
         if table_headers:
-            skeleton += "\n\n--- DISCOVERED TABLE HEADERS ---\n"
-            # Only include first 10 tables to avoid bloat
-            skeleton += "\n".join(table_headers[:10])
-            
-        return skeleton
+            parts.append("\n--- TABLE HEADERS ---")
+            parts.append("\n".join(table_headers[:10]))
+        if tail:
+            parts.append("\n--- DOCUMENT TAIL ---")
+            parts.append(tail)
+        
+        return "\n".join(parts)
 
     async def _run_analyst(self, model: ExtractionModel, skeleton_text: str) -> dict:
         """

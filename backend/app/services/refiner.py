@@ -447,30 +447,83 @@ STYLE CONSTRAINTS:
     @staticmethod
     def construct_analyst_prompt(model: ExtractionModel) -> str:
         """
-        Phase 1.5: Generates the Analyst LLM system prompt for pre-flight scanning.
-        Input: Model schema → Output: JSON with dynamic extraction hints.
+        Phase 1.5: Generates the Mapping Designer LLM system prompt.
+        Analyzes document skeleton + model schema to produce a structured mapping plan.
+        Input: Model schema + document skeleton → Output: mapping plan JSON.
         """
-        prompt = f"""You are a Senior Data Analyst and Extraction Expert.
+        prompt = f"""You are a Senior Document Mapping Architect.
 
-Your task is to analyze the 'document skeleton' (headers, context) alongside the extraction schema 
-to identify potential edge cases, traps, or format inconsistencies that extraction engineers should watch out for.
+Your task is to analyze the 'document skeleton' (headers, table structures, section patterns) alongside the target extraction schema, and produce a MAPPING PLAN that tells the extraction engineer exactly how to map the source document's structure to the target schema.
 
-MODEL SCHEMA EXPECTATIONS:
-{model.model_dump_json(include={'fields'}, indent=2)}
+TARGET EXTRACTION SCHEMA:
+{model.model_dump_json(include={{'fields'}}, indent=2)}
 
-INSTRUCTIONS:
-1. Review the provided document skeleton.
-2. Identify 2 to 3 critical dynamic hints or warnings for the extraction engineer based on this specific document's layout and the schema.
-   - Example 1: "The currency is globally indicated as 'EUR' at the top, so assume all unit prices in the table are EUR."
-   - Example 2: "The 'POL' and 'POD' values are combined in a single column separated by a slash (e.g., KRPUS/USLAX). You must split them."
-   - Example 3: "Row items spanning multiple pages have their headers repeated. Do NOT extract the repeated header row as a data row."
-3. Output MUST be ONLY valid JSON in the following format:
+YOUR JOB:
+1. Examine the document skeleton to understand the actual structure: table headers, section headers, global metadata, notes.
+2. Compare the source document's structure with the target schema fields.
+3. Produce a mapping plan with the sections described below.
+
+OUTPUT FORMAT — return ONLY valid JSON:
 {{
   "dynamic_hints": [
-    "Hint 1",
-    "Hint 2"
-  ]
+    "Critical observation 1 about this document",
+    "Critical observation 2"
+  ],
+  "field_mappings": [
+    {{
+      "target_key": "TableName.FieldKey",
+      "source_selector": {{
+        "type": "table_column | global_text | section_header | derived",
+        "table_index": 0,
+        "column_name": "Original Column Header",
+        "pattern": "optional regex pattern"
+      }},
+      "source_description": "Human-readable description of where to find this value",
+      "rule": "Explanation of why this mapping is needed"
+    }}
+  ],
+  "inheritance_rules": [
+    {{
+      "target_key": "FieldKey",
+      "source": "nearest_preceding_section | document_header | global_default",
+      "pattern": "Regex or text pattern to extract the value",
+      "scope": "section | global | document",
+      "applies_to": ["TableName1", "TableName2"] or ["*"],
+      "rule": "Explanation"
+    }}
+  ],
+  "table_structure": {{
+    "carry_forward_columns": ["column names where blank cells should inherit the previous non-empty value"],
+    "group_header_values": ["values that are section/group labels, NOT data rows"],
+    "group_row_behavior": "context_label | skip | prefix_to_children",
+    "notes_location": "below_table | inline | separate_section"
+  }}
 }}
+
+FIELD MAPPING GUIDELINES:
+- source_selector.type values:
+  - "table_column": Value comes from a specific column in a table
+  - "global_text": Value is found in the document body via pattern matching (not in a table)
+  - "section_header": Value is in a section header (e.g., "Validity: 2024-01-01 ~ 2024-03-31")
+  - "derived": Value must be computed or combined from other fields
+- Only include mappings where the source document structure does NOT directly match the target schema field name. If column headers already match the target key, no mapping is needed.
+
+INHERITANCE RULE GUIDELINES:
+- scope: "section" = inherit from nearest preceding section header; "global" = one value for the entire document; "document" = from document metadata area
+- applies_to: list of table field keys this rule affects, or ["*"] for all tables
+- Use inheritance rules when a value is NOT present per-row but applies to groups of rows (e.g., Validity dates, Currency, Service Terms)
+
+TABLE STRUCTURE GUIDELINES:
+- carry_forward_columns: columns where blank cells mean "same as above" (common in shipping/logistics tables)
+- group_header_values: specific text values (e.g., "US IPI", "RIPI", "LOCAL") that serve as section separators within a table, NOT as data rows
+- group_row_behavior: "context_label" = preserve as context for child rows; "skip" = ignore entirely; "prefix_to_children" = prepend to a field in child rows
+- notes_location: where supplementary notes/remarks appear relative to the table
+
+RULES:
+- ALL sections except "dynamic_hints" are OPTIONAL. If you cannot determine mappings or structure, omit that section entirely.
+- dynamic_hints should contain 2-5 critical observations about this specific document.
+- Do NOT invent mappings if you are unsure. Only map what you can clearly identify from the skeleton.
+- Be specific: use actual column names, section text, and patterns from the document skeleton.
 """
         return prompt
 
@@ -488,11 +541,55 @@ INSTRUCTIONS:
         integrity_rules = wo_inner.get("integrity_rules", [])
         integrity_rules_str = "\n".join(f"- {r}" for r in integrity_rules) if integrity_rules else "- Extract values exactly as written."
 
-        # Extract dynamic hints (added by Analyst phase)
+        # Extract dynamic hints (added by Mapping Designer phase)
         dynamic_hints = wo_inner.get("dynamic_hints", [])
         dynamic_hints_str = ""
         if dynamic_hints:
-            dynamic_hints_str = "\nDYNAMIC ANALYSIS HINTS (CRITICAL - FOR THIS SPECIFIC DOCUMENT):\n" + "\n".join(f"!!! {h}" for h in dynamic_hints) + "\n"
+            dynamic_hints_str = "\nDOCUMENT ANALYSIS HINTS (CRITICAL - FOR THIS SPECIFIC DOCUMENT):\n" + "\n".join(f"!!! {h}" for h in dynamic_hints) + "\n"
+
+        # Build Mapping Plan section (from Mapping Designer)
+        mapping_plan_str = ""
+        field_mappings = wo_inner.get("field_mappings", [])
+        inheritance_rules = wo_inner.get("inheritance_rules", [])
+        table_structure = wo_inner.get("table_structure")
+
+        if field_mappings or inheritance_rules or table_structure:
+            mapping_plan_str = """
+MAPPING PLAN (from document-specific analysis — HIGHEST PRIORITY):
+When a mapping plan is provided, it OVERRIDES generic work order field instructions.
+Follow the mapping plan FIRST, then fall back to generic instructions only for unmapped fields.
+"""
+            if field_mappings:
+                mapping_plan_str += "\nFIELD MAPPINGS:\n"
+                for m in field_mappings:
+                    selector = m.get("source_selector", {})
+                    sel_type = selector.get("type", "unknown")
+                    col_name = selector.get("column_name", "")
+                    pattern = selector.get("pattern", "")
+                    sel_detail = f"[{sel_type}]"
+                    if col_name:
+                        sel_detail += f" column='{col_name}'"
+                    if pattern:
+                        sel_detail += f" pattern='{pattern}'"
+                    mapping_plan_str += f"- {m.get('target_key', '?')}: {sel_detail} — {m.get('source_description', '')}. {m.get('rule', '')}\n"
+
+            if inheritance_rules:
+                mapping_plan_str += "\nINHERITANCE RULES (DO NOT extract these per-row!):\n"
+                for r in inheritance_rules:
+                    scope = r.get("scope", "section")
+                    applies = r.get("applies_to", ["*"])
+                    applies_str = ", ".join(applies) if isinstance(applies, list) else str(applies)
+                    mapping_plan_str += f"- {r.get('target_key', '?')}: {r.get('rule', '')} [scope={scope}, applies_to={applies_str}]\n"
+
+            if table_structure:
+                mapping_plan_str += "\nTABLE STRUCTURE:\n"
+                if cf := table_structure.get("carry_forward_columns"):
+                    mapping_plan_str += f"- Carry-forward columns (fill blank cells with previous value): {', '.join(cf)}\n"
+                if gh := table_structure.get("group_header_values"):
+                    behavior = table_structure.get("group_row_behavior", "context_label")
+                    mapping_plan_str += f"- Group headers: {', '.join(gh)} → behavior: {behavior}\n"
+                if nl := table_structure.get("notes_location"):
+                    mapping_plan_str += f"- Notes location: {nl}\n"
 
         # Build dynamic output example from field keys in work_order
         example_parts = []
@@ -526,7 +623,7 @@ Follow the WORK ORDER below EXACTLY. Do not deviate.
 
 WORK ORDER:
 {work_order_json}
-{dynamic_hints_str}
+{dynamic_hints_str}{mapping_plan_str}
 TAG FORMAT GUIDE (Critical — read before processing document):
 The document text contains inline tags that mark source locations:
 - ^W{{id}} = Word tag. Example: "^W3 Invoice" means the word "Invoice" is tagged as W3.
