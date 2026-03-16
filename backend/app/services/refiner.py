@@ -451,12 +451,13 @@ STYLE CONSTRAINTS:
         Analyzes document skeleton + model schema to produce a structured mapping plan.
         Input: Model schema + document skeleton → Output: mapping plan JSON.
         """
+        schema_json = model.model_dump_json(include={'fields'}, indent=2)
         prompt = f"""You are a Senior Document Mapping Architect.
 
 Your task is to analyze the 'document skeleton' (headers, table structures, section patterns) alongside the target extraction schema, and produce a MAPPING PLAN that tells the extraction engineer exactly how to map the source document's structure to the target schema.
 
 TARGET EXTRACTION SCHEMA:
-{model.model_dump_json(include={{'fields'}}, indent=2)}
+{schema_json}
 
 YOUR JOB:
 1. Examine the document skeleton to understand the actual structure: table headers, section headers, global metadata, notes.
@@ -473,10 +474,9 @@ OUTPUT FORMAT — return ONLY valid JSON:
     {{
       "target_key": "TableName.FieldKey",
       "source_selector": {{
-        "type": "table_column | global_text | section_header | derived",
+        "type": "table_column",
         "table_index": 0,
-        "column_name": "Original Column Header",
-        "pattern": "optional regex pattern"
+        "column_name": "Original Column Header"
       }},
       "source_description": "Human-readable description of where to find this value",
       "rule": "Explanation of why this mapping is needed"
@@ -485,37 +485,38 @@ OUTPUT FORMAT — return ONLY valid JSON:
   "inheritance_rules": [
     {{
       "target_key": "FieldKey",
-      "source": "nearest_preceding_section | document_header | global_default",
+      "source": "nearest_preceding_section",
       "pattern": "Regex or text pattern to extract the value",
-      "scope": "section | global | document",
-      "applies_to": ["TableName1", "TableName2"] or ["*"],
+      "scope": "section",
+      "applies_to": ["TableName1", "TableName2"],
       "rule": "Explanation"
     }}
   ],
   "table_structure": {{
-    "carry_forward_columns": ["column names where blank cells should inherit the previous non-empty value"],
-    "group_header_values": ["values that are section/group labels, NOT data rows"],
-    "group_row_behavior": "context_label | skip | prefix_to_children",
-    "notes_location": "below_table | inline | separate_section"
+    "carry_forward_columns": ["column_name"],
+    "group_header_values": ["US IPI", "CA IPI"],
+    "group_row_behavior": "context_label",
+    "notes_location": "below_table"
   }}
 }}
 
 FIELD MAPPING GUIDELINES:
 - source_selector.type values:
-  - "table_column": Value comes from a specific column in a table
-  - "global_text": Value is found in the document body via pattern matching (not in a table)
-  - "section_header": Value is in a section header (e.g., "Validity: 2024-01-01 ~ 2024-03-31")
-  - "derived": Value must be computed or combined from other fields
-- Only include mappings where the source document structure does NOT directly match the target schema field name. If column headers already match the target key, no mapping is needed.
+  - "table_column": Value comes from a specific column in a table. Include "table_index" and "column_name".
+  - "global_text": Value is found in the document body via pattern matching (not in a table). Include "pattern".
+  - "section_header": Value is in a section header (e.g., "Validity: 2024-01-01 ~ 2024-03-31"). Include "pattern".
+  - "derived": Value must be computed or combined from other fields.
+- Only include mappings where the source document structure does NOT directly match the target schema field name.
+- applies_to: list of table field keys this rule affects. Use ["*"] to mean all tables.
 
 INHERITANCE RULE GUIDELINES:
 - scope: "section" = inherit from nearest preceding section header; "global" = one value for the entire document; "document" = from document metadata area
-- applies_to: list of table field keys this rule affects, or ["*"] for all tables
+- applies_to: list of table field keys this rule affects. Use ["*"] for all tables.
 - Use inheritance rules when a value is NOT present per-row but applies to groups of rows (e.g., Validity dates, Currency, Service Terms)
 
 TABLE STRUCTURE GUIDELINES:
 - carry_forward_columns: columns where blank cells mean "same as above" (common in shipping/logistics tables)
-- group_header_values: specific text values (e.g., "US IPI", "RIPI", "LOCAL") that serve as section separators within a table, NOT as data rows
+- group_header_values: specific text values that serve as section separators within a table, NOT as data rows
 - group_row_behavior: "context_label" = preserve as context for child rows; "skip" = ignore entirely; "prefix_to_children" = prepend to a field in child rows
 - notes_location: where supplementary notes/remarks appear relative to the table
 
@@ -555,41 +556,67 @@ RULES:
 
         if field_mappings or inheritance_rules or table_structure:
             mapping_plan_str = """
-MAPPING PLAN (from document-specific analysis — HIGHEST PRIORITY):
-When a mapping plan is provided, it OVERRIDES generic work order field instructions.
-Follow the mapping plan FIRST, then fall back to generic instructions only for unmapped fields.
+MAPPING PLAN (from document-specific analysis):
+Follow the mapping plan as the PRIMARY interpretation guide for document structure and source-to-target mapping.
+If the actual source text clearly contradicts the plan, prefer the source text and return null rather than forcing an incorrect mapping.
+For unmapped fields, fall back to generic work order instructions.
 """
             if field_mappings:
-                mapping_plan_str += "\nFIELD MAPPINGS:\n"
+                mapping_plan_str += "\nFIELD MAPPINGS (use source_selector to locate values):\n"
                 for m in field_mappings:
                     selector = m.get("source_selector", {})
                     sel_type = selector.get("type", "unknown")
                     col_name = selector.get("column_name", "")
                     pattern = selector.get("pattern", "")
-                    sel_detail = f"[{sel_type}]"
-                    if col_name:
-                        sel_detail += f" column='{col_name}'"
-                    if pattern:
-                        sel_detail += f" pattern='{pattern}'"
-                    mapping_plan_str += f"- {m.get('target_key', '?')}: {sel_detail} — {m.get('source_description', '')}. {m.get('rule', '')}\n"
+                    # Build procedural instruction based on selector type
+                    if sel_type == "table_column":
+                        procedure = f"Search table column '{col_name}' for this value."
+                    elif sel_type == "section_header":
+                        procedure = f"Do NOT search in table rows. Look in section headers" + (f" matching pattern '{pattern}'" if pattern else "") + "."
+                    elif sel_type == "global_text":
+                        procedure = f"Search document body (outside tables)" + (f" matching pattern '{pattern}'" if pattern else "") + "."
+                    elif sel_type == "derived":
+                        procedure = "Compute from other field values."
+                    else:
+                        procedure = m.get('source_description', '')
+                    mapping_plan_str += f"- {m.get('target_key', '?')}: {procedure} {m.get('rule', '')}\n"
 
             if inheritance_rules:
-                mapping_plan_str += "\nINHERITANCE RULES (DO NOT extract these per-row!):\n"
+                mapping_plan_str += "\nINHERITANCE RULES (PROCEDURAL — follow these steps):\n"
                 for r in inheritance_rules:
                     scope = r.get("scope", "section")
                     applies = r.get("applies_to", ["*"])
                     applies_str = ", ".join(applies) if isinstance(applies, list) else str(applies)
-                    mapping_plan_str += f"- {r.get('target_key', '?')}: {r.get('rule', '')} [scope={scope}, applies_to={applies_str}]\n"
+                    pattern = r.get("pattern", "")
+                    # Build step-by-step procedure
+                    steps = f"- {r.get('target_key', '?')}:\n"
+                    steps += f"  1. Do NOT extract this field from each row.\n"
+                    if scope == "section":
+                        steps += f"  2. Find the nearest preceding section header" + (f" matching '{pattern}'" if pattern else "") + ".\n"
+                        steps += f"  3. Apply the extracted value to ALL rows in the following tables: {applies_str}.\n"
+                        steps += f"  4. When a new section header appears, update the inherited value for subsequent rows.\n"
+                    elif scope == "global":
+                        steps += f"  2. Extract this value ONCE from the document header/metadata area" + (f" matching '{pattern}'" if pattern else "") + ".\n"
+                        steps += f"  3. Apply the same value to ALL rows across tables: {applies_str}.\n"
+                    elif scope == "document":
+                        steps += f"  2. Look in the document metadata section" + (f" matching '{pattern}'" if pattern else "") + ".\n"
+                        steps += f"  3. Apply to tables: {applies_str}.\n"
+                    mapping_plan_str += steps
 
             if table_structure:
-                mapping_plan_str += "\nTABLE STRUCTURE:\n"
+                mapping_plan_str += "\nTABLE STRUCTURE RULES (PROCEDURAL):\n"
                 if cf := table_structure.get("carry_forward_columns"):
-                    mapping_plan_str += f"- Carry-forward columns (fill blank cells with previous value): {', '.join(cf)}\n"
+                    mapping_plan_str += f"- CARRY-FORWARD: For columns [{', '.join(cf)}], if a cell is blank, inherit the nearest previous non-empty value within the same group section. Do NOT carry forward across group headers.\n"
                 if gh := table_structure.get("group_header_values"):
                     behavior = table_structure.get("group_row_behavior", "context_label")
-                    mapping_plan_str += f"- Group headers: {', '.join(gh)} → behavior: {behavior}\n"
+                    if behavior == "context_label":
+                        mapping_plan_str += f"- GROUP HEADERS: Rows containing only [{', '.join(gh)}] are section labels, NOT data rows. Do NOT extract them as data. Use them as context for the rows that follow.\n"
+                    elif behavior == "skip":
+                        mapping_plan_str += f"- GROUP HEADERS: Rows containing only [{', '.join(gh)}] must be SKIPPED entirely.\n"
+                    elif behavior == "prefix_to_children":
+                        mapping_plan_str += f"- GROUP HEADERS: Rows containing [{', '.join(gh)}] are group labels. Prefix their value to the appropriate field in each child row below them.\n"
                 if nl := table_structure.get("notes_location"):
-                    mapping_plan_str += f"- Notes location: {nl}\n"
+                    mapping_plan_str += f"- NOTES: Supplementary notes are located {nl}.\n"
 
         # Build dynamic output example from field keys in work_order
         example_parts = []
