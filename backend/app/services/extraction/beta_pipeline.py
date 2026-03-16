@@ -1,7 +1,9 @@
 import asyncio
+import copy
 import hashlib
 import json
 import logging
+import re as re_module
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -14,6 +16,9 @@ from app.core.config import settings
 from openai import AsyncAzureOpenAI
 
 logger = logging.getLogger(__name__)
+
+# Shared constant for reference tag stripping across the pipeline
+REF_TAG_PATTERN = r"\^[CWP][0-9A-Fa-f]+"
 
 # Module-level cache for Designer work orders (per model hash)
 _work_order_cache: Dict[str, dict] = {}
@@ -91,7 +96,7 @@ class BetaPipeline(ExtractionPipeline):
         # to prevent completion token exhaustion that causes only the first table to survive.
         # Single-table and no-table schemas use the original optimized unified path.
         text_work_order = work_order
-        should_run_table_mapper = False
+        should_run_table_mapper = getattr(settings, 'ENABLE_TABLE_MAPPER', False)
         engineer_text_payload = tagged_text
 
         async def run_engineer_pipeline():
@@ -193,7 +198,9 @@ class BetaPipeline(ExtractionPipeline):
             beta_metadata={
                 "parsed_content": tagged_text,
                 "ref_map": ref_map,
-                "pipeline_mode": "designer-engineer"
+                "pipeline_mode": "designer-engineer",
+                "partial": engineer_output.get("_partial", False),
+                "chunk_stats": engineer_output.get("_chunk_stats"),
             },
             model_name=model.name,
             duration_seconds=(datetime.utcnow() - start_time).total_seconds()
@@ -217,7 +224,7 @@ class BetaPipeline(ExtractionPipeline):
         
         if cache_key in _work_order_cache:
             logger.info(f"[BetaPipeline] Designer: Cache HIT for model '{model.name}'")
-            return _work_order_cache[cache_key]
+            return copy.deepcopy(_work_order_cache[cache_key])
         
         logger.info(f"[BetaPipeline] Designer: Cache MISS — generating work order for '{model.name}'")
         
@@ -264,16 +271,16 @@ class BetaPipeline(ExtractionPipeline):
         
         # Add table headers if not already in the first 3000 chars
         table_headers = []
-        in_table = False
         lines = tagged_text.splitlines()
         for i, line in enumerate(lines):
-            if "|" in line:
-                if not in_table:
-                    # Likely start of a table
-                    table_headers.append(f"Table Header found at line {i}: " + line)
-                    in_table = True
-            else:
-                in_table = False
+            stripped = line.strip()
+            # Robust markdown table detection: require |...| row followed by |---|...| separator
+            if stripped.startswith("|") and i + 1 < len(lines):
+                next_stripped = lines[i + 1].strip()
+                if next_stripped.startswith("|") and "-" in next_stripped:
+                    import re
+                    if re.match(r"^\|[\s\-\:\|]+\|$", next_stripped):
+                        table_headers.append(f"Table Header found at line {i}: " + line)
                 
         if table_headers:
             skeleton += "\n\n--- DISCOVERED TABLE HEADERS ---\n"
@@ -564,7 +571,7 @@ class BetaPipeline(ExtractionPipeline):
             # Match numbered sections, validity lines, or standalone date-like headers
             if re.match(r'^\d+\.', stripped) or 'validity' in stripped.lower():
                 # Remove tag markers for cleaner context
-                clean = re.sub(r'\^[WPC][0-9A-Fa-f]+\s*', '', stripped).strip()
+                clean = re.sub(REF_TAG_PATTERN + r'\s*', '', stripped).strip()
                 if clean and len(clean) < 200:
                     section_headers.append(clean)
         
@@ -666,16 +673,21 @@ class BetaPipeline(ExtractionPipeline):
         if failed_chunks:
             logger.warning(f"[BetaPipeline] {len(failed_chunks)}/{len(results)} chunks FAILED: indices {failed_chunks}")
         
+        # Build chunk health metadata for downstream visibility
+        chunk_stats = {
+            "total": len(results),
+            "failed": len(failed_chunks),
+            "succeeded": len(results) - len(failed_chunks),
+        }
+        is_partial = len(failed_chunks) > 0
+        
         if not valid_chunks:
             logger.warning(f"[BetaPipeline] All {len(results)} chunks returned empty results. No data extracted.")
-            return {"guide_extracted": {}, "_token_usage": total_usage, "_truncated": any_truncated}
+            return {"guide_extracted": {}, "_token_usage": total_usage, "_truncated": any_truncated, "_partial": True, "_chunk_stats": chunk_stats}
 
         # Always run the Aggregator to safely merge list fields via append.
-        # Previously, len(valid_chunks)==1 bypassed aggregation, silently dropping
-        # data from other chunks that failed or returned empty.
         logger.info(f"[BetaPipeline] Aggregating {len(valid_chunks)} valid chunks (out of {len(results)} total).")
 
-        # If >1 chunks, run the Aggregator LLM (Phase 3)
         agg_result = await self._run_aggregator(work_order, valid_chunks)
         
         # Accumulate Aggregator token usage
@@ -687,7 +699,9 @@ class BetaPipeline(ExtractionPipeline):
             "guide_extracted": agg_result.get("guide_extracted", {}),
             "_token_usage": total_usage,
             "_truncated": any_truncated,
-            "logs": agg_result.get("logs", []) # Preserve the thought_process
+            "_partial": is_partial,
+            "_chunk_stats": chunk_stats,
+            "logs": agg_result.get("logs", [])
         }
 
     async def _run_aggregator(self, work_order: dict, chunks_payload: Dict[str, dict]) -> dict:
@@ -725,8 +739,8 @@ class BetaPipeline(ExtractionPipeline):
                         row_hash = json.dumps(row_clean, sort_keys=True, ensure_ascii=False)
                         if row_hash not in seen_rows[key]:
                             seen_rows[key].add(row_hash)
-                            row["_source_chunk"] = chunk_idx
-                            merged_guide[key].append(row)
+                            row_copy = {**row, "_source_chunk": chunk_idx}
+                            merged_guide[key].append(row_copy)
                 else:
                     # Common field — first-non-null: keep first real value
                     if key not in merged_guide:
@@ -913,12 +927,12 @@ class BetaPipeline(ExtractionPipeline):
                 if active_header:
                     if active_context:
                         # Strip raw tags from context so it doesn't cause extraction hallucinations
-                        clean_context = re.sub(r"\^[CWP][0-9A-F]+", "", active_context)
+                        clean_context = re.sub(REF_TAG_PATTERN, "", active_context)
                         context_block = f"--- TABLE CONTEXT (Inherited) ---\n{clean_context}\n---------------------------------\n"
                         current_chunk.append(context_block)
                         current_len += len(context_block)
                         
-                    clean_header = re.sub(r"\^[CWP][0-9A-Fa-f]+", "", active_header[0])
+                    clean_header = re.sub(REF_TAG_PATTERN, "", active_header[0])
                     current_chunk.append(clean_header + "\n")  # header row
                     current_chunk.append(active_header[1] + "\n")  # separator
                     current_len += len(clean_header) + len(active_header[1]) + 2
