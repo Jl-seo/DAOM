@@ -34,7 +34,7 @@ class BetaPipeline(ExtractionPipeline):
     
     def __init__(self, azure_client: AsyncAzureOpenAI):
         self.azure_client = azure_client
-        self.semaphore = asyncio.Semaphore(5)
+        self.semaphore = asyncio.Semaphore(2)
 
     # ==================================================================
     # Main Entry Point
@@ -127,8 +127,8 @@ class BetaPipeline(ExtractionPipeline):
         is_excel = ocr_data.get("_is_direct_markdown", False)
         
         # Dynamically adjust semaphore to avoid Azure TPM drops on massive Excel payloads (150K chunks)
-        # Using 3 for Excel, 15 for PDF 
-        self.semaphore = asyncio.Semaphore(3 if is_excel else 15)
+        # Limiting to 2 universally to fix random table drops
+        self.semaphore = asyncio.Semaphore(2)
         
         # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
         TEXT_CHUNK_SIZE = 150_000 if is_excel else 8_000

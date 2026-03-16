@@ -24,7 +24,7 @@ from thefuzz import fuzz
 logger = logging.getLogger(__name__)
 
 # Minimum similarity ratio (0-1) to accept a fuzzy match
-FUZZY_MATCH_THRESHOLD = 0.6
+FUZZY_MATCH_THRESHOLD = 0.85
 
 
 class ReferenceEntry:
