@@ -221,7 +221,99 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
         logger.error(f"Schema Mapper failed: {e}")
         return {"scalars": {}, "tables": {}, "reasoning": f"Mapper failed: {e}"}
 
-async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[str, Any]:
+
+async def _run_markdown_scalar_extraction(
+    md_content: str,
+    missing_fields: list,
+    model: ExtractionModel,
+    extractor_llm: str
+) -> Dict[str, Any]:
+    """
+    Phase 2: Markdown Context-based Scalar Extraction.
+    Fills gaps left by the coordinate-based _run_schema_mapper by feeding
+    the full Excel markdown text to the LLM for non-table fields.
+    """
+    client = get_openai_client()
+    deployment = extractor_llm or get_current_model()
+
+    fields_context = [{
+        "key": f["key"],
+        "label": f.get("label", f["key"]),
+        "type": f.get("type", "string"),
+        "description": f.get("description", ""),
+        "rules": f.get("rules", "")
+    } for f in missing_fields]
+
+    # Smart truncation: keep first 8000 chars of markdown to fit context window
+    truncated_md = md_content[:8000] if len(md_content) > 8000 else md_content
+
+    prompt = f"""
+You are an expert Data Extractor. Below is an Excel file converted to Markdown format.
+Your task is to extract the values for the following fields from this content.
+
+These are NON-TABLE fields (scalars) — they are typically found in headers, titles,
+metadata sections, summary rows, or free-text areas of the Excel file.
+
+Excel Content (Markdown):
+{truncated_md}
+
+Target Fields to Extract:
+{json.dumps(fields_context, ensure_ascii=False, indent=2)}
+
+CRITICAL RULES:
+1. Return ONLY valid JSON matching this EXACT schema.
+2. For each field, return the extracted value as a string. If not found, return null.
+3. Look for values in sheet titles, header rows, metadata cells, summary sections, and any non-table text.
+4. Do NOT extract table row data — only extract standalone scalar/summary values.
+5. Keep the original language. Do NOT translate unless a field rule says so.
+"""
+
+    # Build strict structured output schema
+    properties = {}
+    required_keys = []
+    for f in fields_context:
+        properties[f["key"]] = {"anyOf": [{"type": "string"}, {"type": "null"}]}
+        required_keys.append(f["key"])
+
+    response_schema = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "markdown_scalar_extraction",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": properties,
+                "required": required_keys,
+                "additionalProperties": False
+            }
+        }
+    }
+
+    try:
+        res = await client.chat.completions.create(
+            model=deployment,
+            messages=[{"role": "user", "content": prompt}],
+            response_format=response_schema,
+            temperature=model.temperature
+        )
+        content = res.choices[0].message.content
+        result_json = json.loads(content)
+
+        token_usage = {}
+        if res.usage:
+            token_usage = {
+                "prompt_tokens": res.usage.prompt_tokens,
+                "completion_tokens": res.usage.completion_tokens,
+                "total_tokens": res.usage.total_tokens
+            }
+        result_json["_token_usage"] = token_usage
+        return result_json
+    except Exception as e:
+        logger.error(f"Markdown Scalar Extraction failed: {e}")
+        return {}
+
+
+async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_content: str = "") -> Dict[str, Any]:
     """
     Two-Track Excel Extraction (Python Engine Mode).
     Phase 13: Single Source of Truth Architecture using pure Pandas.
@@ -646,10 +738,59 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel) -> Dict[s
             "page_number": page_number
         }
 
+    # 3.3 Phase 2: Markdown Context-based Scalar Extraction for empty common fields
+    TABLE_TYPES = ("table", "list", "array", "object")
+    missing_scalar_fields = []
+    for f in model.fields:
+        if f.type in TABLE_TYPES:
+            continue
+        existing = raw_extracted.get(f.key)
+        # Consider a field "missing" if it hasn't been extracted or its value is empty
+        if not existing or not existing.get("value"):
+            missing_scalar_fields.append({
+                "key": f.key,
+                "label": f.label,
+                "type": f.type,
+                "description": f.description,
+                "rules": f.rules
+            })
+
+    if missing_scalar_fields and md_content:
+        logger.info(f"[SQL Extraction] Phase 2: {len(missing_scalar_fields)} empty scalar fields detected. Running Markdown extraction...")
+        extractor_llm = getattr(model, "extractor_llm", None)
+        md_scalars = await _run_markdown_scalar_extraction(md_content, missing_scalar_fields, model, extractor_llm)
+
+        # Accumulate token usage from 2nd pass
+        md_token_usage = md_scalars.pop("_token_usage", {})
+        if md_token_usage:
+            token_usage["prompt_tokens"] = token_usage.get("prompt_tokens", 0) + md_token_usage.get("prompt_tokens", 0)
+            token_usage["completion_tokens"] = token_usage.get("completion_tokens", 0) + md_token_usage.get("completion_tokens", 0)
+            token_usage["total_tokens"] = token_usage.get("total_tokens", 0) + md_token_usage.get("total_tokens", 0)
+
+        filled_count = 0
+        for field_key, extracted_val in md_scalars.items():
+            if extracted_val is not None and str(extracted_val).strip():
+                val = str(extracted_val).strip()
+                # Only fill if the field is still empty
+                existing = raw_extracted.get(field_key)
+                if not existing or not existing.get("value"):
+                    raw_extracted[field_key] = {
+                        "value": val,
+                        "original_value": val,
+                        "confidence": 0.85,
+                        "validation_status": "valid",
+                        "page_number": 1,
+                        "bbox": None,
+                        "_modifier": "Markdown Extraction"
+                    }
+                    filled_count += 1
+        logger.info(f"[SQL Extraction] Phase 2: Filled {filled_count}/{len(missing_scalar_fields)} fields from markdown.")
+        logs.append({"step": "Markdown Scalar Extraction", "message": f"Filled {filled_count}/{len(missing_scalar_fields)} empty scalar fields from Excel markdown."})
+
     # 4. Fill entirely missing fields with empty schemas
     for f in model.fields:
         if f.key not in raw_extracted:
-            if f.type in ("table", "list", "array", "object"):
+            if f.type in TABLE_TYPES:
                 raw_extracted[f.key] = {"value": [], "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
             else:
                 raw_extracted[f.key] = {"value": "", "original_value": "", "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
