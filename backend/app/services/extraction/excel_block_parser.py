@@ -641,20 +641,30 @@ def build_block_summary(
     """
     Build a structured summary of a block for the LLM to interpret.
     LLM sees this summary instead of raw data.
+    
+    Size limits to prevent prompt bloat:
+    - header_candidates: top 20 columns
+    - column_profiles: top 15 columns (by non_empty_count)
+    - data_sample: 3 rows max
+    - sample values per column: 3 max
     """
     data_cols = [c for c in df.columns if c not in ('row_id', 'local_row_id', '_sheet_name', '_sheet_name_lower')]
     
-    # Get header row values
+    # Get header row values (capped at 20)
     header_rows = [rc for rc in row_classifications if rc.row_type == "header"]
     header_values = {}
     if header_rows:
         h_rid = header_rows[0].row_id
         h_row = df[df["row_id"] == h_rid]
         if not h_row.empty:
+            count = 0
             for c in data_cols:
+                if count >= 20:
+                    break
                 val = str(h_row.iloc[0][c]).strip() if pd.notna(h_row.iloc[0][c]) else ""
                 if val and val.lower() != "nan":
                     header_values[c] = val
+                    count += 1
     
     # Get first 3 data rows as sample
     data_rows = [rc for rc in row_classifications if rc.row_type == "data"]
@@ -669,17 +679,20 @@ def build_block_summary(
                     row_dict[c] = val
             sample_rows.append(row_dict)
     
+    # Column profiles: top 15 by non_empty_count
+    sorted_profiles = sorted(column_profiles.items(), key=lambda x: x[1].non_empty_count, reverse=True)[:15]
+    
     return {
         "sheet": block.sheet_name,
         "block_id": block.block_id,
         "row_range": f"{block.row_start}-{block.row_end}",
         "row_count": block.row_count,
         "block_type": block.block_type,
-        "header_candidates": {c: v for c, v in header_values.items()},
+        "header_candidates": header_values,
         "data_sample": sample_rows,
         "column_profiles": {
             c: {"type_hint": p.type_hint, "sample": p.sample[:3]}
-            for c, p in column_profiles.items()
+            for c, p in sorted_profiles
         },
         "detected_context": block_context,
         "row_classification_summary": {

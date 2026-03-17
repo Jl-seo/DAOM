@@ -376,14 +376,49 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     token_usage = mapping_plan.pop("_token_usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
     logger.info(f"Block Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")
     
-    # 3. Pure Python Extraction Engine
+    # ── Phase D: Pure Python Extraction Engine ────────────────────────
     raw_extracted = {}
-    logs = []
+    # NOTE: logs is initialized in Phase A above. Do NOT reinitialize here.
     
-    # Pre-build reference lookup dictionaries by field key
-    ref_data = model.reference_data or {}
+    # #7: Create _sheet_name_lower once upfront
+    if '_sheet_name' in df.columns and '_sheet_name_lower' not in df.columns:
+        df['_sheet_name_lower'] = df['_sheet_name'].astype(str).str.strip().str.lower()
     
-    # 3.1 LLM Handoff: Process Natively Extracted Scalars
+    # Sheet list for page_number lookup
+    sheet_list = df['_sheet_name'].unique().tolist() if '_sheet_name' in df.columns else []
+    sheet_list_lower = [str(s).strip().lower() for s in sheet_list]
+    
+    # #6: Scalar context-first — collect all block contexts for scalar lookup
+    all_detected_context = {}
+    for bid, meta in all_blocks_meta.items():
+        for ctx_key, ctx_val in meta.get('context', {}).items():
+            if ctx_key not in all_detected_context:
+                all_detected_context[ctx_key] = ctx_val
+    
+    # ── Scalar Extraction (Priority: Python context → LLM coordinate → LLM exact_value → markdown) ──
+    TABLE_TYPES = ("table", "list", "array", "object")
+    
+    # #6: Fill scalars from Python detected context FIRST
+    for f in model.fields:
+        if f.type in TABLE_TYPES:
+            continue
+        fk = f.key
+        fk_lower = fk.strip().lower()
+        # Check if Python block context already detected this value
+        ctx_val = all_detected_context.get(fk) or all_detected_context.get(fk_lower)
+        if ctx_val and fk not in raw_extracted:
+            raw_extracted[fk] = {
+                "value": ctx_val,
+                "original_value": ctx_val,
+                "confidence": 0.85,
+                "validation_status": "valid",
+                "page_number": 1,
+                "bbox": None,
+                "_modifier": "Python Block Context"
+            }
+            logs.append({"step": f"Scalar [{fk}]", "message": f"Filled from Python block context: {ctx_val}"})
+    
+    # LLM scalar extraction (supplement Python results)
     raw_scalars = mapping_plan.get("scalars", [])
     if not isinstance(raw_scalars, list):
         logger.warning(f"LLM returned invalid scalars schema type: {type(raw_scalars)}. Defaulting to empty list.")
@@ -392,6 +427,10 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     scalars_mapping = {s["field_key"]: s for s in raw_scalars if "field_key" in s}
         
     for target_key, s_map in scalars_mapping.items():
+        # Skip if Python context already filled this scalar
+        if target_key in raw_extracted and raw_extracted[target_key].get("value"):
+            continue
+        
         sheet = s_map.get("sheet_name")
         row_id = s_map.get("row_id")
         col = s_map.get("col")
@@ -405,19 +444,15 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         # Virtual Grid constants (Sync with ExcelGridViewer.tsx)
         VIRTUAL_WIDTH = 1000
         CELL_HEIGHT = 50
-        col_count = len(df.columns) - 2 if 'df' in locals() and len(df.columns) > 2 else 26
+        col_count = len(df.columns) - 2 if len(df.columns) > 2 else 26
         cell_width = VIRTUAL_WIDTH / max(1, col_count)
         
+        # #8: page_number from precomputed sheet_list
         page_number = 1
-        if sheet and 'df' in locals() and '_sheet_name' in df.columns:
-            try:
-                s_list = df['_sheet_name'].unique().tolist()
-                s_lower = [str(s).strip().lower() for s in s_list]
-                search = str(sheet).strip().lower()
-                if search in s_lower:
-                    page_number = s_lower.index(search) + 1
-            except Exception:
-                pass
+        if sheet:
+            search = str(sheet).strip().lower()
+            if search in sheet_list_lower:
+                page_number = sheet_list_lower.index(search) + 1
         
         # 1. Try Coordinate-based pure Pandas lookup
         if sheet and row_id is not None and col:
@@ -455,28 +490,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 val = str(exact_value).strip()
                 raw_val = val
 
-        # 3. Apply reference data and save
+        # #3: Save raw extraction ONLY — no ref_data normalization here.
+        # Normalization happens in the common post-processing stage.
         if val is not None:
-            modifier_badge = None
-            if isinstance(val, str) and target_key in ref_data and val in ref_data[target_key]:
-                dict_match = ref_data[target_key][val]
-                if isinstance(dict_match, dict) and "value" in dict_match:
-                    val = dict_match["value"]
-                    modifier_badge = "Vibe Dictionary (Pending AI)" if dict_match.get("is_verified") is False else "Vibe Dictionary"
-                else:
-                    val = str(dict_match)
-                    modifier_badge = "Dictionary"
-            elif isinstance(val, list) and target_key in ref_data:
-                new_list = []
-                for v in val:
-                    dict_match = ref_data[target_key].get(str(v), v)
-                    if isinstance(dict_match, dict) and "value" in dict_match:
-                        new_list.append(dict_match["value"])
-                        modifier_badge = "Vibe Dictionary (Pending AI)" if dict_match.get("is_verified") is False else "Vibe Dictionary"
-                    else:
-                        new_list.append(str(dict_match))
-                val = new_list
-                
             payload = {
                 "value": val,
                 "original_value": str(raw_val),
@@ -485,10 +501,6 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 "page_number": page_number,
                 "bbox": bbox
             }
-            if modifier_badge:
-                payload["_modifier"] = modifier_badge
-                payload["_modified_from"] = str(raw_val)
-                
             raw_extracted[target_key] = payload
         else:
             logger.debug(f"Skipping empty scalar {target_key}")
@@ -533,12 +545,17 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             "block_context": block_meta.get("context", {})
         }
         
+    # #10: Log unmapped table fields
+    mapped_field_keys = set(tables_map.keys())
+    for f in model.fields:
+        if f.type in TABLE_TYPES and f.key not in mapped_field_keys:
+            logs.append({"step": f"Unmapped [{f.key}]", "message": f"Table field '{f.key}' was not mapped to any block by LLM."})
+    
     for target_key, t_map in tables_map.items():
         sheet = t_map.get("sheet_name", "")
         if sheet:
             sheet = str(sheet).strip().lower()
         
-        first_data_row_id = t_map.get("first_data_row_id", 1)
         raw_col_map = t_map.get("columns_mapping", {})
         
         # Normalize LLM output column map keys (sub_field_key) to lowercase for safe matching
@@ -548,50 +565,58 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 if k and v:
                     col_map[str(k).strip().lower()] = str(v).strip().upper()
         
+        # #8: page_number from precomputed sheet_list with sheet metadata
         page_number = 1
-        if sheet and 'df' in locals() and '_sheet_name' in df.columns:
-            try:
-                s_list = df['_sheet_name'].unique().tolist()
-                s_lower = [str(s).strip().lower() for s in s_list]
-                search = str(sheet).strip().lower()
-                if search in s_lower:
-                    page_number = s_lower.index(search) + 1
-            except Exception:
-                pass
+        sheet_index = 0
+        if sheet:
+            search = str(sheet).strip().lower()
+            if search in sheet_list_lower:
+                sheet_index = sheet_list_lower.index(search)
+                page_number = sheet_index + 1
         
         if not col_map or not sheet:
             logs.append({"step": f"Table [{target_key}]", "message": f"Skipped: col_map or sheet is empty. Sheet={sheet}, Map={col_map}"})
             raw_extracted[target_key] = {"value": [], "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
             continue
         
-        # Case insensitive sheet name search
-        df['_sheet_name_lower'] = df['_sheet_name'].str.strip().str.lower()
-        sheet_df = df[df["_sheet_name_lower"] == sheet]
+        # #7: Use precomputed _sheet_name_lower
+        sheet_df = df[df["_sheet_name_lower"] == sheet] if "_sheet_name_lower" in df.columns else df
         if sheet_df.empty:
             logs.append({"step": f"Table [{target_key}]", "message": f"Sheet '{sheet}' not found, falling back to full combined data."})
-            sheet_df = df # Fallback
-            
-        try:
-            h_id = int(first_data_row_id)
-        except (ValueError, TypeError):
-            h_id = 1
-            
-        logger.info(f"[{target_key}] Slicing sheet '{sheet}': using `row_id >= {h_id}`")
+            sheet_df = df
         
-        # Apply table end boundary (last_data_row_id from LLM)
-        last_data_row_id = t_map.get("last_data_row_id")
-        try:
-            last_id = int(last_data_row_id) if last_data_row_id is not None else None
-        except (ValueError, TypeError):
-            last_id = None
+        # #5: Block boundary from Python metadata (LLM as fallback only)
+        block_id = t_map.get("block_id")
+        block_meta = all_blocks_meta.get(block_id, {})
         
-        if last_id is not None:
-            data_rows = sheet_df[(sheet_df["row_id"] >= h_id) & (sheet_df["row_id"] <= last_id)]
-            logs.append({"step": f"Table [{target_key}] Target", "message": f"Sheet='{sheet}', row_id=[{h_id}..{last_id}], Mapping={json.dumps(col_map)}"})
+        if block_meta:
+            block_obj = block_meta["block"]
+            block_start = block_obj.row_start
+            block_end = block_obj.row_end
+            # Use Python's classified data rows within the block
+            data_row_ids = {rc.row_id for rc in block_meta["row_classifications"] if rc.row_type == "data"}
+            data_rows = sheet_df[sheet_df["row_id"].isin(data_row_ids)]
+            logs.append({"step": f"Table [{target_key}] Target", "message": f"Sheet='{sheet}', block=[{block_start}..{block_end}], data_rows={len(data_rows)}, Mapping={json.dumps(col_map)}"})
         else:
-            # Fallback: no end boundary from LLM, use all rows but stop at 2 consecutive blank rows
-            data_rows = sheet_df[sheet_df["row_id"] >= h_id]
-            logs.append({"step": f"Table [{target_key}] Target", "message": f"Sheet='{sheet}', row_id>={h_id} (no end boundary), Mapping={json.dumps(col_map)}"})
+            # Fallback: no block metadata, use LLM boundaries
+            first_data_row_id = t_map.get("first_data_row_id", 1)
+            last_data_row_id = t_map.get("last_data_row_id")
+            try:
+                h_id = int(first_data_row_id)
+            except (ValueError, TypeError):
+                h_id = 1
+            try:
+                last_id = int(last_data_row_id) if last_data_row_id is not None else None
+            except (ValueError, TypeError):
+                last_id = None
+            
+            if last_id is not None:
+                data_rows = sheet_df[(sheet_df["row_id"] >= h_id) & (sheet_df["row_id"] <= last_id)]
+            else:
+                data_rows = sheet_df[sheet_df["row_id"] >= h_id]
+            logs.append({"step": f"Table [{target_key}] Target", "message": f"Sheet='{sheet}', LLM fallback row_id=[{h_id}..{last_id}], Mapping={json.dumps(col_map)}"})
+        
+        logger.info(f"[{target_key}] Sheet='{sheet}', data_rows={len(data_rows)}")
         
         extracted_table_rows = []
         
@@ -629,27 +654,13 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                     if val and val.lower() != "nan":
                         row_has_meaningful_data = True
                         
-                        # Apply Reference Data Mapping (Vibe Dictionary)
-                        dict_match = None
-                        if inner_key in ref_data and val in ref_data[inner_key]:
-                            dict_match = ref_data[inner_key][val]
-                        elif target_key in ref_data and val in ref_data[target_key]:  # Nested fallback
-                            dict_match = ref_data[target_key][val]
-                            
-                        modifier_badge = None
-                        if dict_match:
-                            if isinstance(dict_match, dict) and "value" in dict_match:
-                                val = dict_match["value"]
-                                modifier_badge = "Vibe Dictionary (Pending AI)" if dict_match.get("is_verified") is False else "Vibe Dictionary"
-                            else:
-                                val = str(dict_match)
-                                modifier_badge = "Dictionary"
-                            
+                        # #3: NO ref_data normalization here — raw extraction only.
+                        # Normalization happens in common post-processing stage.
+                        
                         # Calculate Virtual BBox
                         bbox = None
                         try:
-                            # excel_col is A, B, C... Find its 0-based index
-                            col_idx = df.columns.tolist().index(excel_col) - 3 # Adjusted for metadata cols
+                            col_idx = df.columns.tolist().index(excel_col) - 3
                             row_idx = int(row["local_row_id"])
                             
                             x1 = col_idx * cell_width
@@ -660,7 +671,6 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                         except Exception:
                             pass
                             
-                        # Wrap cells for validation formatting
                         row_data[inner_key] = {
                             "value": val,
                             "confidence": 0.95,
@@ -668,9 +678,6 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                             "original_value": str(row[excel_col]).strip(),
                             "bbox": bbox
                         }
-                        if modifier_badge:
-                            row_data[inner_key]["_modifier"] = modifier_badge
-                            row_data[inner_key]["_modified_from"] = str(row[excel_col]).strip()
                     else:
                         # Empty but mapped string
                         row_data[inner_key] = {
@@ -691,13 +698,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                     }
             
             if row_has_meaningful_data:
-                # Add source trace for debugging
-                row_data["_source"] = {
-                    "value": f"sheet={sheet}, row_id={int(row['row_id'])}",
-                    "confidence": 1.0,
-                    "validation_status": "valid",
-                    "original_value": "",
-                    "bbox": None
+                # #4: Source trace as _meta bucket (not a sub_field)
+                row_data["_meta"] = {
+                    "sheet_name": sheet,
+                    "sheet_index": sheet_index,
+                    "row_id": int(row["row_id"]),
+                    "local_row_id": int(row["local_row_id"]) if "local_row_id" in row.index else 0
                 }
                 extracted_table_rows.append(row_data)
                 
@@ -730,11 +736,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             "value": extracted_table_rows,
             "confidence": 0.95 if extracted_table_rows else 0.0,
             "validation_status": "valid" if extracted_table_rows else "flagged",
-            "page_number": page_number
+            "page_number": page_number,
+            "_sheet_name": sheet,
+            "_sheet_index": sheet_index
         }
 
-    # 3.3 Phase 2: Markdown Context-based Scalar Extraction for empty common fields
-    TABLE_TYPES = ("table", "list", "array", "object")
+    # ── Markdown Context-based Scalar Extraction for empty common fields ──
     missing_scalar_fields = []
     for f in model.fields:
         if f.type in TABLE_TYPES:
@@ -799,15 +806,15 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     except Exception as e:
         print(f"Post-processing error: {e}")
 
-    # 6. Build Final Payload
+    # 6. Build Final Payload (#2: use accumulated logs, not overwrite)
+    logs.insert(0, {"step": "Mapper Reasoning", "message": reasoning})
+    logs.append({"step": "Python Engine Exec", "message": f"Tables extracted: {len(tables_map)}, Scalars extracted: {len(scalars_mapping)}"})
+    
     final_payload = {
         "raw_extracted": unmodified_raw,
         "guide_extracted": raw_extracted,
         "_token_usage": token_usage,
-        "logs": [
-            {"step": "Mapper Reasoning", "message": reasoning},
-            {"step": "Python Engine Exec", "message": f"Tables extracted: {len(tables_map)}, Scalars extracted: {len(scalars_mapping)}"}
-        ],
+        "logs": logs,
         "_beta_metadata": {
             "parsed_content": f"Python Engine Mode.\n\n[LLM Mapping Reasoning]\n{reasoning}\n\n[Mapped Object Count]\nTables = {len(tables_map)}, Scalars = {len(scalars_mapping)}",
             "ref_map": {}
