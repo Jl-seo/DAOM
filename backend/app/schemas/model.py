@@ -41,23 +41,59 @@ class VibeDictionaryConfig(BaseModel):
     learning_mode: LearningMode = LearningMode.MANUAL
 
 
+class FieldType(str, Enum):
+    """허용된 필드 타입 — free-form string 대신 enum으로 제한"""
+    STRING = "string"
+    NUMBER = "number"
+    BOOLEAN = "boolean"
+    DATE = "date"
+    ARRAY = "array"
+    TABLE = "table"
+    LIST = "list"
+    OBJECT = "object"
+
+
+class InheritanceSource(str, Enum):
+    """field_inheritance 값에 사용하는 표준 소스 경로"""
+    DOCUMENT_CURRENCY = "document.currency"
+    BLOCK_CONTEXT_POL = "block_context.POL"
+    BLOCK_CONTEXT_POD = "block_context.POD"
+    BLOCK_CONTEXT_CURRENCY = "block_context.Currency"
+    SECTION_VALIDITY_START = "section.validity.start_date"
+    SECTION_VALIDITY_END = "section.validity.end_date"
+    SECTION_ORIGIN = "section.origin_port"
+    GROUP_LABEL = "group.label"
+
+
+class SubFieldDefinition(BaseModel):
+    """테이블/리스트 필드의 하위 컬럼 정의"""
+    key: str
+    label: str
+    type: str = "string"
+    description: Optional[str] = None
+    rules: Optional[str] = None
+    dictionary: Optional[str] = None  # semantic category (e.g., "port", "charge", "currency")
+    required: bool = False
+    validation_regex: Optional[str] = None
+
+
 class FieldDefinition(BaseModel):
     key: str
     label: str
     description: Optional[str] = None  # 자연어 정의 (무엇을 추출할지)
     rules: Optional[str] = None  # 출력 보정/형태 정의 (자연어)
-    type: str = "string"
+    type: str = "string"  # FieldType enum 값 사용 권장, 하위호환 위해 str 유지
     is_dex_target: Optional[bool] = False # DEX 바코드 검증 타겟 여부
     dictionary: Optional[str] = None # Field-level dictionary mapping category (e.g., "port", "charge")
     required: bool = False # 필수 항목 추출 여부
     is_pii: bool = False # 개인정보 필드 여부 (마스킹 대상)
     validation_regex: Optional[str] = None # 값 검증 정규식 (e.g., ^[A-Z0-9]+$)
-    sub_fields: Optional[List[Dict[str, Any]]] = None # 하위 컬러 정의 (e.g. [{"key": "pol", "label": "POL", "dictionary": "port"}])
+    sub_fields: Optional[List[Union[SubFieldDefinition, Dict[str, Any]]]] = None  # Union으로 하위호환 유지
     # Row classification rules (table/list fields only)
     include_when: Optional[List[str]] = None  # Row 포함 조건 (자연어 리스트, e.g. ["row has freight amount columns"])
     exclude_when: Optional[List[str]] = None  # Row 제외 조건 (자연어 리스트, e.g. ["row is only a group header"])
     group_row_behavior: Optional[str] = None  # "context_label" | "skip" | "prefix_to_children"
-    field_inheritance: Optional[Dict[str, str]] = None  # Sub-field → source 매핑 (e.g. {"Start_Date": "nearest_validity_section.start"})
+    field_inheritance: Optional[Dict[str, str]] = None  # Sub-field → source 매핑 (InheritanceSource 값 사용 권장)
 
 class ComparisonSettings(BaseModel):
     """비교 설정 (comparison 모델 전용)"""

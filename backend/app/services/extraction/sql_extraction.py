@@ -521,18 +521,33 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         block_id = t.get("block_id")
         block_meta = all_blocks_meta.get(block_id, {})
         
+        # Resolve sub_field definitions from model schema for field-semantic validation
+        sub_field_defs = None
+        for f in model.fields:
+            if f.key == t["field_key"] and getattr(f, 'sub_fields', None):
+                raw_subs = getattr(f, 'sub_fields')
+                sub_field_defs = [
+                    sf if isinstance(sf, dict) else sf.model_dump() if hasattr(sf, 'model_dump') else vars(sf)
+                    for sf in raw_subs if sf
+                ]
+                break
+        
         # Phase C: Validate LLM mapping against actual data patterns
         if block_meta:
             validation_result = validate_column_mapping(
                 df, block_meta["block"], col_map_dict,
                 block_meta["row_classifications"],
-                block_meta["column_profiles"]
+                block_meta["column_profiles"],
+                sub_field_defs=sub_field_defs
             )
             validated_mapping = validation_result["validated_mapping"]
             rejected = validation_result["rejected"]
+            warnings_list = validation_result.get("warnings", [])
             
             if rejected:
                 logs.append({"step": f"Validator [{t['field_key']}]", "message": f"Rejected {len(rejected)} mappings: {json.dumps(rejected, ensure_ascii=False)}"})
+            if warnings_list:
+                logs.append({"step": f"Validator [{t['field_key']}] Warnings", "message": f"{len(warnings_list)} warnings: {json.dumps(warnings_list, ensure_ascii=False)}"})
             
             col_map_dict = validated_mapping
         
