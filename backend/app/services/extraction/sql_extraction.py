@@ -351,8 +351,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     
     sheet_names = df['_sheet_name'].unique().tolist() if '_sheet_name' in df.columns else ['Default']
     
+    global_block_id = 1  # Global counter across sheets to prevent ID collisions
     for sheet_name in sheet_names:
-        blocks = detect_blocks(df, str(sheet_name))
+        blocks = detect_blocks(df, str(sheet_name), start_block_id=global_block_id)
         for block in blocks:
             row_cls = classify_rows(df, block)
             col_profiles = profile_columns(df, block, row_cls)
@@ -369,6 +370,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 "column_profiles": col_profiles,
                 "context": block_ctx
             }
+        global_block_id += len(blocks)  # Advance counter by number of blocks found
     
     logger.info(f"[Phase A] Detected {len(all_block_summaries)} blocks across {len(sheet_names)} sheets")
     logs = [{"step": "Block Detection", "message": f"Detected {len(all_block_summaries)} blocks across {len(sheet_names)} sheets"}]

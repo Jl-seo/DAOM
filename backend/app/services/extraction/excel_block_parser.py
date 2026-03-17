@@ -183,13 +183,17 @@ def _row_signature(vals: list) -> dict:
 # Step 1: Block Detection (V2 — structure-aware)
 # ──────────────────────────────────────────────
 
-def detect_blocks(df: pd.DataFrame, sheet_name: str) -> List[BlockInfo]:
+def detect_blocks(df: pd.DataFrame, sheet_name: str, start_block_id: int = 1) -> List[BlockInfo]:
     """
     Segment a sheet into physical blocks using multiple signals:
     1. 2+ consecutive blank rows (original criterion)
     2. Header signature re-detection (text-dominant row after data rows)
     3. Active column set change (>50% different columns)
     4. Numeric ratio sharp break (>0.5 delta)
+
+    Args:
+        start_block_id: Starting block_id counter (use global counter across sheets
+                        to prevent ID collisions in all_blocks_meta dict).
     """
     sheet_df = df[df["_sheet_name"] == sheet_name].copy() if "_sheet_name" in df.columns else df.copy()
     if sheet_df.empty:
@@ -197,7 +201,7 @@ def detect_blocks(df: pd.DataFrame, sheet_name: str) -> List[BlockInfo]:
 
     data_cols = _get_data_cols(sheet_df)
     blocks: List[BlockInfo] = []
-    block_id = 1
+    block_id = start_block_id
 
     # Pre-compute all row signatures
     row_sigs = []
