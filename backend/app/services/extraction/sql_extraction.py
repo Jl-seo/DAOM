@@ -401,7 +401,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     csv_snippets = []
     if '_sheet_name' in df.columns:
         for sheet_name, group in df.groupby('_sheet_name', sort=False):
-            top_rows = group.head(min(150, len(group))).copy()
+            top_rows = group.head(min(500, len(group))).copy()
             data_cols = top_rows.columns[3:]
             
             # 1. Cast data block to object to prevent numerical coercion errors when dragging text into float columns
@@ -420,7 +420,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             csv_snippet = top_rows.to_csv(index=False)
             csv_snippets.append(f"### Sheet: {sheet_name}\n{csv_snippet}")
     else:
-        top_rows = df.head(min(150, len(df))).copy()
+        top_rows = df.head(min(500, len(df))).copy()
         data_cols = top_rows.columns[3:]
         top_rows[data_cols] = top_rows[data_cols].astype("object")
         top_rows.loc[top_rows.index[:30], data_cols] = top_rows.loc[top_rows.index[:30], data_cols].ffill(axis=1)
@@ -730,6 +730,47 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 
                 extracted_table_rows.append(row_data)
                 
+        # 3.2a Slash-Separated Value Expansion
+        # Auto-expand rows where sub_fields contain "/" separated values
+        # e.g., {POD: "USLAX/USLGB/USOAK"} → 3 rows with POD: USLAX, USLGB, USOAK
+        expanded_rows = []
+        for row_data in extracted_table_rows:
+            # Find sub_fields with slash-separated values
+            slash_fields = {}
+            max_parts = 1
+            for sk, sv in row_data.items():
+                if isinstance(sv, dict):
+                    cell_val = sv.get("value", "")
+                    if isinstance(cell_val, str) and "/" in cell_val:
+                        parts = [p.strip() for p in cell_val.split("/") if p.strip()]
+                        if len(parts) > 1:
+                            slash_fields[sk] = parts
+                            max_parts = max(max_parts, len(parts))
+            
+            if not slash_fields:
+                expanded_rows.append(row_data)
+            else:
+                # Expand: create one row per part
+                for i in range(max_parts):
+                    import copy as _copy
+                    new_row = _copy.deepcopy(row_data)
+                    for sk, parts in slash_fields.items():
+                        if i < len(parts):
+                            new_row[sk]["value"] = parts[i]
+                            new_row[sk]["_modifier"] = "Expanded from delimiter"
+                            new_row[sk]["_modified_from"] = row_data[sk].get("value", "")
+                        else:
+                            # Repeat the last value if parts are shorter
+                            new_row[sk]["value"] = parts[-1]
+                            new_row[sk]["_modifier"] = "Expanded from delimiter"
+                            new_row[sk]["_modified_from"] = row_data[sk].get("value", "")
+                    expanded_rows.append(new_row)
+                logger.info(f"[{target_key}] Expanded 1 row → {max_parts} rows (slash-separated: {list(slash_fields.keys())})")
+        
+        if len(expanded_rows) != len(extracted_table_rows):
+            logger.info(f"[{target_key}] Slash expansion: {len(extracted_table_rows)} → {len(expanded_rows)} rows")
+            extracted_table_rows = expanded_rows
+
         logs.append({"step": f"Table [{target_key}] Exec", "message": f"Extracted {len(extracted_table_rows)} rows out of {len(data_rows)} target data rows."})
         raw_extracted[target_key] = {
             "value": extracted_table_rows,
