@@ -11,54 +11,7 @@ from app.services.llm import get_openai_client, get_current_model
 logger = logging.getLogger(__name__)
 
 
-async def _normalize_headers_via_llm(html_content: str, mapper_llm: str) -> str:
-    """
-    Phase 1.5: Header Normalizer
-    Uses a fast LLM to flatten complex multi-row merged headers into a clean 1D array.
-    """
-    client = get_openai_client()
-    
-    prompt = f"""
-    You are an expert Data Analyst processing Excel data. Below are the top 50 rows of EACH Sheet from an Excel file in HTML table format.
-    The table headers include column letters like `A`, `B`, `C`.
-    This HTML preserves `colspan` and `rowspan` which represent merged cells in Excel.
-    
-    Your goal is to flatten the hierarchical/merged headers into a single logical string for each column letter, FOR EACH SHEET.
-    For example, if Sheet "Data" has a top header "20DC" spanning columns C and D, and sub-headers "Rate" and "Type", 
-    you should output:
-    {{ 
-      "Data": {{ "C": "20DC - Rate", "D": "20DC - Type" }},
-      "Sheet2": {{ "A": "Customer Name" }}
-    }}
-    
-    HTML Content:
-    {html_content}
-    
-    CRITICAL RULES:
-    1. Output ONLY a valid JSON OBJECT where the top-level keys are the EXACT Sheet Names found in the HTML `<h3>` tags.
-    2. The values must be a JSON object mapping the column letters (e.g., "A", "B", "C") to the flattened logical header strings.
-    3. Do NOT output any markdown code blocks (e.g., ```json). Return just the raw JSON object.
-    4. Ignore system columns like `row_id` if they exist. Focus purely on the data columns A, B, C, etc.
-    """
-    try:
-        res = await client.chat.completions.create(
-            model=mapper_llm,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            temperature=0.0,
-            max_tokens=2000
-        )
-        content = res.choices[0].message.content.strip()
-        if content.startswith("```json"):
-            content = content[7:-3].strip()
-        elif content.startswith("```"):
-            content = content[3:-3].strip()
-        return content
-    except Exception as e:
-        logger.error(f"Header Normalizer failed: {e}")
-        return "[]"
-
-async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: ExtractionModel, extractor_llm: str) -> Dict[str, Any]:
+async def _run_schema_mapper(csv_context: str, model: ExtractionModel, extractor_llm: str) -> Dict[str, Any]:
     """
     Phase 1: LLM Schema Mapper & Scalar Extractor
     The LLM inspects the FULL CSV text of the Excel file generated directly from Pandas.
@@ -124,6 +77,7 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
     - If `sub_fields` is missing, you MUST dynamically infer required `sub_field_key` names STRICTLY based on the field's `description` and `rules`. DO NOT blindly map all physical columns in the Excel file merely because they exist. Only define sub_fields that directly answer the field's logical intention.
     - `"header_row_id"`: The exact `row_id` where the actual column headers (titles) are located (e.g., the row containing "POL", "Description", "Amount").
     - `"first_data_row_id"`: The exact `row_id` where the ACTUAL DATA RECORDS begin, which MUST be GREATER THAN the `header_row_id`. Do NOT point this to the header row.
+    - `"last_data_row_id"`: The exact `row_id` of the LAST DATA RECORD for this table. Look for where the data ends — this could be before a blank row, a remark section, a summary/total row, or the next table's header. Do NOT include non-data rows (remarks, notes, subtotals, footers, or headers of another table) in the data range.
     - `"columns_mapping"`: Map EXPECTED TARGET KEYS (`sub_field_key`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). 
       **SUPER CRITICAL SEMANTIC INFERENCE RULE**: 
       1. **Trust the Data Content over the Header Name**: In Excel exports, headers are often misaligned. For example, a rate `1240` might accidentally fall under a `Currency` column. You MUST ignore the header name if the data beneath it fundamentally mismatches what the schema semantically requires.
@@ -131,6 +85,8 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
       3. **Mixed Types are Valid**: A 'text' field or 'string' type can contain numbers, currency symbols, or mixed strings (e.g., "USD 1600", "1240"). Do NOT refuse to map a column just because it contains numbers when the schema type is 'text' or 'string'.
       4. **Allow Missing Columns (Merged Data)**: If the CSV physically lacks an isolated column for a required field (e.g., the schema requires `Currency`, but the currency 'USD' is merged directly inside the rate cells like 'USD 1602'), simply SKIP the `Currency` column and DO NOT map it. Map the combined 'USD 1602' column to the Rate/Amount field instead.
       5. **Extract the Original Header Name**: Always extract the exact original header text into `excel_header_name`, even if it seems wrong or shifted (e.g., if you map the `1240` column to `20DC`, but its header says `Currency`, write `Currency` into `excel_header_name`).
+      6. **DO NOT HALLUCINATE MISSING COLUMNS**: If the Excel data does NOT contain a column that corresponds to a target sub_field_key, DO NOT include it in columns_mapping. It is better to have a missing mapping than a wrong one. Only map columns that ACTUALLY EXIST in the data.
+      7. **Semantic Equivalence Mapping**: Use domain knowledge to match semantically equivalent columns. For example: Excel header 'Origin' can map to schema field 'POL' (Port of Loading). Excel header 'Dest' or 'Destination' can map to 'POD' (Port of Discharge). Map based on meaning, not just exact name match.
     - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column letter ("A", "B") containing the actual VALUE, not the text label. 
       - **IF THE FIELD IS A GENERAL SUMMARY** or does not have a specific coordinate in the grid, output `null` for `sheet_name`, `row_id`, and `col`, and provide your extracted text natively in `exact_value`.
     """
@@ -153,6 +109,7 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
                                 "sheet_name": {"type": "string"},
                                 "header_row_id": {"type": "integer"},
                                 "first_data_row_id": {"type": "integer"},
+                                "last_data_row_id": {"type": "integer"},
                                 "columns_mapping": {
                                     "type": "array",
                                     "items": {
@@ -167,7 +124,7 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
                                     }
                                 }
                             },
-                            "required": ["field_key", "sheet_name", "header_row_id", "first_data_row_id", "columns_mapping"],
+                            "required": ["field_key", "sheet_name", "header_row_id", "first_data_row_id", "last_data_row_id", "columns_mapping"],
                             "additionalProperties": False
                         }
                     },
@@ -219,7 +176,7 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
         return result_json
     except Exception as e:
         logger.error(f"Schema Mapper failed: {e}")
-        return {"scalars": {}, "tables": {}, "reasoning": f"Mapper failed: {e}"}
+        return {"scalars": [], "tables": [], "reasoning": f"Mapper failed: {e}"}
 
 
 async def _run_markdown_scalar_extraction(
@@ -435,14 +392,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         
     unified_context = "\n\n".join(csv_snippets)
     
-    # Bypass legacy LLM header normalizer since Pandas ffill dynamically solves it.
-    normalized_headers_json = "[]"
-    
     # 3. Request Schema Mapping & Scalar Extraction from LLM using our Unified Pandas Context
     mapper_llm = getattr(model, "mapper_llm", None)
     extractor_llm = getattr(model, "extractor_llm", None)
     
-    mapping_plan = await _run_schema_mapper(unified_context, normalized_headers_json, model, extractor_llm)
+    mapping_plan = await _run_schema_mapper(unified_context, model, extractor_llm)
     reasoning = mapping_plan.get("reasoning", "")
     token_usage = mapping_plan.pop("_token_usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
     logger.info(f"Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")
@@ -580,6 +534,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         tables_map[t["field_key"]] = {
             "sheet_name": t.get("sheet_name", "Sheet1"),
             "first_data_row_id": t.get("first_data_row_id", 1),
+            "last_data_row_id": t.get("last_data_row_id"),
             "columns_mapping": col_map_dict
         }
         
@@ -627,9 +582,21 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             h_id = 1
             
         logger.info(f"[{target_key}] Slicing sheet '{sheet}': using `row_id >= {h_id}`")
-        logs.append({"step": f"Table [{target_key}] Target", "message": f"Sheet='{sheet}', Starting row_id={h_id}, Mapping={json.dumps(col_map)}"})
         
-        data_rows = sheet_df[sheet_df["row_id"] >= h_id]
+        # Apply table end boundary (last_data_row_id from LLM)
+        last_data_row_id = t_map.get("last_data_row_id")
+        try:
+            last_id = int(last_data_row_id) if last_data_row_id is not None else None
+        except (ValueError, TypeError):
+            last_id = None
+        
+        if last_id is not None:
+            data_rows = sheet_df[(sheet_df["row_id"] >= h_id) & (sheet_df["row_id"] <= last_id)]
+            logs.append({"step": f"Table [{target_key}] Target", "message": f"Sheet='{sheet}', row_id=[{h_id}..{last_id}], Mapping={json.dumps(col_map)}"})
+        else:
+            # Fallback: no end boundary from LLM, use all rows but stop at 2 consecutive blank rows
+            data_rows = sheet_df[sheet_df["row_id"] >= h_id]
+            logs.append({"step": f"Table [{target_key}] Target", "message": f"Sheet='{sheet}', row_id>={h_id} (no end boundary), Mapping={json.dumps(col_map)}"})
         
         extracted_table_rows = []
         
@@ -733,42 +700,46 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 
                 extracted_table_rows.append(row_data)
                 
-        # 3.2a Slash-Separated Value Expansion
-        # Auto-expand rows where sub_fields contain "/" separated values
-        # e.g., {POD: "USLAX/USLGB/USOAK"} → 3 rows with POD: USLAX, USLGB, USOAK
+        # 3.2a Slash-Separated Value Expansion (Safe)
+        # Only expand geography-type fields. Skip dates, numeric ratios, and terms.
+        import re as _re
+        EXPAND_ALLOWLIST = {"pol", "pod", "por", "pvy", "pvd", "port", "origin", "destination",
+                           "commodity", "service", "port_of_loading", "port_of_discharge"}
+        DATE_PATTERN = _re.compile(r'^\d{1,4}[/\-]\d{1,2}([/\-]\d{1,4})?$')
+        
         expanded_rows = []
         for row_data in extracted_table_rows:
-            # Find sub_fields with slash-separated values
             slash_fields = {}
             max_parts = 1
             for sk, sv in row_data.items():
+                # Only expand fields in the geography allowlist
+                if str(sk).strip().lower() not in EXPAND_ALLOWLIST:
+                    continue
                 if isinstance(sv, dict):
                     cell_val = sv.get("value", "")
                     if isinstance(cell_val, str) and "/" in cell_val:
+                        # Skip date patterns (e.g., 2025/12/1)
+                        if DATE_PATTERN.match(cell_val.strip()):
+                            continue
                         parts = [p.strip() for p in cell_val.split("/") if p.strip()]
-                        if len(parts) > 1:
+                        # Skip if all parts are purely numeric (likely date or ratio)
+                        if len(parts) > 1 and not all(_re.match(r'^[\d\.,\s]+$', p) for p in parts):
                             slash_fields[sk] = parts
                             max_parts = max(max_parts, len(parts))
             
             if not slash_fields:
                 expanded_rows.append(row_data)
             else:
-                # Expand: create one row per part
+                import copy as _copy
                 for i in range(max_parts):
-                    import copy as _copy
                     new_row = _copy.deepcopy(row_data)
                     for sk, parts in slash_fields.items():
-                        if i < len(parts):
-                            new_row[sk]["value"] = parts[i]
-                            new_row[sk]["_modifier"] = "Expanded from delimiter"
-                            new_row[sk]["_modified_from"] = row_data[sk].get("value", "")
-                        else:
-                            # Repeat the last value if parts are shorter
-                            new_row[sk]["value"] = parts[-1]
-                            new_row[sk]["_modifier"] = "Expanded from delimiter"
-                            new_row[sk]["_modified_from"] = row_data[sk].get("value", "")
+                        idx = min(i, len(parts) - 1)
+                        new_row[sk]["value"] = parts[idx]
+                        new_row[sk]["_modifier"] = "Expanded from delimiter"
+                        new_row[sk]["_modified_from"] = row_data[sk].get("value", "")
                     expanded_rows.append(new_row)
-                logger.info(f"[{target_key}] Expanded 1 row → {max_parts} rows (slash-separated: {list(slash_fields.keys())})")
+                logger.info(f"[{target_key}] Expanded 1 row → {max_parts} rows (fields: {list(slash_fields.keys())})")
         
         if len(expanded_rows) != len(extracted_table_rows):
             logger.info(f"[{target_key}] Slash expansion: {len(extracted_table_rows)} → {len(expanded_rows)} rows")
@@ -782,69 +753,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             "page_number": page_number
         }
 
-    # 3.2b Unmapped Table Field Fallback
-    # When Excel has one physical table but the model has multiple table fields,
-    # the LLM maps only one. Clone extracted data to unmapped table fields with matching sub_fields.
-    TABLE_TYPES = ("table", "list", "array", "object")
-    mapped_table_keys = set(tables_map.keys())
-    
-    # Find table fields that weren't mapped by the LLM
-    unmapped_table_fields = []
-    for f in model.fields:
-        if f.type in TABLE_TYPES and f.key not in mapped_table_keys:
-            unmapped_table_fields.append(f)
-    
-    if unmapped_table_fields and mapped_table_keys:
-        # Build sub_field key sets for each mapped table (from model schema)
-        mapped_sub_keys = {}
-        for f in model.fields:
-            if f.key in mapped_table_keys and getattr(f, 'sub_fields', None):
-                raw_subs = getattr(f, 'sub_fields')
-                mapped_sub_keys[f.key] = set(
-                    (sf.get('key') if isinstance(sf, dict) else getattr(sf, 'key', '')).strip().lower()
-                    for sf in raw_subs if sf
-                )
-        
-        for unmapped_f in unmapped_table_fields:
-            unmapped_subs = set()
-            if getattr(unmapped_f, 'sub_fields', None):
-                raw_subs = getattr(unmapped_f, 'sub_fields')
-                unmapped_subs = set(
-                    (sf.get('key') if isinstance(sf, dict) else getattr(sf, 'key', '')).strip().lower()
-                    for sf in raw_subs if sf
-                )
-            
-            if not unmapped_subs:
-                continue
-            
-            # Find a mapped table with matching sub_fields (>= 50% overlap)
-            best_match = None
-            best_overlap = 0
-            for mk, msubs in mapped_sub_keys.items():
-                if msubs:
-                    overlap = len(unmapped_subs & msubs) / max(1, len(unmapped_subs))
-                    if overlap > best_overlap:
-                        best_overlap = overlap
-                        best_match = mk
-            
-            if best_match and best_overlap >= 0.5:
-                # Check if the mapped table actually has extracted data
-                source_data = raw_extracted.get(best_match, {})
-                source_rows = source_data.get("value", [])
-                if source_rows and isinstance(source_rows, list):
-                    import copy as _copy2
-                    cloned_rows = _copy2.deepcopy(source_rows)
-                    raw_extracted[unmapped_f.key] = {
-                        "value": cloned_rows,
-                        "confidence": 0.85,
-                        "validation_status": "valid",
-                        "page_number": source_data.get("page_number", 1),
-                        "_modifier": f"Cloned from {best_match} (same table structure)"
-                    }
-                    logger.info(f"[Fallback] Cloned {len(cloned_rows)} rows from '{best_match}' → '{unmapped_f.key}' (overlap: {best_overlap:.0%})")
-                    logs.append({"step": f"Table [{unmapped_f.key}] Fallback", "message": f"Cloned {len(cloned_rows)} rows from '{best_match}' (sub_field overlap: {best_overlap:.0%})"})
-
     # 3.3 Phase 2: Markdown Context-based Scalar Extraction for empty common fields
+    TABLE_TYPES = ("table", "list", "array", "object")
     missing_scalar_fields = []
     for f in model.fields:
         if f.type in TABLE_TYPES:
