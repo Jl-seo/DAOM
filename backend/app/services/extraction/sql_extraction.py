@@ -35,7 +35,12 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
     for f in model.fields:
         entry = {"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules}
         if f.type in TABLE_TYPES:
-            entry["sub_fields"] = f.sub_fields
+            # Ensure sub_fields are plain dicts for JSON serialization
+            raw_subs = f.sub_fields or []
+            entry["sub_fields"] = [
+                sf.model_dump() if hasattr(sf, 'model_dump') else (sf if isinstance(sf, dict) else vars(sf))
+                for sf in raw_subs
+            ]
         fields_context.append(entry)
     
     prompt = f"""
