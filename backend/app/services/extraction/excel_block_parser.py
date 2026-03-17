@@ -74,8 +74,14 @@ CONTEXT_KEYWORDS = {'effective', 'expiry', 'validity', 'currency', 'carrier', 's
 # Group label keywords
 GROUP_KEYWORDS = {'ipi', 'local', 'mlb', 'inland', 'transit', 'direct', 'transship'}
 
-PORT_LIKE_FIELDS = frozenset({"pol", "pod", "por", "pvy", "pvd", "port", "origin", "destination",
-                               "port_of_loading", "port_of_discharge", "hub_port", "commodity"})
+# PORT_LIKE_FIELDS: fields that contain port CODES (5-letter UN/LOCODE).
+# NOTE: "destination" is NOT here — it contains city names (e.g., "CHICAGO,IL"), not port codes.
+PORT_LIKE_FIELDS = frozenset({"pol", "pod", "por", "pvy", "pvd", "port", "origin",
+                               "port_of_loading", "port_of_discharge", "hub_port"})
+
+# GEOGRAPHY_TEXT_FIELDS: fields that contain geographic names (cities/regions), not codes.
+# These are expandable by delimiter (slash/comma) but are NOT validated as port codes.
+GEOGRAPHY_TEXT_FIELDS = frozenset({"destination", "commodity"})
 
 
 def is_port_like(val: str) -> bool:
@@ -551,7 +557,9 @@ def should_expand_value(field_key: str, value: str) -> bool:
     Determine if a cell value should be expanded into multiple rows.
     Only geography-type fields with multi-code patterns are expandable.
     """
-    if field_key.strip().lower() not in PORT_LIKE_FIELDS:
+    # Expandable fields: port codes AND geography text (destination, commodity)
+    expandable = PORT_LIKE_FIELDS | GEOGRAPHY_TEXT_FIELDS
+    if field_key.strip().lower() not in expandable:
         return False
     
     val = str(value).strip()

@@ -61,7 +61,8 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
     - Use header_candidates to match column letters to field names.
     - If a block has detected_context (e.g., POL, Currency), those values are already extracted by Python.
     - DO NOT hallucinate columns. Only map columns that appear in header_candidates or column_profiles.
-    - Semantic equivalence is encouraged: "Origin" → POL, "Destination" → POD, etc.
+    - Semantic equivalence is encouraged: "Origin" → POL, etc.
+    - IMPORTANT: POD (Port of Discharge, e.g. USLAX) and Destination (final delivery city, e.g. CHICAGO,IL) are DIFFERENT fields. Do NOT conflate them. POD contains port codes, Destination contains city names.
     - For row boundaries, use the block's row_range. Python has already classified header vs data rows.
     - For scalars, provide the value if available in detected_context. Otherwise use null.
     """
