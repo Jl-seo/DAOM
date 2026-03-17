@@ -127,6 +127,59 @@ class BetaPipeline(ExtractionPipeline):
             if injected:
                 logger.info(f"[BetaPipeline] Mapping Designer injected: {', '.join(injected)}")
         
+        # --- 2.5 Schema-First Table Fields Enforcement ---
+        # Designer is a *hint provider*, Schema is the *source of truth*.
+        # If model.fields defines table fields that the Designer omitted from
+        # work_order.table_fields, we inject them here from the fallback builder.
+        # This prevents silent drops when a Designer LLM decides to skip some fields.
+        TABLE_FIELD_TYPES = ('list', 'table', 'array')
+        existing_table_keys = {tf.get("key") for tf in wo_target.get("table_fields", [])}
+        existing_common_keys = {cf.get("key") for cf in wo_target.get("common_fields", [])}
+        
+        injected_table_keys = []
+        injected_common_keys = []
+        for f in model.fields:
+            if f.type in TABLE_FIELD_TYPES or bool(getattr(f, 'sub_fields', None)):
+                if f.key not in existing_table_keys:
+                    # Build a minimal table_field entry from model schema
+                    entry = {
+                        "key": f.key,
+                        "instruction": f"Extract '{f.label}' from the document.",
+                        "expected_format": f.type,
+                        "columns": {},
+                        "rules": ["Extract ALL rows."]
+                    }
+                    if f.description:
+                        entry["instruction"] += f" Description: {f.description}"
+                    for sf in (getattr(f, 'sub_fields', None) or []):
+                        sf_key = sf.get("key") if isinstance(sf, dict) else getattr(sf, "key", None)
+                        sf_label = (sf.get("label") if isinstance(sf, dict) else getattr(sf, "label", None)) or sf_key
+                        if sf_key:
+                            col_dict = {"instruction": f"Extract '{sf_label}'."}
+                            sf_desc = sf.get("description") if isinstance(sf, dict) else getattr(sf, "description", None)
+                            if sf_desc:
+                                col_dict["instruction"] += f" Description: {sf_desc}"
+                            entry["columns"][sf_key] = col_dict
+                    wo_target.setdefault("table_fields", []).append(entry)
+                    injected_table_keys.append(f.key)
+            else:
+                if f.key not in existing_common_keys and f.key not in existing_table_keys:
+                    entry = {
+                        "key": f.key,
+                        "instruction": f"Extract '{f.label}' from the document.",
+                        "expected_format": f.type,
+                        "rules": []
+                    }
+                    if f.description:
+                        entry["instruction"] += f" Description: {f.description}"
+                    wo_target.setdefault("common_fields", []).append(entry)
+                    injected_common_keys.append(f.key)
+        
+        if injected_table_keys or injected_common_keys:
+            logger.info(f"[BetaPipeline] Schema-first enforcement: injected {len(injected_table_keys)} "
+                        f"table fields ({', '.join(injected_table_keys)}), "
+                        f"{len(injected_common_keys)} common fields ({', '.join(injected_common_keys)})")
+        
         # --- 2.6 Schema Rule Injection (DETERMINISTIC — no LLM interpretation) ---
         # Directly inject include_when/exclude_when/group_row_behavior/field_inheritance
         # from model schema into work_order table_fields. Schema rules have absolute precedence.

@@ -567,11 +567,88 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             "block_context": block_meta.get("context", {})
         }
         
-    # #10: Log unmapped table fields
+    # #10: Unmapped table fields — Python header-matching fallback
+    # If LLM mapper didn't map a table field, try to find the best block
+    # by matching sub_field keys against block header_candidates.
+    # This ensures all model-defined table fields get an extraction attempt.
     mapped_field_keys = set(tables_map.keys())
     for f in model.fields:
-        if f.type in TABLE_TYPES and f.key not in mapped_field_keys:
-            logs.append({"step": f"Unmapped [{f.key}]", "message": f"Table field '{f.key}' was not mapped to any block by LLM."})
+        if f.type not in TABLE_TYPES or f.key in mapped_field_keys:
+            continue
+        
+        # Get sub_field keys for this unmapped table field
+        sub_field_keys = set()
+        raw_subs = getattr(f, 'sub_fields', None) or []
+        for sf in raw_subs:
+            sf_key = sf.get("key") if isinstance(sf, dict) else getattr(sf, "key", None)
+            if sf_key:
+                sub_field_keys.add(sf_key.lower())
+        
+        if not sub_field_keys:
+            logs.append({"step": f"Unmapped [{f.key}]", "message": f"No sub_fields defined, cannot auto-map."})
+            continue
+        
+        # Score each block by header match
+        best_block_id = None
+        best_score = 0
+        best_col_map = {}
+        
+        for summary in all_block_summaries:
+            block_id = summary.get("block_id")
+            headers = summary.get("header_candidates", {})
+            if not headers:
+                continue
+            
+            # Match headers to sub_field keys (case-insensitive)
+            col_map = {}
+            for col_letter, header_text in headers.items():
+                header_lower = str(header_text).strip().lower()
+                # Direct key match
+                if header_lower in sub_field_keys:
+                    col_map[header_lower] = col_letter
+                else:
+                    # Try matching with underscores removed / spaces normalized
+                    header_normalized = header_lower.replace(" ", "_").replace("-", "_")
+                    for sk in sub_field_keys:
+                        if sk == header_normalized or sk.replace("_", "") == header_normalized.replace("_", ""):
+                            col_map[sk] = col_letter
+                            break
+            
+            score = len(col_map) / max(1, len(sub_field_keys))
+            if score > best_score:
+                best_score = score
+                best_block_id = block_id
+                best_col_map = col_map
+        
+        # Threshold: at least 30% of sub_fields matched
+        if best_block_id is not None and best_score >= 0.3:
+            block_meta = all_blocks_meta.get(best_block_id, {})
+            
+            # Run validator on the auto-mapped columns
+            sub_field_defs = [
+                sf if isinstance(sf, dict) else sf.model_dump() if hasattr(sf, 'model_dump') else vars(sf)
+                for sf in raw_subs if sf
+            ]
+            if block_meta:
+                validation_result = validate_column_mapping(
+                    df, block_meta["block"], best_col_map,
+                    block_meta["row_classifications"],
+                    block_meta["column_profiles"],
+                    sub_field_defs=sub_field_defs
+                )
+                best_col_map = validation_result["validated_mapping"]
+            
+            tables_map[f.key] = {
+                "sheet_name": all_block_summaries[[s["block_id"] for s in all_block_summaries].index(best_block_id)].get("sheet", "Sheet1"),
+                "first_data_row_id": None,
+                "last_data_row_id": None,
+                "columns_mapping": best_col_map,
+                "block_id": best_block_id,
+                "block_context": block_meta.get("context", {})
+            }
+            logs.append({"step": f"Fallback [{f.key}]", "message": f"Auto-mapped to block {best_block_id} (score={best_score:.0%}, cols={list(best_col_map.keys())})"})
+        else:
+            logs.append({"step": f"Unmapped [{f.key}]", "message": f"No block matched (best_score={best_score:.0%}). Table field '{f.key}' will be empty."})
     
     for target_key, t_map in tables_map.items():
         sheet = t_map.get("sheet_name", "")
