@@ -88,12 +88,23 @@ class FieldDefinition(BaseModel):
     required: bool = False # 필수 항목 추출 여부
     is_pii: bool = False # 개인정보 필드 여부 (마스킹 대상)
     validation_regex: Optional[str] = None # 값 검증 정규식 (e.g., ^[A-Z0-9]+$)
-    sub_fields: Optional[List[Union[SubFieldDefinition, Dict[str, Any]]]] = None  # Union으로 하위호환 유지
+    sub_fields: Optional[List[Dict[str, Any]]] = None  # 항상 plain dict로 저장 (JSON 직렬화 안전)
     # Row classification rules (table/list fields only)
     include_when: Optional[List[str]] = None  # Row 포함 조건 (자연어 리스트, e.g. ["row has freight amount columns"])
     exclude_when: Optional[List[str]] = None  # Row 제외 조건 (자연어 리스트, e.g. ["row is only a group header"])
     group_row_behavior: Optional[str] = None  # "context_label" | "skip" | "prefix_to_children"
     field_inheritance: Optional[Dict[str, str]] = None  # Sub-field → source 매핑 (InheritanceSource 값 사용 권장)
+
+    @classmethod
+    def model_validate(cls, obj: Any, **kwargs: Any) -> "FieldDefinition":
+        """Ensure sub_fields are always plain dicts, never Pydantic model instances."""
+        if isinstance(obj, dict) and obj.get("sub_fields"):
+            obj = dict(obj)  # shallow copy
+            obj["sub_fields"] = [
+                sf.model_dump() if hasattr(sf, 'model_dump') else (sf if isinstance(sf, dict) else vars(sf))
+                for sf in obj["sub_fields"] if sf
+            ]
+        return super().model_validate(obj, **kwargs)
 
 class ComparisonSettings(BaseModel):
     """비교 설정 (comparison 모델 전용)"""
