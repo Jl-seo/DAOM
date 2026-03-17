@@ -86,9 +86,9 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
         if current_sheet_lines:
             sheets_data.append(current_sheet_lines)
             
-        MAX_TOTAL_LINES = 500
+        MAX_TOTAL_LINES = 2000
         num_sheets = len(sheets_data)
-        lines_per_sheet = max(50, min(150, MAX_TOTAL_LINES // max(1, num_sheets)))
+        lines_per_sheet = max(100, min(500, MAX_TOTAL_LINES // max(1, num_sheets)))
         
         truncated_csv = []
         for sheet_lines in sheets_data:
@@ -203,7 +203,7 @@ async def _run_schema_mapper(csv_context: str, normalized_headers: str, model: E
             model=deployment,
             messages=[{"role": "user", "content": prompt}],
             response_format=response_schema,
-            temperature=model.temperature
+            temperature=0.0  # Schema mapper must be deterministic for consistent results
         )
         content = res.choices[0].message.content
         result_json = json.loads(content)
