@@ -137,9 +137,8 @@ function flattenNestedRows(data: any[]): { flattenedData: any[], keyColumn: stri
         if (typeof row !== 'object' || row === null) return
         try {
             Object.entries(row).forEach(([key, rawValue]) => {
-                // Skip metadata columns
-                if (key === 'bbox' || key === 'confidence' || key === 'page_number') {
-                    simpleColumns.add(key)
+                // Skip metadata columns and internal _ prefixed keys
+                if (key === 'bbox' || key === 'confidence' || key === 'page_number' || key.startsWith('_')) {
                     return
                 }
 
@@ -310,7 +309,7 @@ function ResizableNestedTable({
     // Hide bbox/ref metadata columns (confidence is intentionally kept visible)
     const hiddenColumns = ['bbox', 'page_number', 'ref_id', 'source_text', 'validation_status', 'ref']
     const allKeys = useMemo(() => allKeysRaw
-        .filter((k: string) => !hiddenColumns.includes(k))
+        .filter((k: string) => !hiddenColumns.includes(k) && !k.startsWith('_'))
         .sort((a: string, b: string) => {
             if (a === keyColumn) return -1
             if (b === keyColumn) return 1
