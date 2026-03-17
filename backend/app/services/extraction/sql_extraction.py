@@ -11,90 +11,65 @@ from app.services.llm import get_openai_client, get_current_model
 logger = logging.getLogger(__name__)
 
 
-async def _run_schema_mapper(csv_context: str, model: ExtractionModel, extractor_llm: str) -> Dict[str, Any]:
+async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extractor_llm: str) -> Dict[str, Any]:
     """
-    Phase 1: LLM Schema Mapper & Scalar Extractor
-    The LLM inspects the FULL CSV text of the Excel file generated directly from Pandas.
-    It extracts Scalar values directly, and outputs Mapping JSON for Tables using absolute indices.
+    Phase B: LLM Semantic Mapper (reduced role).
+    
+    ARCHITECTURE: LLM receives pre-analyzed block summaries (NOT raw CSV data).
+    Python has already:
+      - Detected physical blocks (blank-row segmentation)
+      - Classified rows (header/data/group/context/remark)
+      - Profiled columns (type_hint: port_code/money/date/text)
+      - Extracted context (POL, Currency, dates from metadata rows)
+    
+    LLM only needs to:
+      1. Match each block to a logical table field from the schema
+      2. Suggest column-to-sub_field mappings (as CANDIDATES, validated by Python)
+      3. Extract scalar values from metadata context
     """
     client = get_openai_client()
     deployment = extractor_llm or get_current_model()
     
-    fields_context = [{"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules, "sub_fields": f.sub_fields} for f in model.fields]
-    
-    # Smart Truncation: Preserve the first N rows of *every* sheet found in the CSV
-    lines = csv_context.split("\n")
-    if len(lines) > 200:
-        sheets_data = []
-        current_sheet_lines = []
-        
-        for line in lines:
-            if line.startswith("### Sheet:"):
-                if current_sheet_lines:
-                    sheets_data.append(current_sheet_lines)
-                current_sheet_lines = [line]
-            else:
-                if current_sheet_lines is not None:
-                    current_sheet_lines.append(line)
-        if current_sheet_lines:
-            sheets_data.append(current_sheet_lines)
-            
-        MAX_TOTAL_LINES = 2000
-        num_sheets = len(sheets_data)
-        lines_per_sheet = max(100, min(500, MAX_TOTAL_LINES // max(1, num_sheets)))
-        
-        truncated_csv = []
-        for sheet_lines in sheets_data:
-            truncated_csv.extend(sheet_lines[:lines_per_sheet])
-            if len(sheet_lines) > lines_per_sheet:
-                truncated_csv.append(f"... [TRUNCATED - {len(sheet_lines) - lines_per_sheet} MORE ROWS HIDDEN]")
-                
-        csv_text = "\n".join(truncated_csv)
-    else:
-        csv_text = csv_context
+    TABLE_TYPES = ("table", "list", "array", "object")
+    fields_context = []
+    for f in model.fields:
+        entry = {"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules}
+        if f.type in TABLE_TYPES:
+            entry["sub_fields"] = f.sub_fields
+        fields_context.append(entry)
     
     prompt = f"""
-    You are an expert Data Extractor interpreting Excel files. You are given a sample of the Excel content as a CSV (first N rows).
-    The table contains columns: `row_id` (global row number), and `A`, `B`, `C`, `D`... (representing Excel columns).
+    You are an expert Data Extractor. You are given PRE-ANALYZED block summaries from an Excel file.
+    Python has already segmented the sheet into blocks, classified rows, and profiled column data types.
     
-    CRITICAL ARCHITECTURE: The data you see has ALREADY been visually "flatened" and merged headers have been Forward-Filled (ffilled) by Python.
-    This means if a cell was previously blank because it was merged, it now explicitly contains the header value.
+    Your job is ONLY to provide semantic interpretation — match blocks to schema fields and suggest column mappings.
+    Your suggestions will be VALIDATED by a Python validator, so provide your best guess.
     
-    Data Content (CSV Format):
-    {csv_text}
+    PRE-ANALYZED BLOCK SUMMARIES:
+    {json.dumps(block_summaries, ensure_ascii=False, indent=2)}
     
-    Target Extraction Schema & Business Rules:
+    TARGET EXTRACTION SCHEMA:
     {json.dumps(fields_context, ensure_ascii=False, indent=2)}
     
     YOUR TASKS:
-    1. Identify tables and scalars based on the Target Schema.
-    2. Find the REAL headers for the table(s) in the Excel grid to map the columns properly.
-    3. Output a precise Mapping JSON.
+    1. For each "table" type block, determine which schema field_key it corresponds to.
+    2. Suggest column_mapping: sub_field_key → excel_column_letter based on header_candidates and column_profiles.
+    3. For scalar fields, extract values from detected_context or data patterns.
     
-    CRITICAL INSTRUCTIONS:
-    - Return ONLY valid JSON matching the exact schema provided.
-    - If `sub_fields` exists for a table field, you MUST map each `sub_field_key` to its corresponding `excel_column` LETTER (e.g., "A", "C", "F").
-    - If `sub_fields` is missing, you MUST dynamically infer required `sub_field_key` names STRICTLY based on the field's `description` and `rules`. DO NOT blindly map all physical columns in the Excel file merely because they exist. Only define sub_fields that directly answer the field's logical intention.
-    - `"header_row_id"`: The exact `row_id` where the actual column headers (titles) are located (e.g., the row containing "POL", "Description", "Amount").
-    - `"first_data_row_id"`: The exact `row_id` where the ACTUAL DATA RECORDS begin, which MUST be GREATER THAN the `header_row_id`. Do NOT point this to the header row.
-    - `"last_data_row_id"`: The exact `row_id` of the LAST DATA RECORD for this table. Look for where the data ends — this could be before a blank row, a remark section, a summary/total row, or the next table's header. Do NOT include non-data rows (remarks, notes, subtotals, footers, or headers of another table) in the data range.
-    - `"columns_mapping"`: Map EXPECTED TARGET KEYS (`sub_field_key`) to EXCEL COLUMN LETTERS ("A", "B", "C"...). 
-      **SUPER CRITICAL SEMANTIC INFERENCE RULE**: 
-      1. **Trust the Data Content over the Header Name**: In Excel exports, headers are often misaligned. For example, a rate `1240` might accidentally fall under a `Currency` column. You MUST ignore the header name if the data beneath it fundamentally mismatches what the schema semantically requires.
-      2. **Semantic Matching**: Look at the actual data records to find the column that logically contains the information requested by the field's `description` or `label`.
-      3. **Mixed Types are Valid**: A 'text' field or 'string' type can contain numbers, currency symbols, or mixed strings (e.g., "USD 1600", "1240"). Do NOT refuse to map a column just because it contains numbers when the schema type is 'text' or 'string'.
-      4. **Allow Missing Columns (Merged Data)**: If the CSV physically lacks an isolated column for a required field (e.g., the schema requires `Currency`, but the currency 'USD' is merged directly inside the rate cells like 'USD 1602'), simply SKIP the `Currency` column and DO NOT map it. Map the combined 'USD 1602' column to the Rate/Amount field instead.
-      5. **Extract the Original Header Name**: Always extract the exact original header text into `excel_header_name`, even if it seems wrong or shifted (e.g., if you map the `1240` column to `20DC`, but its header says `Currency`, write `Currency` into `excel_header_name`).
-      6. **DO NOT HALLUCINATE MISSING COLUMNS**: If the Excel data does NOT contain a column that corresponds to a target sub_field_key, DO NOT include it in columns_mapping. It is better to have a missing mapping than a wrong one. Only map columns that ACTUALLY EXIST in the data.
-      7. **Semantic Equivalence Mapping**: Use domain knowledge to match semantically equivalent columns. For example: Excel header 'Origin' can map to schema field 'POL' (Port of Loading). Excel header 'Dest' or 'Destination' can map to 'POD' (Port of Discharge). Map based on meaning, not just exact name match.
-    - **SCALARS VALUE COORDINATE**: For scalars, the `"col"` MUST point to the column letter ("A", "B") containing the actual VALUE, not the text label. 
-      - **IF THE FIELD IS A GENERAL SUMMARY** or does not have a specific coordinate in the grid, output `null` for `sheet_name`, `row_id`, and `col`, and provide your extracted text natively in `exact_value`.
+    CRITICAL RULES:
+    - Use column_profiles type_hints to guide mapping. A column with type_hint "money" is likely a rate.
+    - Use header_candidates to match column letters to field names.
+    - If a block has detected_context (e.g., POL, Currency), those values are already extracted by Python.
+    - DO NOT hallucinate columns. Only map columns that appear in header_candidates or column_profiles.
+    - Semantic equivalence is encouraged: "Origin" → POL, "Destination" → POD, etc.
+    - For row boundaries, use the block's row_range. Python has already classified header vs data rows.
+    - For scalars, provide the value if available in detected_context. Otherwise use null.
     """
     
     response_schema = {
         "type": "json_schema",
         "json_schema": {
-            "name": "excel_mapping",
+            "name": "block_mapping",
             "strict": True,
             "schema": {
                 "type": "object",
@@ -106,6 +81,7 @@ async def _run_schema_mapper(csv_context: str, model: ExtractionModel, extractor
                             "type": "object",
                             "properties": {
                                 "field_key": {"type": "string"},
+                                "block_id": {"type": "integer"},
                                 "sheet_name": {"type": "string"},
                                 "header_row_id": {"type": "integer"},
                                 "first_data_row_id": {"type": "integer"},
@@ -124,7 +100,7 @@ async def _run_schema_mapper(csv_context: str, model: ExtractionModel, extractor
                                     }
                                 }
                             },
-                            "required": ["field_key", "sheet_name", "header_row_id", "first_data_row_id", "last_data_row_id", "columns_mapping"],
+                            "required": ["field_key", "block_id", "sheet_name", "header_row_id", "first_data_row_id", "last_data_row_id", "columns_mapping"],
                             "additionalProperties": False
                         }
                     },
@@ -356,50 +332,48 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         logger.error(f"Failed to load Excel with pandas: {e}")
         raise ValueError(f"지원하지 않거나 손상된 엑셀 구조입니다. 파일 로딩 실패: {e}")
 
-    # 2. Build Single Source of Truth Context from Pandas
-    # We forward-fill (ffill) horizontally and vertically to resolve merged headers.
-    csv_snippets = []
-    if '_sheet_name' in df.columns:
-        for sheet_name, group in df.groupby('_sheet_name', sort=False):
-            top_rows = group.head(min(500, len(group))).copy()
-            data_cols = top_rows.columns[3:]
-            
-            # 1. Cast data block to object to prevent numerical coercion errors when dragging text into float columns
-            top_rows[data_cols] = top_rows[data_cols].astype("object")
-            
-            # 2. Forward Fill horizontally for top 30 rows (assumed header region)
-            top_rows.loc[top_rows.index[:30], data_cols] = top_rows.loc[top_rows.index[:30], data_cols].ffill(axis=1)
-            # 3. Forward Fill vertically for top 10 rows
-            top_rows.loc[top_rows.index[:10], data_cols] = top_rows.loc[top_rows.index[:10], data_cols].ffill(axis=0)
-            
-            if '_sheet_name' in top_rows.columns:
-                top_rows = top_rows.drop(columns=['_sheet_name'])
-            if 'local_row_id' in top_rows.columns:
-                top_rows = top_rows.drop(columns=['local_row_id'])
-                
-            csv_snippet = top_rows.to_csv(index=False)
-            csv_snippets.append(f"### Sheet: {sheet_name}\n{csv_snippet}")
-    else:
-        top_rows = df.head(min(500, len(df))).copy()
-        data_cols = top_rows.columns[3:]
-        top_rows[data_cols] = top_rows[data_cols].astype("object")
-        top_rows.loc[top_rows.index[:30], data_cols] = top_rows.loc[top_rows.index[:30], data_cols].ffill(axis=1)
-        top_rows.loc[top_rows.index[:10], data_cols] = top_rows.loc[top_rows.index[:10], data_cols].ffill(axis=0)
-        if 'local_row_id' in top_rows.columns:
-            top_rows = top_rows.drop(columns=['local_row_id'])
-        csv_snippet = top_rows.to_csv(index=False)
-        csv_snippets.append(f"### Sheet: Default\n{csv_snippet}")
-        
-    unified_context = "\n\n".join(csv_snippets)
+    # ── Phase A: Python Grid Parser ──────────────────────────────────────
+    from app.services.extraction.excel_block_parser import (
+        detect_blocks, classify_rows, profile_columns,
+        extract_block_context, validate_column_mapping,
+        field_aware_expand, build_block_summary
+    )
+    from dataclasses import asdict
     
-    # 3. Request Schema Mapping & Scalar Extraction from LLM using our Unified Pandas Context
-    mapper_llm = getattr(model, "mapper_llm", None)
+    all_block_summaries = []
+    all_blocks_meta = {}  # block_id → {block, row_classifications, column_profiles, context}
+    
+    sheet_names = df['_sheet_name'].unique().tolist() if '_sheet_name' in df.columns else ['Default']
+    
+    for sheet_name in sheet_names:
+        blocks = detect_blocks(df, str(sheet_name))
+        for block in blocks:
+            row_cls = classify_rows(df, block)
+            col_profiles = profile_columns(df, block, row_cls)
+            block_ctx = extract_block_context(df, block, row_cls)
+            
+            # Build summary for LLM
+            summary = build_block_summary(block, row_cls, col_profiles, block_ctx, df)
+            all_block_summaries.append(summary)
+            
+            # Store metadata for later extraction
+            all_blocks_meta[block.block_id] = {
+                "block": block,
+                "row_classifications": row_cls,
+                "column_profiles": col_profiles,
+                "context": block_ctx
+            }
+    
+    logger.info(f"[Phase A] Detected {len(all_block_summaries)} blocks across {len(sheet_names)} sheets")
+    logs = [{"step": "Block Detection", "message": f"Detected {len(all_block_summaries)} blocks across {len(sheet_names)} sheets"}]
+    
+    # ── Phase B: LLM Semantic Mapper (reduced role) ──────────────────────
     extractor_llm = getattr(model, "extractor_llm", None)
     
-    mapping_plan = await _run_schema_mapper(unified_context, model, extractor_llm)
+    mapping_plan = await _run_block_mapper(all_block_summaries, model, extractor_llm)
     reasoning = mapping_plan.get("reasoning", "")
     token_usage = mapping_plan.pop("_token_usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
-    logger.info(f"Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")
+    logger.info(f"Block Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")
     
     # 3. Pure Python Extraction Engine
     raw_extracted = {}
@@ -518,7 +492,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         else:
             logger.debug(f"Skipping empty scalar {target_key}")
 
-    # 3.2 Pandas Handoff: Map Tables using Bridge Rules
+    # ── Phase C: Python Validator + Table Map Construction ─────────────
     raw_tables = mapping_plan.get("tables", [])
     if not isinstance(raw_tables, list):
         logger.warning(f"LLM returned invalid tables schema type: {type(raw_tables)}. Defaulting to empty list.")
@@ -531,11 +505,31 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         col_map_array = t.get("columns_mapping", [])
         col_map_dict = {c["sub_field_key"]: c["excel_column"] for c in col_map_array if "sub_field_key" in c and "excel_column" in c} if isinstance(col_map_array, list) else {}
         
+        block_id = t.get("block_id")
+        block_meta = all_blocks_meta.get(block_id, {})
+        
+        # Phase C: Validate LLM mapping against actual data patterns
+        if block_meta:
+            validation_result = validate_column_mapping(
+                df, block_meta["block"], col_map_dict,
+                block_meta["row_classifications"],
+                block_meta["column_profiles"]
+            )
+            validated_mapping = validation_result["validated_mapping"]
+            rejected = validation_result["rejected"]
+            
+            if rejected:
+                logs.append({"step": f"Validator [{t['field_key']}]", "message": f"Rejected {len(rejected)} mappings: {json.dumps(rejected, ensure_ascii=False)}"})
+            
+            col_map_dict = validated_mapping
+        
         tables_map[t["field_key"]] = {
             "sheet_name": t.get("sheet_name", "Sheet1"),
             "first_data_row_id": t.get("first_data_row_id", 1),
             "last_data_row_id": t.get("last_data_row_id"),
-            "columns_mapping": col_map_dict
+            "columns_mapping": col_map_dict,
+            "block_id": block_id,
+            "block_context": block_meta.get("context", {})
         }
         
     for target_key, t_map in tables_map.items():
@@ -696,54 +690,39 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                     }
             
             if row_has_meaningful_data:
-                pass
-                
+                # Add source trace for debugging
+                row_data["_source"] = {
+                    "value": f"sheet={sheet}, row_id={int(row['row_id'])}",
+                    "confidence": 1.0,
+                    "validation_status": "valid",
+                    "original_value": "",
+                    "bbox": None
+                }
                 extracted_table_rows.append(row_data)
                 
-        # 3.2a Slash-Separated Value Expansion (Safe)
-        # Only expand geography-type fields. Skip dates, numeric ratios, and terms.
-        import re as _re
-        EXPAND_ALLOWLIST = {"pol", "pod", "por", "pvy", "pvd", "port", "origin", "destination",
-                           "commodity", "service", "port_of_loading", "port_of_discharge"}
-        DATE_PATTERN = _re.compile(r'^\d{1,4}[/\-]\d{1,2}([/\-]\d{1,4})?$')
+        # ── Phase E: Context Inheritance ──────────────────────────────────
+        # Fill empty fields from block_context (POL, Currency, Start_Date, etc.)
+        block_context = t_map.get("block_context", {})
+        if block_context:
+            for row_data in extracted_table_rows:
+                for ctx_key, ctx_val in block_context.items():
+                    # Find matching sub_field key (case-insensitive)
+                    for inner_key in expected_sub_keys:
+                        if str(inner_key).strip().lower() == ctx_key.strip().lower():
+                            cell = row_data.get(inner_key, {})
+                            if isinstance(cell, dict) and (not cell.get("value") or cell.get("value") == ""):
+                                row_data[inner_key] = {
+                                    "value": ctx_val,
+                                    "confidence": 0.80,
+                                    "validation_status": "valid",
+                                    "original_value": ctx_val,
+                                    "bbox": None,
+                                    "_modifier": "Block Context Inheritance"
+                                }
         
-        expanded_rows = []
-        for row_data in extracted_table_rows:
-            slash_fields = {}
-            max_parts = 1
-            for sk, sv in row_data.items():
-                # Only expand fields in the geography allowlist
-                if str(sk).strip().lower() not in EXPAND_ALLOWLIST:
-                    continue
-                if isinstance(sv, dict):
-                    cell_val = sv.get("value", "")
-                    if isinstance(cell_val, str) and "/" in cell_val:
-                        # Skip date patterns (e.g., 2025/12/1)
-                        if DATE_PATTERN.match(cell_val.strip()):
-                            continue
-                        parts = [p.strip() for p in cell_val.split("/") if p.strip()]
-                        # Skip if all parts are purely numeric (likely date or ratio)
-                        if len(parts) > 1 and not all(_re.match(r'^[\d\.,\s]+$', p) for p in parts):
-                            slash_fields[sk] = parts
-                            max_parts = max(max_parts, len(parts))
-            
-            if not slash_fields:
-                expanded_rows.append(row_data)
-            else:
-                import copy as _copy
-                for i in range(max_parts):
-                    new_row = _copy.deepcopy(row_data)
-                    for sk, parts in slash_fields.items():
-                        idx = min(i, len(parts) - 1)
-                        new_row[sk]["value"] = parts[idx]
-                        new_row[sk]["_modifier"] = "Expanded from delimiter"
-                        new_row[sk]["_modified_from"] = row_data[sk].get("value", "")
-                    expanded_rows.append(new_row)
-                logger.info(f"[{target_key}] Expanded 1 row → {max_parts} rows (fields: {list(slash_fields.keys())})")
-        
-        if len(expanded_rows) != len(extracted_table_rows):
-            logger.info(f"[{target_key}] Slash expansion: {len(extracted_table_rows)} → {len(expanded_rows)} rows")
-            extracted_table_rows = expanded_rows
+        # ── Phase E: Field-Aware Expansion ────────────────────────────────
+        # Replace inline slash expansion with type-checked version
+        extracted_table_rows = field_aware_expand(extracted_table_rows, expected_sub_keys)
 
         logs.append({"step": f"Table [{target_key}] Exec", "message": f"Extracted {len(extracted_table_rows)} rows out of {len(data_rows)} target data rows."})
         raw_extracted[target_key] = {
