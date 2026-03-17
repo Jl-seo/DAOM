@@ -571,8 +571,6 @@ def extract_block_context(df: pd.DataFrame, block: BlockInfo,
     - Group row inheritance tracking
     """
     context_row_ids = {rc.row_id for rc in row_classifications if rc.row_type in ("context", "group_label")}
-    # Also check header rows for context (POL/POD sometimes in header)
-    header_row_ids = {rc.row_id for rc in row_classifications if rc.row_type == "header"}
     data_cols = _get_data_cols(df)
 
     context: Dict[str, Any] = {}
@@ -586,8 +584,11 @@ def extract_block_context(df: pd.DataFrame, block: BlockInfo,
     if group_labels:
         context["_group_labels"] = group_labels
 
-    # Scan context + header rows for key-value pairs
-    scan_row_ids = context_row_ids | header_row_ids
+    # Scan ONLY context + group_label rows for key-value pairs.
+    # IMPORTANT: Do NOT scan header rows — they contain column names side-by-side
+    # (e.g., POL | POD | POR), which causes label proximity to read the next
+    # header text as a value (POL → "POD").
+    scan_row_ids = context_row_ids
     for _, row in df[df["row_id"].isin(scan_row_ids)].iterrows():
         for ci, c in enumerate(data_cols):
             val = str(row[c]).strip() if pd.notna(row[c]) else ""
