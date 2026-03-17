@@ -253,6 +253,7 @@ Your task is to extract the values for the following fields from this content.
 
 These are NON-TABLE fields (scalars) — they are typically found in headers, titles,
 metadata sections, summary rows, or free-text areas of the Excel file.
+If not found as standalone text, INFER the value from patterns in the table data.
 
 Excel Content (Markdown):
 {truncated_md}
@@ -266,7 +267,9 @@ CRITICAL RULES:
 3. Look for values in sheet titles, header rows, metadata cells, summary sections, and any non-table text.
 4. Do NOT extract table row data — only extract standalone scalar/summary values.
 5. Keep the original language. Do NOT translate unless a field rule says so.
-"""
+6. INFERENCE RULE: If a field cannot be found as explicit text but can be LOGICALLY INFERRED from the table data, do so.
+   Examples: If all Origin/POL values are 'PUSAN' and all POD values are US port codes, the trade route is 'Korea → USA' or '한국 → 미국'.
+   If column 'Commodity' shows product codes, summarize the commodity type."""
 
     # Build strict structured output schema
     properties = {}
@@ -779,8 +782,69 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             "page_number": page_number
         }
 
-    # 3.3 Phase 2: Markdown Context-based Scalar Extraction for empty common fields
+    # 3.2b Unmapped Table Field Fallback
+    # When Excel has one physical table but the model has multiple table fields,
+    # the LLM maps only one. Clone extracted data to unmapped table fields with matching sub_fields.
     TABLE_TYPES = ("table", "list", "array", "object")
+    mapped_table_keys = set(tables_map.keys())
+    
+    # Find table fields that weren't mapped by the LLM
+    unmapped_table_fields = []
+    for f in model.fields:
+        if f.type in TABLE_TYPES and f.key not in mapped_table_keys:
+            unmapped_table_fields.append(f)
+    
+    if unmapped_table_fields and mapped_table_keys:
+        # Build sub_field key sets for each mapped table (from model schema)
+        mapped_sub_keys = {}
+        for f in model.fields:
+            if f.key in mapped_table_keys and getattr(f, 'sub_fields', None):
+                raw_subs = getattr(f, 'sub_fields')
+                mapped_sub_keys[f.key] = set(
+                    (sf.get('key') if isinstance(sf, dict) else getattr(sf, 'key', '')).strip().lower()
+                    for sf in raw_subs if sf
+                )
+        
+        for unmapped_f in unmapped_table_fields:
+            unmapped_subs = set()
+            if getattr(unmapped_f, 'sub_fields', None):
+                raw_subs = getattr(unmapped_f, 'sub_fields')
+                unmapped_subs = set(
+                    (sf.get('key') if isinstance(sf, dict) else getattr(sf, 'key', '')).strip().lower()
+                    for sf in raw_subs if sf
+                )
+            
+            if not unmapped_subs:
+                continue
+            
+            # Find a mapped table with matching sub_fields (>= 50% overlap)
+            best_match = None
+            best_overlap = 0
+            for mk, msubs in mapped_sub_keys.items():
+                if msubs:
+                    overlap = len(unmapped_subs & msubs) / max(1, len(unmapped_subs))
+                    if overlap > best_overlap:
+                        best_overlap = overlap
+                        best_match = mk
+            
+            if best_match and best_overlap >= 0.5:
+                # Check if the mapped table actually has extracted data
+                source_data = raw_extracted.get(best_match, {})
+                source_rows = source_data.get("value", [])
+                if source_rows and isinstance(source_rows, list):
+                    import copy as _copy2
+                    cloned_rows = _copy2.deepcopy(source_rows)
+                    raw_extracted[unmapped_f.key] = {
+                        "value": cloned_rows,
+                        "confidence": 0.85,
+                        "validation_status": "valid",
+                        "page_number": source_data.get("page_number", 1),
+                        "_modifier": f"Cloned from {best_match} (same table structure)"
+                    }
+                    logger.info(f"[Fallback] Cloned {len(cloned_rows)} rows from '{best_match}' → '{unmapped_f.key}' (overlap: {best_overlap:.0%})")
+                    logs.append({"step": f"Table [{unmapped_f.key}] Fallback", "message": f"Cloned {len(cloned_rows)} rows from '{best_match}' (sub_field overlap: {best_overlap:.0%})"})
+
+    # 3.3 Phase 2: Markdown Context-based Scalar Extraction for empty common fields
     missing_scalar_fields = []
     for f in model.fields:
         if f.type in TABLE_TYPES:
