@@ -3,25 +3,21 @@ from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
-# Auto-infer dictionary categories from common field key names
-# This eliminates the need for users to manually set "dictionary" on every sub_field
-AUTO_DICT_MAP = {
-    "pol": "port", "pod": "port", "por": "port", "pvy": "port",
-    "carrier": "carrier",
-    "currency": "currency",
-    "route": "route", "route_kr": "route",
-}
-
 
 def build_field_dict_map(fields: List[Any], dictionaries: List[str]) -> Dict[str, str]:
     """
     Build a lookup map of field_key -> dictionary_category.
     Handles both top-level fields and sub_fields in tables.
-    Falls back to AUTO_DICT_MAP for common field names (pol, pod, carrier, etc.)
+    
+    Dictionary mapping comes ONLY from model schema:
+    - field.dictionary (top-level)
+    - sub_field.dictionary (table sub-fields)
+    
+    No auto-guessing by field name. If the model doesn't define
+    a dictionary for a field, it won't get dictionary normalization.
     
     Returns: {"pol": "port", "Rate_List.pol": "port", ...}
     """
-    available_cats = set(dictionaries) if dictionaries else set()
     field_dict_map = {}
     
     for f in (fields or []):
@@ -30,10 +26,6 @@ def build_field_dict_map(fields: List[Any], dictionaries: List[str]) -> Dict[str
         
         if key and dict_cat:
             field_dict_map[key] = dict_cat
-        elif key and not dict_cat:
-            auto_cat = AUTO_DICT_MAP.get(key.lower())
-            if auto_cat and auto_cat in available_cats:
-                field_dict_map[key] = auto_cat
         
         # Sub-fields in tables
         sub_fields = (getattr(f, "sub_fields", None) if not isinstance(f, dict) else f.get("sub_fields")) or []
@@ -43,10 +35,6 @@ def build_field_dict_map(fields: List[Any], dictionaries: List[str]) -> Dict[str
                 sub_dict = sub.get("dictionary") if isinstance(sub, dict) else getattr(sub, "dictionary", None)
                 if sub_key and sub_dict:
                     field_dict_map[f"{key}.{sub_key}"] = sub_dict
-                elif sub_key and not sub_dict:
-                    auto_cat = AUTO_DICT_MAP.get(sub_key.lower())
-                    if auto_cat and auto_cat in available_cats:
-                        field_dict_map[f"{key}.{sub_key}"] = auto_cat
     
     return field_dict_map
 
