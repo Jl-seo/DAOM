@@ -31,16 +31,27 @@ interface DataReviewPanelProps {
     isRawData?: boolean
 }
 
-// Internal fields to strip from export JSON
-const INTERNAL_FIELDS = ['bbox', 'page_number', 'original_value', 'low_confidence', 'validation_status', 'source_text', '_source_chunk']
+// Fields to keep in the export JSON — everything else gets stripped
+const KEEP_FIELDS = new Set(['value', 'confidence'])
 
 function cleanForExport(data: Record<string, any>): Record<string, any> {
     const stripInternal = (obj: any): any => {
         if (Array.isArray(obj)) return obj.map(stripInternal)
         if (obj && typeof obj === 'object') {
+            // If this object has a 'value' key, it's a field cell — keep only value + confidence
+            if ('value' in obj) {
+                const cleaned: Record<string, any> = {}
+                for (const [k, v] of Object.entries(obj)) {
+                    if (KEEP_FIELDS.has(k)) {
+                        cleaned[k] = stripInternal(v)
+                    }
+                }
+                return cleaned
+            }
+            // Otherwise recurse normally (e.g., nested row objects in tables)
             const filtered: Record<string, any> = {}
             for (const [k, v] of Object.entries(obj)) {
-                if (!INTERNAL_FIELDS.includes(k)) filtered[k] = stripInternal(v)
+                if (!k.startsWith('_')) filtered[k] = stripInternal(v)
             }
             return filtered
         }
@@ -49,7 +60,7 @@ function cleanForExport(data: Record<string, any>): Record<string, any> {
 
     const clean: Record<string, any> = {}
     for (const [key, val] of Object.entries(data)) {
-        clean[key] = stripInternal(val)
+        if (!key.startsWith('_')) clean[key] = stripInternal(val)
     }
     return clean
 }
@@ -82,7 +93,7 @@ function RawJsonView({ data }: { data: Record<string, any> }) {
         <div className="h-full flex flex-col">
             <div className="flex items-center justify-between px-6 pt-4 pb-2">
                 <span className="text-xs text-muted-foreground">
-                    내부 필드 제외 (bbox, page_number 등)
+                    value + confidence만 표시
                 </span>
                 <Button
                     variant="outline"
