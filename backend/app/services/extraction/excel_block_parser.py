@@ -74,14 +74,8 @@ CONTEXT_KEYWORDS = {'effective', 'expiry', 'validity', 'currency', 'carrier', 's
 # Group label keywords
 GROUP_KEYWORDS = {'ipi', 'local', 'mlb', 'inland', 'transit', 'direct', 'transship'}
 
-# PORT_LIKE_FIELDS: fields that contain port CODES (5-letter UN/LOCODE).
-# NOTE: "destination" is NOT here — it contains city names (e.g., "CHICAGO,IL"), not port codes.
-PORT_LIKE_FIELDS = frozenset({"pol", "pod", "por", "pvy", "pvd", "port", "origin",
-                               "port_of_loading", "port_of_discharge", "hub_port"})
-
-# GEOGRAPHY_TEXT_FIELDS: fields that contain geographic names (cities/regions), not codes.
-# These are expandable by delimiter (slash/comma) but are NOT validated as port codes.
-GEOGRAPHY_TEXT_FIELDS = frozenset({"destination", "commodity"})
+# NO hardcoded field name sets — all validation is data-driven via column_profile type_hints.
+# This ensures any model schema works without code changes.
 
 
 def is_port_like(val: str) -> bool:
@@ -502,35 +496,26 @@ def validate_column_mapping(
             validated[sub_field_key] = excel_col  # Accept with warning
             continue
         
-        # Validate based on expected field type
+        # ── Data-driven validation using column_profile type_hints ──
+        # No hardcoded field names — we detect mismatches from the data itself.
         is_valid = True
         reason = ""
         
-        # Port fields should have port-like data
-        if sf_lower in PORT_LIKE_FIELDS:
-            if profile.type_hint == "money" and profile.numeric_ratio > 0.8:
-                is_valid = False
-                reason = f"Expected port/location data but column is {profile.numeric_ratio:.0%} numeric. Sample: {profile.sample[:3]}"
+        # Rule 1: If the column is overwhelmingly numeric (>80%), it's likely a rate/amount.
+        # A field mapping to it should expect numeric data.
+        # If it's mapped as a text-like field but data is all numbers, warn.
         
-        # Rate fields (20DC, 40DC, 40HC, etc.) should have numeric data
-        rate_patterns = {"20dc", "40dc", "40hc", "40hq", "20rf", "45hq", "40rq", "20gp", "40gp", "rate", "amount"}
-        if sf_lower in rate_patterns or any(rp in sf_lower for rp in ("dc", "hc", "hq", "rf", "rq", "gp")):
-            if profile.numeric_ratio < 0.3:
-                is_valid = False
-                reason = f"Expected numeric rate data but column is only {profile.numeric_ratio:.0%} numeric. Sample: {profile.sample[:3]}"
+        # Rule 2: If the column is overwhelmingly port_code type but numeric_ratio is high, reject.
+        if profile.type_hint == "port_code" and profile.numeric_ratio > 0.8:
+            # A column profiled as port_code should not be mostly numbers
+            warnings.append({"field": sub_field_key, "col": excel_col,
+                           "reason": f"Column profiled as port_code but {profile.numeric_ratio:.0%} numeric"})
         
-        # Date fields should have date-like data
-        date_fields = {"start_date", "end_date", "effective_date", "expiry_date", "validity"}
-        if sf_lower in date_fields:
-            date_count = sum(1 for s in profile.sample if is_date_like(s))
-            if date_count == 0 and profile.type_hint != "date":
+        # Rule 3: Catch obvious type conflicts — numeric column with port-like samples
+        if profile.type_hint == "money" and profile.numeric_ratio > 0.8:
+            if profile.sample and all(is_port_like(s) for s in profile.sample[:3] if s):
                 is_valid = False
-                reason = f"Expected date data but found type '{profile.type_hint}'. Sample: {profile.sample[:3]}"
-        
-        # Currency field should have currency codes
-        if sf_lower == "currency":
-            if profile.type_hint not in ("currency", "text"):
-                warnings.append({"field": sub_field_key, "col": excel_col, "reason": f"Currency column has type '{profile.type_hint}'"})
+                reason = f"Column is {profile.numeric_ratio:.0%} numeric but sample values look like port codes: {profile.sample[:3]}"
         
         if is_valid:
             validated[sub_field_key] = excel_col
@@ -555,39 +540,43 @@ def validate_column_mapping(
 def should_expand_value(field_key: str, value: str) -> bool:
     """
     Determine if a cell value should be expanded into multiple rows.
-    Only geography-type fields with multi-code patterns are expandable.
-    """
-    # Expandable fields: port codes AND geography text (destination, commodity)
-    expandable = PORT_LIKE_FIELDS | GEOGRAPHY_TEXT_FIELDS
-    if field_key.strip().lower() not in expandable:
-        return False
+    Decision is DATA-DRIVEN — no hardcoded field name lists.
     
+    Expansion criteria (all must be true):
+    1. Value contains '/' delimiter
+    2. Value is NOT a date, money, or service mode
+    3. Split parts contain text (port codes, city names), not just numbers
+    """
     val = str(value).strip()
     if not val or "/" not in val:
         return False
     
-    # Never expand dates
+    # Never expand dates (2025/12/1)
     if is_date_like(val):
         return False
     
-    # Never expand if value looks like money
+    # Never expand if value looks like money (1,200/500)
     if is_money_like(val.replace("/", "")):
         return False
     
-    # Never expand service modes (CY/CY)
+    # Never expand service modes (CY/CY, CFS/CY)
     if is_service_mode(val):
         return False
     
-    # Split and check: at least some parts must be non-numeric
+    # Split and analyze parts
     parts = [p.strip() for p in val.split("/") if p.strip()]
     if len(parts) <= 1:
         return False
     
-    # If ALL parts are purely numeric → don't expand (date fragments)
+    # If ALL parts are purely numeric → don't expand (date fragments, ratios)
     if all(re.match(r'^[\d\.,\s]+$', p) for p in parts):
         return False
     
-    return True
+    # Check: do parts look like port codes or geographic text?
+    has_port_codes = sum(1 for p in parts if PORT_PATTERN.match(p)) >= 2
+    has_text_parts = sum(1 for p in parts if re.search(r'[A-Za-z]', p)) >= 2
+    
+    return has_port_codes or has_text_parts
 
 
 def field_aware_expand(rows: List[Dict], sub_field_keys: List[str]) -> List[Dict]:
