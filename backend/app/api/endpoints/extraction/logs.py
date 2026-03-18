@@ -30,6 +30,7 @@ async def get_extraction_logs_by_model(
     """
     tenant_id = current_user.tenant_id if current_user else None
     logs = await extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
+    logger.info(f"[LOGS DEBUG] user={current_user.email} model_id={model_id} tenant_id={tenant_id} result_count={len(logs)}")
 
     await log_action(
         user=current_user,
