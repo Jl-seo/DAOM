@@ -75,35 +75,48 @@ class AzureADAuth(HTTPBearer):
             # Get signing key from JWKS
             signing_key = self.jwks_client.get_signing_key_from_jwt(token)
 
-            # Decode token WITH full verification
-            # Azure AD issues tokens with v1 or v2 issuer format
-            v1_issuer = f"https://sts.windows.net/{settings.AZURE_AD_TENANT_ID}/"
-            v2_issuer = f"https://login.microsoftonline.com/{settings.AZURE_AD_TENANT_ID}/v2.0"
+            # Determine verification level based on configuration
+            has_client_id = bool(settings.AZURE_AD_CLIENT_ID)
+            has_tenant_id = bool(settings.AZURE_AD_TENANT_ID) and settings.AZURE_AD_TENANT_ID not in ("common", "")
 
-            # Audience can be the Client ID or the API URI (api://<client_id>)
-            valid_audiences = [settings.AZURE_AD_CLIENT_ID]
-            api_audience = f"api://{settings.AZURE_AD_CLIENT_ID}"
-            if api_audience not in valid_audiences:
-                valid_audiences.append(api_audience)
+            if has_client_id and has_tenant_id:
+                # Full verification: signature + expiry + audience + issuer
+                v1_issuer = f"https://sts.windows.net/{settings.AZURE_AD_TENANT_ID}/"
+                v2_issuer = f"https://login.microsoftonline.com/{settings.AZURE_AD_TENANT_ID}/v2.0"
+                valid_audiences = [settings.AZURE_AD_CLIENT_ID, f"api://{settings.AZURE_AD_CLIENT_ID}"]
 
-            try:
-                payload = jwt.decode(
-                    token,
-                    signing_key.key,
-                    algorithms=["RS256"],
-                    audience=valid_audiences,
-                    issuer=[v1_issuer, v2_issuer],
-                    options={
-                        "verify_signature": True,
-                        "verify_exp": True,
-                        "verify_aud": True,
-                        "verify_iss": True,
-                    }
-                )
-            except (jwt.InvalidAudienceError, jwt.InvalidIssuerError) as e:
-                # Some tokens (e.g., Graph API tokens) have different aud/iss.
-                # Log and try with relaxed aud/iss but still verify signature + expiry.
-                logger.warning(f"JWT aud/iss mismatch ({e}), retrying with relaxed aud/iss but verified signature")
+                try:
+                    payload = jwt.decode(
+                        token,
+                        signing_key.key,
+                        algorithms=["RS256"],
+                        audience=valid_audiences,
+                        issuer=[v1_issuer, v2_issuer],
+                        options={
+                            "verify_signature": True,
+                            "verify_exp": True,
+                            "verify_aud": True,
+                            "verify_iss": True,
+                        }
+                    )
+                except (jwt.InvalidAudienceError, jwt.InvalidIssuerError) as e:
+                    # Fallback: verify signature + expiry only (Graph API tokens, guest users)
+                    logger.warning(f"JWT aud/iss mismatch ({e}), retrying with signature+expiry only")
+                    payload = jwt.decode(
+                        token,
+                        signing_key.key,
+                        algorithms=["RS256"],
+                        options={
+                            "verify_signature": True,
+                            "verify_exp": True,
+                            "verify_aud": False,
+                            "verify_iss": False,
+                        }
+                    )
+            else:
+                # Partial verification: signature + expiry (CLIENT_ID or TENANT_ID not configured)
+                if not has_client_id:
+                    logger.warning("AZURE_AD_CLIENT_ID not configured — skipping audience verification")
                 payload = jwt.decode(
                     token,
                     signing_key.key,
