@@ -47,7 +47,7 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
     const [searchTerm, setSearchTerm] = useState('')
     const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('all')
     const [dateFilter, setDateFilter] = useState<DatePreset>('all')
-    const [ownershipTab, setOwnershipTab] = useState<'my' | 'group'>('my')
+    const [ownershipTab, setOwnershipTab] = useState<'my' | 'group'>('group')
     const [selectedLog, setSelectedLog] = useState<ExtractionLog | null>(null)
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
