@@ -141,8 +141,16 @@ async def get_accessible_model_ids(user_id: str, tenant_id: str, access_token: O
     accessible_models = set()
     groups = await group_service.get_groups_by_tenant(tenant_id)
 
+    logger.info(f"[Permission] get_accessible_model_ids: user_id={user_id}, tenant_id={tenant_id}, groups_count={len(groups)}")
+
     for group in groups:
+        group_name = getattr(group, 'name', 'Unknown')
+        member_ids = [m.id if hasattr(m, 'id') else m.get('id', '') for m in group.members]
+        logger.info(f"[Permission] Checking group '{group_name}': members={member_ids}, user_id={user_id}")
+        
         is_member = await is_member_of_daom_group(user_id, group, access_token, user_groups=user_groups)
+        logger.info(f"[Permission] Group '{group_name}' membership result: {is_member}")
+        
         if is_member:
             models_list = []
             if hasattr(group.permissions, 'models'):
@@ -155,6 +163,7 @@ async def get_accessible_model_ids(user_id: str, tenant_id: str, access_token: O
                 if perm_model_id:
                     accessible_models.add(perm_model_id)
 
+    logger.info(f"[Permission] Accessible models for user {user_id}: {accessible_models}")
     return accessible_models
 
 

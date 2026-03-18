@@ -86,7 +86,8 @@ class AzureADAuth(HTTPBearer):
                     "verify_aud": False, "verify_iss": False
                 })
                 logger.info(
-                    "JWT claims: aud=%s iss=%s tid=%s azp=%s ver=%s upn=%s",
+                    "JWT claims: oid=%s aud=%s iss=%s tid=%s azp=%s ver=%s upn=%s",
+                    unverified.get("oid"),
                     unverified.get("aud"), unverified.get("iss"),
                     unverified.get("tid"), unverified.get("azp"),
                     unverified.get("ver"),
