@@ -62,8 +62,8 @@ class Settings(BaseSettings):
     COSMOS_DATABASE: str = "daom"
 
     # Azure AD Authentication
-    AZURE_AD_CLIENT_ID: str = ""
-    AZURE_AD_TENANT_ID: str = "common"
+    AZURE_AD_CLIENT_ID: str = "689d0170-0576-4563-8a24-a323625196ca"
+    AZURE_AD_TENANT_ID: str = "69c1e470-4528-435a-a1ae-de98e0aac738"
 
     # OCR Defaults
     OCR_DEFAULT_MODEL: str = "prebuilt-layout"
