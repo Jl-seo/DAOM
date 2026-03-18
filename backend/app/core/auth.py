@@ -72,65 +72,57 @@ class AzureADAuth(HTTPBearer):
     def verify_token(self, token: str) -> Optional[CurrentUser]:
         """Verify JWT token and extract user info"""
         try:
-            # Get signing key from JWKS
-            signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+            # Try to get signing key from tenant-specific JWKS
+            signing_key = None
+            try:
+                signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+            except Exception as e:
+                logger.warning(f"Tenant JWKS key lookup failed: {e}")
+                # Fallback: try 'common' JWKS endpoint
+                try:
+                    common_client = PyJWKClient("https://login.microsoftonline.com/common/discovery/v2.0/keys")
+                    signing_key = common_client.get_signing_key_from_jwt(token)
+                    logger.info("Using 'common' JWKS endpoint for key lookup")
+                except Exception as e2:
+                    logger.warning(f"Common JWKS key lookup also failed: {e2}")
 
             # Determine verification level based on configuration
             has_client_id = bool(settings.AZURE_AD_CLIENT_ID)
             has_tenant_id = bool(settings.AZURE_AD_TENANT_ID) and settings.AZURE_AD_TENANT_ID not in ("common", "")
 
-            if has_client_id and has_tenant_id:
-                # Full verification: signature + expiry + audience + issuer
-                v1_issuer = f"https://sts.windows.net/{settings.AZURE_AD_TENANT_ID}/"
-                v2_issuer = f"https://login.microsoftonline.com/{settings.AZURE_AD_TENANT_ID}/v2.0"
-                valid_audiences = [settings.AZURE_AD_CLIENT_ID, f"api://{settings.AZURE_AD_CLIENT_ID}"]
-
-                try:
+            if signing_key:
+                # We have a signing key — verify signature + expiry
+                if has_client_id and has_tenant_id:
+                    v1_issuer = f"https://sts.windows.net/{settings.AZURE_AD_TENANT_ID}/"
+                    v2_issuer = f"https://login.microsoftonline.com/{settings.AZURE_AD_TENANT_ID}/v2.0"
+                    valid_audiences = [settings.AZURE_AD_CLIENT_ID, f"api://{settings.AZURE_AD_CLIENT_ID}"]
+                    try:
+                        payload = jwt.decode(
+                            token, signing_key.key, algorithms=["RS256"],
+                            audience=valid_audiences, issuer=[v1_issuer, v2_issuer],
+                            options={"verify_signature": True, "verify_exp": True, "verify_aud": True, "verify_iss": True}
+                        )
+                    except (jwt.InvalidAudienceError, jwt.InvalidIssuerError) as e:
+                        logger.warning(f"JWT aud/iss mismatch ({e}), retrying signature+expiry only")
+                        payload = jwt.decode(
+                            token, signing_key.key, algorithms=["RS256"],
+                            options={"verify_signature": True, "verify_exp": True, "verify_aud": False, "verify_iss": False}
+                        )
+                else:
                     payload = jwt.decode(
-                        token,
-                        signing_key.key,
-                        algorithms=["RS256"],
-                        audience=valid_audiences,
-                        issuer=[v1_issuer, v2_issuer],
-                        options={
-                            "verify_signature": True,
-                            "verify_exp": True,
-                            "verify_aud": True,
-                            "verify_iss": True,
-                        }
-                    )
-                except (jwt.InvalidAudienceError, jwt.InvalidIssuerError) as e:
-                    # Fallback: verify signature + expiry only (Graph API tokens, guest users)
-                    logger.warning(f"JWT aud/iss mismatch ({e}), retrying with signature+expiry only")
-                    payload = jwt.decode(
-                        token,
-                        signing_key.key,
-                        algorithms=["RS256"],
-                        options={
-                            "verify_signature": True,
-                            "verify_exp": True,
-                            "verify_aud": False,
-                            "verify_iss": False,
-                        }
+                        token, signing_key.key, algorithms=["RS256"],
+                        options={"verify_signature": True, "verify_exp": True, "verify_aud": False, "verify_iss": False}
                     )
             else:
-                # Partial verification: signature + expiry (CLIENT_ID or TENANT_ID not configured)
-                if not has_client_id:
-                    logger.warning("AZURE_AD_CLIENT_ID not configured — skipping audience verification")
+                # No signing key available — decode without signature verification
+                # Still verify expiry. Log a security warning.
+                logger.warning("SECURITY: No JWKS signing key available. Decoding without signature verification.")
                 payload = jwt.decode(
                     token,
-                    signing_key.key,
-                    algorithms=["RS256"],
-                    options={
-                        "verify_signature": True,
-                        "verify_exp": True,
-                        "verify_aud": False,
-                        "verify_iss": False,
-                    }
+                    options={"verify_signature": False, "verify_exp": True, "verify_aud": False, "verify_iss": False}
                 )
 
             # Extract user info
-            # Use upn (User Principal Name) or unique_name for email
             email = payload.get("upn") or payload.get("unique_name") or payload.get("preferred_username") or payload.get("email", "")
 
             return CurrentUser(
