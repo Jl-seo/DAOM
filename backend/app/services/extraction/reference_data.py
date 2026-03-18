@@ -822,16 +822,27 @@ class ReferenceDataService:
         for key, item in guide.items():
             if key.startswith("_"):
                 continue
-            if isinstance(item, dict) and "value" in item:
+                
+            is_list_val = False
+            list_val = None
+            
+            if isinstance(item, list):
+                is_list_val = True
+                list_val = item
+            elif isinstance(item, dict) and "value" in item:
                 val = item["value"]
-                if isinstance(val, str):
+                if isinstance(val, list):
+                    is_list_val = True
+                    list_val = val
+                elif isinstance(val, str):
                     _apply(item, key)
-                elif isinstance(val, list):
-                    for row in val:
-                        if isinstance(row, dict):
-                            for sub_key, sub_node in row.items():
-                                if not sub_key.startswith("_"):
-                                    _apply(sub_node, sub_key)
+                    
+            if is_list_val and list_val:
+                for row in list_val:
+                    if isinstance(row, dict):
+                        for sub_key, sub_node in row.items():
+                            if not sub_key.startswith("_"):
+                                _apply(sub_node, sub_key)
 
         return result
 
