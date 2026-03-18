@@ -638,6 +638,28 @@ For unmapped fields, fall back to generic work order instructions.
                 if nl := table_structure.get("notes_location"):
                     mapping_plan_str += f"- NOTES: Supplementary notes are located {nl}.\n"
 
+        # Extract explicit ROW EXPANSION rules from field definitions
+        expansion_str = ""
+        for tf in wo_inner.get("table_fields", []):
+            tf_key = tf.get("key", "?")
+            
+            # Check table-level rules
+            for rule in tf.get("rules", []):
+                if any(k in rule.lower() for k in ["split", "comma", "slash", "row", "separate"]):
+                    expansion_str += f"- Table {tf_key}: {rule}\n"
+            
+            # Check column-level rules
+            for col_key, col_data in tf.get("columns", {}).items():
+                for rule in col_data.get("rules", []):
+                     # Specifically target rules asking for split/expansion, e.g. "Split by / or , into unique rows"
+                     if any(k in rule.lower() for k in ["split", "comma", "slash", "row", "separate"]):
+                         expansion_str += f"- Column {tf_key}.{col_key}: {rule} (DUPLICATE the other column values for each new row!)\n"
+                         
+        if expansion_str:
+            mapping_plan_str += f"\nROW EXPANSION RULES (CRITICAL MANDATORY):\n"
+            mapping_plan_str += f"If any field contains multiple values separated by commas, slashes, or newlines, you MUST obey these rules and create SEPARATE rows for each value!\n"
+            mapping_plan_str += expansion_str
+
         # Build ROW CLASSIFICATION RULES section from table_fields
         classification_str = ""
         for tf in wo_inner.get("table_fields", []):
