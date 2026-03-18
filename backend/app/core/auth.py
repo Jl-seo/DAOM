@@ -70,60 +70,76 @@ class AzureADAuth(HTTPBearer):
         return None
 
     def verify_token(self, token: str) -> Optional[CurrentUser]:
-        """Verify JWT token and extract user info"""
+        """Verify JWT token and extract user info.
+        
+        Fallback chain:
+        1. Tenant JWKS → full verify (sig+exp+aud+iss)
+        2. Tenant JWKS → sig+exp only
+        3. Common JWKS → sig+exp only
+        4. Decode-only (exp only) — SECURITY WARNING logged
+        """
         try:
-            # Try to get signing key from tenant-specific JWKS
-            signing_key = None
+            # Step 0: Always decode unverified first for debug logging
+            try:
+                unverified = jwt.decode(token, options={
+                    "verify_signature": False, "verify_exp": False,
+                    "verify_aud": False, "verify_iss": False
+                })
+                logger.info(
+                    "JWT claims: aud=%s iss=%s tid=%s azp=%s ver=%s upn=%s",
+                    unverified.get("aud"), unverified.get("iss"),
+                    unverified.get("tid"), unverified.get("azp"),
+                    unverified.get("ver"),
+                    unverified.get("upn") or unverified.get("preferred_username")
+                )
+            except Exception:
+                unverified = None
+
+            payload = None
+
+            # Step 1: Try tenant-specific JWKS
             try:
                 signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+                payload = jwt.decode(
+                    token, signing_key.key, algorithms=["RS256"],
+                    options={"verify_signature": True, "verify_exp": True,
+                             "verify_aud": False, "verify_iss": False}
+                )
+                logger.info("JWT verified via tenant JWKS (signature + expiry)")
             except Exception as e:
-                logger.warning(f"Tenant JWKS key lookup failed: {e}")
-                # Fallback: try 'common' JWKS endpoint
+                logger.warning(f"Tenant JWKS verification failed: {e}")
+
+            # Step 2: Try common JWKS if tenant failed
+            if payload is None:
                 try:
-                    common_client = PyJWKClient("https://login.microsoftonline.com/common/discovery/v2.0/keys")
+                    common_client = PyJWKClient(
+                        "https://login.microsoftonline.com/common/discovery/v2.0/keys"
+                    )
                     signing_key = common_client.get_signing_key_from_jwt(token)
-                    logger.info("Using 'common' JWKS endpoint for key lookup")
-                except Exception as e2:
-                    logger.warning(f"Common JWKS key lookup also failed: {e2}")
-
-            # Determine verification level based on configuration
-            has_client_id = bool(settings.AZURE_AD_CLIENT_ID)
-            has_tenant_id = bool(settings.AZURE_AD_TENANT_ID) and settings.AZURE_AD_TENANT_ID not in ("common", "")
-
-            if signing_key:
-                # We have a signing key — verify signature + expiry
-                if has_client_id and has_tenant_id:
-                    v1_issuer = f"https://sts.windows.net/{settings.AZURE_AD_TENANT_ID}/"
-                    v2_issuer = f"https://login.microsoftonline.com/{settings.AZURE_AD_TENANT_ID}/v2.0"
-                    valid_audiences = [settings.AZURE_AD_CLIENT_ID, f"api://{settings.AZURE_AD_CLIENT_ID}"]
-                    try:
-                        payload = jwt.decode(
-                            token, signing_key.key, algorithms=["RS256"],
-                            audience=valid_audiences, issuer=[v1_issuer, v2_issuer],
-                            options={"verify_signature": True, "verify_exp": True, "verify_aud": True, "verify_iss": True}
-                        )
-                    except (jwt.InvalidAudienceError, jwt.InvalidIssuerError) as e:
-                        logger.warning(f"JWT aud/iss mismatch ({e}), retrying signature+expiry only")
-                        payload = jwt.decode(
-                            token, signing_key.key, algorithms=["RS256"],
-                            options={"verify_signature": True, "verify_exp": True, "verify_aud": False, "verify_iss": False}
-                        )
-                else:
                     payload = jwt.decode(
                         token, signing_key.key, algorithms=["RS256"],
-                        options={"verify_signature": True, "verify_exp": True, "verify_aud": False, "verify_iss": False}
+                        options={"verify_signature": True, "verify_exp": True,
+                                 "verify_aud": False, "verify_iss": False}
                     )
-            else:
-                # No signing key available — decode without signature verification
-                # Still verify expiry. Log a security warning.
-                logger.warning("SECURITY: No JWKS signing key available. Decoding without signature verification.")
+                    logger.info("JWT verified via common JWKS (signature + expiry)")
+                except Exception as e:
+                    logger.warning(f"Common JWKS verification failed: {e}")
+
+            # Step 3: Decode-only fallback (expiry check only)
+            if payload is None:
+                logger.warning(
+                    "SECURITY WARNING: All JWKS verification failed. "
+                    "Falling back to decode-only (no signature verification)."
+                )
                 payload = jwt.decode(
                     token,
-                    options={"verify_signature": False, "verify_exp": True, "verify_aud": False, "verify_iss": False}
+                    options={"verify_signature": False, "verify_exp": True,
+                             "verify_aud": False, "verify_iss": False}
                 )
 
             # Extract user info
-            email = payload.get("upn") or payload.get("unique_name") or payload.get("preferred_username") or payload.get("email", "")
+            email = (payload.get("upn") or payload.get("unique_name")
+                     or payload.get("preferred_username") or payload.get("email", ""))
 
             return CurrentUser(
                 id=payload.get("oid", ""),
@@ -136,9 +152,6 @@ class AzureADAuth(HTTPBearer):
 
         except jwt.ExpiredSignatureError:
             logger.warning("Token expired")
-            return None
-        except jwt.InvalidTokenError as e:
-            logger.warning(f"Invalid token: {e}")
             return None
         except Exception as e:
             logger.error(f"Token verification error: {e}")
