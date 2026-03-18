@@ -57,9 +57,11 @@ export function ExtractionHistory({ modelId, onSelectRecord, onNewExtraction, em
     const { data: logs = [], isLoading, error } = useQuery({
         queryKey: ['extraction-logs', modelId],
         queryFn: async () => {
+            console.log('[ExtractionHistory] Fetching logs for model:', modelId)
             const res = await apiClient.get(`/extraction/logs`, {
                 params: { model_id: modelId, limit: 500 }
             })
+            console.log('[ExtractionHistory] API returned', res.data?.length, 'records')
             return res.data as ExtractionLog[]
         },
         refetchInterval: (query) => {
