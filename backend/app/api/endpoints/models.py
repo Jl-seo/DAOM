@@ -23,12 +23,17 @@ async def list_models(current_user: CurrentUser = Depends(get_current_user)):
     # 2. Check permissions
     from app.core.auth import is_super_admin
     from app.core.group_permission_utils import get_accessible_model_ids
+    from app.core.config import settings
 
     # Super Admin sees all
     if await is_super_admin(current_user):
         return all_models
 
-    # Standard User / Model Admin sees only accessible models
+    # Same-tenant users see all models (read access — write still requires model admin)
+    if current_user.tenant_id and current_user.tenant_id == settings.AZURE_AD_TENANT_ID:
+        return all_models
+
+    # Other users: only accessible models via group permissions
     accessible_ids = await get_accessible_model_ids(
         current_user.id,
         current_user.tenant_id,
