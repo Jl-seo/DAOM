@@ -263,8 +263,12 @@ async def save_extraction_log(
 
 
 
-async def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
-    """Get extraction logs for a specific model, enforcing tenant isolation"""
+async def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[str] = None, user_id: Optional[str] = None) -> List[ExtractionLog]:
+    """Get extraction logs for a specific model, enforcing tenant isolation.
+    
+    Args:
+        user_id: If provided, only return logs created by this user (regular user scope).
+    """
     container = get_extractions_container()
 
     if not container:
@@ -289,6 +293,11 @@ async def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[
         if tenant_id and settings.AZURE_AD_TENANT_ID not in ("common", ""):
             query += " AND (c.tenant_id = @tenant_id OR c.tenant_id = 'default' OR NOT IS_DEFINED(c.tenant_id))"
             parameters.append({"name": "@tenant_id", "value": tenant_id})
+
+        # User scope: regular users only see their own logs
+        if user_id:
+            query += " AND c.user_id = @user_id"
+            parameters.append({"name": "@user_id", "value": user_id})
 
         query += " ORDER BY c.created_at DESC"
 

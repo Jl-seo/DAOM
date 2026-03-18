@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, Request
 from typing import Optional, List
 from app.services import extraction_logs
 from app.services.audit import log_action, AuditAction, AuditResource
-from app.core.auth import get_current_user, CurrentUser
+from app.core.auth import get_current_user, CurrentUser, is_super_admin
+from app.core.permissions import check_model_permission
 from pydantic import BaseModel
 from app.core.rate_limit import limiter
 import logging
@@ -13,6 +14,29 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _resolve_log_scope(current_user: CurrentUser, model_id: Optional[str] = None) -> Optional[str]:
+    """
+    Determine data scope based on user role.
+    Returns user_id to filter by, or None for full access.
+    
+    - Super Admin → None (all results)
+    - Model Admin for target model → None (all results for that model)
+    - Regular user → current_user.id (only own results)
+    """
+    # Super Admin sees all
+    if await is_super_admin(current_user):
+        return None
+    
+    # Model Admin for this specific model sees all for that model
+    if model_id:
+        has_model_admin = await check_model_permission(current_user, model_id, "Admin")
+        if has_model_admin:
+            return None
+    
+    # Regular user — only own results
+    return current_user.id
 
 
 @router.get("/logs")
@@ -24,11 +48,20 @@ async def get_extraction_logs_by_model(
     limit: int = 500
 ):
     """
-    Get extraction logs for a specific model
+    Get extraction logs for a specific model.
+    Scope: super_admin → all, model_admin → all for model, regular → own only
     """
-    # Fix IDOR: Enforce tenant isolation
     tenant_id = current_user.tenant_id if current_user else None
-    logs = await extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
+    scope_user_id = await _resolve_log_scope(current_user, model_id)
+    
+    if scope_user_id:
+        # Regular user: only their own logs for this model
+        logs = await extraction_logs.get_logs_by_model(
+            model_id, limit=limit, tenant_id=tenant_id, user_id=scope_user_id
+        )
+    else:
+        # Admin: all logs for this model
+        logs = await extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
 
     # Enterprise Hardening: Audit bulk data access for exfiltration detection
     await log_action(
@@ -36,7 +69,7 @@ async def get_extraction_logs_by_model(
         action=AuditAction.READ,
         resource_type=AuditResource.EXTRACTION,
         resource_id=model_id,
-        details={"count": len(logs), "limit": limit},
+        details={"count": len(logs), "limit": limit, "scope": "all" if not scope_user_id else "own"},
         request=request
     )
 
@@ -56,19 +89,28 @@ async def get_all_extraction_logs(
     Optional filter by model_id
     """
     tenant_id = current_user.tenant_id if current_user else None
+    scope_user_id = await _resolve_log_scope(current_user, model_id)
 
     if model_id:
-        logs = await extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
+        if scope_user_id:
+            logs = await extraction_logs.get_logs_by_model(
+                model_id, limit=limit, tenant_id=tenant_id, user_id=scope_user_id
+            )
+        else:
+            logs = await extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
     else:
-        logs = await extraction_logs.get_all_logs(limit=limit, tenant_id=tenant_id)
+        if scope_user_id:
+            logs = await extraction_logs.get_logs_by_user(scope_user_id, limit=limit, tenant_id=tenant_id)
+        else:
+            logs = await extraction_logs.get_all_logs(limit=limit, tenant_id=tenant_id)
 
     # Enterprise Hardening: Audit bulk data access for exfiltration detection
     await log_action(
         user=current_user,
-        action=AuditAction.EXPORT,  # EXPORT for /all endpoint signifies broader intent
+        action=AuditAction.EXPORT,
         resource_type=AuditResource.EXTRACTION,
         resource_id="ALL" if not model_id else model_id,
-        details={"count": len(logs), "limit": limit, "model_id": model_id},
+        details={"count": len(logs), "limit": limit, "model_id": model_id, "scope": "all" if not scope_user_id else "own"},
         request=request
     )
 
