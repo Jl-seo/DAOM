@@ -25,12 +25,11 @@ async def get_extraction_logs_by_model(
 ):
     """
     Get extraction logs for a specific model.
+    Single-tenant: model_id is the only filter.
     Access control: handled by list_models (group permissions).
-    If user can see the model, they can see all records for it.
     """
-    tenant_id = current_user.tenant_id if current_user else None
-    logs = await extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
-    logger.info(f"[LOGS DEBUG] user={current_user.email} model_id={model_id} tenant_id={tenant_id} result_count={len(logs)}")
+    logs = await extraction_logs.get_logs_by_model(model_id, limit=limit)
+    logger.info(f"[LOGS] user={current_user.email} model_id={model_id} count={len(logs)}")
 
     await log_action(
         user=current_user,
@@ -53,15 +52,13 @@ async def get_all_extraction_logs(
     model_id: Optional[str] = None
 ):
     """
-    Get all extraction logs (admin) or user's logs (regular user)
-    Optional filter by model_id
+    Get all extraction logs.
+    Single-tenant: model_id is the only filter (if provided).
     """
-    tenant_id = current_user.tenant_id if current_user else None
-
     if model_id:
-        logs = await extraction_logs.get_logs_by_model(model_id, limit=limit, tenant_id=tenant_id)
+        logs = await extraction_logs.get_logs_by_model(model_id, limit=limit)
     else:
-        logs = await extraction_logs.get_all_logs(limit=limit, tenant_id=tenant_id)
+        logs = await extraction_logs.get_all_logs(limit=limit)
 
     await log_action(
         user=current_user,
