@@ -102,11 +102,15 @@ async def get_extraction_log(
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Log not found")
 
-    # Enforce Tenant Isolation
-    if current_user.tenant_id and log.tenant_id and log.tenant_id != current_user.tenant_id:
-        # Admin bypass could be added here if needed
-        from fastapi import HTTPException
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Enforce Tenant Isolation (respect multi-tenant 'common' mode)
+    from app.core.config import settings
+    if settings.AZURE_AD_TENANT_ID not in ("common", ""):
+        # Single-tenant mode: strict check, but allow 'default' legacy records
+        if (current_user.tenant_id and log.tenant_id 
+                and log.tenant_id not in (current_user.tenant_id, "default")
+                and log.tenant_id != ""):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Access denied")
 
     # Centralized hydration — never miss a field again
     from app.services.hydration import hydrate_preview_data, hydrate_debug_data
@@ -172,10 +176,14 @@ async def unmask_log_field(
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Log not found")
 
-    # Enforce Tenant Isolation
-    if current_user.tenant_id and log.tenant_id and log.tenant_id != current_user.tenant_id:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Enforce Tenant Isolation (respect multi-tenant 'common' mode)
+    from app.core.config import settings
+    if settings.AZURE_AD_TENANT_ID not in ("common", ""):
+        if (current_user.tenant_id and log.tenant_id 
+                and log.tenant_id not in (current_user.tenant_id, "default")
+                and log.tenant_id != ""):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Access denied")
 
     # 2. Extract Data Hydration
     from app.services.hydration import hydrate_preview_data
