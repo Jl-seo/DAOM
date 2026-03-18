@@ -151,7 +151,7 @@ async def list_llm_options():
     from app.services.llm import fetch_available_models
     return await fetch_available_models()
 
-@router.post("/analyze-sample", dependencies=[Depends(require_admin)])
+@router.post("/analyze-sample", dependencies=[Depends(require_admin_or_model_admin)])
 async def analyze_sample(
     file: UploadFile = File(...),
     model_type: str = Form("prebuilt-layout")
@@ -250,7 +250,7 @@ async def analyze_sample(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/schema/refine", dependencies=[Depends(require_admin)])
+@router.post("/schema/refine", dependencies=[Depends(require_admin_or_model_admin)])
 async def refine_schema_endpoint(
     payload: dict = {
         "fields": [],
