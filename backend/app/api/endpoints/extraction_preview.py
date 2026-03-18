@@ -929,14 +929,11 @@ async def get_extraction_logs_by_model(
     limit: int = 500
 ):
     """
-    Get extraction logs for a specific model
+    Get extraction logs for a specific model.
+    Access control: handled by list_models (group permissions).
+    If user can see the model, they see all records for it.
     """
-    if await is_admin(current_user):
-        logs = await extraction_logs.get_logs_by_model(model_id=model_id, limit=limit)
-    else:
-        # Non-admin: only their own logs for this model
-        logs = await extraction_logs.get_logs_by_user(user_id=current_user.id, limit=limit)
-        logs = [log for log in logs if log.model_id == model_id]
+    logs = await extraction_logs.get_logs_by_model(model_id=model_id, limit=limit)
     return [log.model_dump() for log in logs]
 
 
@@ -947,20 +944,13 @@ async def get_all_extraction_logs(
     model_id: Optional[str] = None
 ):
     """
-    Get all extraction logs (admin) or user's logs (regular user)
-    Optional filter by model_id
+    Get all extraction logs.
+    Single-tenant: model_id is the only filter (if provided).
     """
-    user_oid = current_user.id
-
-    # Admin can see all logs, regular users see only their logs
-    if await is_admin(current_user):
-        logs = await extraction_logs.get_all_logs(limit=limit)
-    else:
-        logs = await extraction_logs.get_logs_by_user(user_id=user_oid, limit=limit)
-
-    # Filter by model_id if provided
     if model_id:
-        logs = [log for log in logs if log.model_id == model_id]
+        logs = await extraction_logs.get_logs_by_model(model_id=model_id, limit=limit)
+    else:
+        logs = await extraction_logs.get_all_logs(limit=limit)
 
     return [log.model_dump() for log in logs]
 
