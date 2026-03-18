@@ -20,7 +20,7 @@ class AdaptiveSemaphore:
     AIMD (Additive Increase Multiplicative Decrease) Semaphore
     Dynamically adjusts concurrency based on success/429 failures.
     """
-    def __init__(self, initial_value: float, min_value: float = 1.0, max_value: float = 20.0):
+    def __init__(self, initial_value: float, min_value: float = 2.0, max_value: float = 20.0):
         self._value = float(initial_value)
         self._min_value = float(min_value)
         self._max_value = float(max_value)
@@ -227,14 +227,15 @@ class BetaPipeline(ExtractionPipeline):
         if is_excel:
             initial_concurrency = 4.0
         else:
-            initial_concurrency = max(3.0, min(15.0, 30.0 / max(1, page_count)))
+            initial_concurrency = max(5.0, min(15.0, 30.0 / max(1, page_count)))
             
-        self.semaphore = AdaptiveSemaphore(initial_value=initial_concurrency, min_value=1.0, max_value=20.0)
+        self.semaphore = AdaptiveSemaphore(initial_value=initial_concurrency, min_value=2.0, max_value=20.0)
         logger.info(f"[BetaPipeline] Dynamic Concurrency Initialized: {int(initial_concurrency)} (Excel: {is_excel}, Pages: {page_count})")
         
-        # Excel direct markdown leverages massive LLM context (128k tokens) to prevent severing multi-table context
-        TEXT_CHUNK_SIZE = 150_000 if is_excel else 8_000
-        SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else TEXT_CHUNK_SIZE
+        # GPT-4.1 supports 128k context — use larger chunks to minimize LLM call count
+        # 25K chars ≈ 6-8K tokens, well within limits while reducing chunk count by ~3x
+        TEXT_CHUNK_SIZE = 150_000 if is_excel else 25_000
+        SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else 50_000
         wo_inner = work_order.get("work_order", work_order)
         table_fields = wo_inner.get("table_fields", [])
         num_table_fields = len(table_fields)
@@ -247,16 +248,15 @@ class BetaPipeline(ExtractionPipeline):
         engineer_text_payload = tagged_text
 
         async def run_engineer_pipeline():
-            # Route: Multi-Table → Always use Per-Table Schema Split
-            if num_table_fields >= 2:
-                logger.info(f"[BetaPipeline] Route: Per-Table Schema Split (proactive, {num_table_fields} table fields detected)")
-                output = await self._run_engineer_per_table(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
-                return output
-            
-            # Route: 0-1 table fields → Standard path (Single-Shot or Chunked)
+            # UNIFIED EXTRACTION FIRST (all tables together)
+            # Per-Table Split is only used as fallback when output is truncated.
+            # This dramatically reduces LLM call count for multi-table models:
+            #   Before: 5 sub-orders × 13 chunks = 65 calls
+            #   After:  1 unified × 4-5 chunks = 5 calls (with per-table fallback if truncated)
             current_len = len(engineer_text_payload)
+            
             if current_len <= SINGLE_SHOT_CHAR_LIMIT:
-                logger.info("[BetaPipeline] Route: Single-Shot Engineer")
+                logger.info(f"[BetaPipeline] Route: Single-Shot Engineer ({num_table_fields} table fields, {current_len} chars)")
                 output = await self._run_engineer(text_work_order, engineer_text_payload, model)
                 
                 # Fallback 1: Input too large
@@ -264,12 +264,13 @@ class BetaPipeline(ExtractionPipeline):
                     logger.warning("[BetaPipeline] Single-Shot truncated! Falling back to Chunked Engineer.")
                     output = await self._run_engineer_chunked(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
             else:
-                logger.info("[BetaPipeline] Route: Chunked Engineer with Header Preservation")
+                logger.info(f"[BetaPipeline] Route: Chunked Engineer ({num_table_fields} table fields, {current_len} chars)")
                 output = await self._run_engineer_chunked(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
                 
-            # Fallback 2: Output schema too large (even single table can be massive)
-            if output.get("_truncated"):
-                logger.warning("[BetaPipeline] Chunked Engineer ALSO truncated! Falling back to Schema Split (Per Table).")
+            # Fallback 2: Output truncated (completion tokens exhausted) → Per-Table Split
+            # This is the ONLY path to per-table split now, ensuring it's used only when needed
+            if output.get("_truncated") and num_table_fields >= 2:
+                logger.warning(f"[BetaPipeline] Unified extraction truncated with {num_table_fields} tables. Falling back to Per-Table Schema Split.")
                 output = await self._run_engineer_per_table(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
             
             return output
@@ -986,14 +987,55 @@ class BetaPipeline(ExtractionPipeline):
                 "extraction_mode": "data"
             }})
             
-        # 2. Each Table Separately
+        # 2. Each Table Separately — with sibling table disambiguation context
         for t_field in table_fields:
-            sub_orders.append({"work_order": {
+            # Build sibling context: tell the LLM what OTHER tables exist
+            # so it can distinguish which physical table in the document to extract
+            sibling_descriptions = []
+            for other_tf in table_fields:
+                if other_tf.get("key") == t_field.get("key"):
+                    continue
+                other_key = other_tf.get("key", "unknown")
+                other_instr = other_tf.get("instruction", "")
+                other_cols = list(other_tf.get("columns", {}).keys())[:5]
+                cols_str = ", ".join(other_cols) if other_cols else "N/A"
+                sibling_descriptions.append(
+                    f"  - {other_key}: {other_instr[:120]} (columns: {cols_str})"
+                )
+            
+            # Inject disambiguation into integrity_rules
+            sub_wo_inner = {
                 **wo_inner,
-                "common_fields": [], # Exclude common
-                "table_fields": [t_field], # ONLY this table
+                "common_fields": [],  # Exclude common
+                "table_fields": [t_field],  # ONLY this table
                 "extraction_mode": "table"
-            }})
+            }
+            
+            if sibling_descriptions:
+                current_target_key = t_field.get("key", "unknown")
+                current_target_instr = t_field.get("instruction", "")
+                disambiguation_rule = (
+                    f"MULTI-TABLE DISAMBIGUATION (CRITICAL): This document contains "
+                    f"{len(table_fields)} different table types. You are extracting ONLY "
+                    f"'{current_target_key}'. "
+                    f"DO NOT extract rows that belong to these OTHER tables:\n"
+                    + "\n".join(sibling_descriptions)
+                    + f"\nONLY extract rows matching '{current_target_key}': {current_target_instr[:200]}"
+                )
+                existing_rules = list(sub_wo_inner.get("integrity_rules", []))
+                existing_rules.insert(0, disambiguation_rule)
+                sub_wo_inner["integrity_rules"] = existing_rules
+                
+                # Also inject as a dynamic hint for maximum visibility
+                existing_hints = list(sub_wo_inner.get("dynamic_hints", []))
+                existing_hints.insert(0, (
+                    f"This document has {len(table_fields)} separate table sections. "
+                    f"Each section has different data. You MUST find the section for "
+                    f"'{current_target_key}' specifically. If no matching section exists, return an empty array."
+                ))
+                sub_wo_inner["dynamic_hints"] = existing_hints
+            
+            sub_orders.append({"work_order": sub_wo_inner})
             
         # Process each sub-order via gather for maximum parallelism
         async def process_sub_order(sub_wo):
