@@ -85,6 +85,7 @@ class ReferenceDataService:
     
     def __init__(self):
         self._cache: Dict[str, List[ReferenceEntry]] = {}  # "model_id:category" -> entries
+        self._exact_match_index: Dict[str, Dict[str, ReferenceEntry]] = {} # O(1) exact match
         self._cache_loaded: Set[str] = set()
         self._load_locks: Dict[str, asyncio.Lock] = {}
     
@@ -423,12 +424,23 @@ class ReferenceDataService:
                     extra=item.get("extra", {})
                 ))
             
+            
+            # Build O(1) exact match index for performance
+            exact_map = {}
+            for entry in entries:
+                exact_map[entry.standard_code.lower()] = entry
+                exact_map[entry.standard_label.lower()] = entry
+                for alias in entry.aliases:
+                    exact_map[alias.lower()] = entry
+                    
             self._cache[cache_key] = entries
+            self._exact_match_index[cache_key] = exact_map
             self._cache_loaded.add(cache_key)
             logger.info(f"[ReferenceData] Loaded {len(entries)} entries for '{category}' (model {model_id})")
         except Exception as e:
             logger.error(f"[ReferenceData] Failed to load category '{category}': {e}")
             self._cache[cache_key] = []
+            self._exact_match_index[cache_key] = {}
             self._cache_loaded.add(cache_key)
 
     async def match(self, query: str, model_id: str, category: str, 
@@ -447,38 +459,33 @@ class ReferenceDataService:
         
         cache_key = self._cache_key(model_id, category)
         entries = self._cache.get(cache_key, [])
+        exact_map = self._exact_match_index.get(cache_key, {})
         
         query_lower = query.lower().strip()
+        
+        # Phase 1 & 2: O(1) Exact Match
+        exact_match = exact_map.get(query_lower)
+        if exact_match:
+            return MatchResult(
+                standard_code=exact_match.standard_code,
+                standard_label=exact_match.standard_label,
+                category=category,
+                score=1.0,
+                matched_alias=query,
+                extra=exact_match.extra
+            )
+            
         best_match = None
         best_score = 0.0
         best_alias = ""
         
-        for entry in entries:
-            # Phase 1: Exact match (fastest)
-            if query_lower == entry.standard_code.lower() or query_lower == entry.standard_label.lower():
-                return MatchResult(
-                    standard_code=entry.standard_code,
-                    standard_label=entry.standard_label,
-                    category=category,
-                    score=1.0,
-                    matched_alias=query,
-                    extra=entry.extra
-                )
-            
-            # Phase 2: Alias exact match
-            for alias in entry.aliases:
-                if query_lower == alias.lower():
-                    return MatchResult(
-                        standard_code=entry.standard_code,
-                        standard_label=entry.standard_label,
-                        category=category,
-                        score=1.0,
-                        matched_alias=alias,
-                        extra=entry.extra
-                    )
-            
-            # Phase 3: Fuzzy match
-            # Adaptive Scoring Policy based on category
+        # Phase 3: Fuzzy match (CPU intensive)
+        # Adaptive Scoring Policy based on category
+        for idx, entry in enumerate(entries):
+            # Yield event loop every 100 entries to prevent server freeze on large tables
+            if idx % 100 == 0:
+                await asyncio.sleep(0)
+                
             if category in ["currency", "port", "route"]:
                 # Strict matching (e.g. "US" vs "USD")
                 code_score = fuzz.ratio(query_lower, entry.standard_code.lower()) / 100.0

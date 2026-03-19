@@ -25,7 +25,7 @@ data = {
 }
 
 df = pd.DataFrame(data)
-
+df = pd.concat([df]*2000, ignore_index=True)
 # Add some empty rows at the top to simulate the real file
 df.index = df.index + 550
 
