@@ -555,6 +555,38 @@ class LayoutParser:
                 return p["global_page_number"]
         return 1 # Fallback
 
+    def _extract_unclaimed_text(self, start: int, end: int) -> str:
+        """Extract non-cell text fragments from within a table replacement span.
+        
+        When Azure DI treats a form (key-value metadata + data table) as a single
+        table object, the replacement span [start, end) covers metadata text that
+        is NOT part of any cell. This method recovers those fragments using the
+        claimed_mask to distinguish cell text from metadata text.
+        
+        Returns recovered text fragments joined by newlines, or empty string.
+        """
+        fragments = []
+        current_fragment = []
+        content_len = len(self.full_content)
+        
+        for i in range(start, min(end, content_len)):
+            if not self.claimed_mask[i]:
+                current_fragment.append(self.full_content[i])
+            else:
+                if current_fragment:
+                    text = "".join(current_fragment).strip()
+                    if text and len(text) >= 2:  # Skip whitespace-only fragments
+                        fragments.append(text)
+                    current_fragment = []
+        
+        # Final fragment
+        if current_fragment:
+            text = "".join(current_fragment).strip()
+            if text and len(text) >= 2:
+                fragments.append(text)
+        
+        return "\n".join(fragments)
+
     def _reconstruct_text(self) -> str:
         """Flatten original text with inserted tags and markdown table replacements."""
         # Sort table replacements by start position (non-overlapping assumed)
@@ -597,7 +629,13 @@ class LayoutParser:
                     continue  # Skip overlapping (shouldn't happen)
                 # Append text before table
                 chunks.append(self.full_content[last_pos:s])
-                # Append markdown table (replaces original text from s to e)
+                # Preserve non-cell text trapped inside the table span.
+                # Azure DI form tables can span metadata (Invoice No, Date, etc.)
+                # that is NOT part of the cell grid — recover it here.
+                unclaimed = self._extract_unclaimed_text(s, e)
+                if unclaimed.strip():
+                    chunks.append(unclaimed + "\n")
+                # Append markdown table (replaces original cell text from s to e)
                 chunks.append(md)
                 last_pos = e
             else:
