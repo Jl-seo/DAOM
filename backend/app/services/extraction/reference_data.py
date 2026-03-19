@@ -85,6 +85,7 @@ class ReferenceDataService:
     
     def __init__(self):
         self._cache: Dict[str, List[ReferenceEntry]] = {}  # "model_id:category" -> entries
+        self._flattened_cache: Dict[str, List[tuple]] = {} # Pre-lowercased tuples: (entry, code, label, aliases)
         self._exact_match_index: Dict[str, Dict[str, ReferenceEntry]] = {} # O(1) exact match
         self._cache_loaded: Set[str] = set()
         self._load_locks: Dict[str, asyncio.Lock] = {}
@@ -425,21 +426,30 @@ class ReferenceDataService:
                 ))
             
             
-            # Build O(1) exact match index for performance
+            # Build O(1) exact match index and pre-lowercased tuples for O(N) fuzzy search
             exact_map = {}
+            flattened = []
             for entry in entries:
-                exact_map[entry.standard_code.lower()] = entry
-                exact_map[entry.standard_label.lower()] = entry
-                for alias in entry.aliases:
-                    exact_map[alias.lower()] = entry
+                code_low = entry.standard_code.lower()
+                label_low = entry.standard_label.lower()
+                aliases_low = [a.lower() for a in entry.aliases]
+                
+                exact_map[code_low] = entry
+                exact_map[label_low] = entry
+                for a_low in aliases_low:
+                    exact_map[a_low] = entry
+                    
+                flattened.append((entry, code_low, label_low, aliases_low))
                     
             self._cache[cache_key] = entries
+            self._flattened_cache[cache_key] = flattened
             self._exact_match_index[cache_key] = exact_map
             self._cache_loaded.add(cache_key)
             logger.info(f"[ReferenceData] Loaded {len(entries)} entries for '{category}' (model {model_id})")
         except Exception as e:
             logger.error(f"[ReferenceData] Failed to load category '{category}': {e}")
             self._cache[cache_key] = []
+            self._flattened_cache[cache_key] = []
             self._exact_match_index[cache_key] = {}
             self._cache_loaded.add(cache_key)
 
@@ -458,10 +468,11 @@ class ReferenceDataService:
         await self._load_category(model_id, category)
         
         cache_key = self._cache_key(model_id, category)
-        entries = self._cache.get(cache_key, [])
         exact_map = self._exact_match_index.get(cache_key, {})
+        flattened_entries = self._flattened_cache.get(cache_key, [])
         
         query_lower = query.lower().strip()
+        query_len = len(query_lower)
         
         # Phase 1 & 2: O(1) Exact Match
         exact_match = exact_map.get(query_lower)
@@ -480,40 +491,77 @@ class ReferenceDataService:
         best_alias = ""
         
         # Phase 3: Fuzzy match (CPU intensive)
-        # Adaptive Scoring Policy based on category
-        for idx, entry in enumerate(entries):
-            # Yield event loop every 100 entries to prevent server freeze on large tables
-            if idx % 100 == 0:
+        # Using pre-lowercased tuples to avoid 300 million function calls per large extraction
+        for idx, (entry, code_low, label_low, aliases_low) in enumerate(flattened_entries):
+            # Yield event loop every 500 entries to prevent server freeze
+            if idx % 500 == 0:
                 await asyncio.sleep(0)
                 
-            if category in ["currency", "port", "route"]:
-                # Strict matching (e.g. "US" vs "USD")
-                code_score = fuzz.ratio(query_lower, entry.standard_code.lower()) / 100.0
-                label_score = fuzz.ratio(query_lower, entry.standard_label.lower()) / 100.0
+            # UN/LOCODE 3-letter suffix logic for Ports
+            if category == "port" and query_len == 3:
+                # e.g., mapping "lax" (3) to "uslax" (5)
+                # Ensure the full code length is 5 (Country + Location)
+                if len(code_low) == 5 and code_low.endswith(query_lower):
+                    return MatchResult(
+                        standard_code=entry.standard_code,
+                        standard_label=entry.standard_label,
+                        category=category,
+                        score=1.0,
+                        matched_alias=query,
+                        extra=entry.extra
+                    )
+
+            if category in ["currency", "route"]:
+                # Strict matching: Optimization - skip if length difference is too high
+                if abs(query_len - len(code_low)) > 5 and abs(query_len - len(label_low)) > 10:
+                    continue
+                    
+                code_score = fuzz.ratio(query_lower, code_low) / 100.0
+                label_score = fuzz.ratio(query_lower, label_low) / 100.0
                 alias_score = 0.0
                 best_alias_candidate = ""
-                for alias in entry.aliases:
-                    a_score = fuzz.ratio(query_lower, alias.lower()) / 100.0
+                for a_low in aliases_low:
+                    a_score = fuzz.ratio(query_lower, a_low) / 100.0
                     if a_score > alias_score:
                         alias_score = a_score
-                        best_alias_candidate = alias
-            else:
-                # Permissive matching (e.g. surcharge "DG", carrier "HMM Co.")
-                code_score = fuzz.ratio(query_lower, entry.standard_code.lower()) / 100.0
+                        best_alias_candidate = a_low
+                        
+            elif category == "port":
+                # Strict constraint on CODE matching, but permissive matching on LABEL/ALIAS
+                # This handles "Busan Korea" -> Matches label "Busan" 100% via token_set_ratio.
+                code_score = fuzz.ratio(query_lower, code_low) / 100.0
                 label_score = max(
-                    fuzz.token_set_ratio(query_lower, entry.standard_label.lower()) / 100.0,
-                    fuzz.ratio(query_lower, entry.standard_label.lower()) / 100.0
+                    fuzz.token_set_ratio(query_lower, label_low) / 100.0,
+                    fuzz.ratio(query_lower, label_low) / 100.0
                 )
                 alias_score = 0.0
                 best_alias_candidate = ""
-                for alias in entry.aliases:
+                for a_low in aliases_low:
                     a_score = max(
-                        fuzz.ratio(query_lower, alias.lower()) / 100.0,
-                        fuzz.token_set_ratio(query_lower, alias.lower()) / 100.0
+                        fuzz.ratio(query_lower, a_low) / 100.0,
+                        fuzz.token_set_ratio(query_lower, a_low) / 100.0
                     )
                     if a_score > alias_score:
                         alias_score = a_score
-                        best_alias_candidate = alias
+                        best_alias_candidate = a_low
+                        
+            else:
+                # Permissive matching (e.g. surcharge "DG", carrier "HMM Co.")
+                code_score = fuzz.ratio(query_lower, code_low) / 100.0
+                label_score = max(
+                    fuzz.token_set_ratio(query_lower, label_low) / 100.0,
+                    fuzz.ratio(query_lower, label_low) / 100.0
+                )
+                alias_score = 0.0
+                best_alias_candidate = ""
+                for a_low in aliases_low:
+                    a_score = max(
+                        fuzz.ratio(query_lower, a_low) / 100.0,
+                        fuzz.token_set_ratio(query_lower, a_low) / 100.0
+                    )
+                    if a_score > alias_score:
+                        alias_score = a_score
+                        best_alias_candidate = a_low
             
             score = max(code_score, label_score, alias_score)
             
@@ -521,6 +569,10 @@ class ReferenceDataService:
                 best_score = score
                 best_match = entry
                 best_alias = best_alias_candidate or entry.standard_code
+                
+            # Early break for >95% perfect fuzzy matches
+            if best_score >= 0.95:
+                break
         
         if best_match and best_score >= effective_threshold:
             return MatchResult(
