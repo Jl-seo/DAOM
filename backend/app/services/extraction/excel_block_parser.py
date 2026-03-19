@@ -801,6 +801,37 @@ def validate_column_mapping(
             rejected.append({"field": sub_field_key, "col": excel_col, "reason": reason})
             logger.warning(f"[Validator] Rejected {sub_field_key} → {excel_col}: {reason}")
 
+    # ── Cross-field semantic validation (domain-specific) ──
+    # Rule 1: POD ≠ Destination — same column means LLM conflated them
+    pod_col = validated.get("pod") or validated.get("POD")
+    dest_col = validated.get("destination") or validated.get("Destination") or validated.get("dest")
+    if pod_col and dest_col and pod_col == dest_col:
+        # Keep POD (more common), warn about Destination
+        dest_key = next(k for k in validated if k.lower() in ("destination", "dest"))
+        warnings.append({"field": dest_key, "col": dest_col,
+                        "reason": "POD and Destination mapped to same column — removing Destination"})
+        del validated[dest_key]
+
+    # Rule 2: Equipment header detection — consecutive money columns with equipment-like headers
+    #         suggests a rate matrix layout, log for future matrix executor use
+    money_mapped = [(sf, col) for sf, col in validated.items()
+                    if column_profiles.get(col, ColumnProfile("", "")).type_hint == "money"]
+    if len(money_mapped) >= 3:
+        header_rows_data = [rc for rc in row_classifications if rc.row_type == "header"]
+        if header_rows_data:
+            h_row = df[df["row_id"] == header_rows_data[-1].row_id]  # Use lowest header row
+            if not h_row.empty:
+                equip_pattern = re.compile(r'^\d{2}(GP|HC|DC|RF|OT|FR|TK|NOR)\b', re.IGNORECASE)
+                equip_cols = []
+                for sf, col in money_mapped:
+                    if col in h_row.columns:
+                        header_val = str(h_row.iloc[0][col]).strip() if pd.notna(h_row.iloc[0][col]) else ""
+                        if equip_pattern.match(header_val):
+                            equip_cols.append((sf, col, header_val))
+                if equip_cols:
+                    logger.info(f"[Validator] Rate matrix detected: {len(equip_cols)} equipment columns: "
+                               f"{[(c[2]) for c in equip_cols]}")
+
     return {"validated_mapping": validated, "rejected": rejected, "warnings": warnings}
 
 
@@ -904,6 +935,25 @@ def field_aware_expand(rows: List[Dict], sub_field_keys: List[str]) -> List[Dict
 
 
 # ──────────────────────────────────────────────
+# Utility: Consecutive Money Column Counter
+# ──────────────────────────────────────────────
+
+def _count_consecutive_money(column_profiles: Dict[str, ColumnProfile], data_cols: list) -> int:
+    """Count the longest run of consecutive money-type columns.
+    A high count (≥3) is a strong signal for a rate matrix layout."""
+    max_run = 0
+    current_run = 0
+    for col in data_cols:
+        p = column_profiles.get(col)
+        if p and p.type_hint == "money":
+            current_run += 1
+            max_run = max(max_run, current_run)
+        else:
+            current_run = 0
+    return max_run
+
+
+# ──────────────────────────────────────────────
 # Utility: Build Block Summary for LLM
 # ──────────────────────────────────────────────
 
@@ -959,12 +1009,34 @@ def build_block_summary(
                     row_dict[c] = val
             sample_rows.append(row_dict)
 
+    # Header rows raw — each header row preserved separately for LLM
+    header_rows_raw = []
+    for h_rc in header_rows[:3]:
+        h_row_df = df[df["row_id"] == h_rc.row_id]
+        if not h_row_df.empty:
+            row_dict = {}
+            for c in data_cols:
+                if c not in df.columns:
+                    continue
+                val = str(h_row_df.iloc[0][c]).strip() if pd.notna(h_row_df.iloc[0][c]) else ""
+                if val and val.lower() != "nan":
+                    row_dict[c] = val
+            if row_dict:
+                header_rows_raw.append(row_dict)
+
     # Group label values
     group_rows = [rc for rc in row_classifications if rc.row_type == "group_label" and rc.group_label]
     group_labels = list(dict.fromkeys(rc.group_label for rc in group_rows))[:5]
 
     # Column profiles: top 15 by non_empty_count
     sorted_profiles = sorted(column_profiles.items(), key=lambda x: x[1].non_empty_count, reverse=True)[:15]
+
+    # Measure column hints — money/port column clusters for rate matrix detection
+    measure_column_hints = {
+        "money_columns": [c for c, p in column_profiles.items() if p.type_hint == "money"],
+        "port_columns": [c for c, p in column_profiles.items() if p.type_hint == "port_code"],
+        "consecutive_money_count": _count_consecutive_money(column_profiles, data_cols),
+    }
 
     return {
         "sheet": block.sheet_name,
@@ -973,14 +1045,16 @@ def build_block_summary(
         "row_count": block.row_count,
         "block_type": block.block_type,
         "column_span": f"{block.col_start}-{block.col_end}" if block.col_start else "unknown",
-        "active_columns": block.active_columns[:20],  # cap for summary
+        "active_columns": block.active_columns[:20],
         "header_candidates": header_values,
+        "header_rows_raw": header_rows_raw,
         "data_sample": sample_rows,
         "group_labels": group_labels,
         "column_profiles": {
             c: {"type_hint": p.type_hint, "sample": p.sample[:3]}
             for c, p in sorted_profiles
         },
+        "measure_column_hints": measure_column_hints,
         "detected_context": {k: v for k, v in block_context.items() if not k.startswith("_")},
         "row_classification_summary": {
             "header": len([r for r in row_classifications if r.row_type == "header"]),

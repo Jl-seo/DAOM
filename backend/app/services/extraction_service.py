@@ -22,6 +22,56 @@ from openai import AsyncAzureOpenAI
 
 logger = logging.getLogger(__name__)
 
+# Keys injected by post-processing (reference_data, vibe_dictionary, post_processor)
+# for debugging but bloat storage massively on large tables (13K rows → 55 MB).
+_DEBUG_CELL_KEYS = {"_modifier", "_modifier_history", "_modified_from", "_original_value", "raw_value"}
+# Extra keys to strip only inside table rows (lists) — bbox/original_value
+# are heavy per-cell and unused by frontend for table display.
+_TABLE_ROW_STRIP_KEYS = {"original_value", "bbox", "page_number"}
+_DEBUG_TOP_KEYS = {"_dict_evidence"}
+
+
+def _strip_debug_metadata(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove per-cell debug metadata from guide_extracted to keep payloads small.
+
+    - All cells: strip _modifier*, raw_value (debug-only)
+    - Table rows (inside lists): also strip original_value, bbox, page_number
+      since the frontend hides these columns and they dominate payload size
+      (13K rows × 12 cols × bbox/original_value = ~40 MB of bloat).
+    - Single-value fields: keep bbox for PDF highlighting.
+    """
+    guide = result.get("guide_extracted")
+    if not isinstance(guide, dict):
+        return result
+
+    # Strip top-level debug keys
+    for k in _DEBUG_TOP_KEYS:
+        guide.pop(k, None)
+
+    def _clean_cell(node, is_table_row: bool = False):
+        """Clean a single cell node."""
+        if not isinstance(node, dict):
+            return
+        if "value" in node:
+            for dk in _DEBUG_CELL_KEYS:
+                node.pop(dk, None)
+            if is_table_row:
+                for dk in _TABLE_ROW_STRIP_KEYS:
+                    node.pop(dk, None)
+
+    def _clean_node(node, is_table_row: bool = False):
+        if isinstance(node, dict):
+            _clean_cell(node, is_table_row)
+            for v in node.values():
+                _clean_node(v, is_table_row)
+        elif isinstance(node, list):
+            # Items inside a list are table rows → apply aggressive stripping
+            for item in node:
+                _clean_node(item, is_table_row=True)
+
+    _clean_node(guide)
+    return result
+
 class ExtractionService:
     @property
     def azure_openai(self) -> AsyncAzureOpenAI:
@@ -203,7 +253,7 @@ class ExtractionService:
                 if barcode:
                     final_result = self._apply_dex_validation(final_result, model, barcode)
 
-                return final_result
+                return _strip_debug_metadata(final_result)
             except Exception as e:
                 import traceback
                 tb = traceback.format_exc()
@@ -323,7 +373,7 @@ class ExtractionService:
         if barcode:
             final_result = self._apply_dex_validation(final_result, model, barcode)
 
-        return final_result
+        return _strip_debug_metadata(final_result)
 
     def _filter_ocr_data(self, ocr_data: Dict[str, Any], focus_pages: List[int]) -> Dict[str, Any]:
         """Filter OCR data to only include specific pages"""
@@ -873,7 +923,7 @@ If a field is not found, return null.
             }
             logger.info(f"[Extraction DEX] Validated barcode {barcode}. Expected: {lis_expected}, Got: {llm_value}. Status: {'PASS' if is_match else 'FAIL'}")
         
-        return final_result
+        return _strip_debug_metadata(final_result)
 
 
 # Singleton Instance

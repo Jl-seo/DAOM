@@ -60,10 +60,18 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
     1. For each "table" type block, determine which schema field_key it corresponds to.
     2. Suggest column_mapping: sub_field_key → excel_column_letter based on header_candidates and column_profiles.
     3. For scalar fields, extract values from detected_context or data patterns.
+    4. For each table block, classify its table_kind:
+       - "rate_matrix": Rows are lanes (POL/POD), columns are container types (20GP, 40HC) — values are rates.
+         HINT: check measure_column_hints.consecutive_money_count ≥ 3 and header names matching equipment codes.
+       - "surcharge_table": Each row is a charge type with an amount column.
+       - "freetime_table": Each row is a container type with free days.
+       - "flat_table": Standard row-per-record table (default).
+       - "summary_table": Aggregated totals or overview data.
     
     CRITICAL RULES:
     - Use column_profiles type_hints to guide mapping. A column with type_hint "money" is likely a rate.
     - Use header_candidates to match column letters to field names.
+    - Use header_rows_raw to understand multi-row header hierarchy (upper row = group, lower row = detail).
     - If a block has detected_context (e.g., POL, Currency), those values are already extracted by Python.
     - DO NOT hallucinate columns. Only map columns that appear in header_candidates or column_profiles.
     - Semantic equivalence is encouraged: "Origin" → POL, etc.
@@ -92,6 +100,10 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
                                 "header_row_id": {"type": "integer"},
                                 "first_data_row_id": {"type": "integer"},
                                 "last_data_row_id": {"type": "integer"},
+                                "table_kind": {
+                                    "type": "string",
+                                    "enum": ["flat_table", "rate_matrix", "surcharge_table", "freetime_table", "summary_table"]
+                                },
                                 "columns_mapping": {
                                     "type": "array",
                                     "items": {
@@ -106,7 +118,7 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
                                     }
                                 }
                             },
-                            "required": ["field_key", "block_id", "sheet_name", "header_row_id", "first_data_row_id", "last_data_row_id", "columns_mapping"],
+                            "required": ["field_key", "block_id", "sheet_name", "header_row_id", "first_data_row_id", "last_data_row_id", "table_kind", "columns_mapping"],
                             "additionalProperties": False
                         }
                     },
@@ -564,7 +576,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             "last_data_row_id": t.get("last_data_row_id"),
             "columns_mapping": col_map_dict,
             "block_id": block_id,
-            "block_context": block_meta.get("context", {})
+            "block_context": block_meta.get("context", {}),
+            "table_kind": t.get("table_kind", "flat_table"),
         }
         
     # #10: Unmapped table fields — Python header-matching fallback
@@ -644,7 +657,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 "last_data_row_id": None,
                 "columns_mapping": best_col_map,
                 "block_id": best_block_id,
-                "block_context": block_meta.get("context", {})
+                "block_context": block_meta.get("context", {}),
+                "table_kind": "flat_table",  # Fallback auto-mapping always defaults to flat
             }
             logs.append({"step": f"Fallback [{f.key}]", "message": f"Auto-mapped to block {best_block_id} (score={best_score:.0%}, cols={list(best_col_map.keys())})"})
         else:
@@ -734,51 +748,191 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         if not expected_sub_keys:
             expected_sub_keys = list(col_map.keys())
 
-        for _, row in data_rows.iterrows():
-            row_has_meaningful_data = False
-            row_data = {}
-            
-            for inner_key in expected_sub_keys:
-                lookup_key = str(inner_key).strip().lower() if inner_key else ""
-                excel_col = col_map.get(lookup_key)
-                # Virtual Grid constants (Sync with ExcelGridViewer.tsx)
+        # ── Executor Routing by table_kind ────────────────────────────────
+        table_kind = t_map.get("table_kind", "flat_table")
+
+        if table_kind == "rate_matrix":
+            # ── Rate Matrix Executor ──────────────────────────────────────
+            # Unpivot: rows are lanes, columns are equipment types (20GP, 40HC),
+            # cells are rate values. Each row × equipment_col → one fact row.
+            import copy as _copy
+
+            # Identify equipment (money) columns by checking header values
+            equip_pattern = re.compile(r'^\d{2}(GP|HC|DC|RF|OT|FR|TK|NOR)\b', re.IGNORECASE)
+            block_meta_local = all_blocks_meta.get(t_map.get("block_id"), {})
+            header_rows_cls = [rc for rc in block_meta_local.get("row_classifications", [])
+                               if rc.row_type == "header"] if block_meta_local else []
+
+            # Build equipment_cols: list of (excel_col_letter, header_name)
+            equipment_cols = []
+            non_equip_col_map = {}  # sub_field_key → excel_col for non-equipment fields
+
+            if header_rows_cls:
+                h_row = df[df["row_id"] == header_rows_cls[-1].row_id]
+                if not h_row.empty:
+                    for sf_key, excel_col in col_map.items():
+                        if excel_col in h_row.columns:
+                            hdr = str(h_row.iloc[0][excel_col]).strip() if pd.notna(h_row.iloc[0][excel_col]) else ""
+                            if equip_pattern.match(hdr):
+                                equipment_cols.append((excel_col, hdr))
+                            else:
+                                non_equip_col_map[sf_key] = excel_col
+                        else:
+                            non_equip_col_map[sf_key] = excel_col
+            else:
+                # No header info — fall through to flat_table
+                non_equip_col_map = col_map
+                logger.warning(f"[RateMatrix] No header rows for block, falling back to flat_table for {target_key}")
+
+            if equipment_cols:
+                # Determine target sub_field keys for container_type and rate
+                ct_key = None
+                rate_key = None
+                for sk in expected_sub_keys:
+                    sk_lower = str(sk).strip().lower()
+                    if sk_lower in ("container_type", "equipment", "cntr_type", "eq_type", "container"):
+                        ct_key = sk
+                    elif sk_lower in ("rate", "freight", "amount", "charge", "o_f", "of"):
+                        rate_key = sk
+
+                if not ct_key:
+                    ct_key = "container_type"
+                if not rate_key:
+                    rate_key = "rate"
+
                 VIRTUAL_WIDTH = 1000
                 CELL_HEIGHT = 50
-                col_count = len(df.columns) - 3  # Subtract metadata cols
+                col_count = len(df.columns) - 3
                 cell_width = VIRTUAL_WIDTH / max(1, col_count)
-                
-                # Check if we have mapped column and the cell has data
-                if excel_col and excel_col in row and pd.notna(row[excel_col]):
-                    val = str(row[excel_col]).strip()
-                    if val and val.lower() != "nan":
-                        row_has_meaningful_data = True
-                        
-                        # #3: NO ref_data normalization here — raw extraction only.
-                        # Normalization happens in common post-processing stage.
-                        
-                        # Calculate Virtual BBox
-                        bbox = None
-                        try:
-                            col_idx = df.columns.tolist().index(excel_col) - 3
-                            row_idx = int(row["local_row_id"])
-                            
-                            x1 = col_idx * cell_width
-                            y1 = row_idx * CELL_HEIGHT
-                            x2 = x1 + cell_width
-                            y2 = y1 + CELL_HEIGHT
-                            bbox = [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
-                        except Exception:
-                            pass
-                            
-                        row_data[inner_key] = {
-                            "value": val,
-                            "confidence": 0.95,
-                            "validation_status": "valid",
-                            "original_value": str(row[excel_col]).strip(),
-                            "bbox": bbox
-                        }
+
+                for _, row in data_rows.iterrows():
+                    # Extract non-equipment (dimension) values once
+                    base_row = {}
+                    has_any_data = False
+                    for sf_key, excel_col in non_equip_col_map.items():
+                        if excel_col and excel_col in row and pd.notna(row[excel_col]):
+                            val = str(row[excel_col]).strip()
+                            if val and val.lower() != "nan":
+                                has_any_data = True
+                                base_row[sf_key] = {
+                                    "value": val,
+                                    "confidence": 0.95,
+                                    "validation_status": "valid",
+                                    "original_value": val,
+                                    "bbox": None
+                                }
+                            else:
+                                base_row[sf_key] = {"value": "", "confidence": 0.0,
+                                                    "validation_status": "flagged", "original_value": "", "bbox": None}
+                        else:
+                            base_row[sf_key] = {"value": "", "confidence": 0.0,
+                                                "validation_status": "flagged", "original_value": "", "bbox": None}
+
+                    if not has_any_data:
+                        continue
+
+                    # Unpivot: one fact row per equipment column
+                    for eq_col, eq_header in equipment_cols:
+                        if eq_col in row and pd.notna(row[eq_col]):
+                            rate_val = str(row[eq_col]).strip()
+                            if not rate_val or rate_val.lower() == "nan":
+                                continue
+
+                            fact_row = _copy.deepcopy(base_row)
+                            fact_row[ct_key] = {
+                                "value": eq_header,
+                                "confidence": 0.95,
+                                "validation_status": "valid",
+                                "original_value": eq_header,
+                                "bbox": None
+                            }
+                            fact_row[rate_key] = {
+                                "value": rate_val,
+                                "confidence": 0.95,
+                                "validation_status": "valid",
+                                "original_value": rate_val,
+                                "bbox": None
+                            }
+                            # Fill any missing expected sub_fields
+                            for sk in expected_sub_keys:
+                                if sk not in fact_row:
+                                    fact_row[sk] = {"value": "", "confidence": 0.0,
+                                                    "validation_status": "flagged", "original_value": "", "bbox": None}
+
+                            fact_row["_meta"] = {
+                                "sheet_name": sheet,
+                                "sheet_index": sheet_index,
+                                "row_id": int(row["row_id"]),
+                                "local_row_id": int(row["local_row_id"]) if "local_row_id" in row.index else 0
+                            }
+                            extracted_table_rows.append(fact_row)
+
+                logs.append({"step": f"Table [{target_key}] RateMatrix",
+                             "message": f"Unpivoted {len(data_rows)} source rows × {len(equipment_cols)} equipment cols → {len(extracted_table_rows)} fact rows"})
+                logger.info(f"[RateMatrix] {target_key}: {len(extracted_table_rows)} fact rows from {len(data_rows)} source rows × {len(equipment_cols)} eq cols")
+
+            else:
+                # No equipment columns detected — fall through to generic executor below
+                table_kind = "flat_table"
+
+        _rate_matrix_handled = (table_kind == "rate_matrix" and len(extracted_table_rows) > 0)
+
+        if not _rate_matrix_handled:
+            # ── Generic Flat Table Executor ────────────────────────────────
+            for _, row in data_rows.iterrows():
+                row_has_meaningful_data = False
+                row_data = {}
+
+                for inner_key in expected_sub_keys:
+                    lookup_key = str(inner_key).strip().lower() if inner_key else ""
+                    excel_col = col_map.get(lookup_key)
+                    # Virtual Grid constants (Sync with ExcelGridViewer.tsx)
+                    VIRTUAL_WIDTH = 1000
+                    CELL_HEIGHT = 50
+                    col_count = len(df.columns) - 3  # Subtract metadata cols
+                    cell_width = VIRTUAL_WIDTH / max(1, col_count)
+
+                    # Check if we have mapped column and the cell has data
+                    if excel_col and excel_col in row and pd.notna(row[excel_col]):
+                        val = str(row[excel_col]).strip()
+                        if val and val.lower() != "nan":
+                            row_has_meaningful_data = True
+
+                            # #3: NO ref_data normalization here — raw extraction only.
+                            # Normalization happens in common post-processing stage.
+
+                            # Calculate Virtual BBox
+                            bbox = None
+                            try:
+                                col_idx = df.columns.tolist().index(excel_col) - 3
+                                row_idx = int(row["local_row_id"])
+
+                                x1 = col_idx * cell_width
+                                y1 = row_idx * CELL_HEIGHT
+                                x2 = x1 + cell_width
+                                y2 = y1 + CELL_HEIGHT
+                                bbox = [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
+                            except Exception:
+                                pass
+
+                            row_data[inner_key] = {
+                                "value": val,
+                                "confidence": 0.95,
+                                "validation_status": "valid",
+                                "original_value": str(row[excel_col]).strip(),
+                                "bbox": bbox
+                            }
+                        else:
+                            # Empty but mapped string
+                            row_data[inner_key] = {
+                                "value": "",
+                                "confidence": 0.0,
+                                "validation_status": "flagged",
+                                "original_value": "",
+                                "bbox": None
+                            }
                     else:
-                        # Empty but mapped string
+                        # Unmapped Column, or completely empty NaN cell
                         row_data[inner_key] = {
                             "value": "",
                             "confidence": 0.0,
@@ -786,25 +940,16 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                             "original_value": "",
                             "bbox": None
                         }
-                else:
-                    # Unmapped Column, or completely empty NaN cell
-                    row_data[inner_key] = {
-                        "value": "",
-                        "confidence": 0.0,
-                        "validation_status": "flagged",
-                        "original_value": "",
-                        "bbox": None
+
+                if row_has_meaningful_data:
+                    # #4: Source trace as _meta bucket (not a sub_field)
+                    row_data["_meta"] = {
+                        "sheet_name": sheet,
+                        "sheet_index": sheet_index,
+                        "row_id": int(row["row_id"]),
+                        "local_row_id": int(row["local_row_id"]) if "local_row_id" in row.index else 0
                     }
-            
-            if row_has_meaningful_data:
-                # #4: Source trace as _meta bucket (not a sub_field)
-                row_data["_meta"] = {
-                    "sheet_name": sheet,
-                    "sheet_index": sheet_index,
-                    "row_id": int(row["row_id"]),
-                    "local_row_id": int(row["local_row_id"]) if "local_row_id" in row.index else 0
-                }
-                extracted_table_rows.append(row_data)
+                    extracted_table_rows.append(row_data)
                 
         # ── Phase E: Context Inheritance ──────────────────────────────────
         # Fill empty fields from block_context (POL, Currency, Start_Date, etc.)
@@ -920,11 +1065,4 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         }
     }
     
-    with open("excel_debug.json", "w", encoding="utf-8") as f:
-        json.dump({
-            "mapping_plan": mapping_plan,
-            "raw_extracted": raw_extracted,
-            "file_columns": list(df.columns) if 'df' in locals() else []
-        }, f, ensure_ascii=False, indent=2)
-
     return final_payload
