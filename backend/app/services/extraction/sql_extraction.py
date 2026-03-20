@@ -625,6 +625,76 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             "block_context": block_meta.get("context", {}),
             "table_kind": t.get("table_kind", "flat_table"),
         }
+    
+    # ── Phase C-2: Deterministic Sheet Enforcement ────────────────────
+    # LLM sheet selection is non-deterministic. Python overrides based on
+    # sheet_role classification when there's a clear mismatch.
+    _FIELD_ROLE_MAP = {
+        # field_key patterns → expected sheet_role(s)
+        "rate": ["primary_rate"],
+        "basic": ["primary_rate"],
+        "main": ["primary_rate"],
+        "surcharge": ["surcharge"],
+        "add_on": ["surcharge", "special_equipment", "transshipment"],
+        "optional": ["surcharge", "special_equipment"],
+        "freetime": ["freetime"],
+        "free_time": ["freetime"],
+    }
+    
+    if sheet_classifications:
+        role_to_sheets = {}
+        role_to_best_block = {}
+        for sc in sheet_classifications:
+            role = sc["sheet_role"]
+            role_to_sheets.setdefault(role, []).append(sc["sheet_name"])
+        # Find largest table block per sheet role
+        for bid, meta in all_blocks_meta.items():
+            block = meta["block"]
+            sc_match = next((sc for sc in sheet_classifications if sc["sheet_name"] == block.sheet_name), None)
+            if sc_match and block.block_type == "table":
+                role = sc_match["sheet_role"]
+                existing = role_to_best_block.get(role)
+                if not existing or block.row_count > existing["block"].row_count:
+                    role_to_best_block[role] = {"block_id": bid, "block": block}
+        
+        for field_key, tmap in list(tables_map.items()):
+            current_sheet = str(tmap.get("sheet_name", "")).strip().lower()
+            current_role = next(
+                (sc["sheet_role"] for sc in sheet_classifications if sc["sheet_name"].strip().lower() == current_sheet),
+                "unknown"
+            )
+            
+            # Check if field_key suggests a specific sheet role
+            fk_lower = field_key.lower()
+            expected_roles = []
+            for pattern, roles in _FIELD_ROLE_MAP.items():
+                if pattern in fk_lower:
+                    expected_roles = roles
+                    break
+            
+            if expected_roles and current_role not in expected_roles:
+                # LLM picked wrong sheet type — try to override
+                for target_role in expected_roles:
+                    if target_role in role_to_best_block:
+                        best = role_to_best_block[target_role]
+                        best_block = best["block"]
+                        best_meta = all_blocks_meta.get(best["block_id"], {})
+                        
+                        # Override sheet and row range
+                        tmap["sheet_name"] = best_block.sheet_name
+                        tmap["first_data_row_id"] = best_block.row_start
+                        tmap["last_data_row_id"] = best_block.row_end
+                        tmap["block_id"] = best["block_id"]
+                        tmap["block_context"] = best_meta.get("context", {})
+                        
+                        logs.append({
+                            "step": f"Sheet Override [{field_key}]",
+                            "message": f"Overrode LLM choice: '{current_sheet}' (role={current_role}) → "
+                                       f"'{best_block.sheet_name}' (role={target_role}, block={best['block_id']}, "
+                                       f"rows={best_block.row_start}..{best_block.row_end})"
+                        })
+                        logger.info(f"[SheetOverride] {field_key}: {current_sheet} → {best_block.sheet_name}")
+                        break
         
     # #10: Unmapped table fields — Python header-matching fallback
     # If LLM mapper didn't map a table field, try to find the best block
@@ -1029,6 +1099,51 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         _t_expand_done = time.monotonic() - _t_expand
         if _t_expand_done > 0.5:
             logger.warning(f"⏱️ [TIMER] field_aware_expand [{target_key}]: {_t_expand_done:.2f}s ({len(extracted_table_rows)} rows) ⚠️ SLOW")
+
+        # ── Phase F: Statistical Outlier Row Filter ───────────────────────
+        # After extraction, remove rows where key text columns contain values
+        # that don't match the dominant pattern (e.g., "도착항" among port codes).
+        # This is generic — no hardcoded keywords, works for any language.
+        if len(extracted_table_rows) > 5:
+            # Identify key text columns (likely identifiers: POL, POD, etc.)
+            key_cols = [sk for sk in expected_sub_keys if sk.lower() in ('pol', 'pod', 'por', 'pvd', 'hub_port', 'origin', 'destination')]
+            if not key_cols:
+                # Fallback: use first 2 text-like sub_fields
+                key_cols = expected_sub_keys[:2]
+            
+            for kcol in key_cols:
+                # Collect all non-empty values for this column
+                values = []
+                for row in extracted_table_rows:
+                    cell = row.get(kcol, {})
+                    v = cell.get("value", "") if isinstance(cell, dict) else str(cell)
+                    if v and str(v).strip():
+                        values.append(str(v).strip())
+                
+                if len(values) < 5:
+                    continue
+                
+                # Classify each value's pattern
+                ALPHA_UPPER = re.compile(r'^[A-Z0-9*/\s\-\.]{2,}$')  # port codes, codes
+                total = len(values)
+                upper_count = sum(1 for v in values if ALPHA_UPPER.match(v))
+                upper_ratio = upper_count / total
+                
+                # If ≥60% are uppercase codes, filter out non-matching values
+                if upper_ratio >= 0.6:
+                    before_len = len(extracted_table_rows)
+                    extracted_table_rows = [
+                        row for row in extracted_table_rows
+                        if not row.get(kcol) or  # keep rows with empty value
+                        not isinstance(row.get(kcol), dict) or
+                        not row[kcol].get("value") or
+                        str(row[kcol]["value"]).strip() == "" or
+                        ALPHA_UPPER.match(str(row[kcol]["value"]).strip())
+                    ]
+                    removed = before_len - len(extracted_table_rows)
+                    if removed > 0:
+                        logs.append({"step": f"Outlier Filter [{target_key}/{kcol}]",
+                                     "message": f"Removed {removed} rows with non-matching {kcol} pattern (dominant={upper_ratio:.0%} uppercase codes)"})
 
         _t_table_done = time.monotonic() - _t_table_start
         logger.info(f"⏱️ [TIMER] Table [{target_key}] total: {_t_table_done:.2f}s ({len(extracted_table_rows)} rows from {len(data_rows)} source)")
