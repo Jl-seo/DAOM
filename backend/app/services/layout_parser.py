@@ -333,11 +333,17 @@ class LayoutParser:
             # --- Step 3: Register table replacement ---
             if table_span_start is not None and table_span_end is not None:
                 self._table_replacements.append((table_span_start, table_span_end, markdown_table))
+                logger.info(
+                    f"[LayoutParser] Table registered: span=[{table_span_start}, {table_span_end}], "
+                    f"grid={max_row+1}x{max_col+1}, "
+                    f"md_first_row={md_rows[0][:80] if md_rows else '(empty)'}"
+                )
             else:
                 # Table with no locatable spans — append as insertion at best guess
                 # Use first paragraph after table or end of content
                 insert_at = offset_shift
                 self._table_replacements.append((insert_at, insert_at, markdown_table))
+                logger.warning(f"[LayoutParser] Table with no spans, inserted at offset {insert_at}")
 
     def _pass_entities(self):
         """Priority 2: Tag NLP Entities in Unclaimed areas"""
@@ -591,6 +597,13 @@ class LayoutParser:
         """Flatten original text with inserted tags and markdown table replacements."""
         # Sort table replacements by start position (non-overlapping assumed)
         table_repls = sorted(getattr(self, '_table_replacements', []), key=lambda x: x[0])
+
+        # Diagnostic: log all table replacements and detect overlaps
+        if table_repls:
+            logger.info(f"[LayoutParser] _reconstruct_text: {len(table_repls)} table replacement(s)")
+            for i, (s, e, _md) in enumerate(table_repls):
+                overlap = "OVERLAP" if i > 0 and s < table_repls[i-1][1] else "ok"
+                logger.info(f"  Table {i}: span=[{s}, {e}] len={e-s} {overlap}")
 
         # Filter out insertions that fall within table replacement zones
         # (table cells already have tags embedded in the markdown)
