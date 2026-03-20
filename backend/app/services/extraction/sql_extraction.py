@@ -12,7 +12,7 @@ from app.services.llm import get_openai_client, get_current_model
 logger = logging.getLogger(__name__)
 
 
-async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extractor_llm: str) -> Dict[str, Any]:
+async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extractor_llm: str, sheet_classifications: list = None) -> Dict[str, Any]:
     """
     Phase B: LLM Semantic Mapper (reduced role).
     
@@ -44,13 +44,30 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
             ]
         fields_context.append(entry)
     
+    # Build sheet overview section for LLM
+    sheet_overview = ""
+    if sheet_classifications:
+        sheet_overview = f"""
+    WORKBOOK STRUCTURE (Sheet-level overview — read this FIRST):
+    {json.dumps(sheet_classifications, ensure_ascii=False, indent=2)}
+    
+    SHEET ROLE GUIDE:
+    - sheet_role="primary_rate" → Main freight rate table. Map Basic_Rate_List / primary rate fields here FIRST.
+    - sheet_role="surcharge" → Surcharge/add-on rates. Map Optional_Rate_List / Add_On_Rate_List here.
+    - sheet_role="reefer" / "dangerous" / "special_equipment" → Specialized cargo rates.
+    - sheet_role="transshipment" → Transshipment/feeder rates (secondary, often duplicates main rates for specific routes).
+    - sheet_role="summary" → Overview/brief tables (avoid mapping primary data here).
+    - Prefer sheets with higher row_count and sheet_index=0 for primary rate data.
+    - A "transshipment" sheet may contain valid rate data, but prefer "primary_rate" sheet if both exist.
+    """
+
     prompt = f"""
     You are an expert Data Extractor. You are given PRE-ANALYZED block summaries from an Excel file.
     Python has already segmented the sheet into blocks, classified rows, and profiled column data types.
     
     Your job is ONLY to provide semantic interpretation — match blocks to schema fields and suggest column mappings.
     Your suggestions will be VALIDATED by a Python validator, so provide your best guess.
-    
+    {sheet_overview}
     PRE-ANALYZED BLOCK SUMMARIES:
     {json.dumps(block_summaries, ensure_ascii=False, indent=2)}
     
@@ -58,10 +75,13 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
     {json.dumps(fields_context, ensure_ascii=False, indent=2)}
     
     YOUR TASKS:
-    1. For each "table" type block, determine which schema field_key it corresponds to.
-    2. Suggest column_mapping: sub_field_key → excel_column_letter based on header_candidates and column_profiles.
-    3. For scalar fields, extract values from detected_context or data patterns.
-    4. For each table block, classify its table_kind:
+    1. Review the WORKBOOK STRUCTURE first to understand each sheet's role.
+    2. For each "table" type schema field, pick the block from the most appropriate sheet.
+       - For primary rate fields (e.g., Basic_Rate_List), prefer blocks from sheets with role="primary_rate".
+       - For surcharge fields, prefer blocks from sheets with role="surcharge".
+    3. Suggest column_mapping: sub_field_key → excel_column_letter based on header_candidates and column_profiles.
+    4. For scalar fields, extract values from detected_context or data patterns.
+    5. For each table block, classify its table_kind:
        - "rate_matrix": Rows are lanes (POL/POD), columns are container types (20GP, 40HC) — values are rates.
          HINT: check measure_column_hints.consecutive_money_count ≥ 3 and header names matching equipment codes.
        - "surcharge_table": Each row is a charge type with an amount column.
@@ -70,13 +90,14 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
        - "summary_table": Aggregated totals or overview data.
     
     CRITICAL RULES:
+    - ALWAYS consult the WORKBOOK STRUCTURE before choosing a block. Sheet role is a strong signal.
     - Use column_profiles type_hints to guide mapping. A column with type_hint "money" is likely a rate.
     - Use header_candidates to match column letters to field names.
     - Use header_rows_raw to understand multi-row header hierarchy (upper row = group, lower row = detail).
     - If a block has detected_context (e.g., POL, Currency), those values are already extracted by Python.
     - DO NOT hallucinate columns. Only map columns that appear in header_candidates or column_profiles.
-    - Semantic equivalence is encouraged: "Origin" → POL, etc.
-    - IMPORTANT: POD (Port of Discharge, e.g. USLAX) and Destination (final delivery city, e.g. CHICAGO,IL) are DIFFERENT fields. Do NOT conflate them. POD contains port codes, Destination contains city names.
+    - Semantic equivalence is encouraged: "Origin" → POL, "O/F" → Ocean Freight rate, etc.
+    - IMPORTANT: POD (Port of Discharge, e.g. USLAX) and Destination (final delivery city, e.g. CHICAGO,IL) are DIFFERENT fields. Do NOT conflate them.
     - For row boundaries, use the block's row_range. Python has already classified header vs data rows.
     - For scalars, provide the value if available in detected_context. Otherwise use null.
     """
@@ -355,7 +376,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     from app.services.extraction.excel_block_parser import (
         detect_blocks, classify_rows, profile_columns,
         extract_block_context, validate_column_mapping,
-        field_aware_expand, build_block_summary
+        field_aware_expand, build_block_summary, classify_sheets
     )
     from dataclasses import asdict
     
@@ -388,10 +409,14 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     logger.info(f"[Phase A] Detected {len(all_block_summaries)} blocks across {len(sheet_names)} sheets")
     logs = [{"step": "Block Detection", "message": f"Detected {len(all_block_summaries)} blocks across {len(sheet_names)} sheets"}]
     
+    # ── Phase A-2: Sheet Classification (workbook table of contents) ────
+    sheet_classifications = classify_sheets(df, all_block_summaries)
+    logs.append({"step": "Sheet Classification", "message": json.dumps([{"sheet": s['sheet_name'], "role": s['sheet_role'], "rows": s['row_count']} for s in sheet_classifications], ensure_ascii=False)})
+    
     # ── Phase B: LLM Semantic Mapper (reduced role) ──────────────────────
     extractor_llm = getattr(model, "extractor_llm", None)
     
-    mapping_plan = await _run_block_mapper(all_block_summaries, model, extractor_llm)
+    mapping_plan = await _run_block_mapper(all_block_summaries, model, extractor_llm, sheet_classifications=sheet_classifications)
     reasoning = mapping_plan.get("reasoning", "")
     token_usage = mapping_plan.pop("_token_usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
     logger.info(f"Block Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")

@@ -856,8 +856,7 @@ def should_expand_value(field_key: str, value: str) -> bool:
     elif "," in val and not re.match(r'^[A-Z\s]+,\s*[A-Z]{2}$', val):
         # Comma — but skip "CITY, STATE" patterns (e.g., "LOS ANGELES, CA")
         delimiter = ","
-
-    if not delimiter:
+    else:
         return False
 
     # Never expand dates
@@ -881,11 +880,32 @@ def should_expand_value(field_key: str, value: str) -> bool:
     if all(re.match(r'^[\d\.,\s]+$', p) for p in parts):
         return False
 
+    # ── Address-like guard ──
+    # "Oakland, Alameda, California, United States" → address, NOT multiple ports
+    # Pattern: most parts are long words (≥5 chars), capitalized, no port codes
+    if delimiter == ",":
+        long_word_parts = sum(1 for p in parts if len(p) >= 5 and re.match(r'^[A-Z][a-z]', p))
+        if long_word_parts >= len(parts) * 0.6:
+            return False
+        # Also reject if total char count is high (address descriptions)
+        if sum(len(p) for p in parts) > 60:
+            return False
+
+    # ── Surcharge/inclusion list guard ──
+    # "ACC, CAF, DDC, FCR" → abbreviation list, not expandable ports
+    if delimiter == ",":
+        all_short_upper = all(re.match(r'^[A-Z]{2,5}$', p) for p in parts)
+        if all_short_upper and len(parts) >= 3:
+            return False
+
     # Check: do parts look like port codes or geographic text?
     has_port_codes = sum(1 for p in parts if PORT_PATTERN.match(p)) >= 2
-    has_text_parts = sum(1 for p in parts if re.search(r'[A-Za-z]', p)) >= 2
+    # For slash delimiter, require port code matches
+    if delimiter == "/":
+        return has_port_codes
 
-    return has_port_codes or has_text_parts
+    # For comma, require at least 2 port codes
+    return has_port_codes
 
 
 def field_aware_expand(rows: List[Dict], sub_field_keys: List[str]) -> List[Dict]:
@@ -951,6 +971,109 @@ def _count_consecutive_money(column_profiles: Dict[str, ColumnProfile], data_col
         else:
             current_run = 0
     return max_run
+
+
+# ──────────────────────────────────────────────
+# Sheet Classification — workbook "table of contents"
+# ──────────────────────────────────────────────
+
+# Keywords for sheet role inference (case-insensitive)
+_ROLE_KEYWORDS = {
+    "primary_rate": ["main", "rate", "운임", "basic", "ocean", "freight", "o/f", "tariff"],
+    "surcharge": ["surcharge", "sur", "add", "add-on", "addon", "optional", "eu ", "ets"],
+    "reefer": ["rf", "reefer", "냉동", "냉장"],
+    "dangerous": ["dg", "dangerous", "위험물", "imdg", "hazard"],
+    "special_equipment": ["ot", "flat", "pct", "special", "soc", "oog"],
+    "summary": ["summary", "brief", "요약", "overview", "index"],
+    "transshipment": ["tpt", "t/s", "transship", "transit", "feeder"],
+    "freetime": ["free", "demurrage", "detention", "d&d", "dm/dt"],
+}
+
+
+def classify_sheets(
+    df: pd.DataFrame,
+    all_block_summaries: list,
+) -> List[Dict[str, Any]]:
+    """Create a per-sheet summary for LLM context — like a workbook table of contents.
+
+    Each sheet gets:
+      - name, row_count, block_count
+      - key_headers: top header values seen across blocks
+      - data_sample: first data row values
+      - dominant_types: most common column type_hints
+      - sheet_role: inferred role based on name + content
+      - sheet_index: 0-based position (first sheet often = primary)
+
+    This does NOT restrict mapping. It provides LLM with document-level orientation.
+    """
+    sheet_names = df["_sheet_name"].unique().tolist() if "_sheet_name" in df.columns else []
+    sheet_classifications = []
+
+    # Group block summaries by sheet (lowered for matching)
+    blocks_by_sheet: Dict[str, list] = {}
+    for bs in all_block_summaries:
+        sn = str(bs.get("sheet", "")).strip().lower()
+        blocks_by_sheet.setdefault(sn, []).append(bs)
+
+    for idx, sheet_name in enumerate(sheet_names):
+        sn_lower = str(sheet_name).strip().lower()
+        sheet_df = df[df["_sheet_name"] == sheet_name]
+        blocks = blocks_by_sheet.get(sn_lower, [])
+
+        # Collect headers from all blocks in this sheet
+        all_headers = []
+        all_type_hints = []
+        for bs in blocks:
+            all_headers.extend(bs.get("header_candidates", []))
+            profile_summary = bs.get("column_profile_summary", "")
+            # Extract type hints like "A:port_code, B:text, C:money"
+            for part in profile_summary.split(","):
+                part = part.strip()
+                if ":" in part:
+                    hint = part.split(":", 1)[1].strip()
+                    all_type_hints.append(hint)
+
+        # First data row sample
+        data_sample = []
+        meta_cols = {"row_id", "local_row_id", "_sheet_name", "_sheet_name_lower"}
+        data_cols = [c for c in sheet_df.columns if c not in meta_cols]
+        if len(sheet_df) > 1:  # skip header row
+            first_data = sheet_df.iloc[min(2, len(sheet_df) - 1)]
+            data_sample = [
+                str(first_data[c])[:25] for c in data_cols[:8]
+                if c in first_data.index and pd.notna(first_data[c])
+            ]
+
+        # Infer sheet role from name keywords
+        sheet_role = "unknown"
+        best_score = 0
+        for role, keywords in _ROLE_KEYWORDS.items():
+            score = sum(1 for kw in keywords if kw in sn_lower)
+            if score > best_score:
+                best_score = score
+                sheet_role = role
+        # Boost first sheet if no strong match
+        if idx == 0 and best_score == 0:
+            sheet_role = "primary_rate"
+
+        # Count dominant column types
+        type_counts: Dict[str, int] = {}
+        for t in all_type_hints:
+            type_counts[t] = type_counts.get(t, 0) + 1
+        dominant_types = sorted(type_counts.items(), key=lambda x: -x[1])[:3]
+
+        sheet_classifications.append({
+            "sheet_name": str(sheet_name),
+            "sheet_index": idx,
+            "row_count": len(sheet_df),
+            "block_count": len(blocks),
+            "sheet_role": sheet_role,
+            "key_headers": list(dict.fromkeys(all_headers))[:10],  # dedupe, first 10
+            "data_sample": data_sample[:6],
+            "dominant_col_types": [f"{t}({c})" for t, c in dominant_types],
+        })
+
+    return sheet_classifications
 
 
 # ──────────────────────────────────────────────
