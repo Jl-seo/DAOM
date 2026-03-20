@@ -265,6 +265,42 @@ class ReferenceDataService:
             logger.error(f"[ReferenceData] list_entries failed: {e}")
             return {"entries": [], "total": 0}
 
+    async def add_entry(self, entry_data: dict) -> dict:
+        """Add a single reference data entry."""
+        container = self._get_container()
+        if not container:
+            raise Exception("Reference data service not configured")
+        
+        model_id = entry_data.get("model_id", "__global__")
+        category = entry_data.get("category")
+        if not category:
+            raise ValueError("Category is required")
+        
+        import uuid
+        new_entry = {
+            "id": str(uuid.uuid4()),
+            "type": "reference_data",
+            "model_id": model_id,
+            "category": category,
+            "standard_code": entry_data.get("standard_code", ""),
+            "standard_label": entry_data.get("standard_label", ""),
+            "aliases": entry_data.get("aliases", []),
+            "source": entry_data.get("source", "MANUAL"),
+            "hit_count": 0,
+            "is_verified": entry_data.get("is_verified", True),
+            "created_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        try:
+            await container.create_item(body=new_entry)
+            self.invalidate_cache(model_id, category)
+            # Update item counts globally if necessary
+            return new_entry
+        except Exception as e:
+            logger.error(f"[ReferenceData] add_entry failed: {e}")
+            raise
+
     async def update_entry(self, entry_id: str, model_id: str, updates: dict) -> dict:
         """Update a single reference data entry."""
         container = self._get_container()
@@ -401,57 +437,57 @@ class ReferenceDataService:
             if not container:
                 return
 
-        try:
-            # Load model-specific entries + global entries (Filter for reference type exclusively)
-            query = "SELECT * FROM c WHERE c.model_id IN (@model_id, '__global__') AND c.category = @cat AND (c.entry_type = 'reference' OR NOT IS_DEFINED(c.entry_type))"
-            params = [
-                {"name": "@model_id", "value": model_id},
-                {"name": "@cat", "value": category}
-            ]
-            entries = []
-            async for item in container.query_items(
-                query=query, parameters=params
-            ):
-                entries.append(ReferenceEntry(
-                    id=item["id"],
-                    model_id=item["model_id"],
-                    category=item["category"],
-                    standard_code=item.get("standard_code", ""),
-                    standard_label=item.get("standard_label", ""),
-                    aliases=item.get("aliases", []),
-                    source=item.get("source", "ADMIN"),
-                    is_verified=item.get("is_verified", True),
-                    hit_count=item.get("hit_count", 0),
-                    extra=item.get("extra", {})
-                ))
-            
-            
-            # Build O(1) exact match index and pre-lowercased tuples for O(N) fuzzy search
-            exact_map = {}
-            flattened = []
-            for entry in entries:
-                code_low = entry.standard_code.lower()
-                label_low = entry.standard_label.lower()
-                aliases_low = [a.lower() for a in entry.aliases]
+            try:
+                # Load model-specific entries + global entries (Filter for reference type exclusively)
+                query = "SELECT * FROM c WHERE c.model_id IN (@model_id, '__global__') AND c.category = @cat AND (c.entry_type = 'reference' OR NOT IS_DEFINED(c.entry_type))"
+                params = [
+                    {"name": "@model_id", "value": model_id},
+                    {"name": "@cat", "value": category}
+                ]
+                entries = []
+                async for item in container.query_items(
+                    query=query, parameters=params
+                ):
+                    entries.append(ReferenceEntry(
+                        id=item["id"],
+                        model_id=item["model_id"],
+                        category=item["category"],
+                        standard_code=item.get("standard_code", ""),
+                        standard_label=item.get("standard_label", ""),
+                        aliases=item.get("aliases", []),
+                        source=item.get("source", "ADMIN"),
+                        is_verified=item.get("is_verified", True),
+                        hit_count=item.get("hit_count", 0),
+                        extra=item.get("extra", {})
+                    ))
                 
-                exact_map[code_low] = entry
-                exact_map[label_low] = entry
-                for a_low in aliases_low:
-                    exact_map[a_low] = entry
+                
+                # Build O(1) exact match index and pre-lowercased tuples for O(N) fuzzy search
+                exact_map = {}
+                flattened = []
+                for entry in entries:
+                    code_low = entry.standard_code.lower()
+                    label_low = entry.standard_label.lower()
+                    aliases_low = [a.lower() for a in entry.aliases]
                     
-                flattened.append((entry, code_low, label_low, aliases_low))
-                    
-            self._cache[cache_key] = entries
-            self._flattened_cache[cache_key] = flattened
-            self._exact_match_index[cache_key] = exact_map
-            self._cache_loaded.add(cache_key)
-            logger.info(f"[ReferenceData] Loaded {len(entries)} entries for '{category}' (model {model_id})")
-        except Exception as e:
-            logger.error(f"[ReferenceData] Failed to load category '{category}': {e}")
-            self._cache[cache_key] = []
-            self._flattened_cache[cache_key] = []
-            self._exact_match_index[cache_key] = {}
-            self._cache_loaded.add(cache_key)
+                    exact_map[code_low] = entry
+                    exact_map[label_low] = entry
+                    for a_low in aliases_low:
+                        exact_map[a_low] = entry
+                        
+                    flattened.append((entry, code_low, label_low, aliases_low))
+                        
+                self._cache[cache_key] = entries
+                self._flattened_cache[cache_key] = flattened
+                self._exact_match_index[cache_key] = exact_map
+                self._cache_loaded.add(cache_key)
+                logger.info(f"[ReferenceData] Loaded {len(entries)} entries for '{category}' (model {model_id})")
+            except Exception as e:
+                logger.error(f"[ReferenceData] Failed to load category '{category}': {e}")
+                self._cache[cache_key] = []
+                self._flattened_cache[cache_key] = []
+                self._exact_match_index[cache_key] = {}
+                self._cache_loaded.add(cache_key)
 
     async def match(self, query: str, model_id: str, category: str, 
                     threshold: Optional[float] = None) -> Optional[MatchResult]:
@@ -591,6 +627,11 @@ class ReferenceDataService:
         """
         Normalize all string values in extracted data using reference data matching.
         
+        BATCH OPTIMIZATION (Phase 13.1):
+        For table fields with many rows (e.g., 6000), we first collect all UNIQUE
+        values per category, match them in one pass, then apply to all rows.
+        This reduces 6000×5000=30M fuzzy comparisons to ~300×5000=1.5M.
+        
         Args:
             guide_extracted: The LLM extraction result
             model_id: Model ID for scoping reference data
@@ -609,7 +650,7 @@ class ReferenceDataService:
         ])
 
         evidence = {}
-        # Cache to avoid redundant fuzzy matching
+        # Global match cache: "value|category" -> MatchResult (shared across all fields)
         match_cache: Dict[str, Optional[MatchResult]] = {}
 
         async def _match_cached(value: str, category: str) -> Optional[MatchResult]:
@@ -618,7 +659,60 @@ class ReferenceDataService:
                 match_cache[key] = await self.match(value, model_id, category)
             return match_cache[key]
 
-        # Process top-level fields and table rows
+        # ── BATCH PHASE: Pre-compute unique values for table fields ──
+        # Collect all unique (value, category) pairs from table rows FIRST,
+        # match them in one pass, then apply results.
+        # This avoids 6000 sequential fuzzy match calls for 300 unique port names.
+        table_unique_values: Dict[str, set] = {}  # category -> set of unique values
+        
+        for key, item in guide_extracted.items():
+            if key.startswith("_"):
+                continue
+            
+            list_val = None
+            if isinstance(item, list):
+                list_val = item
+            elif isinstance(item, dict) and "value" in item and isinstance(item["value"], list):
+                list_val = item["value"]
+            
+            if list_val:
+                for row in list_val:
+                    if not isinstance(row, dict):
+                        continue
+                    for sub_key, sub_node in row.items():
+                        if sub_key.startswith("_"):
+                            continue
+                        if isinstance(sub_node, dict) and "value" in sub_node:
+                            sub_val = sub_node["value"]
+                            if isinstance(sub_val, str) and len(sub_val.strip()) >= 2:
+                                try:
+                                    float(sub_val.replace(",", ""))
+                                    continue
+                                except (ValueError, AttributeError):
+                                    pass
+                                cat = field_dict_map.get(f"{key}.{sub_key}")
+                                if cat:
+                                    if cat not in table_unique_values:
+                                        table_unique_values[cat] = set()
+                                    table_unique_values[cat].add(sub_val)
+        
+        # Pre-match all unique values (this is the expensive part, but only for UNIQUE values)
+        total_unique = sum(len(v) for v in table_unique_values.values())
+        if total_unique > 0:
+            logger.info(f"[ReferenceData] Batch pre-matching {total_unique} unique values across {len(table_unique_values)} categories")
+        
+        for cat, unique_vals in table_unique_values.items():
+            for val in unique_vals:
+                await _match_cached(val, cat)
+                # Yield event loop every 50 unique values to prevent blocking
+                if len(match_cache) % 50 == 0:
+                    await asyncio.sleep(0)
+        
+        if total_unique > 0:
+            hits = sum(1 for v in match_cache.values() if v is not None)
+            logger.info(f"[ReferenceData] Batch pre-match complete: {hits}/{total_unique} matched (cache ready)")
+
+        # ── APPLY PHASE: Now apply cached results to all rows (O(1) per cell) ──
         for key, item in guide_extracted.items():
             if key.startswith("_"):
                 continue
@@ -652,6 +746,7 @@ class ReferenceDataService:
                                 
                                 cat = field_dict_map.get(f"{key}.{sub_key}")
                                 if cat:
+                                    # All values were pre-matched in batch phase — O(1) cache lookup
                                     result = await _match_cached(sub_val, cat)
                                     if result:
                                         if "_original_value" not in sub_node:
@@ -910,14 +1005,20 @@ class ReferenceDataService:
         if model_id and category:
             key = self._cache_key(model_id, category)
             self._cache.pop(key, None)
+            self._flattened_cache.pop(key, None)
+            self._exact_match_index.pop(key, None)
             self._cache_loaded.discard(key)
         elif model_id:
             to_remove = [k for k in self._cache if k.startswith(f"{model_id}:")]
             for k in to_remove:
                 self._cache.pop(k, None)
+                self._flattened_cache.pop(k, None)
+                self._exact_match_index.pop(k, None)
                 self._cache_loaded.discard(k)
         else:
             self._cache.clear()
+            self._flattened_cache.clear()
+            self._exact_match_index.clear()
             self._cache_loaded.clear()
 
 

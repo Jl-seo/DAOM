@@ -101,6 +101,8 @@ class ExtractionService:
         
         if is_excel:
             logger.info("[Extraction] Route: NATIVE PYTHON ENGINE (Two-Track Architecture)")
+            import time as _time
+            _t_excel_total = _time.monotonic()
             try:
                 from app.services.extraction.sql_extraction import run_sql_extraction
                 from fastapi import UploadFile
@@ -113,14 +115,20 @@ class ExtractionService:
                     from fastapi.concurrency import run_in_threadpool
                     ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else 'xlsx'
                     if mime_type == "text/csv": ext = "csv"
+                    _t_parse = _time.monotonic()
                     parsed_sheets = await run_in_threadpool(ExcelParser.from_bytes, file_content, ext)
+                    _t_parse_done = _time.monotonic() - _t_parse
+                    logger.info(f"⏱️ [SVC TIMER] ExcelParser.from_bytes: {_t_parse_done:.2f}s")
                     md_content = "\n\n".join([s.get("content", "") for s in parsed_sheets])
                 except Exception as ex:
                     logger.warning(f"[Extraction] Could not parse Excel for frontend display: {ex}")
                     md_content = "Error reading Excel for display."
 
                 dummy_file = UploadFile(filename=filename, file=io.BytesIO(file_content))
+                _t_sql = _time.monotonic()
                 sql_result = await run_sql_extraction(dummy_file, model, md_content=md_content)
+                _t_sql_done = _time.monotonic() - _t_sql
+                logger.info(f"⏱️ [SVC TIMER] run_sql_extraction: {_t_sql_done:.2f}s")
                 
                 sql_result["raw_content"] = md_content
                 sql_result["_beta_parsed_content"] = md_content
@@ -155,9 +163,12 @@ class ExtractionService:
                             if field_dict_map:
                                 guide = sql_result.get("guide_extracted", {})
                                 if isinstance(guide, dict):
+                                    _t_norm = _time.monotonic()
                                     sql_result["guide_extracted"] = await ref_service.normalize_extracted_data(
                                         guide, model.id, field_dict_map
                                     )
+                                    _t_norm_done = _time.monotonic() - _t_norm
+                                    logger.info(f"⏱️ [SVC TIMER] normalize_extracted_data: {_t_norm_done:.2f}s")
                     except Exception as e:
                         logger.warning(f"[Extraction] Excel pipeline dict normalization failed (non-fatal): {e}")
                 # Step 3: Global Rule Validation
@@ -167,6 +178,8 @@ class ExtractionService:
                 if barcode:
                     sql_result = self._apply_dex_validation(sql_result, model, barcode)
                 
+                _t_excel_total_done = _time.monotonic() - _t_excel_total
+                logger.info(f"⏱️ [SVC TIMER] █ TOTAL Excel Pipeline: {_t_excel_total_done:.2f}s")
                 return sql_result
             except Exception as e:
                 import traceback

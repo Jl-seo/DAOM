@@ -1,6 +1,7 @@
 import io
 import re
 import json
+import time
 import logging
 import pandas as pd
 from typing import Dict, Any
@@ -294,6 +295,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     Two-Track Excel Extraction (Python Engine Mode).
     Phase 13: Single Source of Truth Architecture using pure Pandas.
     """
+    _t_total = time.monotonic()
     logger.info(f"Starting Two-Track Extraction for {file.filename}")
     
     file_content = await file.read()
@@ -372,7 +374,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         logger.error(f"Failed to load Excel with pandas: {e}")
         raise ValueError(f"지원하지 않거나 손상된 엑셀 구조입니다. 파일 로딩 실패: {e}")
 
+    _t_load = time.monotonic() - _t_total
+    logger.info(f"⏱️ [TIMER] Excel Load: {_t_load:.2f}s")
+
     # ── Phase A: Python Grid Parser ──────────────────────────────────────
+    _t_phase_a = time.monotonic()
     from app.services.extraction.excel_block_parser import (
         detect_blocks, classify_rows, profile_columns,
         extract_block_context, validate_column_mapping,
@@ -413,7 +419,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     sheet_classifications = classify_sheets(df, all_block_summaries)
     logs.append({"step": "Sheet Classification", "message": json.dumps([{"sheet": s['sheet_name'], "role": s['sheet_role'], "rows": s['row_count']} for s in sheet_classifications], ensure_ascii=False)})
     
+    _t_phase_a_done = time.monotonic() - _t_phase_a
+    logger.info(f"⏱️ [TIMER] Phase A (Block Parser): {_t_phase_a_done:.2f}s ({len(all_block_summaries)} blocks)")
+
     # ── Phase B: LLM Semantic Mapper (reduced role) ──────────────────────
+    _t_phase_b = time.monotonic()
     extractor_llm = getattr(model, "extractor_llm", None)
     
     mapping_plan = await _run_block_mapper(all_block_summaries, model, extractor_llm, sheet_classifications=sheet_classifications)
@@ -421,7 +431,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     token_usage = mapping_plan.pop("_token_usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
     logger.info(f"Block Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")
     
+    _t_phase_b_done = time.monotonic() - _t_phase_b
+    logger.info(f"⏱️ [TIMER] Phase B (LLM Mapper): {_t_phase_b_done:.2f}s")
+
     # ── Phase D: Pure Python Extraction Engine ────────────────────────
+    _t_phase_d = time.monotonic()
     raw_extracted = {}
     # NOTE: logs is initialized in Phase A above. Do NOT reinitialize here.
     
@@ -550,7 +564,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         else:
             logger.debug(f"Skipping empty scalar {target_key}")
 
+    _t_scalars_done = time.monotonic() - _t_phase_d
+    logger.info(f"⏱️ [TIMER] Scalar Extraction: {_t_scalars_done:.2f}s")
+
     # ── Phase C: Python Validator + Table Map Construction ─────────────
+    _t_phase_c = time.monotonic()
     raw_tables = mapping_plan.get("tables", [])
     if not isinstance(raw_tables, list):
         logger.warning(f"LLM returned invalid tables schema type: {type(raw_tables)}. Defaulting to empty list.")
@@ -690,7 +708,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         else:
             logs.append({"step": f"Unmapped [{f.key}]", "message": f"No block matched (best_score={best_score:.0%}). Table field '{f.key}' will be empty."})
     
+    _t_phase_c_done = time.monotonic() - _t_phase_c
+    logger.info(f"⏱️ [TIMER] Phase C (Validator + Map): {_t_phase_c_done:.2f}s ({len(tables_map)} tables)")
+
+    _t_table_exec = time.monotonic()
     for target_key, t_map in tables_map.items():
+        _t_table_start = time.monotonic()
         sheet = t_map.get("sheet_name", "")
         if sheet:
             sheet = str(sheet).strip().lower()
@@ -999,7 +1022,14 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         
         # ── Phase E: Field-Aware Expansion ────────────────────────────────
         # Replace inline slash expansion with type-checked version
+        _t_expand = time.monotonic()
         extracted_table_rows = field_aware_expand(extracted_table_rows, expected_sub_keys)
+        _t_expand_done = time.monotonic() - _t_expand
+        if _t_expand_done > 0.5:
+            logger.warning(f"⏱️ [TIMER] field_aware_expand [{target_key}]: {_t_expand_done:.2f}s ({len(extracted_table_rows)} rows) ⚠️ SLOW")
+
+        _t_table_done = time.monotonic() - _t_table_start
+        logger.info(f"⏱️ [TIMER] Table [{target_key}] total: {_t_table_done:.2f}s ({len(extracted_table_rows)} rows from {len(data_rows)} source)")
 
         logs.append({"step": f"Table [{target_key}] Exec", "message": f"Extracted {len(extracted_table_rows)} rows out of {len(data_rows)} target data rows."})
         raw_extracted[target_key] = {
@@ -1011,7 +1041,11 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             "_sheet_index": sheet_index
         }
 
+    _t_table_exec_done = time.monotonic() - _t_table_exec
+    logger.info(f"⏱️ [TIMER] All Table Extraction: {_t_table_exec_done:.2f}s")
+
     # ── Markdown Context-based Scalar Extraction for empty common fields ──
+    _t_md_scalar = time.monotonic()
     missing_scalar_fields = []
     for f in model.fields:
         if f.type in TABLE_TYPES:
@@ -1059,6 +1093,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         logger.info(f"[SQL Extraction] Phase 2: Filled {filled_count}/{len(missing_scalar_fields)} fields from markdown.")
         logs.append({"step": "Markdown Scalar Extraction", "message": f"Filled {filled_count}/{len(missing_scalar_fields)} empty scalar fields from Excel markdown."})
 
+    _t_md_scalar_done = time.monotonic() - _t_md_scalar
+    logger.info(f"⏱️ [TIMER] Markdown Scalar Pass: {_t_md_scalar_done:.2f}s")
+
     # 4. Fill entirely missing fields with empty schemas
     for f in model.fields:
         if f.key not in raw_extracted:
@@ -1068,6 +1105,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 raw_extracted[f.key] = {"value": "", "original_value": "", "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
 
     # 5. Apply Stage 3 Post-Processing Rules (Deterministic transformations)
+    _t_post = time.monotonic()
     import copy
     unmodified_raw = copy.deepcopy(raw_extracted)
     try:
@@ -1075,6 +1113,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         raw_extracted = apply_post_processing(raw_extracted, getattr(model, "post_process_rules", []), model.fields)
     except Exception as e:
         print(f"Post-processing error: {e}")
+    _t_post_done = time.monotonic() - _t_post
+    logger.info(f"⏱️ [TIMER] Post-Processing: {_t_post_done:.2f}s")
 
     # 6. Build Final Payload (#2: use accumulated logs, not overwrite)
     logs.insert(0, {"step": "Mapper Reasoning", "message": reasoning})
@@ -1090,5 +1130,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             "ref_map": {}
         }
     }
+    
+    _t_total_done = time.monotonic() - _t_total
+    logger.info(f"⏱️ [TIMER] █ TOTAL run_sql_extraction: {_t_total_done:.2f}s")
     
     return final_payload
