@@ -96,23 +96,33 @@ async def run_pipeline_job(
         if result.get("error"):
              await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
              if job and getattr(job, "original_log_id", None):
-                 await extraction_logs.update_log_status(
-                     log_id=str(job.original_log_id),
-                     status=ExtractionStatus.ERROR.value,
-                     error=result["error"]
-                 )
+                 try:
+                     await extraction_logs.update_log_status(
+                         log_id=str(job.original_log_id),
+                         status=ExtractionStatus.ERROR.value,
+                         error=result["error"]
+                     )
+                 except Exception as log_sync_err:
+                     logger.error(f"[Background] Log sync (error) failed for job {job_id}: {log_sync_err}")
         else:
              await extraction_jobs.update_job(
                 job_id,
                 status=ExtractionStatus.PREVIEW_READY.value,
                 preview_data=result
             )
+             logger.info(f"[Background] Job {job_id} status set to PREVIEW_READY")
+
+             # Note: update_job already auto-syncs status to ExtractionLog internally.
+             # This explicit call is a safety fallback but MUST NOT crash the pipeline.
              if job and getattr(job, "original_log_id", None):
-                 await extraction_logs.update_log_status(
-                     log_id=str(job.original_log_id),
-                     status=ExtractionStatus.PREVIEW_READY.value,
-                     preview_data=result
-                 )
+                 try:
+                     await extraction_logs.update_log_status(
+                         log_id=str(job.original_log_id),
+                         status=ExtractionStatus.PREVIEW_READY.value,
+                         preview_data=result
+                     )
+                 except Exception as log_sync_err:
+                     logger.error(f"[Background] Log sync failed for job {job_id} (non-fatal, job is already PREVIEW_READY): {log_sync_err}")
 
              # Trigger Async Vibe Dictionary Generator
              try:
