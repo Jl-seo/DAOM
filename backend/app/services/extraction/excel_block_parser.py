@@ -312,6 +312,87 @@ def detect_blocks(df: pd.DataFrame, sheet_name: str, start_block_id: int = 1) ->
     return blocks
 
 
+def merge_similar_blocks(blocks: List[BlockInfo], df: pd.DataFrame) -> List[BlockInfo]:
+    """Post-detection merge pass: combine adjacent blocks with similar column structure.
+
+    Problem: detect_blocks splits on 2+ blank rows. In freight rate tables, regions
+    are often separated by blank rows but share the same header/column structure.
+    This causes a single logical table to be split into many fragments.
+
+    Solution: if two adjacent blocks on the same sheet have:
+      - Both block_type == 'table'
+      - Similar active columns (Jaccard >= 0.6)
+      - Gap between them is ≤ 5 blank rows
+    Then merge them into one block spanning both row ranges.
+
+    Returns a new list of blocks (possibly fewer than input).
+    """
+    if len(blocks) <= 1:
+        return blocks
+
+    merged: List[BlockInfo] = []
+    current = blocks[0]
+
+    for next_block in blocks[1:]:
+        # Only merge same-sheet, table-type blocks
+        if (current.sheet_name != next_block.sheet_name
+                or current.block_type != "table"
+                or next_block.block_type != "table"):
+            merged.append(current)
+            current = next_block
+            continue
+
+        # Check gap between blocks (≤ 5 blank rows)
+        gap = next_block.row_start - current.row_end
+        if gap > 6:
+            merged.append(current)
+            current = next_block
+            continue
+
+        # Check column structure similarity (Jaccard)
+        cols_a = set(current.active_columns)
+        cols_b = set(next_block.active_columns)
+        if not cols_a or not cols_b:
+            merged.append(current)
+            current = next_block
+            continue
+
+        overlap = len(cols_a & cols_b)
+        union_size = len(cols_a | cols_b)
+        jaccard = overlap / max(1, union_size)
+
+        if jaccard >= 0.6:
+            # Merge: extend current block to cover both
+            merged_cols = sorted(set(current.active_columns) | set(next_block.active_columns))
+            data_cols = _get_data_cols(df)
+
+            current = BlockInfo(
+                sheet_name=current.sheet_name,
+                block_id=current.block_id,  # keep first block's ID
+                row_start=current.row_start,
+                row_end=next_block.row_end,
+                block_type="table",
+                col_count=len(merged_cols),
+                numeric_ratio=round((current.numeric_ratio + next_block.numeric_ratio) / 2, 3),
+                row_count=(next_block.row_end - current.row_start + 1),
+                col_start=merged_cols[0] if merged_cols else "",
+                col_end=merged_cols[-1] if merged_cols else "",
+                active_columns=merged_cols,
+            )
+            logger.debug(f"[BlockMerge] Merged blocks {current.block_id}..{next_block.block_id} "
+                        f"→ rows [{current.row_start}..{current.row_end}]")
+        else:
+            merged.append(current)
+            current = next_block
+
+    merged.append(current)
+
+    if len(merged) < len(blocks):
+        logger.info(f"[BlockMerge] Sheet '{blocks[0].sheet_name}': {len(blocks)} blocks → {len(merged)} after merge")
+
+    return merged
+
+
 def _build_block_info_v2(sheet_name: str, block_id: int, start_idx: int, end_idx: int,
                          row_ids: list, row_sigs: list, sheet_df: pd.DataFrame,
                          data_cols: list) -> BlockInfo:

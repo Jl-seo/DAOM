@@ -382,7 +382,8 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     from app.services.extraction.excel_block_parser import (
         detect_blocks, classify_rows, profile_columns,
         extract_block_context, validate_column_mapping,
-        field_aware_expand, build_block_summary, classify_sheets
+        field_aware_expand, build_block_summary, classify_sheets,
+        merge_similar_blocks
     )
     from dataclasses import asdict
     
@@ -394,6 +395,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     global_block_id = 1  # Global counter across sheets to prevent ID collisions
     for sheet_name in sheet_names:
         blocks = detect_blocks(df, str(sheet_name), start_block_id=global_block_id)
+        blocks = merge_similar_blocks(blocks, df)  # Merge fragmented blocks from same table
         for block in blocks:
             row_cls = classify_rows(df, block)
             col_profiles = profile_columns(df, block, row_cls)
