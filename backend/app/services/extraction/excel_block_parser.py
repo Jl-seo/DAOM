@@ -313,82 +313,99 @@ def detect_blocks(df: pd.DataFrame, sheet_name: str, start_block_id: int = 1) ->
 
 
 def merge_similar_blocks(blocks: List[BlockInfo], df: pd.DataFrame) -> List[BlockInfo]:
-    """Post-detection merge pass: combine adjacent blocks with similar column structure.
+    """Post-detection merge pass: combine adjacent table blocks with similar structure.
 
-    Problem: detect_blocks splits on 2+ blank rows. In freight rate tables, regions
-    are often separated by blank rows but share the same header/column structure.
-    This causes a single logical table to be split into many fragments.
+    Problem: detect_blocks splits on blank rows. Rate tables with region separators
+    get fragmented (e.g., Main Ports: 24 blocks for one logical table).
 
-    Solution: if two adjacent blocks on the same sheet have:
-      - Both block_type == 'table'
-      - Similar active columns (Jaccard >= 0.6)
-      - Gap between them is ≤ 5 blank rows
-    Then merge them into one block spanning both row ranges.
+    Key insight: blank-row separators become 1-row 'note' or 'metadata' blocks.
+    We skip these separators and merge the table blocks around them.
 
-    Returns a new list of blocks (possibly fewer than input).
+    Merge conditions:
+      - Same sheet, both block_type == 'table'
+      - Similar active columns (Jaccard >= 0.5)
+      - Gap between them is ≤ 10 rows (may include separator blocks)
     """
     if len(blocks) <= 1:
         return blocks
 
     merged: List[BlockInfo] = []
-    current = blocks[0]
+    current = None  # current merging candidate (table block)
 
-    for next_block in blocks[1:]:
-        # Only merge same-sheet, table-type blocks
-        if (current.sheet_name != next_block.sheet_name
-                or current.block_type != "table"
-                or next_block.block_type != "table"):
-            merged.append(current)
-            current = next_block
+    i = 0
+    while i < len(blocks):
+        b = blocks[i]
+
+        # If no active merge candidate, start one
+        if current is None:
+            current = b
+            i += 1
             continue
 
-        # Check gap between blocks (≤ 5 blank rows)
-        gap = next_block.row_start - current.row_end
-        if gap > 6:
+        # Only merge table-type blocks
+        if current.block_type != "table":
             merged.append(current)
-            current = next_block
+            current = b
+            i += 1
             continue
 
-        # Check column structure similarity (Jaccard)
-        cols_a = set(current.active_columns)
-        cols_b = set(next_block.active_columns)
-        if not cols_a or not cols_b:
-            merged.append(current)
-            current = next_block
-            continue
+        # If this block is a small separator (note/metadata, ≤2 rows), skip it
+        # Scan forward through ALL consecutive separators to find next table block
+        if b.block_type != "table" and b.row_count <= 2 and b.sheet_name == current.sheet_name:
+            # Scan ahead for next table block, skipping all separators
+            j = i + 1
+            while j < len(blocks) and blocks[j].block_type != "table" and blocks[j].row_count <= 2 and blocks[j].sheet_name == current.sheet_name:
+                j += 1
+            if j < len(blocks) and blocks[j].block_type == "table" and blocks[j].sheet_name == current.sheet_name:
+                i = j  # skip all separators, process next table block
+                continue
+            else:
+                # No next table block, finalize current
+                merged.append(current)
+                current = b
+                i += 1
+                continue
 
-        overlap = len(cols_a & cols_b)
-        union_size = len(cols_a | cols_b)
-        jaccard = overlap / max(1, union_size)
+        # Both are table blocks — check merge conditions
+        if b.block_type == "table" and b.sheet_name == current.sheet_name:
+            gap = b.row_start - current.row_end
+            if gap <= 10:
+                cols_a = set(current.active_columns)
+                cols_b = set(b.active_columns)
+                if cols_a and cols_b:
+                    overlap = len(cols_a & cols_b)
+                    union_size = len(cols_a | cols_b)
+                    jaccard = overlap / max(1, union_size)
 
-        if jaccard >= 0.6:
-            # Merge: extend current block to cover both
-            merged_cols = sorted(set(current.active_columns) | set(next_block.active_columns))
-            data_cols = _get_data_cols(df)
+                    if jaccard >= 0.5:
+                        # Merge
+                        merged_cols = sorted(set(current.active_columns) | set(b.active_columns))
+                        current = BlockInfo(
+                            sheet_name=current.sheet_name,
+                            block_id=current.block_id,
+                            row_start=current.row_start,
+                            row_end=b.row_end,
+                            block_type="table",
+                            col_count=len(merged_cols),
+                            numeric_ratio=round((current.numeric_ratio + b.numeric_ratio) / 2, 3),
+                            row_count=(b.row_end - current.row_start + 1),
+                            col_start=merged_cols[0] if merged_cols else "",
+                            col_end=merged_cols[-1] if merged_cols else "",
+                            active_columns=merged_cols,
+                        )
+                        i += 1
+                        continue
 
-            current = BlockInfo(
-                sheet_name=current.sheet_name,
-                block_id=current.block_id,  # keep first block's ID
-                row_start=current.row_start,
-                row_end=next_block.row_end,
-                block_type="table",
-                col_count=len(merged_cols),
-                numeric_ratio=round((current.numeric_ratio + next_block.numeric_ratio) / 2, 3),
-                row_count=(next_block.row_end - current.row_start + 1),
-                col_start=merged_cols[0] if merged_cols else "",
-                col_end=merged_cols[-1] if merged_cols else "",
-                active_columns=merged_cols,
-            )
-            logger.debug(f"[BlockMerge] Merged blocks {current.block_id}..{next_block.block_id} "
-                        f"→ rows [{current.row_start}..{current.row_end}]")
-        else:
-            merged.append(current)
-            current = next_block
+        # No merge — finalize current, start new candidate
+        merged.append(current)
+        current = b
+        i += 1
 
-    merged.append(current)
+    if current is not None:
+        merged.append(current)
 
     if len(merged) < len(blocks):
-        logger.info(f"[BlockMerge] Sheet '{blocks[0].sheet_name}': {len(blocks)} blocks → {len(merged)} after merge")
+        logger.info(f"[BlockMerge] {blocks[0].sheet_name}: {len(blocks)} blocks → {len(merged)} after merge")
 
     return merged
 
