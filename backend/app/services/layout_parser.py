@@ -626,7 +626,16 @@ class LayoutParser:
             if etype == 'table':
                 s, e, md = data
                 if s < last_pos:
-                    continue  # Skip overlapping (shouldn't happen)
+                    # Overlapping table span — still emit its markdown to avoid
+                    # losing form metadata tables that overlap with data tables.
+                    # Azure DI invoice forms often produce two overlapping tables:
+                    # a key-value form table and a data table sharing the same area.
+                    unclaimed = self._extract_unclaimed_text(max(s, last_pos), e)
+                    if unclaimed.strip():
+                        chunks.append(unclaimed + "\n")
+                    chunks.append(md)
+                    last_pos = max(last_pos, e)
+                    continue
                 # Append text before table
                 chunks.append(self.full_content[last_pos:s])
                 # Preserve non-cell text trapped inside the table span.
