@@ -1,0 +1,55 @@
+{
+  "patterns": {
+    "port_code": {
+      "regex": "^[A-Z]{2,5}$",
+      "multi_regex": "^[A-Z]{2,5}[/,]\\s*[A-Z]{2,5}"
+    },
+    "date": {
+      "regex": "^\\d{1,4}[/\\-\\.]\\d{1,2}([/\\-\\.]\\d{1,4})?$"
+    },
+    "serial_date": {
+      "regex": "^\\d{5}$",
+      "min": 30000,
+      "max": 60000
+    },
+    "money": {
+      "regex": "^([A-Z]{3}|[\\$¥€£원₩])?\\s*[+\\-]?\\s*[\\d,]+\\.?\\d*\\s*([A-Z]{3}|[\\$¥€£원₩])?$"
+    },
+    "currency_code": {
+      "regex": "^(USD|KRW|EUR|JPY|CNY|GBP|CAD|AUD|SGD|HKD|TWD|VND|NOK|CHF|SEK|DKK|MYR|THB|IDR)$"
+    },
+    "service_mode": {
+      "regex": "^(CY|CFS|SD|DR)[/\\-](CY|CFS|SD|DR)$"
+    },
+    "validity_range": {
+      "regex": "(\\d{1,4}[/\\-\\.]\\d{1,2}[/\\-\\.]?\\d{0,4})\\s*[~\\-–—to]+\\s*(\\d{1,4}[/\\-\\.]\\d{1,2}[/\\-\\.]?\\d{0,4})"
+    },
+    "route_phrase": {
+      "regex": "(FROM|→|->|⟶|TO)\\s+"
+    },
+    "via_phrase": {
+      "regex": "(VIA|T/S|TRANSSHIP|RELAY)\\s+"
+    }
+  },
+  "keywords": {
+    "remark": ["note", "remark", "remarks", "※", "n/a", "subject to", "inclusive", "excluded", "validity", "above rate", "surcharge"],
+    "context": ["effective", "expiry", "validity", "currency", "carrier", "service", "vessel", "voyage", "contract", "amendment", "rate", "scope"],
+    "group": ["ipi", "local", "mlb", "inland", "transit", "direct", "transship", "canada", "mexico", "europe", "asia"],
+    "labels": {
+      "pol": ["origin", "pol", "port of loading", "loading port", "출발항", "적항", "from"],
+      "pod": ["pod", "port of discharge", "discharge port", "양하항", "도착항"],
+      "dest": ["destination", "dest", "final destination", "최종목적지", "delivery", "del"]
+    }
+  },
+  "guards": {
+    "protected_values": {
+      "date": "\\d{4}[-/\\.]\\d{1,2}[-/\\.]\\d{1,4}|\\d{1,2}[-/\\.]\\d{1,2}[-/\\.]\\d{2,4}",
+      "equipment": "^\\d{2}(GP|HC|DC|RF|OT|FR|TK|NOR)\\b",
+      "port": "^[A-Z]{2,5}$",
+      "service_mode": "^(CY|CFS|SD|DR)[/-](CY|CFS|SD|DR)$"
+    },
+    "split_delimiter_geo_safe": [
+      "^[\\w\\s\\.\\-]+,\\s*[A-Za-z]{2,3}$"
+    ]
+  }
+}

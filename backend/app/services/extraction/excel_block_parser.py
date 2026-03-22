@@ -55,43 +55,17 @@ class ColumnProfile:
     numeric_ratio: float = 0.0
 
 # ──────────────────────────────────────────────
-# Pattern Detectors
+# Pattern Detectors (Migrated to PatternAnalyzer)
 # ──────────────────────────────────────────────
+from app.services.extraction.pattern_analyzer import analyzer
 
-# Port codes: 2-5 uppercase letters (USLAX, KRPUS, CNSHA, CAVAN)
-PORT_PATTERN = re.compile(r'^[A-Z]{2,5}$')
-# Multi-port: USLAX/USLGB or USLAX, USLGB
-MULTI_PORT_PATTERN = re.compile(r'^[A-Z]{2,5}[/,]\s*[A-Z]{2,5}')
-# Date patterns: 2025/12/1, 2025-12-01, 12/1/2025, etc
-DATE_PATTERN = re.compile(r'^\d{1,4}[/\-\.]\d{1,2}([/\-\.]\d{1,4})?$')
-# Excel serial date (e.g., 43651 = 2019-07-01)
-SERIAL_DATE_PATTERN = re.compile(r'^\d{5}$')
-# Money: pure numbers, possibly with commas/decimals (1480, 1,200.50)
-MONEY_PATTERN = re.compile(r'^[\d,]+\.?\d*$')
-# Currency codes
-CURRENCY_PATTERN = re.compile(r'^(USD|KRW|EUR|JPY|CNY|GBP|CAD|AUD|SGD|HKD|TWD)$', re.IGNORECASE)
-# Service mode: CY/CY, CY-CY, CFS/CY etc
-SERVICE_MODE_PATTERN = re.compile(r'^(CY|CFS|SD|DR)[/\-](CY|CFS|SD|DR)$', re.IGNORECASE)
-# Validity range: "12/1~12/7", "2025.12.01 - 2025.12.31"
-VALIDITY_RANGE_PATTERN = re.compile(
-    r'(\d{1,4}[/\-\.]\d{1,2}[/\-\.]?\d{0,4})\s*[~\-–—to]+\s*(\d{1,4}[/\-\.]\d{1,2}[/\-\.]?\d{0,4})',
-    re.IGNORECASE
-)
-# Route phrase: FROM PUSAN, → USWC
-ROUTE_PATTERN = re.compile(r'(FROM|→|->|⟶|TO)\s+', re.IGNORECASE)
-VIA_PATTERN = re.compile(r'(VIA|T/S|TRANSSHIP|RELAY)\s+', re.IGNORECASE)
-
-# Keyword sets
-REMARK_KEYWORDS = frozenset({'note', 'remark', 'remarks', '※', 'n/a', 'subject to', 'inclusive',
-                              'excluded', 'validity', 'above rate', 'surcharge'})
-CONTEXT_KEYWORDS = frozenset({'effective', 'expiry', 'validity', 'currency', 'carrier', 'service',
-                              'vessel', 'voyage', 'contract', 'amendment', 'rate', 'scope'})
-GROUP_KEYWORDS = frozenset({'ipi', 'local', 'mlb', 'inland', 'transit', 'direct', 'transship',
-                            'canada', 'mexico', 'europe', 'asia'})
-# Labels that indicate POL/POD/etc
-POL_LABELS = frozenset({'origin', 'pol', 'port of loading', 'loading port', '출발항', '적항', 'from'})
-POD_LABELS = frozenset({'pod', 'port of discharge', 'discharge port', '양하항', '도착항'})
-DEST_LABELS = frozenset({'destination', 'dest', 'final destination', '최종목적지', 'delivery', 'del'})
+# Labels that indicate POL/POD/etc (fallback to analyzer)
+POL_LABELS = analyzer.get_keywords("pol")
+POD_LABELS = analyzer.get_keywords("pod")
+DEST_LABELS = analyzer.get_keywords("dest")
+REMARK_KEYWORDS = analyzer.get_keywords("remark")
+CONTEXT_KEYWORDS = analyzer.get_keywords("context")
+GROUP_KEYWORDS = analyzer.get_keywords("group")
 
 # Semantic type mapping from dictionary attribute
 DICTIONARY_TO_SEMANTIC = {
@@ -105,47 +79,21 @@ DICTIONARY_TO_SEMANTIC = {
 
 
 def is_port_like(val: str) -> bool:
-    """Check if value looks like a port code or multi-port."""
-    val = str(val).strip()
-    if PORT_PATTERN.match(val):
-        return True
-    if MULTI_PORT_PATTERN.match(val):
-        return True
-    return False
+    return analyzer.is_port_like(val)
 
 
 def is_date_like(val: str) -> bool:
-    """Check if value looks like a date (including Excel serial dates)."""
-    val = str(val).strip()
-    if DATE_PATTERN.match(val):
-        return True
-    if SERIAL_DATE_PATTERN.match(val):
-        try:
-            n = int(val)
-            return 30000 < n < 60000  # ~1982 to ~2063 in Excel serial
-        except ValueError:
-            return False
-    return False
+    return analyzer.is_date_like(val)
 
 
 def is_money_like(val: str) -> bool:
-    """Check if value looks like a monetary amount."""
-    val = str(val).strip().replace(',', '').replace(' ', '')
-    if not val:
-        return False
-    try:
-        float(val)
-        return True
-    except ValueError:
-        return False
+    return analyzer.is_money_like(val)
 
 
 def is_currency_code(val: str) -> bool:
-    return bool(CURRENCY_PATTERN.match(str(val).strip()))
-
-
+    return analyzer.is_currency_code(val)
 def is_service_mode(val: str) -> bool:
-    return bool(SERVICE_MODE_PATTERN.match(str(val).strip()))
+    return analyzer.is_service_mode(val)
 
 
 def _get_data_cols(df: pd.DataFrame) -> list:
@@ -728,7 +676,7 @@ def extract_block_context(df: pd.DataFrame, block: BlockInfo,
                 context["End_Date"] = _normalize_date(next_val)
 
             # Validity range inline: "VALIDITY : 12/1~12/7"
-            range_match = VALIDITY_RANGE_PATTERN.search(val)
+            range_match = analyzer.get_validity_range(val)
             if range_match:
                 context["Start_Date"] = _normalize_date(range_match.group(1))
                 context["End_Date"] = _normalize_date(range_match.group(2))
@@ -742,7 +690,7 @@ def extract_block_context(df: pd.DataFrame, block: BlockInfo,
                 context["Service"] = next_val
 
             # Route phrase: "FROM PUSAN" / "PUSAN → USWC"
-            route_match = ROUTE_PATTERN.search(val)
+            route_match = analyzer.get_route_phrase(val)
             if route_match:
                 after = val[route_match.end():].strip()
                 if after and "POL" not in context:
@@ -752,7 +700,7 @@ def extract_block_context(df: pd.DataFrame, block: BlockInfo,
                         context["Destination"] = after
 
             # VIA / T/S detection
-            via_match = VIA_PATTERN.search(val)
+            via_match = analyzer.get_via_phrase(val)
             if via_match:
                 after = val[via_match.end():].strip()
                 if after:
@@ -779,7 +727,10 @@ def extract_block_context(df: pd.DataFrame, block: BlockInfo,
 def _normalize_date(val: str) -> str:
     """Normalize date value, including Excel serial dates."""
     val = val.strip()
-    if SERIAL_DATE_PATTERN.match(val):
+    # Check if it's a serial date
+    serial_rules = analyzer.rules.get("patterns", {}).get("serial_date", {})
+    serial_regex = analyzer.compiled_regexes.get("serial_date")
+    if serial_regex and serial_regex.match(val):
         try:
             from datetime import datetime, timedelta
             serial = int(val)
@@ -951,8 +902,22 @@ def should_expand_value(field_key: str, value: str) -> bool:
     delimiter = None
     if "/" in val:
         delimiter = "/"
-    elif "," in val and not re.match(r'^[A-Z\s]+,\s*[A-Z]{2}$', val):
+    elif "," in val:
+        # STRICT GUARD: absolutely prevent splitting "City, Country" combinations
+        # Match patterns like "Busan, KR", "Ho Chi Minh City, VN", "Callao, PE"
+        if re.match(r'^[\w\s\.\-]+,\s*[A-Za-z]{2,3}$', val):
+            return False
+        # Also prevent splitting if the right part looks like a full country name
+        if re.match(r'^[\w\s\.\-]+,\s*[A-Z][a-zA-Z\s]+$', val):
+            # Evaluate if right part is a known country (heuristic: word count < 3 and alphabetic)
+            right_part = val.split(',')[1].strip()
+            if len(right_part.split()) <= 2:
+                return False
+        
         # Comma — but skip "CITY, STATE" patterns (e.g., "LOS ANGELES, CA")
+        if re.match(r'^[A-Z\s]+,\s*[A-Z]{2}$', val):
+            return False
+            
         delimiter = ","
     else:
         return False
@@ -997,7 +962,7 @@ def should_expand_value(field_key: str, value: str) -> bool:
             return False
 
     # Check: do parts look like port codes or geographic text?
-    has_port_codes = sum(1 for p in parts if PORT_PATTERN.match(p)) >= 2
+    has_port_codes = sum(1 for p in parts if analyzer.is_port_like(p)) >= 2
     # For slash delimiter, require port code matches
     if delimiter == "/":
         return has_port_codes
