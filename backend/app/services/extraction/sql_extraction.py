@@ -904,177 +904,194 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             continue
             
         for segment in segments:
-            sheet = str(segment.get("sheet_name", "")).strip().lower()
-            raw_col_map = segment.get("columns_mapping", {})
-            col_map = {}
-            if isinstance(raw_col_map, dict):
-                for k, v in raw_col_map.items():
-                    if k and v:
-                        col_map[str(k).strip().lower()] = str(v).strip().upper()
-                        
-            if not expected_sub_keys:
-                expected_sub_keys = list(col_map.keys())
-                
-            page_number = 1
-            sheet_index = 0
-            if sheet and sheet in sheet_list_lower:
-                sheet_index = sheet_list_lower.index(sheet)
-                page_number = sheet_index + 1
-                
-            sheet_df = df[df["_sheet_name_lower"] == sheet] if "_sheet_name_lower" in df.columns else df
+            try:
+                sheet = str(segment.get("sheet_name", "")).strip().lower()
+                raw_col_map = segment.get("columns_mapping", {})
+                col_map = {}
+                if isinstance(raw_col_map, dict):
+                    for k, v in raw_col_map.items():
+                        if k and v:
+                            col_map[str(k).strip().lower()] = str(v).strip().upper()
+                            
+                if not expected_sub_keys:
+                    expected_sub_keys = list(col_map.keys())
+                    
+                page_number = 1
+                sheet_index = 0
+                if sheet and sheet in sheet_list_lower:
+                    sheet_index = sheet_list_lower.index(sheet)
+                    page_number = sheet_index + 1
+                    
+                sheet_df = df[df["_sheet_name_lower"] == sheet] if "_sheet_name_lower" in df.columns else df
             
-            block_id = segment.get("block_id")
-            block_meta = all_blocks_meta.get(block_id, {})
+                block_id = segment.get("block_id")
+                block_meta = all_blocks_meta.get(block_id, {})
             
-            if block_meta:
-                if "chunk_rc" in segment:
-                    data_row_ids = {rc.row_id for rc in segment["chunk_rc"] if rc.row_type == "data"}
+                if block_meta:
+                    if "chunk_rc" in segment:
+                        data_row_ids = {rc.row_id for rc in segment["chunk_rc"] if rc.row_type == "data"}
+                    else:
+                        data_row_ids = {rc.row_id for rc in block_meta["row_classifications"] if rc.row_type == "data"}
+                    data_rows = sheet_df[sheet_df["row_id"].isin(data_row_ids)]
                 else:
-                    data_row_ids = {rc.row_id for rc in block_meta["row_classifications"] if rc.row_type == "data"}
-                data_rows = sheet_df[sheet_df["row_id"].isin(data_row_ids)]
-            else:
-                h_id = int(segment.get("first_data_row_id", 1))
-                last_id = segment.get("last_data_row_id")
-                last_id = int(last_id) if last_id is not None else None
-                if last_id is not None:
-                    data_rows = sheet_df[(sheet_df["row_id"] >= h_id) & (sheet_df["row_id"] <= last_id)]
-                else:
-                    data_rows = sheet_df[sheet_df["row_id"] >= h_id]
+                    h_id = int(segment.get("first_data_row_id", 1))
+                    last_id = segment.get("last_data_row_id")
+                    last_id = int(last_id) if last_id is not None else None
+                    if last_id is not None:
+                        data_rows = sheet_df[(sheet_df["row_id"] >= h_id) & (sheet_df["row_id"] <= last_id)]
+                    else:
+                        data_rows = sheet_df[sheet_df["row_id"] >= h_id]
             
-            logger.info(f"[{target_key}] Segment '{sheet}', data_rows={len(data_rows)}")
+                logger.info(f"[{target_key}] Segment '{sheet}', data_rows={len(data_rows)}")
             
-            _EMPTY_CELL = {"value": "", "confidence": 0.0, "validation_status": "flagged", "original_value": "", "bbox": None}
-            segment_extracted_rows = []
+                _EMPTY_CELL = {"value": "", "confidence": 0.0, "validation_status": "flagged", "original_value": "", "bbox": None}
+                segment_extracted_rows = []
             
-            if table_kind == "rate_matrix":
-                import copy as _copy
-                equip_pattern = re.compile(r'^\d{2}(GP|HC|DC|RF|OT|FR|TK|NOR)\b', re.IGNORECASE)
-                header_rows_cls = [rc for rc in block_meta.get("row_classifications", []) if rc.row_type == "header"] if block_meta else []
-                equipment_cols = []
-                non_equip_col_map = {}
+                if table_kind == "rate_matrix":
+                    # Check if the schema expects discrete container columns (e.g. 20DC, 40DC)
+                    # If it does, and there's no generic 'rate' or 'price' field, it means the user wants a flat table!
+                    has_discrete_containers = any("20" in k.lower() or "40" in k.lower() for k in expected_sub_keys)
+                    has_generic_rate = any("rate" in k.lower() or "price" in k.lower() or "freight" in k.lower() for k in expected_sub_keys)
+                    if has_discrete_containers and not has_generic_rate:
+                        logger.info(f"[{target_key}] rate_matrix disabled: schema defines concrete container fields. Falling back to flat_table.")
+                        table_kind = "flat_table"
+                    
+                if table_kind == "rate_matrix":
+                    import copy as _copy
+                    equip_pattern = re.compile(r'^\d{2}(GP|HC|DC|RF|OT|FR|TK|NOR)\b', re.IGNORECASE)
+                    header_rows_cls = [rc for rc in block_meta.get("row_classifications", []) if rc.row_type == "header"] if block_meta else []
+                    equipment_cols = []
+                    non_equip_col_map = {}
                 
-                if header_rows_cls:
-                    h_row = df[df["row_id"] == header_rows_cls[-1].row_id]
-                    if not h_row.empty:
-                        for sf_key, excel_col in col_map.items():
-                            if excel_col in h_row.columns:
-                                hdr = str(h_row.iloc[0][excel_col]).strip() if pd.notna(h_row.iloc[0][excel_col]) else ""
-                                if equip_pattern.match(hdr):
-                                    equipment_cols.append((excel_col, hdr))
+                    for sf_key, excel_col in col_map.items():
+                        if re.search(r'(20|40|45)', str(sf_key).lower()):
+                            equipment_cols.append((excel_col, str(sf_key).upper()))
+                        else:
+                            is_equip = False
+                            if header_rows_cls:
+                                h_row = df[df["row_id"] == header_rows_cls[-1].row_id]
+                                if not h_row.empty and excel_col in h_row.columns:
+                                    hdr = str(h_row.iloc[0][excel_col]).strip() if pd.notna(h_row.iloc[0][excel_col]) else ""
+                                    if equip_pattern.match(hdr):
+                                        is_equip = True
+                                        equipment_cols.append((excel_col, hdr))
+                            if not is_equip:
+                                non_equip_col_map[sf_key] = excel_col
+
+                    ct_key = next((k for k in expected_sub_keys if '20' in k.lower() or '40' in k.lower() or 'type' in k.lower() or 'equipment' in k.lower()), "container_type")
+                    sf_key_for_val = next((k for k in expected_sub_keys if 'rate' in k.lower() or 'price' in k.lower() or 'amount' in k.lower() or 'freight' in k.lower()), "basic_ocean_freight")
+                    if ct_key not in expected_sub_keys: expected_sub_keys.append(ct_key)
+                    if sf_key_for_val not in expected_sub_keys: expected_sub_keys.append(sf_key_for_val)
+
+                    for _, row in data_rows.iterrows():
+                        has_any_data = False
+                        base_row = {}
+                        for sf_key in expected_sub_keys:
+                            if sf_key in (ct_key, sf_key_for_val):
+                                continue
+                            excel_col = non_equip_col_map.get(sf_key)
+                            if excel_col and excel_col in row and pd.notna(row[excel_col]):
+                                val = str(row[excel_col]).strip()
+                                if val and val.lower() != "nan":
+                                    has_any_data = True
+                                    base_row[sf_key] = {"value": val, "confidence": 0.95, "validation_status": "valid", "original_value": val, "bbox": None}
                                 else:
-                                    non_equip_col_map[sf_key] = excel_col
-
-                ct_key = next((k for k in expected_sub_keys if '20' in k.lower() or '40' in k.lower() or 'type' in k.lower() or 'equipment' in k.lower()), "container_type")
-                sf_key_for_val = next((k for k in expected_sub_keys if 'rate' in k.lower() or 'price' in k.lower() or 'amount' in k.lower() or 'freight' in k.lower()), "basic_ocean_freight")
-                if ct_key not in expected_sub_keys: expected_sub_keys.append(ct_key)
-                if sf_key_for_val not in expected_sub_keys: expected_sub_keys.append(sf_key_for_val)
-
-                for _, row in data_rows.iterrows():
-                    has_any_data = False
-                    base_row = {}
-                    for sf_key in expected_sub_keys:
-                        if sf_key in (ct_key, sf_key_for_val):
-                            continue
-                        excel_col = non_equip_col_map.get(sf_key)
-                        if excel_col and excel_col in row and pd.notna(row[excel_col]):
-                            val = str(row[excel_col]).strip()
-                            if val and val.lower() != "nan":
-                                has_any_data = True
-                                base_row[sf_key] = {"value": val, "confidence": 0.95, "validation_status": "valid", "original_value": val, "bbox": None}
+                                    base_row[sf_key] = _EMPTY_CELL.copy()
                             else:
                                 base_row[sf_key] = _EMPTY_CELL.copy()
-                        else:
-                            base_row[sf_key] = _EMPTY_CELL.copy()
 
-                    if not has_any_data:
-                        continue
+                        if not has_any_data:
+                            continue
 
-                    for eq_col, eq_header in equipment_cols:
-                        if eq_col in row and pd.notna(row[eq_col]):
-                            rate_val = str(row[eq_col]).strip()
-                            if not rate_val or rate_val.lower() == "nan":
-                                continue
+                        for eq_col, eq_header in equipment_cols:
+                            if eq_col in row and pd.notna(row[eq_col]):
+                                rate_val = str(row[eq_col]).strip()
+                                if not rate_val or rate_val.lower() == "nan":
+                                    continue
 
-                            fact_row = {k: dict(v) if isinstance(v, dict) else v for k, v in base_row.items()}
-                            fact_row[ct_key] = {"value": eq_header, "confidence": 0.95, "validation_status": "valid", "original_value": eq_header, "bbox": None}
-                            fact_row[sf_key_for_val] = {"value": rate_val, "confidence": 0.95, "validation_status": "valid", "original_value": str(row[eq_col]).strip(), "bbox": None}
+                                fact_row = {k: dict(v) if isinstance(v, dict) else v for k, v in base_row.items()}
+                                fact_row[ct_key] = {"value": eq_header, "confidence": 0.95, "validation_status": "valid", "original_value": eq_header, "bbox": None}
+                                fact_row[sf_key_for_val] = {"value": rate_val, "confidence": 0.95, "validation_status": "valid", "original_value": str(row[eq_col]).strip(), "bbox": None}
                             
-                            fact_row["_meta"] = {"sheet_name": sheet, "sheet_index": sheet_index, "row_id": int(row["row_id"])}
-                            if "local_row_id" in row.index: fact_row["_meta"]["local_row_id"] = int(row["local_row_id"])
-                            segment_extracted_rows.append(fact_row)
+                                fact_row["_meta"] = {"sheet_name": sheet, "sheet_index": sheet_index, "row_id": int(row["row_id"])}
+                                if "local_row_id" in row.index: fact_row["_meta"]["local_row_id"] = int(row["local_row_id"])
+                                segment_extracted_rows.append(fact_row)
 
-            else:
-                VIRTUAL_WIDTH = 1000
-                CELL_HEIGHT = 50
-                col_count = len(df.columns) - 3
-                cell_width = VIRTUAL_WIDTH / max(1, col_count)
+                else:
+                    VIRTUAL_WIDTH = 1000
+                    CELL_HEIGHT = 50
+                    col_count = len(df.columns) - 3
+                    cell_width = VIRTUAL_WIDTH / max(1, col_count)
                 
-                # pre-calculate col idx bounds
-                col_indices = {}
-                for ik, ecol in col_map.items():
-                    if ecol in df.columns.tolist():
-                        col_indices[ik] = df.columns.tolist().index(ecol) - 3
+                    # pre-calculate col idx bounds
+                    col_indices = {}
+                    for ik, ecol in col_map.items():
+                        if ecol in df.columns.tolist():
+                            col_indices[ik] = df.columns.tolist().index(ecol) - 3
                 
-                for _, row in data_rows.iterrows():
-                    row_has_meaningful_data = False
-                    row_data = {}
+                    for _, row in data_rows.iterrows():
+                        row_has_meaningful_data = False
+                        row_data = {}
                     
-                    row_idx = int(row["local_row_id"]) if "local_row_id" in row.index else 0
-                    y1 = row_idx * CELL_HEIGHT
-                    y2 = y1 + CELL_HEIGHT
+                        row_idx = int(row["local_row_id"]) if "local_row_id" in row.index else 0
+                        y1 = row_idx * CELL_HEIGHT
+                        y2 = y1 + CELL_HEIGHT
 
-                    for inner_key in expected_sub_keys:
-                        lookup_key = str(inner_key).strip().lower() if inner_key else ""
-                        excel_col = col_map.get(lookup_key)
+                        for inner_key in expected_sub_keys:
+                            lookup_key = str(inner_key).strip().lower() if inner_key else ""
+                            excel_col = col_map.get(lookup_key)
 
-                        if excel_col and excel_col in row and pd.notna(row[excel_col]):
-                            val = str(row[excel_col]).strip()
-                            if val and val.lower() != "nan":
-                                row_has_meaningful_data = True
-                                bbox = None
-                                try:
-                                    if inner_key in col_indices:
-                                        c_idx = col_indices[inner_key]
-                                        x1 = c_idx * cell_width
-                                        x2 = x1 + cell_width
-                                        bbox = [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
-                                except Exception:
-                                    pass
+                            if excel_col and excel_col in row and pd.notna(row[excel_col]):
+                                val = str(row[excel_col]).strip()
+                                if val and val.lower() != "nan":
+                                    row_has_meaningful_data = True
+                                    bbox = None
+                                    try:
+                                        if inner_key in col_indices:
+                                            c_idx = col_indices[inner_key]
+                                            x1 = c_idx * cell_width
+                                            x2 = x1 + cell_width
+                                            bbox = [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
+                                    except Exception:
+                                        pass
 
-                                row_data[inner_key] = {
-                                    "value": val, "confidence": 0.95, "validation_status": "valid",
-                                    "original_value": str(row[excel_col]).strip(), "bbox": bbox
-                                }
+                                    row_data[inner_key] = {
+                                        "value": val, "confidence": 0.95, "validation_status": "valid",
+                                        "original_value": str(row[excel_col]).strip(), "bbox": bbox
+                                    }
+                                else:
+                                    row_data[inner_key] = _EMPTY_CELL.copy()
                             else:
                                 row_data[inner_key] = _EMPTY_CELL.copy()
-                        else:
-                            row_data[inner_key] = _EMPTY_CELL.copy()
 
-                    if row_has_meaningful_data:
-                        row_data["_meta"] = {"sheet_name": sheet, "sheet_index": sheet_index, "row_id": int(row["row_id"])}
-                        if "local_row_id" in row.index: row_data["_meta"]["local_row_id"] = int(row["local_row_id"])
-                        segment_extracted_rows.append(row_data)
+                        if row_has_meaningful_data:
+                            row_data["_meta"] = {"sheet_name": sheet, "sheet_index": sheet_index, "row_id": int(row["row_id"])}
+                            if "local_row_id" in row.index: row_data["_meta"]["local_row_id"] = int(row["local_row_id"])
+                            segment_extracted_rows.append(row_data)
             
-            # Phase E: Context Inheritance for THIS segment only
-            block_context = segment.get("block_context", {})
-            if block_context:
-                for row_data in segment_extracted_rows:
-                    for ctx_key, ctx_val in block_context.items():
-                        for inner_key in expected_sub_keys:
-                            if str(inner_key).strip().lower() == ctx_key.strip().lower():
-                                cell = row_data.get(inner_key, {})
-                                if isinstance(cell, dict) and (not cell.get("value") or cell.get("value") == ""):
-                                    row_data[inner_key] = {
-                                        "value": ctx_val,
-                                        "confidence": 0.80,
-                                        "validation_status": "valid",
-                                        "original_value": ctx_val,
-                                        "bbox": None,
-                                        "_modifier": "Block Context Inheritance"
-                                    }
+                # Phase E: Context Inheritance for THIS segment only
+                block_context = segment.get("block_context", {})
+                if block_context:
+                    for row_data in segment_extracted_rows:
+                        for ctx_key, ctx_val in block_context.items():
+                            for inner_key in expected_sub_keys:
+                                if str(inner_key).strip().lower() == ctx_key.strip().lower():
+                                    cell = row_data.get(inner_key, {})
+                                    if isinstance(cell, dict) and (not cell.get("value") or cell.get("value") == ""):
+                                        row_data[inner_key] = {
+                                            "value": ctx_val,
+                                            "confidence": 0.80,
+                                            "validation_status": "valid",
+                                            "original_value": ctx_val,
+                                            "bbox": None,
+                                            "_modifier": "Block Context Inheritance"
+                                        }
+            except Exception as e:
+                logger.error(f"[{target_key}] Error extracting segment {segment.get('sheet_name', 'Unknown')}: {e}")
+                logs.append({"step": f"Table [{target_key}] Chunk Error", "message": f"Failed to extract chunk/segment in {segment.get('sheet_name', 'Unknown')}: {e}"})
             
             extracted_table_rows.extend(segment_extracted_rows)
-            
+
         # ── Phase E: Field-Aware Expansion ────────────────────────────────
         # Replace inline slash expansion with type-checked version
         _t_expand = time.monotonic()
