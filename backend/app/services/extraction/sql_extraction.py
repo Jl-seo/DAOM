@@ -100,6 +100,9 @@ async def _run_block_mapper(
     - If a block has detected_context (e.g., POL, Currency), those values are already extracted by Python.
     - DO NOT hallucinate columns. Only map columns that appear in header_candidates or column_profiles.
     - Semantic equivalence is encouraged: "Origin" → POL, "O/F" → Ocean Freight rate, etc.
+    - CRITICAL REGION WARNING: Do NOT map broad Region columns (e.g. '동남아', 'Asia', 'POL REGION') to specific port keys like 'POL' or 'POD'. Regions are NEVER ports.
+    - CRITICAL DISAMBIGUATION: If you see 'POL REGION', 'POL CODE', and 'POL', you MUST map 'POL' to the actual Port Name column (usually 'POL'), NOT to the 'REGION' or 'CODE'. The exact same applies for 'POD'.
+    - CRITICAL DATE WARNING: Do NOT map money/equipment fields (like 20DC, 40DC, 40HC) to Date columns (like '시작일자', '종료일자', 'Effective Date').
     - IMPORTANT: POD (Port of Discharge, e.g. USLAX) and Destination (final delivery city, e.g. CHICAGO,IL) are DIFFERENT fields. Do NOT conflate them.
     - For row boundaries, use the block's row_range. Python has already classified header vs data rows.
     - For scalars, provide the value if available in detected_context. Otherwise use null.
