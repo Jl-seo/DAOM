@@ -741,7 +741,12 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 if p_meta:
                     p_block = p_meta["block"]
                     eval_logs = []
-                    for c_meta in role_to_blocks[target_role]:
+                    
+                    candidates_to_test = list(role_to_blocks.get(target_role, []))
+                    if target_role != "unknown" and "unknown" in role_to_blocks:
+                        candidates_to_test.extend(role_to_blocks["unknown"])
+                        
+                    for c_meta in candidates_to_test:
                         c_block = c_meta["block"]
                         if c_block.block_id == primary_block_id:
                             continue
