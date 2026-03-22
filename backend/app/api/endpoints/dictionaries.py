@@ -7,10 +7,13 @@ Backend: ReferenceDataService (Cosmos DB + in-memory fuzzy matching)
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
 from app.core.auth import get_current_user, CurrentUser
 from app.core.permissions import require_admin
+from fastapi.responses import StreamingResponse
 from app.services.extraction.reference_data import get_reference_data_service
 from app.services.audit import log_action, AuditAction, AuditResource
 
 import logging
+import io
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +99,50 @@ async def search_dictionary(
         "query": q,
         "matches": matches
     }
+
+
+@router.get("/export/{category}")
+async def export_dictionary(
+    category: str,
+    model_id: str = "__global__",
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Export all entries for a dictionary category as an Excel file."""
+    service = get_reference_data_service()
+    if not service.is_available:
+        raise HTTPException(status_code=503, detail="Dictionary service not configured.")
+
+    df = await service.get_all_entries_for_export(model_id, category)
+    if df.empty:
+        raise HTTPException(status_code=404, detail="No entries found for this category.")
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name=category[:31])
+    buffer.seek(0)
+    
+    headers = {
+        "Content-Disposition": f'attachment; filename="dictionary_{category}.xlsx"'
+    }
+    
+    # Audit log
+    await log_action(
+        user=current_user,
+        action=AuditAction.VIEW_EXTRACTION,
+        resource_type=AuditResource.MODEL,
+        resource_id=f"dictionary:{category}",
+        details={
+            "action": "dictionary_export",
+            "category": category,
+            "count": len(df)
+        }
+    )
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers
+    )
 
 
 @router.delete("/{category}", dependencies=[Depends(require_admin)])

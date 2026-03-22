@@ -90,6 +90,32 @@ export interface Model {
     transform_rules?: TransformRule[]  // Row expansion rules (e.g., group code → individual ports)
     post_process_rules?: PostProcessRule[]
     vibe_dictionary?: VibeDictionaryConfig
+    export_config?: ExportConfig
+}
+
+export interface PivotTableDef {
+    table: string
+    category_field: string
+    subcategory_field: string
+    value_field: string
+    column_naming: string
+}
+
+export interface ExportDefinition {
+    base_table: string
+    merge_keys: string[]
+    pivot_tables: PivotTableDef[]
+    final_column_mappings: Record<string, string>
+    conflict_policy: string
+    group_by_keys: string[]
+    aggregation_strategy: string
+    inject_metadata: boolean
+}
+
+export interface ExportConfig {
+    enabled: boolean
+    webhook_url?: string
+    definition: ExportDefinition
 }
 
 export interface TransformRule {

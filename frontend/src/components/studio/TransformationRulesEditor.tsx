@@ -22,6 +22,7 @@ import { Plus, Trash2, ChevronDown, ChevronUp, Copy, ArrowRightLeft, Sparkles } 
 import type { Model, PostProcessRule } from '@/types/model'
 import { PostProcessAction } from '@/types/model'
 import { clsx } from 'clsx'
+import { ExportMappingEditor } from './ExportMappingEditor'
 
 interface TransformRule {
     name: string
@@ -418,8 +419,11 @@ export function TransformationRulesEditor({ model, onUpdate }: TransformationRul
                 </div>
             )}
 
+            {/* Export Mapping Engine */}
+            <ExportMappingEditor model={model} onUpdate={onUpdate} />
+
             {/* Add Rule Button */}
-            <Button variant="outline" onClick={addRule} className="w-full">
+            <Button variant="outline" onClick={addRule} className="w-full mt-4">
                 <Plus className="w-4 h-4 mr-2" /> 변환 규칙 추가
             </Button>
         </div>

@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { Loader2, Plus, Search, Globe, BrainCircuit, Building2, BookOpen, Upload, Trash2, ArrowLeft, Edit2, Save } from 'lucide-react'
+import { Loader2, Plus, Search, Globe, BrainCircuit, Building2, BookOpen, Upload, Trash2, ArrowLeft, Edit2, Save, Download } from 'lucide-react'
 import { toast } from 'sonner'
 import apiClient from '@/lib/api'
 
@@ -164,6 +164,25 @@ export function VibeDictionaryPage() {
     const handleDeleteCategory = (category: string) => {
         if (!confirm(`'${category}' 카테고리의 모든 항목을 삭제하시겠습니까?`)) return
         deleteCategoryMutation.mutate(category)
+    }
+
+    const handleDownloadCategory = async (category: string) => {
+        try {
+            const res = await apiClient.get(`/dictionaries/export/${category}`, {
+                params: { model_id: '__global__' },
+                responseType: 'blob'
+            });
+            const url = window.URL.createObjectURL(new Blob([res.data]));
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `dictionary_${category}.xlsx`);
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            toast.success('다운로드가 완료되었습니다.');
+        } catch (error) {
+            toast.error('다운로드 중 오류가 발생했습니다.');
+        }
     }
 
     const handleSearch = async () => {
@@ -573,6 +592,13 @@ export function VibeDictionaryPage() {
                                                     <span className="text-sm font-bold text-slate-800 uppercase">{cat.category}</span>
                                                     <div className="flex items-center gap-2">
                                                         <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">{cat.count}개</span>
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleDownloadCategory(cat.category) }}
+                                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-blue-500 hover:text-blue-700"
+                                                            title="카테고리 다운로드"
+                                                        >
+                                                            <Download className="w-3.5 h-3.5" />
+                                                        </button>
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.category) }}
                                                             className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600"

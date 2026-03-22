@@ -265,6 +265,61 @@ class ReferenceDataService:
             logger.error(f"[ReferenceData] list_entries failed: {e}")
             return {"entries": [], "total": 0}
 
+    async def get_all_entries_for_export(self, model_id: str, category: str) -> pd.DataFrame:
+        """Fetch all entries for a category and return as a pandas DataFrame formatted for re-upload."""
+        container = self._get_container()
+        if not container:
+            return pd.DataFrame()
+            
+        try:
+            type_filter = "(c.entry_type = 'reference' OR NOT IS_DEFINED(c.entry_type))"
+            if model_id in ('__global__', '__all__'):
+                where = f"WHERE c.category = @cat AND {type_filter}"
+                params = [{"name": "@cat", "value": category}]
+            else:
+                where = f"WHERE c.model_id IN (@model_id, '__global__') AND c.category = @cat AND {type_filter}"
+                params = [
+                    {"name": "@model_id", "value": model_id},
+                    {"name": "@cat", "value": category}
+                ]
+            
+            query = f"SELECT c.standard_code, c.standard_label, c.aliases, c.extra FROM c {where}"
+            
+            entries = [item async for item in container.query_items(query=query, parameters=params)]
+            
+            rows = []
+            max_aliases = 0
+            extra_keys = set()
+            
+            for e in entries:
+                aliases = e.get("aliases", [])
+                max_aliases = max(max_aliases, len(aliases))
+                extra = e.get("extra", {})
+                for k in extra.keys():
+                    extra_keys.add(k)
+            
+            extra_keys = sorted(list(extra_keys))
+            
+            for e in entries:
+                row = {
+                    "표준 코드": e.get("standard_code", ""),
+                    "표준 이름": e.get("standard_label", "")
+                }
+                aliases = e.get("aliases", [])
+                for i in range(max_aliases):
+                    row[f"동의어 {i+1}"] = aliases[i] if i < len(aliases) else ""
+                
+                extra = e.get("extra", {})
+                for k in extra_keys:
+                    row[k] = extra.get(k, "")
+                
+                rows.append(row)
+                
+            return pd.DataFrame(rows)
+        except Exception as e:
+            logger.error(f"[ReferenceData] get_all_entries_for_export failed: {e}")
+            return pd.DataFrame()
+
     async def add_entry(self, entry_data: dict) -> dict:
         """Add a single reference data entry."""
         container = self._get_container()

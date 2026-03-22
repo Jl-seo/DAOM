@@ -262,6 +262,21 @@ async def confirm_and_save_job(
     # Use edited data if provided, otherwise use preview data
     final_data = edited_data if edited_data else job.preview_data.get("guide_extracted", {})
 
+    model = await get_model_by_id(job.model_id)
+    if not model:
+        raise ValueError(f"Model {job.model_id} not found")
+
+    # Apply Deterministic Export Mapping if configured
+    if getattr(model, "export_config", None) and model.export_config.enabled:
+        from app.services.extraction.export_engine import apply_export_definition
+        try:
+            exported_data = apply_export_definition(final_data, model.export_config)
+            if exported_data:
+                final_data = exported_data
+                logger.info(f"[ExportEngine] Successfully mapped payload for job {job_id}")
+        except Exception as e:
+            logger.error(f"[ExportEngine] Failed to apply export definition for job {job_id}: {e}")
+
     # Update job status
     await extraction_jobs.update_job(job_id, status=ExtractionStatus.SUCCESS.value, extracted_data=final_data)
 

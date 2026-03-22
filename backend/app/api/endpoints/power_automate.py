@@ -146,6 +146,20 @@ async def run_extraction_with_metadata(
         else:
              # Success -> Update Job + Store extracted_data for connector result API
              extracted = result.get("guide_extracted", {})
+             
+             # Apply Deterministic Export Mapping if configured
+             from app.services.models import get_model_by_id
+             model = await get_model_by_id(model_id)
+             if model and getattr(model, "export_config", None) and model.export_config.enabled:
+                 from app.services.extraction.export_engine import apply_export_definition
+                 try:
+                     exported_data = apply_export_definition(extracted, model.export_config, metadata)
+                     if exported_data:
+                         extracted = exported_data
+                         logger.info(f"[PowerAutomate] Successfully mapped payload for job {job_id}")
+                 except Exception as e:
+                     logger.error(f"[PowerAutomate] Failed to apply export definition for job {job_id}: {e}")
+
              await update_job(
                 job_id, 
                 status=ExtractionStatus.SUCCESS.value, 

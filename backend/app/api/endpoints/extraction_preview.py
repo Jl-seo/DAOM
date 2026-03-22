@@ -507,6 +507,19 @@ async def save_extraction(
         # Get user ID
         user_id = current_user.id if current_user else 'unknown'
 
+        # Apply Deterministic Export Mapping if configured
+        from app.services.models import get_model_by_id
+        model = await get_model_by_id(request.model_id)
+        if model and getattr(model, "export_config", None) and model.export_config.enabled:
+            from app.services.extraction.export_engine import apply_export_definition
+            try:
+                exported_data = apply_export_definition(extracted_data, model.export_config)
+                if exported_data:
+                    extracted_data = exported_data
+                    logger.info(f"[ExportEngine] Successfully mapped payload for direct save")
+            except Exception as e:
+                logger.error(f"[ExportEngine] Failed to apply export definition for direct save: {e}")
+
         # Save to extraction logs
         log = await extraction_logs.save_extraction_log(
             model_id=request.model_id,

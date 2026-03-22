@@ -137,6 +137,30 @@ class ExcelExportColumn(BaseModel):
     width: int = 15  # 열 너비
     enabled: bool = True  # 내보내기 포함 여부
 
+class PivotTableDef(BaseModel):
+    table: str
+    category_field: str
+    subcategory_field: str
+    value_field: str
+    column_naming: str
+
+class ExportDefinition(BaseModel):
+    base_table: str
+    merge_keys: List[str] = []
+    pivot_tables: List[PivotTableDef] = []
+    final_column_mappings: Dict[str, str] = {}
+    conflict_policy: str = "first_non_empty"
+    # [Phase 3.5] Aggregation & Metadata Injection
+    group_by_keys: List[str] = []  # List of final column names to group by
+    aggregation_strategy: str = "first_non_empty"  # Strategy for merging logical rows (first_non_empty, concat)
+    inject_metadata: bool = False  # If true, PA metadata values will be appended to every row
+
+class ExportConfig(BaseModel):
+    enabled: bool = False
+    webhook_url: Optional[str] = None
+    definition: ExportDefinition
+
+
 class _BaseExtractionModel(BaseModel):
     """공통 필드를 정의하는 베이스 클래스 (직접 사용 금지)"""
     model_config = ConfigDict(extra="ignore")
@@ -154,7 +178,7 @@ class _BaseExtractionModel(BaseModel):
     is_active: bool = True
     retention_days: Optional[int] = None  # 데이터 보관 주기 (일 단위, None이면 무기한)
     temperature: float = 0.0  # LLM Temperature (0.0 for deterministic)
-    reference_data: Optional[Dict[str, Any]] = None  # 참고 데이터 (고객코드 매핑, 유효성 규칙 등)
+    reference_data: Optional[Dict[str, Any]] = None  # 참고 데이터 (고객코드 매핑, 유효성 단어 등)
     beta_features: Dict[str, bool] = Field(default_factory=default_beta_features)
     comparison_settings: Optional[ComparisonSettings] = None
     excel_columns: Optional[List[ExcelExportColumn]] = None
@@ -162,6 +186,7 @@ class _BaseExtractionModel(BaseModel):
     transform_rules: Optional[List[Dict[str, Any]]] = None  # Row expansion rules
     post_process_rules: List[PostProcessRule] = Field(default_factory=list)  # Stage 3
     vibe_dictionary: Optional[VibeDictionaryConfig] = None  # Stage 2
+    export_config: Optional[ExportConfig] = None  # Export Engine Configuration
 
 class ExtractionModel(_BaseExtractionModel):
     """DB에서 읽어온 모델 (id, azure_model_id 포함)"""
