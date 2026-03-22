@@ -465,7 +465,7 @@ function ResizableNestedTable({
 
 
     return (
-        <div className="border border-border rounded-lg overflow-hidden flex flex-col h-full max-h-[600px]">
+        <div className="border border-border rounded-lg overflow-hidden flex flex-col h-full max-h-[600px] min-h-0">
             {/* Header with controls */}
             <div className="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border shrink-0">
                 <div className="flex items-center gap-2">
@@ -486,7 +486,7 @@ function ResizableNestedTable({
             {/* Scrollable table container with Virtualization */}
             <div
                 ref={tableContainerRef}
-                className="overflow-auto relative bg-card flex-1"
+                className="overflow-auto relative bg-card flex-1 min-h-0"
                 style={{ height: '100%' }}
             >
                 <table className="text-sm w-full relative border-collapse" style={{ minWidth: '100%' }}>
