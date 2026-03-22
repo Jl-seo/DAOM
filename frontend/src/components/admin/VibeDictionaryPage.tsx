@@ -119,13 +119,7 @@ export function VibeDictionaryPage() {
         }
     })
 
-    const { data: availableModels = [] } = useQuery({
-        queryKey: ['extraction-models-list'],
-        queryFn: async () => {
-            const res = await apiClient.get('/models')
-            return res.data as { id: string, name: string }[]
-        }
-    })
+
 
     // Upload mutation for global dictionary
     const uploadMutation = useMutation({
