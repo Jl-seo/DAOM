@@ -110,9 +110,10 @@ async def get_extraction_log(
             raise HTTPException(status_code=403, detail="Access denied")
 
     # Centralized hydration — never miss a field again
-    from app.services.hydration import hydrate_preview_data, hydrate_debug_data
+    from app.services.hydration import hydrate_preview_data, hydrate_debug_data, hydrate_extracted_data
     preview_data = await hydrate_preview_data(log.preview_data)
     debug_data = await hydrate_debug_data(log.debug_data)
+    log.extracted_data = await hydrate_extracted_data(log.extracted_data)
 
     # Construct response with hydrated data
     from app.services.models import get_model_by_id
