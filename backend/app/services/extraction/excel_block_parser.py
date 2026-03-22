@@ -169,7 +169,7 @@ def detect_blocks(df: pd.DataFrame, sheet_name: str, start_block_id: int = 1) ->
     for i, sig in enumerate(row_sigs):
         if sig["empty"]:
             consecutive_blanks += 1
-            if consecutive_blanks >= 2 and current_start_idx is not None:
+            if consecutive_blanks >= 5 and current_start_idx is not None:
                 # Close block before blank region
                 block_end_idx = i - consecutive_blanks
                 if block_end_idx >= current_start_idx:
