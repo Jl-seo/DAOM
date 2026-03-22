@@ -13,21 +13,17 @@ from app.services.llm import get_openai_client, get_current_model
 logger = logging.getLogger(__name__)
 
 
-async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extractor_llm: str, sheet_classifications: list = None) -> Dict[str, Any]:
+async def _run_block_mapper(
+    block_summaries: list, 
+    model: ExtractionModel, 
+    extractor_llm: str, 
+    sheet_classifications: list = None,
+    extraction_route: str = "standard_structured",
+    df: pd.DataFrame = None
+) -> Dict[str, Any]:
     """
     Phase B: LLM Semantic Mapper (reduced role).
-    
-    ARCHITECTURE: LLM receives pre-analyzed block summaries (NOT raw CSV data).
-    Python has already:
-      - Detected physical blocks (blank-row segmentation)
-      - Classified rows (header/data/group/context/remark)
-      - Profiled columns (type_hint: port_code/money/date/text)
-      - Extracted context (POL, Currency, dates from metadata rows)
-    
-    LLM only needs to:
-      1. Match each block to a logical table field from the schema
-      2. Suggest column-to-sub_field mappings (as CANDIDATES, validated by Python)
-      3. Extract scalar values from metadata context
+    ...
     """
     client = get_openai_client()
     deployment = extractor_llm or get_current_model()
@@ -37,7 +33,6 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
     for f in model.fields:
         entry = {"key": f.key, "label": f.label, "type": f.type, "description": f.description, "rules": f.rules}
         if f.type in TABLE_TYPES:
-            # Ensure sub_fields are plain dicts for JSON serialization
             raw_subs = f.sub_fields or []
             entry["sub_fields"] = [
                 sf.model_dump() if hasattr(sf, 'model_dump') else (sf if isinstance(sf, dict) else vars(sf))
@@ -45,7 +40,6 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
             ]
         fields_context.append(entry)
     
-    # Build sheet overview section for LLM
     sheet_overview = ""
     if sheet_classifications:
         sheet_overview = f"""
@@ -62,8 +56,16 @@ async def _run_block_mapper(block_summaries: list, model: ExtractionModel, extra
     - A "transshipment" sheet may contain valid rate data, but prefer "primary_rate" sheet if both exist.
     """
 
+    holistic_context = ""
+    if extraction_route == "small_simple" and df is not None:
+        try:
+            holistic_context = f"\nFULL SHEET CONTEXT (For Holistic Review):\n{df.fillna('').to_csv(index=False)}\n\n(Use this full CSV structure to cross-verify the pre-analyzed block summaries.)\n"
+        except Exception as e:
+            logger.warning(f"Failed to generate whole-sheet csv: {e}")
+
     prompt = f"""
     You are an expert Data Extractor. You are given PRE-ANALYZED block summaries from an Excel file.
+    {holistic_context}
     Python has already segmented the sheet into blocks, classified rows, and profiled column data types.
     
     Your job is ONLY to provide semantic interpretation — match blocks to schema fields and suggest column mappings.
@@ -418,17 +420,39 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     logs = [{"step": "Block Detection", "message": f"Detected {len(all_block_summaries)} blocks across {len(sheet_names)} sheets"}]
     
     # ── Phase A-2: Sheet Classification (workbook table of contents) ────
+    from app.services.extraction.excel_block_parser import classify_sheets, profile_workbook
     sheet_classifications = classify_sheets(df, all_block_summaries)
     logs.append({"step": "Sheet Classification", "message": json.dumps([{"sheet": s['sheet_name'], "role": s['sheet_role'], "rows": s['row_count']} for s in sheet_classifications], ensure_ascii=False)})
     
+    blocks_list = [meta["block"] for bid, meta in all_blocks_meta.items()]
+    workbook_profile = profile_workbook(df, blocks_list, sheet_classifications)
+    logger.info(f"[Phase A] Workbook Profile: {json.dumps(workbook_profile, ensure_ascii=False)}")
+    logs.append({"step": "Workbook Profiling", "message": json.dumps(workbook_profile, ensure_ascii=False)})
+    
+    # ── Strategy Router MVP (3-way) ────
+    extraction_route = "standard_structured"
+    if workbook_profile["max_sheet_rows"] > 5000:
+        extraction_route = "large_heavy"
+    elif workbook_profile["total_rows"] < 100 and workbook_profile["sheet_count"] == 1:
+        extraction_route = "small_simple"
+        
+    logger.info(f"선택된 추출 전략: {extraction_route}")
+    logs.append({"step": "Strategy Router", "message": f"Routed to {extraction_route} strategy"})
+    
     _t_phase_a_done = time.monotonic() - _t_phase_a
-    logger.info(f"⏱️ [TIMER] Phase A (Block Parser): {_t_phase_a_done:.2f}s ({len(all_block_summaries)} blocks)")
 
     # ── Phase B: LLM Semantic Mapper (reduced role) ──────────────────────
     _t_phase_b = time.monotonic()
     extractor_llm = getattr(model, "extractor_llm", None)
     
-    mapping_plan = await _run_block_mapper(all_block_summaries, model, extractor_llm, sheet_classifications=sheet_classifications)
+    mapping_plan = await _run_block_mapper(
+        all_block_summaries, 
+        model, 
+        extractor_llm, 
+        sheet_classifications=sheet_classifications,
+        extraction_route=extraction_route,
+        df=df
+    )
     reasoning = mapping_plan.get("reasoning", "")
     token_usage = mapping_plan.pop("_token_usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
     logger.info(f"Block Mapping Plan generated:\n{json.dumps(mapping_plan, indent=2, ensure_ascii=False)}")
@@ -615,22 +639,24 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 logs.append({"step": f"Validator [{t['field_key']}] Warnings", "message": f"{len(warnings_list)} warnings: {json.dumps(warnings_list, ensure_ascii=False)}"})
             
             col_map_dict = validated_mapping
-        
         tables_map[t["field_key"]] = {
-            "sheet_name": t.get("sheet_name", "Sheet1"),
-            "first_data_row_id": t.get("first_data_row_id", 1),
-            "last_data_row_id": t.get("last_data_row_id"),
-            "columns_mapping": col_map_dict,
-            "block_id": block_id,
-            "block_context": block_meta.get("context", {}),
+            "segments": [
+                {
+                    "block_id": block_id,
+                    "sheet_name": t.get("sheet_name", "Sheet1"),
+                    "first_data_row_id": t.get("first_data_row_id", 1),
+                    "last_data_row_id": t.get("last_data_row_id"),
+                    "columns_mapping": col_map_dict,
+                    "mapping_source": "llm_primary",
+                    "compatibility_score": 1.0,
+                    "block_context": block_meta.get("context", {}),
+                }
+            ],
             "table_kind": t.get("table_kind", "flat_table"),
         }
     
-    # ── Phase C-2: Deterministic Sheet Enforcement ────────────────────
-    # LLM sheet selection is non-deterministic. Python overrides based on
-    # sheet_role classification when there's a clear mismatch.
+    # ── Phase C-2: Multi-segment Aggregation & Sheet Enforcement ──────────
     _FIELD_ROLE_MAP = {
-        # field_key patterns → expected sheet_role(s)
         "rate": ["primary_rate"],
         "basic": ["primary_rate"],
         "main": ["primary_rate"],
@@ -643,28 +669,31 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     
     if sheet_classifications:
         role_to_sheets = {}
-        role_to_best_block = {}
+        role_to_blocks = {}
         for sc in sheet_classifications:
             role = sc["sheet_role"]
             role_to_sheets.setdefault(role, []).append(sc["sheet_name"])
-        # Find largest table block per sheet role
+            
         for bid, meta in all_blocks_meta.items():
             block = meta["block"]
             sc_match = next((sc for sc in sheet_classifications if sc["sheet_name"] == block.sheet_name), None)
             if sc_match and block.block_type == "table":
                 role = sc_match["sheet_role"]
-                existing = role_to_best_block.get(role)
-                if not existing or block.row_count > existing["block"].row_count:
-                    role_to_best_block[role] = {"block_id": bid, "block": block}
+                role_to_blocks.setdefault(role, []).append(meta)
+                
+        try:
+            from app.services.extraction.excel_block_parser import compute_compatibility
+        except ImportError:
+            compute_compatibility = None
         
         for field_key, tmap in list(tables_map.items()):
-            current_sheet = str(tmap.get("sheet_name", "")).strip().lower()
+            primary_segment = tmap["segments"][0]
+            current_sheet = str(primary_segment.get("sheet_name", "")).strip().lower()
             current_role = next(
                 (sc["sheet_role"] for sc in sheet_classifications if sc["sheet_name"].strip().lower() == current_sheet),
                 "unknown"
             )
             
-            # Check if field_key suggests a specific sheet role
             fk_lower = field_key.lower()
             expected_roles = []
             for pattern, roles in _FIELD_ROLE_MAP.items():
@@ -672,30 +701,70 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                     expected_roles = roles
                     break
             
+            target_role = current_role
             if expected_roles and current_role not in expected_roles:
-                # LLM picked wrong sheet type — try to override
-                for target_role in expected_roles:
-                    if target_role in role_to_best_block:
-                        best = role_to_best_block[target_role]
-                        best_block = best["block"]
-                        best_meta = all_blocks_meta.get(best["block_id"], {})
+                for tr in expected_roles:
+                    if tr in role_to_blocks:
+                        best_meta = max(role_to_blocks[tr], key=lambda m: m["block"].row_count)
+                        best_block = best_meta["block"]
                         
-                        # Override sheet and row range
-                        tmap["sheet_name"] = best_block.sheet_name
-                        tmap["first_data_row_id"] = best_block.row_start
-                        tmap["last_data_row_id"] = best_block.row_end
-                        tmap["block_id"] = best["block_id"]
-                        tmap["block_context"] = best_meta.get("context", {})
+                        primary_segment["sheet_name"] = best_block.sheet_name
+                        primary_segment["first_data_row_id"] = best_block.row_start
+                        primary_segment["last_data_row_id"] = best_block.row_end
+                        primary_segment["block_id"] = best_block.block_id
+                        primary_segment["block_context"] = best_meta.get("context", {})
+                        primary_segment["mapping_source"] = "role_override"
                         
+                        target_role = tr
                         logs.append({
                             "step": f"Sheet Override [{field_key}]",
-                            "message": f"Overrode LLM choice: '{current_sheet}' (role={current_role}) → "
-                                       f"'{best_block.sheet_name}' (role={target_role}, block={best['block_id']}, "
-                                       f"rows={best_block.row_start}..{best_block.row_end})"
+                            "message": f"Overrode '{current_sheet}' (role={current_role}) → '{best_block.sheet_name}' (role={target_role})"
                         })
-                        logger.info(f"[SheetOverride] {field_key}: {current_sheet} → {best_block.sheet_name}")
                         break
-        
+            
+            # Multi-segment Aggregation
+            if compute_compatibility and target_role in role_to_blocks:
+                expected_sub_keys = []
+                for f in model.fields:
+                    if f.key == field_key and getattr(f, 'sub_fields', None):
+                        raw_subs = getattr(f, 'sub_fields')
+                        expected_sub_keys = [
+                            sf.get('key') if isinstance(sf, dict) else getattr(sf, 'key') 
+                            for sf in raw_subs if sf
+                        ]
+                        break
+                        
+                primary_block_id = primary_segment.get("block_id")
+                primary_mapping = primary_segment.get("columns_mapping", {})
+                
+                p_meta = all_blocks_meta.get(primary_block_id)
+                if p_meta:
+                    p_block = p_meta["block"]
+                    eval_logs = []
+                    for c_meta in role_to_blocks[target_role]:
+                        c_block = c_meta["block"]
+                        if c_block.block_id == primary_block_id:
+                            continue
+                            
+                        compat = compute_compatibility(p_block, c_block, primary_mapping, expected_sub_keys, df, all_blocks_meta)
+                        if compat.score >= 0.5:
+                            tmap["segments"].append({
+                                "block_id": c_block.block_id,
+                                "sheet_name": c_block.sheet_name,
+                                "first_data_row_id": c_block.row_start,
+                                "last_data_row_id": c_block.row_end,
+                                "columns_mapping": compat.remapped_cols,
+                                "mapping_source": compat.mapping_source,
+                                "compatibility_score": compat.score,
+                                "block_context": c_meta.get("context", {})
+                            })
+                            eval_logs.append(f"Accepted '{c_block.sheet_name}' (score {compat.score:.2f})")
+                        else:
+                            eval_logs.append(f"Rejected '{c_block.sheet_name}' (score {compat.score:.2f})")
+                            
+                    if eval_logs:
+                        logs.append({"step": f"Multi-Segment Candidates [{field_key}]", "message": " | ".join(eval_logs)})
+    
     # #10: Unmapped table fields — Python header-matching fallback
     # If LLM mapper didn't map a table field, try to find the best block
     # by matching sub_field keys against block header_candidates.
@@ -780,81 +849,42 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         else:
             logs.append({"step": f"Unmapped [{f.key}]", "message": f"No block matched (best_score={best_score:.0%}). Table field '{f.key}' will be empty."})
     
+    # ── Phase C-3: Chunk Application for Large Heavy Route ────
+    if extraction_route == "large_heavy":
+        from app.services.extraction.excel_block_parser import chunk_block
+        chunk_logs = []
+        for target_key, t_map in tables_map.items():
+            new_segments = []
+            for segment in t_map.get("segments", []):
+                block_id = segment.get("block_id")
+                block_meta = all_blocks_meta.get(block_id, {})
+                if block_meta:
+                    chunks = chunk_block(block_meta["block"], block_meta["row_classifications"], chunk_size=2000)
+                    if len(chunks) > 1:
+                        chunk_logs.append(f"Block {block_id} in {segment.get('sheet_name')} split into {len(chunks)} chunks.")
+                        for idx, chunk_rc in enumerate(chunks):
+                            data_rows = [rc for rc in chunk_rc if rc.row_type == "data"]
+                            non_data = len(chunk_rc) - len(data_rows)
+                            chunk_logs.append(f"  └ Chunk {idx+1}/{len(chunks)}: {len(data_rows)} data rows, {non_data} inherited context rows.")
+                            new_segment = segment.copy()
+                            new_segment["chunk_rc"] = chunk_rc
+                            new_segments.append(new_segment)
+                    else:
+                        new_segments.append(segment)
+                else:
+                    new_segments.append(segment)
+            t_map["segments"] = new_segments
+            
+        if chunk_logs:
+            logs.append({"step": "Chunk Division Strategy", "message": "\n".join(chunk_logs)})
+
     _t_phase_c_done = time.monotonic() - _t_phase_c
     logger.info(f"⏱️ [TIMER] Phase C (Validator + Map): {_t_phase_c_done:.2f}s ({len(tables_map)} tables)")
 
     _t_table_exec = time.monotonic()
     for target_key, t_map in tables_map.items():
         _t_table_start = time.monotonic()
-        sheet = t_map.get("sheet_name", "")
-        if sheet:
-            sheet = str(sheet).strip().lower()
         
-        raw_col_map = t_map.get("columns_mapping", {})
-        
-        # Normalize LLM output column map keys (sub_field_key) to lowercase for safe matching
-        col_map = {}
-        if isinstance(raw_col_map, dict):
-            for k, v in raw_col_map.items():
-                if k and v:
-                    col_map[str(k).strip().lower()] = str(v).strip().upper()
-        
-        # #8: page_number from precomputed sheet_list with sheet metadata
-        page_number = 1
-        sheet_index = 0
-        if sheet:
-            search = str(sheet).strip().lower()
-            if search in sheet_list_lower:
-                sheet_index = sheet_list_lower.index(search)
-                page_number = sheet_index + 1
-        
-        if not col_map or not sheet:
-            logs.append({"step": f"Table [{target_key}]", "message": f"Skipped: col_map or sheet is empty. Sheet={sheet}, Map={col_map}"})
-            raw_extracted[target_key] = {"value": [], "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
-            continue
-        
-        # #7: Use precomputed _sheet_name_lower
-        sheet_df = df[df["_sheet_name_lower"] == sheet] if "_sheet_name_lower" in df.columns else df
-        if sheet_df.empty:
-            logs.append({"step": f"Table [{target_key}]", "message": f"Sheet '{sheet}' not found, falling back to full combined data."})
-            sheet_df = df
-        
-        # #5: Block boundary from Python metadata (LLM as fallback only)
-        block_id = t_map.get("block_id")
-        block_meta = all_blocks_meta.get(block_id, {})
-        
-        if block_meta:
-            block_obj = block_meta["block"]
-            block_start = block_obj.row_start
-            block_end = block_obj.row_end
-            # Use Python's classified data rows within the block
-            data_row_ids = {rc.row_id for rc in block_meta["row_classifications"] if rc.row_type == "data"}
-            data_rows = sheet_df[sheet_df["row_id"].isin(data_row_ids)]
-            logs.append({"step": f"Table [{target_key}] Target", "message": f"Sheet='{sheet}', block=[{block_start}..{block_end}], data_rows={len(data_rows)}, Mapping={json.dumps(col_map)}"})
-        else:
-            # Fallback: no block metadata, use LLM boundaries
-            first_data_row_id = t_map.get("first_data_row_id", 1)
-            last_data_row_id = t_map.get("last_data_row_id")
-            try:
-                h_id = int(first_data_row_id)
-            except (ValueError, TypeError):
-                h_id = 1
-            try:
-                last_id = int(last_data_row_id) if last_data_row_id is not None else None
-            except (ValueError, TypeError):
-                last_id = None
-            
-            if last_id is not None:
-                data_rows = sheet_df[(sheet_df["row_id"] >= h_id) & (sheet_df["row_id"] <= last_id)]
-            else:
-                data_rows = sheet_df[sheet_df["row_id"] >= h_id]
-            logs.append({"step": f"Table [{target_key}] Target", "message": f"Sheet='{sheet}', LLM fallback row_id=[{h_id}..{last_id}], Mapping={json.dumps(col_map)}"})
-        
-        logger.info(f"[{target_key}] Sheet='{sheet}', data_rows={len(data_rows)}")
-        
-        extracted_table_rows = []
-        
-        # 1. Look up the expected schema for this table
         expected_sub_keys = []
         for f in model.fields:
             if f.key == target_key and getattr(f, 'sub_fields', None):
@@ -864,234 +894,187 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                     for sf in raw_subs if sf
                 ]
                 break
-                
-        # Fallback if no schema is strictly defined or found
-        if not expected_sub_keys:
-            expected_sub_keys = list(col_map.keys())
 
-        # ── Executor Routing by table_kind ────────────────────────────────
         table_kind = t_map.get("table_kind", "flat_table")
-
-        if table_kind == "rate_matrix":
-            # ── Rate Matrix Executor ──────────────────────────────────────
-            # Unpivot: rows are lanes, columns are equipment types (20GP, 40HC),
-            # cells are rate values. Each row × equipment_col → one fact row.
-            import copy as _copy
-
-            # Identify equipment (money) columns by checking header values
-            equip_pattern = re.compile(r'^\d{2}(GP|HC|DC|RF|OT|FR|TK|NOR)\b', re.IGNORECASE)
-            block_meta_local = all_blocks_meta.get(t_map.get("block_id"), {})
-            header_rows_cls = [rc for rc in block_meta_local.get("row_classifications", [])
-                               if rc.row_type == "header"] if block_meta_local else []
-
-            # Build equipment_cols: list of (excel_col_letter, header_name)
-            equipment_cols = []
-            non_equip_col_map = {}  # sub_field_key → excel_col for non-equipment fields
-
-            if header_rows_cls:
-                h_row = df[df["row_id"] == header_rows_cls[-1].row_id]
-                if not h_row.empty:
-                    for sf_key, excel_col in col_map.items():
-                        if excel_col in h_row.columns:
-                            hdr = str(h_row.iloc[0][excel_col]).strip() if pd.notna(h_row.iloc[0][excel_col]) else ""
-                            if equip_pattern.match(hdr):
-                                equipment_cols.append((excel_col, hdr))
-                            else:
-                                non_equip_col_map[sf_key] = excel_col
-                        else:
-                            non_equip_col_map[sf_key] = excel_col
+        extracted_table_rows = []
+        segments = t_map.get("segments", [])
+        
+        if not segments:
+            raw_extracted[target_key] = {"value": [], "confidence": 0.0, "validation_status": "flagged", "page_number": 1}
+            continue
+            
+        for segment in segments:
+            sheet = str(segment.get("sheet_name", "")).strip().lower()
+            raw_col_map = segment.get("columns_mapping", {})
+            col_map = {}
+            if isinstance(raw_col_map, dict):
+                for k, v in raw_col_map.items():
+                    if k and v:
+                        col_map[str(k).strip().lower()] = str(v).strip().upper()
+                        
+            if not expected_sub_keys:
+                expected_sub_keys = list(col_map.keys())
+                
+            page_number = 1
+            sheet_index = 0
+            if sheet and sheet in sheet_list_lower:
+                sheet_index = sheet_list_lower.index(sheet)
+                page_number = sheet_index + 1
+                
+            sheet_df = df[df["_sheet_name_lower"] == sheet] if "_sheet_name_lower" in df.columns else df
+            
+            block_id = segment.get("block_id")
+            block_meta = all_blocks_meta.get(block_id, {})
+            
+            if block_meta:
+                if "chunk_rc" in segment:
+                    data_row_ids = {rc.row_id for rc in segment["chunk_rc"] if rc.row_type == "data"}
+                else:
+                    data_row_ids = {rc.row_id for rc in block_meta["row_classifications"] if rc.row_type == "data"}
+                data_rows = sheet_df[sheet_df["row_id"].isin(data_row_ids)]
             else:
-                # No header info — fall through to flat_table
-                non_equip_col_map = col_map
-                logger.warning(f"[RateMatrix] No header rows for block, falling back to flat_table for {target_key}")
+                h_id = int(segment.get("first_data_row_id", 1))
+                last_id = segment.get("last_data_row_id")
+                last_id = int(last_id) if last_id is not None else None
+                if last_id is not None:
+                    data_rows = sheet_df[(sheet_df["row_id"] >= h_id) & (sheet_df["row_id"] <= last_id)]
+                else:
+                    data_rows = sheet_df[sheet_df["row_id"] >= h_id]
+            
+            logger.info(f"[{target_key}] Segment '{sheet}', data_rows={len(data_rows)}")
+            
+            _EMPTY_CELL = {"value": "", "confidence": 0.0, "validation_status": "flagged", "original_value": "", "bbox": None}
+            segment_extracted_rows = []
+            
+            if table_kind == "rate_matrix":
+                import copy as _copy
+                equip_pattern = re.compile(r'^\d{2}(GP|HC|DC|RF|OT|FR|TK|NOR)\b', re.IGNORECASE)
+                header_rows_cls = [rc for rc in block_meta.get("row_classifications", []) if rc.row_type == "header"] if block_meta else []
+                equipment_cols = []
+                non_equip_col_map = {}
+                
+                if header_rows_cls:
+                    h_row = df[df["row_id"] == header_rows_cls[-1].row_id]
+                    if not h_row.empty:
+                        for sf_key, excel_col in col_map.items():
+                            if excel_col in h_row.columns:
+                                hdr = str(h_row.iloc[0][excel_col]).strip() if pd.notna(h_row.iloc[0][excel_col]) else ""
+                                if equip_pattern.match(hdr):
+                                    equipment_cols.append((excel_col, hdr))
+                                else:
+                                    non_equip_col_map[sf_key] = excel_col
 
-            if equipment_cols:
-                # Determine target sub_field keys for container_type and rate
-                ct_key = None
-                rate_key = None
-                for sk in expected_sub_keys:
-                    sk_lower = str(sk).strip().lower()
-                    if sk_lower in ("container_type", "equipment", "cntr_type", "eq_type", "container"):
-                        ct_key = sk
-                    elif sk_lower in ("rate", "freight", "amount", "charge", "o_f", "of"):
-                        rate_key = sk
-
-                if not ct_key:
-                    ct_key = "container_type"
-                if not rate_key:
-                    rate_key = "rate"
-
-                VIRTUAL_WIDTH = 1000
-                CELL_HEIGHT = 50
-                col_count = len(df.columns) - 3
-                cell_width = VIRTUAL_WIDTH / max(1, col_count)
+                ct_key = next((k for k in expected_sub_keys if '20' in k.lower() or '40' in k.lower() or 'type' in k.lower() or 'equipment' in k.lower()), "container_type")
+                sf_key_for_val = next((k for k in expected_sub_keys if 'rate' in k.lower() or 'price' in k.lower() or 'amount' in k.lower() or 'freight' in k.lower()), "basic_ocean_freight")
+                if ct_key not in expected_sub_keys: expected_sub_keys.append(ct_key)
+                if sf_key_for_val not in expected_sub_keys: expected_sub_keys.append(sf_key_for_val)
 
                 for _, row in data_rows.iterrows():
-                    # Extract non-equipment (dimension) values once
-                    base_row = {}
                     has_any_data = False
-                    for sf_key, excel_col in non_equip_col_map.items():
+                    base_row = {}
+                    for sf_key in expected_sub_keys:
+                        if sf_key in (ct_key, sf_key_for_val):
+                            continue
+                        excel_col = non_equip_col_map.get(sf_key)
                         if excel_col and excel_col in row and pd.notna(row[excel_col]):
                             val = str(row[excel_col]).strip()
                             if val and val.lower() != "nan":
                                 has_any_data = True
-                                base_row[sf_key] = {
-                                    "value": val,
-                                    "confidence": 0.95,
-                                    "validation_status": "valid",
-                                    "original_value": val,
-                                    "bbox": None
-                                }
+                                base_row[sf_key] = {"value": val, "confidence": 0.95, "validation_status": "valid", "original_value": val, "bbox": None}
                             else:
-                                base_row[sf_key] = {"value": "", "confidence": 0.0,
-                                                    "validation_status": "flagged", "original_value": "", "bbox": None}
+                                base_row[sf_key] = _EMPTY_CELL.copy()
                         else:
-                            base_row[sf_key] = {"value": "", "confidence": 0.0,
-                                                "validation_status": "flagged", "original_value": "", "bbox": None}
+                            base_row[sf_key] = _EMPTY_CELL.copy()
 
                     if not has_any_data:
                         continue
 
-                    # Unpivot: one fact row per equipment column
                     for eq_col, eq_header in equipment_cols:
                         if eq_col in row and pd.notna(row[eq_col]):
                             rate_val = str(row[eq_col]).strip()
                             if not rate_val or rate_val.lower() == "nan":
                                 continue
 
-                            fact_row = _copy.deepcopy(base_row)
-                            fact_row[ct_key] = {
-                                "value": eq_header,
-                                "confidence": 0.95,
-                                "validation_status": "valid",
-                                "original_value": eq_header,
-                                "bbox": None
-                            }
-                            fact_row[rate_key] = {
-                                "value": rate_val,
-                                "confidence": 0.95,
-                                "validation_status": "valid",
-                                "original_value": rate_val,
-                                "bbox": None
-                            }
-                            # Fill any missing expected sub_fields
-                            for sk in expected_sub_keys:
-                                if sk not in fact_row:
-                                    fact_row[sk] = {"value": "", "confidence": 0.0,
-                                                    "validation_status": "flagged", "original_value": "", "bbox": None}
-
-                            fact_row["_meta"] = {
-                                "sheet_name": sheet,
-                                "sheet_index": sheet_index,
-                                "row_id": int(row["row_id"]),
-                                "local_row_id": int(row["local_row_id"]) if "local_row_id" in row.index else 0
-                            }
-                            extracted_table_rows.append(fact_row)
-
-                logs.append({"step": f"Table [{target_key}] RateMatrix",
-                             "message": f"Unpivoted {len(data_rows)} source rows × {len(equipment_cols)} equipment cols → {len(extracted_table_rows)} fact rows"})
-                logger.info(f"[RateMatrix] {target_key}: {len(extracted_table_rows)} fact rows from {len(data_rows)} source rows × {len(equipment_cols)} eq cols")
+                            fact_row = {k: dict(v) if isinstance(v, dict) else v for k, v in base_row.items()}
+                            fact_row[ct_key] = {"value": eq_header, "confidence": 0.95, "validation_status": "valid", "original_value": eq_header, "bbox": None}
+                            fact_row[sf_key_for_val] = {"value": rate_val, "confidence": 0.95, "validation_status": "valid", "original_value": str(row[eq_col]).strip(), "bbox": None}
+                            
+                            fact_row["_meta"] = {"sheet_name": sheet, "sheet_index": sheet_index, "row_id": int(row["row_id"])}
+                            if "local_row_id" in row.index: fact_row["_meta"]["local_row_id"] = int(row["local_row_id"])
+                            segment_extracted_rows.append(fact_row)
 
             else:
-                # No equipment columns detected — fall through to generic executor below
-                table_kind = "flat_table"
-
-        _rate_matrix_handled = (table_kind == "rate_matrix" and len(extracted_table_rows) > 0)
-
-        if not _rate_matrix_handled:
-            # ── Generic Flat Table Executor ────────────────────────────────
-            for _, row in data_rows.iterrows():
-                row_has_meaningful_data = False
-                row_data = {}
-
-                for inner_key in expected_sub_keys:
-                    lookup_key = str(inner_key).strip().lower() if inner_key else ""
-                    excel_col = col_map.get(lookup_key)
-                    # Virtual Grid constants (Sync with ExcelGridViewer.tsx)
-                    VIRTUAL_WIDTH = 1000
-                    CELL_HEIGHT = 50
-                    col_count = len(df.columns) - 3  # Subtract metadata cols
-                    cell_width = VIRTUAL_WIDTH / max(1, col_count)
-
-                    # Check if we have mapped column and the cell has data
-                    if excel_col and excel_col in row and pd.notna(row[excel_col]):
-                        val = str(row[excel_col]).strip()
-                        if val and val.lower() != "nan":
-                            row_has_meaningful_data = True
-
-                            # #3: NO ref_data normalization here — raw extraction only.
-                            # Normalization happens in common post-processing stage.
-
-                            # Calculate Virtual BBox
-                            bbox = None
-                            try:
-                                col_idx = df.columns.tolist().index(excel_col) - 3
-                                row_idx = int(row["local_row_id"])
-
-                                x1 = col_idx * cell_width
-                                y1 = row_idx * CELL_HEIGHT
-                                x2 = x1 + cell_width
-                                y2 = y1 + CELL_HEIGHT
-                                bbox = [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
-                            except Exception:
-                                pass
-
-                            row_data[inner_key] = {
-                                "value": val,
-                                "confidence": 0.95,
-                                "validation_status": "valid",
-                                "original_value": str(row[excel_col]).strip(),
-                                "bbox": bbox
-                            }
-                        else:
-                            # Empty but mapped string
-                            row_data[inner_key] = {
-                                "value": "",
-                                "confidence": 0.0,
-                                "validation_status": "flagged",
-                                "original_value": "",
-                                "bbox": None
-                            }
-                    else:
-                        # Unmapped Column, or completely empty NaN cell
-                        row_data[inner_key] = {
-                            "value": "",
-                            "confidence": 0.0,
-                            "validation_status": "flagged",
-                            "original_value": "",
-                            "bbox": None
-                        }
-
-                if row_has_meaningful_data:
-                    # #4: Source trace as _meta bucket (not a sub_field)
-                    row_data["_meta"] = {
-                        "sheet_name": sheet,
-                        "sheet_index": sheet_index,
-                        "row_id": int(row["row_id"]),
-                        "local_row_id": int(row["local_row_id"]) if "local_row_id" in row.index else 0
-                    }
-                    extracted_table_rows.append(row_data)
+                VIRTUAL_WIDTH = 1000
+                CELL_HEIGHT = 50
+                col_count = len(df.columns) - 3
+                cell_width = VIRTUAL_WIDTH / max(1, col_count)
                 
-        # ── Phase E: Context Inheritance ──────────────────────────────────
-        # Fill empty fields from block_context (POL, Currency, Start_Date, etc.)
-        block_context = t_map.get("block_context", {})
-        if block_context:
-            for row_data in extracted_table_rows:
-                for ctx_key, ctx_val in block_context.items():
-                    # Find matching sub_field key (case-insensitive)
+                # pre-calculate col idx bounds
+                col_indices = {}
+                for ik, ecol in col_map.items():
+                    if ecol in df.columns.tolist():
+                        col_indices[ik] = df.columns.tolist().index(ecol) - 3
+                
+                for _, row in data_rows.iterrows():
+                    row_has_meaningful_data = False
+                    row_data = {}
+                    
+                    row_idx = int(row["local_row_id"]) if "local_row_id" in row.index else 0
+                    y1 = row_idx * CELL_HEIGHT
+                    y2 = y1 + CELL_HEIGHT
+
                     for inner_key in expected_sub_keys:
-                        if str(inner_key).strip().lower() == ctx_key.strip().lower():
-                            cell = row_data.get(inner_key, {})
-                            if isinstance(cell, dict) and (not cell.get("value") or cell.get("value") == ""):
+                        lookup_key = str(inner_key).strip().lower() if inner_key else ""
+                        excel_col = col_map.get(lookup_key)
+
+                        if excel_col and excel_col in row and pd.notna(row[excel_col]):
+                            val = str(row[excel_col]).strip()
+                            if val and val.lower() != "nan":
+                                row_has_meaningful_data = True
+                                bbox = None
+                                try:
+                                    if inner_key in col_indices:
+                                        c_idx = col_indices[inner_key]
+                                        x1 = c_idx * cell_width
+                                        x2 = x1 + cell_width
+                                        bbox = [round(x1, 2), round(y1, 2), round(x2, 2), round(y2, 2)]
+                                except Exception:
+                                    pass
+
                                 row_data[inner_key] = {
-                                    "value": ctx_val,
-                                    "confidence": 0.80,
-                                    "validation_status": "valid",
-                                    "original_value": ctx_val,
-                                    "bbox": None,
-                                    "_modifier": "Block Context Inheritance"
+                                    "value": val, "confidence": 0.95, "validation_status": "valid",
+                                    "original_value": str(row[excel_col]).strip(), "bbox": bbox
                                 }
-        
+                            else:
+                                row_data[inner_key] = _EMPTY_CELL.copy()
+                        else:
+                            row_data[inner_key] = _EMPTY_CELL.copy()
+
+                    if row_has_meaningful_data:
+                        row_data["_meta"] = {"sheet_name": sheet, "sheet_index": sheet_index, "row_id": int(row["row_id"])}
+                        if "local_row_id" in row.index: row_data["_meta"]["local_row_id"] = int(row["local_row_id"])
+                        segment_extracted_rows.append(row_data)
+            
+            # Phase E: Context Inheritance for THIS segment only
+            block_context = segment.get("block_context", {})
+            if block_context:
+                for row_data in segment_extracted_rows:
+                    for ctx_key, ctx_val in block_context.items():
+                        for inner_key in expected_sub_keys:
+                            if str(inner_key).strip().lower() == ctx_key.strip().lower():
+                                cell = row_data.get(inner_key, {})
+                                if isinstance(cell, dict) and (not cell.get("value") or cell.get("value") == ""):
+                                    row_data[inner_key] = {
+                                        "value": ctx_val,
+                                        "confidence": 0.80,
+                                        "validation_status": "valid",
+                                        "original_value": ctx_val,
+                                        "bbox": None,
+                                        "_modifier": "Block Context Inheritance"
+                                    }
+            
+            extracted_table_rows.extend(segment_extracted_rows)
+            
         # ── Phase E: Field-Aware Expansion ────────────────────────────────
         # Replace inline slash expansion with type-checked version
         _t_expand = time.monotonic()
@@ -1145,10 +1128,17 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                         logs.append({"step": f"Outlier Filter [{target_key}/{kcol}]",
                                      "message": f"Removed {removed} rows with non-matching {kcol} pattern (dominant={upper_ratio:.0%} uppercase codes)"})
 
+        tables_map[target_key]["table_kind"] = table_kind
+        # Count chunks/segments for logs
+        total_rc_count = 0
+        for row in extracted_table_rows:
+            total_rc_count += 1
+        if len(segments) > 1:
+            logs.append({"step": f"Table [{target_key}] Exec", "message": f"Extracted {total_rc_count} rows across {len(segments)} segments/chunks."})
+        else:
+            logs.append({"step": f"Table [{target_key}] Exec", "message": f"Extracted {total_rc_count} rows out of {len(data_rows)} target data rows."})
+        
         _t_table_done = time.monotonic() - _t_table_start
-        logger.info(f"⏱️ [TIMER] Table [{target_key}] total: {_t_table_done:.2f}s ({len(extracted_table_rows)} rows from {len(data_rows)} source)")
-
-        logs.append({"step": f"Table [{target_key}] Exec", "message": f"Extracted {len(extracted_table_rows)} rows out of {len(data_rows)} target data rows."})
         raw_extracted[target_key] = {
             "value": extracted_table_rows,
             "confidence": 0.95 if extracted_table_rows else 0.0,
@@ -1159,6 +1149,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         }
 
     _t_table_exec_done = time.monotonic() - _t_table_exec
+    _t_phase_d_done = time.monotonic() - _t_phase_d
     logger.info(f"⏱️ [TIMER] All Table Extraction: {_t_table_exec_done:.2f}s")
 
     # ── Markdown Context-based Scalar Extraction for empty common fields ──
@@ -1250,5 +1241,10 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
     
     _t_total_done = time.monotonic() - _t_total
     logger.info(f"⏱️ [TIMER] █ TOTAL run_sql_extraction: {_t_total_done:.2f}s")
+    
+    logs.append({
+        "step": "Performance Telemetry", 
+        "message": f"Total Latency: {_t_total_done:.2f}s | Phase A (Profile): {_t_phase_a_done:.2f}s | Phase B (LLM): {_t_phase_b_done:.2f}s | Phase C (Route&Map): {_t_phase_c_done:.2f}s | Phase D (Exec): {_t_phase_d_done:.2f}s"
+    })
     
     return final_payload

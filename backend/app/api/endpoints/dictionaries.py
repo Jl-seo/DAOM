@@ -151,6 +151,24 @@ async def list_entries(
     return result
 
 
+@router.post("/entries", dependencies=[Depends(require_admin)])
+async def create_entry(
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Create a new dictionary entry."""
+    service = get_reference_data_service()
+    if not service.is_available:
+        raise HTTPException(status_code=503, detail="Dictionary service not configured.")
+
+    body = await request.json()
+    try:
+        new_entry = await service.add_entry(body)
+        return {"ok": True, "entry": new_entry}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.put("/entries/{entry_id}", dependencies=[Depends(require_admin)])
 async def update_entry(
     entry_id: str,

@@ -178,22 +178,23 @@ async def get_job_status(
         raise HTTPException(status_code=404, detail="Job not found")
 
     # Centralized hydration — never miss a field again
-    from app.services.hydration import hydrate_preview_data, hydrate_debug_data
+    from app.services.hydration import hydrate_preview_data, hydrate_debug_data, hydrate_extracted_data
     preview_data = await hydrate_preview_data(job.preview_data)
     debug_data = await hydrate_debug_data(job.debug_data)
+    extracted_data = await hydrate_extracted_data(job.extracted_data)
 
     from app.services.models import get_model_by_id
     from app.services.masking import mask_pii_data
     model = await get_model_by_id(job.model_id)
     if model:
-        job.extracted_data = mask_pii_data(job.extracted_data, model)
+        extracted_data = mask_pii_data(extracted_data, model)
         preview_data = mask_pii_data(preview_data, model)
 
     return {
         "job_id": job.id,
         "status": job.status,
         "preview_data": preview_data,
-        "extracted_data": job.extracted_data,
+        "extracted_data": extracted_data,
         "debug_data": debug_data,
         "error": job.error,
         "filename": job.filename,

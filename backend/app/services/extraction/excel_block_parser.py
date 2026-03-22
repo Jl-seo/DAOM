@@ -1146,13 +1146,18 @@ def classify_sheets(
         sheet_role = "unknown"
         best_score = 0
         for role, keywords in _ROLE_KEYWORDS.items():
-            score = sum(1 for kw in keywords if kw in sn_lower)
+            score = 0
+            for kw in keywords:
+                if kw.isascii():
+                    if re.search(rf'\b{re.escape(kw)}\b', sn_lower):
+                        score += 1
+                else:
+                    if kw in sn_lower:
+                        score += 1
+                        
             if score > best_score:
                 best_score = score
                 sheet_role = role
-        # Boost first sheet if no strong match
-        if idx == 0 and best_score == 0:
-            sheet_role = "primary_rate"
 
         # Count dominant column types
         type_counts: Dict[str, int] = {}
@@ -1170,6 +1175,13 @@ def classify_sheets(
             "data_sample": data_sample[:6],
             "dominant_col_types": [f"{t}({c})" for t, c in dominant_types],
         })
+
+    # Fallback: if no sheet is classified as primary_rate, assume the largest one is primary
+    has_primary = any(sc["sheet_role"] == "primary_rate" for sc in sheet_classifications)
+    if not has_primary and sheet_classifications:
+        largest_sheet = max(sheet_classifications, key=lambda sc: sc["row_count"])
+        if largest_sheet["sheet_role"] == "unknown":
+            largest_sheet["sheet_role"] = "primary_rate"
 
     return sheet_classifications
 
@@ -1285,4 +1297,124 @@ def build_block_summary(
             "remark": len([r for r in row_classifications if r.row_type == "remark"]),
             "continuation": len([r for r in row_classifications if r.row_type == "continuation"]),
         }
+    }
+
+@dataclass
+class CompatibilityResult:
+    score: float
+    mapping_source: str
+    remapped_cols: Dict[str, str]
+
+def compute_compatibility(primary_block: BlockInfo, candidate_block: BlockInfo, primary_mapping: dict, expected_sub_keys: list, df: pd.DataFrame, all_blocks_meta: dict) -> CompatibilityResult:
+    """
+    Compute compatibility between a candidate block and the primary block (LLM selected).
+    Evaluates header similarity, required subfield match ratio, and semantic compatibility.
+    """
+    try:
+        p_meta = all_blocks_meta.get(primary_block.block_id, {})
+        c_meta = all_blocks_meta.get(candidate_block.block_id, {})
+        
+        p_headers = [rc for rc in p_meta.get("row_classifications", []) if rc.row_type == "header"]
+        c_headers = [rc for rc in c_meta.get("row_classifications", []) if rc.row_type == "header"]
+        
+        p_header_row_id = p_headers[-1].row_id if p_headers else primary_block.row_start
+        c_header_row_id = c_headers[-1].row_id if c_headers else candidate_block.row_start
+        
+        p_row = df[df["row_id"] == p_header_row_id]
+        c_row = df[df["row_id"] == c_header_row_id]
+        
+        if p_row.empty or c_row.empty:
+            return CompatibilityResult(0.0, "failed", {})
+            
+        p_row_data = p_row.iloc[0]
+        c_row_data = c_row.iloc[0]
+        
+        matched_required = 0
+        total_required = len(expected_sub_keys) if expected_sub_keys else len(primary_mapping)
+        if total_required == 0:
+            return CompatibilityResult(1.0, "seed_reused", primary_mapping)
+            
+        remapped_cols = {}
+        exact_header_match_count = 0
+        
+        c_val_to_col = {}
+        for c in candidate_block.active_columns:
+            if c in c_row_data and pd.notna(c_row_data[c]):
+                c_val_to_col[str(c_row_data[c]).strip().lower()] = c
+                
+        for sf_key, p_col in primary_mapping.items():
+            if p_col in p_row_data and pd.notna(p_row_data[p_col]):
+                p_hdr_val = str(p_row_data[p_col]).strip().lower()
+                if p_hdr_val in c_val_to_col:
+                    remapped_cols[sf_key] = c_val_to_col[p_hdr_val]
+                    exact_header_match_count += 1
+                    if sf_key in expected_sub_keys:
+                        matched_required += 1
+                else:
+                    c_col_val = str(c_row_data[p_col]).strip().lower() if p_col in c_row_data and pd.notna(c_row_data[p_col]) else ""
+                    if p_col in candidate_block.active_columns and (not c_col_val or p_hdr_val in c_col_val or c_col_val in p_hdr_val):
+                        remapped_cols[sf_key] = p_col
+                        if sf_key in expected_sub_keys:
+                            matched_required += 1
+
+        required_satisfiability = (matched_required / total_required) if total_required > 0 else 0
+        header_overlap = (exact_header_match_count / len(primary_mapping)) if primary_mapping else 0
+        
+        # User requested: required match high, header overlap medium
+        score = (required_satisfiability * 0.7) + (header_overlap * 0.3)
+        mapping_source = "seed_reused" if header_overlap == 1.0 else "local_remapped"
+        
+        return CompatibilityResult(score, mapping_source, remapped_cols)
+    except Exception as e:
+        logger.error(f"Error computing compatibility: {e}")
+        return CompatibilityResult(0.0, "failed", {})
+
+def chunk_block(block: BlockInfo, row_classifications: List[RowClassification], chunk_size: int = 1000) -> List[List[RowClassification]]:
+    """Split a large block into header-aware chunks, carrying over group_label."""
+    header_rows = [rc for rc in row_classifications if rc.row_type == "header"]
+    non_data_context = [rc for rc in row_classifications if rc.row_type in ("context", "remark")]
+    data_and_group_rows = [rc for rc in row_classifications if rc.row_type in ("data", "group_label", "continuation")]
+    
+    chunks = []
+    current_chunk = []
+    current_data_count = 0
+    last_group_label_row = None
+    
+    for rc in data_and_group_rows:
+        if rc.row_type == "group_label":
+            last_group_label_row = rc
+        
+        if current_data_count == 0:
+            current_chunk.extend(header_rows)
+            current_chunk.extend(non_data_context)
+            if last_group_label_row and rc != last_group_label_row:
+                current_chunk.append(last_group_label_row)
+                
+        current_chunk.append(rc)
+        if rc.row_type == "data":
+            current_data_count += 1
+            
+        if current_data_count >= chunk_size:
+            chunks.append(current_chunk)
+            current_chunk = []
+            current_data_count = 0
+            
+    if current_chunk:
+        chunks.append(current_chunk)
+        
+    return chunks
+
+def profile_workbook(df: pd.DataFrame, blocks: List[BlockInfo], sheet_classifications: List[dict]) -> dict:
+    return {
+        "sheet_count": len(set(b.sheet_name for b in blocks)),
+        "total_rows": len(df),
+        "max_sheet_rows": max([sc.get("row_count", 0) for sc in sheet_classifications], default=0),
+        "block_count": len(blocks),
+        "max_header_depth": 1,
+        "has_multi_block_sheet": any(
+            sum(1 for b2 in blocks if b2.sheet_name == b.sheet_name and b2.block_type == "table") > 1
+            for b in blocks
+        ),
+        "schema_overlap_ratio": 0.0,
+        "matrix_likelihood": 0.0
     }

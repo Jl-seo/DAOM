@@ -46,10 +46,35 @@ nohup.out
 restore_diff.txt
 temp_backup_review.tsx
 
+# Ad-hoc test scripts in backend root (not CI tests)
+backend/test.py
+backend/test_*.py
+
 # Scratch test/debug scripts (ad-hoc, not CI)
 backend/scripts/scratch_tests/
 backend/scripts/debug/
+backend/scripts/debug_*.py
+backend/scripts/test_*.py
+backend/scripts/run_azure_test.py
+backend/scripts/check_errors.py
+
+# Debug virtualenv
+backend/debug_env/
 
 # Temp data files
 backend/dummy_*.xlsx
 backend/extraction_models.json
+backend/excel_debug.json
+backend/create_dummy_excel.py
+
+# Stale root artifacts
+run.json
+runs.json
+ColumnLetter
+LogicalHeader
+COMPARISON_FEATURE_REVIEW.md
+
+# Root scripts test/verify files
+scripts/test_*.py
+scripts/verify_*.py
+

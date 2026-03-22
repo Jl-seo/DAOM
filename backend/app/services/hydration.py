@@ -105,3 +105,25 @@ async def hydrate_debug_data(debug_data: Optional[Dict[str, Any]]) -> Optional[D
             logger.error(f"[Hydration] Failed to hydrate debug_data from blob ({blob_path}): {e}")
 
     return debug_data
+
+
+async def hydrate_extracted_data(extracted_data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Hydrate extracted_data dict by restoring Blob-offloaded content.
+    Handles the pattern: {"source": "blob_storage", "blob_path": "..."}
+    """
+    if not extracted_data or not isinstance(extracted_data, dict):
+        return extracted_data
+
+    from app.services.storage import load_json_from_blob
+
+    if extracted_data.get("source") == "blob_storage" and extracted_data.get("blob_path"):
+        blob_path = extracted_data.get("blob_path")
+        try:
+            full_extracted = await load_json_from_blob(blob_path)
+            if full_extracted:
+                return full_extracted
+        except Exception as e:
+            logger.error(f"[Hydration] Failed to hydrate extracted_data from blob ({blob_path}): {e}")
+
+    return extracted_data

@@ -51,6 +51,9 @@ export function VibeDictionaryPage() {
     const [entrySearch, setEntrySearch] = useState('')
     const [editingRefEntry, setEditingRefEntry] = useState<any | null>(null)
     const [editAliasesRaw, setEditAliasesRaw] = useState('')
+    const [isAddRefEntryOpen, setIsAddRefEntryOpen] = useState(false)
+    const [newRefEntry, setNewRefEntry] = useState({ model_id: '__global__', category: '', standard_code: '', standard_label: '', aliases: [] as string[] })
+    const [newRefAliasesRaw, setNewRefAliasesRaw] = useState('')
 
     // Fetch entries for selected category
     const { data: entriesData, isLoading: isLoadingEntries, refetch: refetchEntries } = useQuery({
@@ -71,6 +74,19 @@ export function VibeDictionaryPage() {
         },
         onSuccess: () => { refetchEntries(); toast.success('수정 완료'); setEditingRefEntry(null) },
         onError: () => toast.error('수정 실패')
+    })
+
+    const addRefEntryMutation = useMutation({
+        mutationFn: async (data: any) => {
+            await apiClient.post('/dictionaries/entries', data)
+        },
+        onSuccess: () => {
+            refetchEntries()
+            queryClient.invalidateQueries({ queryKey: ['global-dictionary-categories'] })
+            toast.success('항목 추가 완료')
+            setIsAddRefEntryOpen(false)
+        },
+        onError: () => toast.error('추가 실패')
     })
 
     const deleteRefEntryMutation = useMutation({
@@ -378,6 +394,18 @@ export function VibeDictionaryPage() {
                                         <span className="text-xs text-slate-400">({entriesData?.total ?? 0}개)</span>
                                     </div>
                                     <div className="flex items-center gap-2">
+                                        <Button
+                                            size="sm"
+                                            className="h-8 gap-1.5"
+                                            variant="outline"
+                                            onClick={() => {
+                                                setNewRefEntry({ model_id: '__global__', category: selectedCategory || '', standard_code: '', standard_label: '', aliases: [] })
+                                                setNewRefAliasesRaw('')
+                                                setIsAddRefEntryOpen(true)
+                                            }}
+                                        >
+                                            <Plus className="w-3.5 h-3.5" /> 추가
+                                        </Button>
                                         <Input
                                             id="entry-search"
                                             name="entry-search"
@@ -798,53 +826,25 @@ export function VibeDictionaryPage() {
             {isAddDialogOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
-                        <h2 className="text-xl font-bold mb-4">수동 단어 등록</h2>
+                        <h2 className="text-xl font-bold mb-4">새 단어 매핑 등록</h2>
                         <div className="space-y-4">
                             <div>
-                                <label htmlFor="add-model" className="block text-sm font-medium text-slate-700 mb-1">Model (Persona)</label>
-                                <select
-                                    id="add-model"
-                                    name="add-model"
-                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    value={newEntry.model_id}
-                                    onChange={e => setNewEntry({ ...newEntry, model_id: e.target.value })}
-                                >
-                                    <option value="" disabled>모델을 선택하세요</option>
-                                    {availableModels.map(m => (
-                                        <option key={m.id} value={m.id}>
-                                            {m.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label htmlFor="add-field" className="block text-sm font-medium text-slate-700 mb-1">Field Name (Optional)</label>
-                                <Input
-                                    id="add-field"
-                                    name="add-field"
-                                    value={newEntry.field_name}
-                                    onChange={e => setNewEntry({ ...newEntry, field_name: e.target.value })}
-                                    placeholder="적용할 필드명 (전체는 default)"
-                                />
-                            </div>
-                            <div>
-                                <label htmlFor="add-source" className="block text-sm font-medium text-slate-700 mb-1">Source (원문/오인식)</label>
+                                <label htmlFor="add-source" className="block text-sm font-medium text-slate-700 mb-1">Source (음차/오인식)</label>
                                 <Input
                                     id="add-source"
-                                    name="add-source"
                                     value={newEntry.raw_val}
                                     onChange={e => setNewEntry({ ...newEntry, raw_val: e.target.value })}
-                                    placeholder="변환 전 단어"
+                                    placeholder="예: 부산한"
+                                    autoFocus
                                 />
                             </div>
                             <div>
-                                <label htmlFor="add-target" className="block text-sm font-medium text-slate-700 mb-1">Target (전문용어/표준어)</label>
+                                <label htmlFor="add-target" className="block text-sm font-medium text-slate-700 mb-1">Target (전문용어)</label>
                                 <Input
                                     id="add-target"
-                                    name="add-target"
                                     value={newEntry.standard_val}
                                     onChange={e => setNewEntry({ ...newEntry, standard_val: e.target.value })}
-                                    placeholder="변환 후 단어"
+                                    placeholder="예: 부산항"
                                 />
                             </div>
                         </div>
@@ -854,16 +854,71 @@ export function VibeDictionaryPage() {
                                 id="add-save-btn"
                                 className="bg-blue-600 hover:bg-blue-700"
                                 onClick={() => handleAddSave()}
-                                disabled={!newEntry.model_id || !newEntry.raw_val || !newEntry.standard_val || addMutation.isPending}
+                                disabled={addMutation.isPending || !newEntry.raw_val || !newEntry.standard_val}
                             >
-                                {addMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                                등록
+                                {addMutation.isPending ? '저장 중...' : '저장'}
                             </Button>
                         </div>
                     </div>
                 </div>
             )}
 
+            {/* Add Ref Entry Dialog */}
+            {isAddRefEntryOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 animate-in zoom-in-95 duration-200">
+                        <h2 className="text-xl font-bold mb-4">새 딕셔너리 항목 추가</h2>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">카테고리 (Category)</label>
+                                <Input
+                                    value={newRefEntry.category}
+                                    disabled
+                                    className="bg-slate-50 uppercase font-medium text-slate-500"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">코드 (Code/Key)</label>
+                                <Input
+                                    value={newRefEntry.standard_code}
+                                    onChange={e => setNewRefEntry({ ...newRefEntry, standard_code: e.target.value })}
+                                    placeholder="예: KRPUS"
+                                    className="font-mono text-sm uppercase"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">표시 명칭 (Name)</label>
+                                <Input
+                                    value={newRefEntry.standard_label}
+                                    onChange={e => setNewRefEntry({ ...newRefEntry, standard_label: e.target.value })}
+                                    placeholder="예: 부산항"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">별칭 (Aliases)</label>
+                                <Input
+                                    value={newRefAliasesRaw}
+                                    onChange={e => setNewRefAliasesRaw(e.target.value)}
+                                    placeholder="예: Busan, Pusan, 부산 (쉼표로 구분)"
+                                />
+                            </div>
+                        </div>
+                        <div className="mt-6 flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setIsAddRefEntryOpen(false)}>취소</Button>
+                            <Button
+                                className="bg-blue-600 hover:bg-blue-700"
+                                disabled={!newRefEntry.standard_code || addRefEntryMutation.isPending}
+                                onClick={() => {
+                                    const parsedAliases = newRefAliasesRaw.split(',').map(s => s.trim()).filter(Boolean)
+                                    addRefEntryMutation.mutate({ ...newRefEntry, aliases: parsedAliases })
+                                }}
+                            >
+                                {addRefEntryMutation.isPending ? '저장 중...' : '저장'}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
