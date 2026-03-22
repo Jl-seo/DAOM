@@ -960,7 +960,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                     if has_discrete_containers and not has_generic_rate:
                         logger.info(f"[{target_key}] rate_matrix disabled: schema defines concrete container fields. Falling back to flat_table.")
                         table_kind = "flat_table"
-                    
+                        
                 if table_kind == "rate_matrix":
                     import copy as _copy
                     equip_pattern = re.compile(r'^\d{2}(GP|HC|DC|RF|OT|FR|TK|NOR)\b', re.IGNORECASE)

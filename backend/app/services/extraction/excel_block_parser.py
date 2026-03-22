@@ -439,7 +439,6 @@ def classify_rows(df: pd.DataFrame, block: BlockInfo) -> List[RowClassification]
     block_df = df[(df["row_id"] >= block.row_start) & (df["row_id"] <= block.row_end)]
 
     classifications: List[RowClassification] = []
-    header_cluster_ended = False
     last_row_type = None
     current_group_label = ""
 
@@ -468,18 +467,14 @@ def classify_rows(df: pd.DataFrame, block: BlockInfo) -> List[RowClassification]
 
         # ── Header cluster detection ──
         # Within first 5 rows: text-dominant, ≥3 non-empty, short values
-        if not header_cluster_ended and row_idx <= 4:
+        if row_idx <= 4:
             if numeric_ratio < 0.2 and non_empty_count >= 3 and avg_len < 25:
                 row_type = "header"
                 confidence = 0.9
-            elif numeric_ratio < 0.3 and non_empty_count >= 2 and avg_len < 20 and row_idx <= 1:
-                # Possible sub-header (merged title above actual columns)
+            elif numeric_ratio < 0.3 and non_empty_count >= 2 and avg_len < 20 and row_idx <= 2:
+                # Possible sub-header or merged title (expanded to first 3 rows)
                 row_type = "header"
                 confidence = 0.75
-            else:
-                header_cluster_ended = True
-        elif not header_cluster_ended:
-            header_cluster_ended = True
 
         # ── Group label: 1-2 cells filled, rest empty ──
         if row_type == "data" and non_empty_count <= 2 and len(data_cols) >= 5:
@@ -1187,10 +1182,19 @@ def build_block_summary(
                 if val and val.lower() != "nan":
                     # For multi-row headers, concatenate with existing
                     if c in header_values:
-                        header_values[c] = f"{header_values[c]} | {val}"
+                        if val not in header_values[c]:
+                            header_values[c] = f"{header_values[c]} | {val}"
                     else:
                         header_values[c] = val
                     count += 1
+                    
+    # Format candidates list
+    header_candidates = []
+    for c in data_cols[:20]:
+        if c in header_values:
+            header_candidates.append(header_values[c])
+        else:
+            header_candidates.append("")
 
     # Get first 3 data rows as sample
     data_rows = [rc for rc in row_classifications if rc.row_type == "data"]
@@ -1325,8 +1329,16 @@ def compute_compatibility(primary_block: BlockInfo, candidate_block: BlockInfo, 
         required_satisfiability = (matched_required / total_required) if total_required > 0 else 0
         header_overlap = (exact_header_match_count / len(primary_mapping)) if primary_mapping else 0
         
-        # User requested: required match high, header overlap medium
-        score = (required_satisfiability * 0.7) + (header_overlap * 0.3)
+        # User requested: soften header overlap because different sheets may have slightly different headers ("20'" vs "20DC")
+        # Ensure we still prioritize required satisfiability but don't heavily penalize exact header misses if the columns align.
+        # Plus, pad score if basic columns exist to prevent dropping valid sheets.
+        score = (required_satisfiability * 0.8) + (header_overlap * 0.2)
+        if score < 0.5 and total_required > 0:
+            # Fallback boost if local mapping found at least 1 match
+            if matched_required >= 1:
+                score += 0.2
+
+        score = min(1.0, score)
         mapping_source = "seed_reused" if header_overlap == 1.0 else "local_remapped"
         
         return CompatibilityResult(score, mapping_source, remapped_cols)
