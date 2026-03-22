@@ -169,12 +169,12 @@ async def save_extraction_log(
             # Offload preview_data heavy fields
             pd = target_dict.get("preview_data")
             if pd and isinstance(pd, dict):
-                for key in ["raw_tables", "_beta_parsed_content", "_beta_ref_map", "raw_content", "guide_extracted"]:
+                for key in ["raw_tables", "_beta_parsed_content", "_beta_ref_map", "raw_content", "guide_extracted", "raw_extracted"]:
                     if key in pd and get_json_size(pd[key]) > 50_000:
                          blob_path = f"logs/{job_id_or_log_id}/{key}.json"
                          try:
                              await save_json_as_blob(pd[key], blob_path)
-                             pd[key] = {"source": "blob_storage", "blob_path": blob_path} if key != "guide_extracted" else {"source": "blob_storage", "blob_path": blob_path}
+                             pd[key] = {"source": "blob_storage", "blob_path": blob_path} if key != "guide_extracted" and key != "raw_extracted" else {"source": "blob_storage", "blob_path": blob_path}
                          except Exception as e: logger.error(f"[ExtractionLogs] Failed to offload {key}: {e}")
                 
                 if "sub_documents" in pd and get_json_size(pd["sub_documents"]) > 50_000:

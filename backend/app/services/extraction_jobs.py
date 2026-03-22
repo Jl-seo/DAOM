@@ -270,6 +270,16 @@ async def update_job(
                     except Exception as e:
                          logger.error(f"[ExtractionJobs] Failed to offload preview_data.guide_extracted: {e}")
                 
+                # Offload raw_extracted as well, since it is an exact duplicate of guide_extracted size
+                if "raw_extracted" in pd and get_json_size(pd["raw_extracted"]) > 100_000:
+                    blob_path = f"jobs/{job_id}/preview_raw_extracted.json"
+                    try:
+                         await save_json_as_blob(pd["raw_extracted"], blob_path)
+                         pd["raw_extracted"] = {"source": "blob_storage", "blob_path": blob_path}
+                         logger.info(f"[ExtractionJobs] Offloaded preview_data.raw_extracted to {blob_path}")
+                    except Exception as e:
+                         logger.error(f"[ExtractionJobs] Failed to offload preview_data.raw_extracted: {e}")
+                
                 # Check sub_documents legacy array as well
                 if "sub_documents" in pd and get_json_size(pd["sub_documents"]) > 100_000:
                      blob_path = f"jobs/{job_id}/preview_sub_documents.json"

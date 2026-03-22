@@ -24,6 +24,7 @@ OFFLOADABLE_PREVIEW_FIELDS = [
     "_beta_ref_map",
     "raw_tables",
     "guide_extracted",
+    "raw_extracted",
 ]
 
 
