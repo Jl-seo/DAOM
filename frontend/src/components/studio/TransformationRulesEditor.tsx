@@ -183,7 +183,8 @@ export function TransformationRulesEditor({ model, onUpdate }: TransformationRul
                                             { action: PostProcessAction.SPLIT_CURRENCY, label: '통화 분리' },
                                             { action: PostProcessAction.EXTRACT_DIGITS, label: '숫자 추출' },
                                             { action: PostProcessAction.UPPERCASE, label: '대문자' },
-                                            { action: PostProcessAction.DATE_FORMAT_ISO, label: '날짜 ISO' }
+                                            { action: PostProcessAction.DATE_FORMAT_ISO, label: '날짜 ISO' },
+                                            { action: PostProcessAction.SPLIT_DELIMITER, label: '고유행 분리' }
                                         ].map(opt => {
                                             const isActive = fieldRules.some(r => r.action === opt.action)
                                             return (
