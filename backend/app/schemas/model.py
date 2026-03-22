@@ -15,6 +15,7 @@ class PostProcessAction(str, Enum):
     EXTRACT_DIGITS = "extract_digits"
     UPPERCASE = "uppercase"
     DATE_FORMAT_ISO = "date_format_iso"
+    SPLIT_DELIMITER = "split_delimiter"
 
 class PostProcessRule(BaseModel):
     action: PostProcessAction

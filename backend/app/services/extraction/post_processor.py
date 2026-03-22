@@ -142,9 +142,46 @@ def _traverse_and_apply(
             if isinstance(node, dict) and "value" in node:
                 # 1. If it's a table array
                 if isinstance(node["value"], list):
+                    new_rows = []
                     for row in node["value"]:
+                        # FIRST: Recurse into the row
                         _traverse_and_apply(row, rules_by_target, parent_row=row,
                                             current_path=path_key, fields_def=fields_def)
+                        
+                        # SECOND: Handle SPLIT_DELIMITER
+                        # We only handle one split rule per row at a time to prevent combinatorial explosion
+                        splits_generated = False
+                        for sub_key, sub_node in row.items():
+                            if isinstance(sub_node, dict) and "value" in sub_node and isinstance(sub_node["value"], str):
+                                sub_path_key = f"{path_key}.{sub_key}"
+                                matched_rules = _match_rules(sub_path_key, rules_by_target)
+                                if matched_rules:
+                                    has_split_rule = any(
+                                        (getattr(r.action, "value", str(r.action)) == "split_delimiter")
+                                        for r in matched_rules
+                                    )
+                                    if has_split_rule:
+                                        val = sub_node["value"]
+                                        if not val:
+                                            continue
+                                        # Split by semicolon, slash, or comma
+                                        parts = [p.strip() for p in re.split(r'[;/,]', val) if p.strip()]
+                                        if len(parts) > 1:
+                                            import copy
+                                            for p in parts:
+                                                new_row = copy.deepcopy(row)
+                                                new_row[sub_key]["value"] = p
+                                                new_row[sub_key]["_modifier"] = "Rule: Split Delimiter"
+                                                new_row[sub_key]["_modified_from"] = val
+                                                new_rows.append(new_row)
+                                            splits_generated = True
+                                            break
+
+                        if not splits_generated:
+                            new_rows.append(row)
+
+                    # Update the table array with potentially expanded rows
+                    node["value"] = new_rows
 
                 # 2. If it's a scalar value — use wildcard matching
                 else:
