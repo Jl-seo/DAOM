@@ -209,10 +209,15 @@ def detect_blocks(df: pd.DataFrame, sheet_name: str, start_block_id: int = 1) ->
             logger.debug(f"[BlockDetect] Header re-detected at row {row_ids[i]}")
 
         # Signal B: Active column set change (>50% different)
-        if recent_col_sets and not should_split:
+        # Require at least 3 rows in the block to avoid splitting multi-row headers
+        if len(recent_col_sets) >= 3 and not should_split:
             prev_cols = recent_col_sets[-1]
             curr_cols = sig["non_empty_cols"]
-            if prev_cols and curr_cols:
+            # Only apply strict column shift logic if both rows look like data (avoiding header->data boundary)
+            prev_ratio = recent_numeric_ratios[-2] if len(recent_numeric_ratios) >= 2 else 0
+            curr_ratio = sig["numeric_ratio"]
+            
+            if prev_cols and curr_cols and prev_ratio > 0.1 and curr_ratio > 0.1:
                 overlap = len(prev_cols & curr_cols)
                 union = len(prev_cols | curr_cols)
                 jaccard = overlap / max(1, union)
@@ -221,16 +226,17 @@ def detect_blocks(df: pd.DataFrame, sheet_name: str, start_block_id: int = 1) ->
                     logger.debug(f"[BlockDetect] Column shift at row {row_ids[i]} (jaccard={jaccard:.2f})")
 
         # Signal C: Numeric ratio sharp break
-        if recent_numeric_ratios and not should_split:
+        # Require at least 3 rows in the block
+        if len(recent_numeric_ratios) >= 3 and not should_split:
             avg_recent = sum(recent_numeric_ratios[-5:]) / len(recent_numeric_ratios[-5:])
-            delta = abs(sig["numeric_ratio"] - avg_recent)
-            if delta > 0.5 and sig["non_empty_count"] >= 3:
+            # Only split if we transition from Data (high numeric) to Text (low numeric)
+            # A transition from Text (Header) to Data should NOT split the table!
+            if avg_recent > 0.3 and sig["numeric_ratio"] < avg_recent - 0.4 and sig["non_empty_count"] >= 3:
                 # Only split if this isn't a single outlier — check next row too
                 if i + 1 < len(row_sigs) and not row_sigs[i + 1]["empty"]:
-                    next_delta = abs(row_sigs[i + 1]["numeric_ratio"] - avg_recent)
-                    if next_delta > 0.3:
+                    if row_sigs[i + 1]["numeric_ratio"] < avg_recent - 0.2:
                         should_split = True
-                        logger.debug(f"[BlockDetect] Numeric break at row {row_ids[i]} (delta={delta:.2f})")
+                        logger.debug(f"[BlockDetect] Numeric break at row {row_ids[i]} (dropped from {avg_recent:.2f} to {sig['numeric_ratio']:.2f})")
 
         if should_split:
             # Close current block at previous row
@@ -440,6 +446,7 @@ def classify_rows(df: pd.DataFrame, block: BlockInfo) -> List[RowClassification]
 
     classifications: List[RowClassification] = []
     last_row_type = None
+    has_seen_data = False
     current_group_label = ""
 
     for row_idx, (_, row) in enumerate(block_df.iterrows()):
@@ -466,12 +473,12 @@ def classify_rows(df: pd.DataFrame, block: BlockInfo) -> List[RowClassification]
         confidence = 0.7
 
         # ── Header cluster detection ──
-        # Within first 5 rows: text-dominant, ≥3 non-empty, short values
-        if row_idx <= 4:
+        # Allow header detection deep into the block as long as no dense data rows have been seen yet
+        if not has_seen_data and row_idx <= 15:
             if numeric_ratio < 0.2 and non_empty_count >= 3 and avg_len < 25:
                 row_type = "header"
                 confidence = 0.9
-            elif numeric_ratio < 0.3 and non_empty_count >= 2 and avg_len < 20 and row_idx <= 2:
+            elif numeric_ratio < 0.3 and non_empty_count >= 2 and avg_len < 20 and row_idx <= 5:
                 # Possible sub-header or merged title (expanded to first 3 rows)
                 row_type = "header"
                 confidence = 0.75
@@ -489,7 +496,7 @@ def classify_rows(df: pd.DataFrame, block: BlockInfo) -> List[RowClassification]
             confidence = 0.8
 
         # ── Remark: long text or remark keywords ──
-        if row_type == "data" and has_remark_kw and avg_len > 30:
+        if row_type == "data" and (has_remark_kw or (non_empty_count == 1 and avg_len > 30 and numeric_ratio == 0)):
             row_type = "remark"
             confidence = 0.7
 
@@ -506,6 +513,8 @@ def classify_rows(df: pd.DataFrame, block: BlockInfo) -> List[RowClassification]
                 confidence = 0.9
             else:
                 confidence = 0.6
+                
+            has_seen_data = True
 
         cls = RowClassification(rid, row_type, round(confidence, 2))
         if row_type == "group_label":
