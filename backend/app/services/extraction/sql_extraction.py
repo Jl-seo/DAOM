@@ -801,13 +801,17 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         
         for summary in all_block_summaries:
             block_id = summary.get("block_id")
-            headers = summary.get("header_candidates", {})
-            if not headers:
+            headers = summary.get("header_candidates", [])
+            active_cols = summary.get("active_columns", [])
+            if not headers or not active_cols:
                 continue
             
             # Match headers to sub_field keys (case-insensitive)
             col_map = {}
-            for col_letter, header_text in headers.items():
+            for i, header_text in enumerate(headers):
+                if i >= len(active_cols) or not header_text:
+                    continue
+                col_letter = active_cols[i]
                 header_lower = str(header_text).strip().lower()
                 # Direct key match
                 if header_lower in sub_field_keys:

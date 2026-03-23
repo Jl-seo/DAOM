@@ -91,6 +91,21 @@ class PatternAnalyzer:
                 pass
         return False
 
+    def normalize_date(self, val: str) -> str:
+        """Normalize date value, including Excel serial dates."""
+        val = str(val).strip()
+        serial_rules = self.rules.get("patterns", {}).get("serial_date", {})
+        if "serial_date" in self.compiled_regexes and self.compiled_regexes["serial_date"].match(val):
+            try:
+                from datetime import datetime, timedelta
+                n = int(val)
+                if serial_rules.get("min", 30000) < n < serial_rules.get("max", 60000):
+                    dt = datetime(1899, 12, 30) + timedelta(days=n)
+                    return dt.strftime("%Y-%m-%d")
+            except Exception:
+                pass
+        return val
+
     def is_money_like(self, val: str) -> bool:
         val = str(val).strip()
         if not val:

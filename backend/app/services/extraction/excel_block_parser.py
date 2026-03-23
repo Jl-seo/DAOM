@@ -15,7 +15,7 @@ Pipeline:
 import re
 import copy
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any, Set, Tuple
 import pandas as pd
 
@@ -169,7 +169,7 @@ def detect_blocks(df: pd.DataFrame, sheet_name: str, start_block_id: int = 1) ->
     for i, sig in enumerate(row_sigs):
         if sig["empty"]:
             consecutive_blanks += 1
-            if consecutive_blanks >= 5 and current_start_idx is not None:
+            if consecutive_blanks >= 2 and current_start_idx is not None:
                 # Close block before blank region
                 block_end_idx = i - consecutive_blanks
                 if block_end_idx >= current_start_idx:
@@ -286,6 +286,8 @@ def merge_similar_blocks(blocks: List[BlockInfo], df: pd.DataFrame) -> List[Bloc
     merged: List[BlockInfo] = []
     current = None  # current merging candidate (table block)
 
+    data_cols = _get_data_cols(df)
+    
     i = 0
     while i < len(blocks):
         b = blocks[i]
@@ -303,10 +305,35 @@ def merge_similar_blocks(blocks: List[BlockInfo], df: pd.DataFrame) -> List[Bloc
             i += 1
             continue
 
-        # If this block is a small separator (note/metadata, ≤2 rows), skip it
-        # Scan forward through ALL consecutive separators to find next table block
+        # If this block is a small separator (note/metadata, ≤2 rows), check semantic guards before skipping
         if b.block_type != "table" and b.row_count <= 2 and b.sheet_name == current.sheet_name:
-            # Scan ahead for next table block, skipping all separators
+            # Semantic Guard: Do not skip if it contains crucial context/remark/dates/ports
+            sep_rows = df[(df["row_id"] >= b.row_start) & (df["row_id"] <= b.row_end)]
+            guard_triggered = False
+            for _, r in sep_rows.iterrows():
+                vals = [str(x).strip() for x in _row_values(r, data_cols) if str(x).strip()]
+                vals_lower = " ".join(vals).lower()
+                
+                # 1. Keyword Check
+                if any(kw in vals_lower for kw in REMARK_KEYWORDS + CONTEXT_KEYWORDS + GROUP_KEYWORDS + ["japan", "only", "reefer", "valid", "except", "via"]):
+                    guard_triggered = True
+                    break
+                
+                # 2. Value Check (Date, Currency, Port, Money)
+                for v in vals:
+                    if is_date_like(v) or is_currency_code(v) or is_port_like(v):
+                        guard_triggered = True
+                        break
+                if guard_triggered:
+                    break
+            
+            if guard_triggered:
+                merged.append(current)
+                current = b
+                i += 1
+                continue
+                
+            # Scan ahead for next table block, skipping all SAFE separators
             j = i + 1
             while j < len(blocks) and blocks[j].block_type != "table" and blocks[j].row_count <= 2 and blocks[j].sheet_name == current.sheet_name:
                 j += 1
@@ -588,11 +615,14 @@ def profile_columns(df: pd.DataFrame, block: BlockInfo,
             "service_mode": service_count / total,
         }
 
-        best_type = max(ratios, key=ratios.get)
-        best_ratio = ratios[best_type]
+        sorted_ratios = sorted(ratios.items(), key=lambda x: x[1], reverse=True)
+        best_type, best_ratio = sorted_ratios[0]
+        second_type, second_ratio = sorted_ratios[1]
 
         if best_ratio < 0.3:
             type_hint = "text"
+        elif best_ratio >= 0.3 and second_ratio >= 0.25 and (best_ratio - second_ratio) < 0.3:
+            type_hint = "mixed"
         else:
             type_hint = best_type
 
@@ -651,13 +681,15 @@ def extract_block_context(df: pd.DataFrame, block: BlockInfo,
 
             val_lower = val.lower()
 
-            # ── Label proximity: look at THIS cell as label, NEXT cell as value ──
+            # ── Label proximity: look at THIS cell as label, scan up to 3 cells right for value ──
             next_val = ""
-            if ci + 1 < len(data_cols):
-                nv = row[data_cols[ci + 1]] if data_cols[ci + 1] in row.index else None
-                next_val = str(nv).strip() if pd.notna(nv) else ""
-                if next_val.lower() == "nan":
-                    next_val = ""
+            for offset in range(1, 4):
+                if ci + offset < len(data_cols):
+                    nv = row[data_cols[ci + offset]] if data_cols[ci + offset] in row.index else None
+                    temp_nv = str(nv).strip() if pd.notna(nv) else ""
+                    if temp_nv and temp_nv.lower() != "nan" and temp_nv != ":" and temp_nv != "~" and temp_nv != "-":
+                        next_val = temp_nv
+                        break
 
             # Port assignment via label proximity
             if val_lower in POL_LABELS and next_val:
@@ -675,15 +707,15 @@ def extract_block_context(df: pd.DataFrame, block: BlockInfo,
 
             # Date key-value pairs
             if ("effective" in val_lower or "start" in val_lower) and next_val and is_date_like(next_val):
-                context["Start_Date"] = _normalize_date(next_val)
+                context["Start_Date"] = analyzer.normalize_date(next_val)
             if ("expiry" in val_lower or "end" in val_lower) and next_val and is_date_like(next_val):
-                context["End_Date"] = _normalize_date(next_val)
+                context["End_Date"] = analyzer.normalize_date(next_val)
 
             # Validity range inline: "VALIDITY : 12/1~12/7"
             range_match = analyzer.get_validity_range(val)
             if range_match:
-                context["Start_Date"] = _normalize_date(range_match.group(1))
-                context["End_Date"] = _normalize_date(range_match.group(2))
+                context["Start_Date"] = analyzer.normalize_date(range_match.group(1))
+                context["End_Date"] = analyzer.normalize_date(range_match.group(2))
 
             # Carrier
             if "carrier" in val_lower and next_val and next_val.lower() != "nan":
@@ -728,21 +760,7 @@ def extract_block_context(df: pd.DataFrame, block: BlockInfo,
     return context
 
 
-def _normalize_date(val: str) -> str:
-    """Normalize date value, including Excel serial dates."""
-    val = val.strip()
-    # Check if it's a serial date
-    serial_rules = analyzer.rules.get("patterns", {}).get("serial_date", {})
-    serial_regex = analyzer.compiled_regexes.get("serial_date")
-    if serial_regex and serial_regex.match(val):
-        try:
-            from datetime import datetime, timedelta
-            serial = int(val)
-            dt = datetime(1899, 12, 30) + timedelta(days=serial)
-            return dt.strftime("%Y-%m-%d")
-        except Exception:
-            return val
-    return val
+
 
 
 # ──────────────────────────────────────────────
@@ -1006,8 +1024,9 @@ def field_aware_expand(rows: List[Dict], sub_field_keys: List[str]) -> List[Dict
             expanded.append(row_data)
         else:
             for i in range(max_parts):
-                new_row = copy.deepcopy(row_data)
+                new_row = dict(row_data) # Shallow copy of the row
                 for sk, parts in slash_fields.items():
+                    new_row[sk] = dict(row_data[sk]) # Shallow copy of the specific nested field dict
                     idx = min(i, len(parts) - 1)
                     new_row[sk]["value"] = parts[idx]
                     new_row[sk]["_modifier"] = "Expanded from delimiter"
@@ -1111,7 +1130,14 @@ def classify_sheets(
                 if c in first_data.index and pd.notna(first_data[c])
             ]
 
-        # Infer sheet role from name keywords
+        # Count dominant column types first to use for content signaling
+        type_counts: Dict[str, int] = {}
+        for t in all_type_hints:
+            type_counts[t] = type_counts.get(t, 0) + 1
+        dominant_types = sorted(type_counts.items(), key=lambda x: -x[1])[:3]
+        top_type_names = [t for t, _ in dominant_types]
+
+        # Infer sheet role from name keywords AND content signals
         sheet_role = "unknown"
         best_score = 0
         for role, keywords in _ROLE_KEYWORDS.items():
@@ -1119,20 +1145,36 @@ def classify_sheets(
             for kw in keywords:
                 if kw.isascii():
                     if re.search(rf'\b{re.escape(kw)}\b', sn_lower):
-                        score += 1
+                        score += 5
                 else:
                     if kw in sn_lower:
-                        score += 1
-                        
-            if score > best_score:
+                        score += 5
+            
+            # Content signal boosters
+            if role == "primary_rate":
+                if "money" in top_type_names and "port_code" in top_type_names:
+                    score += 10  # Strong signal for rate matrix
+                elif "money" in top_type_names or "port_code" in top_type_names:
+                    score += 5
+            elif role == "surcharge":
+                if "money" in top_type_names:
+                    score += 3
+                
+                has_surcharge = any("surcharge" in str(h).lower() for h in all_headers)
+                has_charge = any("charge" in str(h).lower() for h in all_headers)
+                if has_surcharge:
+                    score += 5
+                elif has_charge:
+                    score += 2
+            elif role == "transshipment":
+                if "port_code" in top_type_names:
+                    score += 5
+                if any("via" in str(h).lower() or "route" in str(h).lower() for h in all_headers):
+                    score += 5
+
+            if score > best_score and score > 0:
                 best_score = score
                 sheet_role = role
-
-        # Count dominant column types
-        type_counts: Dict[str, int] = {}
-        for t in all_type_hints:
-            type_counts[t] = type_counts.get(t, 0) + 1
-        dominant_types = sorted(type_counts.items(), key=lambda x: -x[1])[:3]
 
         sheet_classifications.append({
             "sheet_name": str(sheet_name),
@@ -1257,7 +1299,7 @@ def build_block_summary(
         "block_type": block.block_type,
         "column_span": f"{block.col_start}-{block.col_end}" if block.col_start else "unknown",
         "active_columns": block.active_columns[:20],
-        "header_candidates": header_values,
+        "header_candidates": header_candidates,
         "header_rows_raw": header_rows_raw,
         "data_sample": sample_rows,
         "group_labels": group_labels,
@@ -1343,8 +1385,8 @@ def compute_compatibility(primary_block: BlockInfo, candidate_block: BlockInfo, 
         # Plus, pad score if basic columns exist to prevent dropping valid sheets.
         score = (required_satisfiability * 0.8) + (header_overlap * 0.2)
         if score < 0.5 and total_required > 0:
-            # Fallback boost if local mapping found at least 1 match
-            if matched_required >= 1:
+            # Fallback boost if local mapping found strong evidence
+            if matched_required >= 2 or required_satisfiability >= 0.5:
                 score += 0.2
 
         score = min(1.0, score)
@@ -1356,31 +1398,35 @@ def compute_compatibility(primary_block: BlockInfo, candidate_block: BlockInfo, 
         return CompatibilityResult(0.0, "failed", {})
 
 def chunk_block(block: BlockInfo, row_classifications: List[RowClassification], chunk_size: int = 1000) -> List[List[RowClassification]]:
-    """Split a large block into header-aware chunks, carrying over group_label."""
+    """Split a large block into header-aware chunks, carrying over group_label and avoiding separation of continuations."""
     header_rows = [rc for rc in row_classifications if rc.row_type == "header"]
-    non_data_context = [rc for rc in row_classifications if rc.row_type in ("context", "remark")]
+    non_data_context = [rc for rc in row_classifications if rc.row_type == "context"] # Excluded 'remark' from carry-over
     data_and_group_rows = [rc for rc in row_classifications if rc.row_type in ("data", "group_label", "continuation")]
     
     chunks = []
     current_chunk = []
     current_data_count = 0
-    last_group_label_row = None
+    active_group_labels = [] # Stack instead of overwriting
     
     for rc in data_and_group_rows:
         if rc.row_type == "group_label":
-            last_group_label_row = rc
-        
-        if current_data_count == 0:
+            active_group_labels.append(rc)
+            
+        if current_data_count == 0 and not current_chunk:
             current_chunk.extend(header_rows)
             current_chunk.extend(non_data_context)
-            if last_group_label_row and rc != last_group_label_row:
-                current_chunk.append(last_group_label_row)
+            if active_group_labels and rc not in active_group_labels:
+                current_chunk.extend(active_group_labels)
                 
         current_chunk.append(rc)
+        
         if rc.row_type == "data":
             current_data_count += 1
             
-        if current_data_count >= chunk_size:
+        # Don't split if the NEXT row is a continuation 
+        # We handle this by checking chunk_size only if the row is data (or group_label, but mainly data)
+        # and making sure we only flush chunks when a data row threshold is hit AND it's not mid-continuation.
+        if current_data_count >= chunk_size and rc.row_type != "continuation":
             chunks.append(current_chunk)
             current_chunk = []
             current_data_count = 0
