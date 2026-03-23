@@ -114,19 +114,22 @@ def apply_export_definition(
 
     # 5. Final Column Mapping
     if df_def.final_column_mappings:
-        # mapping format: { "결과컬럼명": "원본추출컬럼명" }
-        # Reverse it for pandas rename: {"원본추출컬럼명": "결과컬럼명"}
-        # Wait, the schema comment says: Dict[str, str] = Field("Source Path to Target Column Name")
-        # Which means it is {"원본추출컬럼명": "결과컬럼명"}.
-        # I will treat keys as existing DataFrame columns, values as new names.
-        df_base = df_base.rename(columns=df_def.final_column_mappings)
+        # mapping format is now List of ColumnMappingDef objects
+        # We need {"원본추출컬럼명": "결과컬럼명"} for pandas rename
+        rename_map = {m.source: m.target for m in df_def.final_column_mappings if m.source and m.target}
+        df_base = df_base.rename(columns=rename_map)
         
         # Keep only mapped target columns (plus any injected metadata columns)
-        mapped_target_cols = list(df_def.final_column_mappings.values())
+        # Using the exact order defined in the UX (since final_column_mappings is an ordered list)
+        mapped_target_cols = [m.target for m in df_def.final_column_mappings if m.target]
+        
         if getattr(df_def, "inject_metadata", False) and metadata:
-            mapped_target_cols.extend(list(metadata.keys()))
+            # Append metadata keys
+            for key in metadata.keys():
+                if key not in mapped_target_cols:
+                    mapped_target_cols.append(key)
             
-        # Only keep existing columns
+        # Only keep existing columns while preserving user-defined order
         cols_to_keep = [c for c in mapped_target_cols if c in df_base.columns]
         
         if cols_to_keep:

@@ -1006,6 +1006,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                             excel_col = non_equip_col_map.get(sf_key)
                             if excel_col and excel_col in row and pd.notna(row[excel_col]):
                                 val = str(row[excel_col]).strip()
+                                from app.services.extraction.pattern_analyzer import analyzer
+                                if val and analyzer.is_header_label(val):
+                                    val = ""
                                 if val and val.lower() != "nan":
                                     has_any_data = True
                                     base_row[sf_key] = {"value": val, "confidence": 0.95, "validation_status": "valid", "original_value": val, "bbox": None}
@@ -1057,6 +1060,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
 
                             if excel_col and excel_col in row and pd.notna(row[excel_col]):
                                 val = str(row[excel_col]).strip()
+                                from app.services.extraction.pattern_analyzer import analyzer
+                                if val and analyzer.is_header_label(val):
+                                    val = ""
                                 if val and val.lower() != "nan":
                                     row_has_meaningful_data = True
                                     bbox = None

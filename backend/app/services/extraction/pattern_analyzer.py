@@ -66,6 +66,17 @@ class PatternAnalyzer:
             return frozenset(self.rules["keywords"]["labels"][category])
         return frozenset()
 
+    def is_header_label(self, val: str) -> bool:
+        """Check if the value is an exact match for a known structural header label (e.g. '도착항', 'POL')."""
+        v = str(val).strip().lower()
+        if not v:
+            return False
+        labels_dict = self.rules.get("keywords", {}).get("labels", {})
+        for label_list in labels_dict.values():
+            if v in [str(lbl).lower() for lbl in label_list]:
+                return True
+        return False
+
     def is_port_like(self, val: str) -> bool:
         val = str(val).strip()
         # Uses strict case (no IGNORECASE) for port codes so "Busan" vs "KRPUS" correctly differ

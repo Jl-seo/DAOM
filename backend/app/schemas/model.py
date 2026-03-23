@@ -1,8 +1,7 @@
 from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Dict, Any, Union
-
-
+from pydantic import model_validator
 def default_beta_features() -> Dict[str, bool]:
     return {
         "use_optimized_prompt": False,
@@ -144,16 +143,29 @@ class PivotTableDef(BaseModel):
     value_field: str
     column_naming: str
 
+class ColumnMappingDef(BaseModel):
+    target: str
+    source: str
+
 class ExportDefinition(BaseModel):
     base_table: str
     merge_keys: List[str] = []
     pivot_tables: List[PivotTableDef] = []
-    final_column_mappings: Dict[str, str] = {}
+    final_column_mappings: List[ColumnMappingDef] = []
     conflict_policy: str = "first_non_empty"
     # [Phase 3.5] Aggregation & Metadata Injection
     group_by_keys: List[str] = []  # List of final column names to group by
     aggregation_strategy: str = "first_non_empty"  # Strategy for merging logical rows (first_non_empty, concat)
     inject_metadata: bool = False  # If true, PA metadata values will be appended to every row
+
+    @model_validator(mode='before')
+    @classmethod
+    def migrate_mappings(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "final_column_mappings" in data:
+            mappings = data["final_column_mappings"]
+            if isinstance(mappings, dict):
+                data["final_column_mappings"] = [{"target": k, "source": v} for k, v in mappings.items()]
+        return data
 
 class ExportConfig(BaseModel):
     enabled: bool = False

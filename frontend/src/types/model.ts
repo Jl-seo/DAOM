@@ -101,11 +101,16 @@ export interface PivotTableDef {
     column_naming: string
 }
 
+export interface ColumnMappingDef {
+    target: string
+    source: string
+}
+
 export interface ExportDefinition {
     base_table: string
     merge_keys: string[]
     pivot_tables: PivotTableDef[]
-    final_column_mappings: Record<string, string>
+    final_column_mappings: ColumnMappingDef[]
     conflict_policy: string
     group_by_keys: string[]
     aggregation_strategy: string
