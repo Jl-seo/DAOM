@@ -232,10 +232,10 @@ class BetaPipeline(ExtractionPipeline):
         self.semaphore = AdaptiveSemaphore(initial_value=initial_concurrency, min_value=2.0, max_value=20.0)
         logger.info(f"[BetaPipeline] Dynamic Concurrency Initialized: {int(initial_concurrency)} (Excel: {is_excel}, Pages: {page_count})")
         
-        # lowered significantly for Excel: 15k chars (~150 rows).
-        # Ensures LLM does not get "lazy" and silently drop bottom rows in long tables.
-        TEXT_CHUNK_SIZE = 15_000 if is_excel else 25_000
-        SINGLE_SHOT_CHAR_LIMIT = 20_000 if is_excel else 50_000
+        # GPT-4.1 supports 128k context — use larger chunks to minimize LLM call count
+        # 25K chars ≈ 6-8K tokens, well within limits while reducing chunk count by ~3x
+        TEXT_CHUNK_SIZE = 150_000 if is_excel else 25_000
+        SINGLE_SHOT_CHAR_LIMIT = 300_000 if is_excel else 50_000
         wo_inner = work_order.get("work_order", work_order)
         table_fields = wo_inner.get("table_fields", [])
         num_table_fields = len(table_fields)
