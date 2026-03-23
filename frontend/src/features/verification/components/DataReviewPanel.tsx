@@ -11,8 +11,8 @@ import { DebugInfoModal } from './DebugInfoModal'
 import type { ExtractionModel, PreviewData } from '../types'
 
 interface DataReviewPanelProps {
-    currentGuideExtracted: Record<string, any>
     currentOtherData: any[]
+    exportData?: any[] | null
     model: ExtractionModel
     previewData: PreviewData | null // For fallback fields
     debugData?: any // Optional debug data
@@ -117,6 +117,7 @@ function RawJsonView({ data }: { data: Record<string, any> }) {
 export function DataReviewPanel({
     currentGuideExtracted,
     currentOtherData,
+    exportData,
     currentParsedContent,
     model,
     previewData,
@@ -139,11 +140,13 @@ export function DataReviewPanel({
     const [deferredData, setDeferredData] = useState({
         guideExtracted: currentGuideExtracted,
         parsedContent: currentParsedContent,
-        otherData: currentOtherData
+        otherData: currentOtherData,
+        exportData: exportData
     })
 
     // Defer rendering of massive payloads to ensure the browser paints the loading state first
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setIsRendering(true)
 
         // Yield to browser event loop to paint the "Loading" overlay before locking main thread
@@ -151,12 +154,13 @@ export function DataReviewPanel({
             setDeferredData({
                 guideExtracted: currentGuideExtracted,
                 parsedContent: currentParsedContent,
-                otherData: currentOtherData
+                otherData: currentOtherData,
+                exportData: exportData
             })
             setIsRendering(false)
         }, 150)
         return () => clearTimeout(timer)
-    }, [currentGuideExtracted, currentParsedContent, currentOtherData, documentId])
+    }, [currentGuideExtracted, currentParsedContent, currentOtherData, exportData, documentId])
 
 
     // Columns for the "Other Data" (Table) tab - REMOVED for Beta Text View
@@ -353,12 +357,12 @@ export function DataReviewPanel({
                         </ScrollArea>
                     </TabsContent>
                     <TabsContent value="mapped" className="mt-0 h-full p-0 data-[state=inactive]:hidden bg-muted/10">
-                        {Array.isArray(deferredData.guideExtracted) && deferredData.guideExtracted.length > 0 ? (
+                        {Array.isArray(deferredData.exportData) && deferredData.exportData.length > 0 ? (
                             <div className="h-full flex flex-col">
                                 <div className="px-6 pt-4 pb-2 flex items-center justify-between shrink-0">
                                     <div className="text-xs text-muted-foreground">
                                         현재 저장된 매핑 설정에 따라 변환된 <b>플랫 테이블 (Flat Table)</b> 형태입니다. 
-                                        {deferredData.guideExtracted.length > 0 && ` (총 ${deferredData.guideExtracted.length}행)`}
+                                        {deferredData.exportData.length > 0 && ` (총 ${deferredData.exportData.length}행)`}
                                     </div>
                                     <Button variant="outline" size="sm" onClick={onDownload} className="h-7 text-xs gap-1.5 border-primary/20 text-primary hover:bg-primary/10">
                                         <Download className="w-3.5 h-3.5" /> 엑셀 다운로드
@@ -370,7 +374,7 @@ export function DataReviewPanel({
                                             <thead className="bg-slate-50 border-b sticky top-0 z-10">
                                                 <tr>
                                                     <th className="px-4 py-2 font-semibold text-slate-600 text-xs whitespace-nowrap bg-slate-50 border-r border-slate-200 w-12 text-center shadow-[0_1px_0_0_#e2e8f0]">#</th>
-                                                    {Object.keys(deferredData.guideExtracted[0] || {}).map(colKey => (
+                                                    {Object.keys(deferredData.exportData[0] || {}).map(colKey => (
                                                         colKey !== 'bbox' && !colKey.startsWith('_') && (
                                                             <th key={colKey} className="px-4 py-2 font-semibold text-slate-700 text-xs whitespace-nowrap bg-slate-50 border-r border-slate-200 shadow-[0_1px_0_0_#e2e8f0]">
                                                                 {colKey}
@@ -380,10 +384,10 @@ export function DataReviewPanel({
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
-                                                {deferredData.guideExtracted.map((row: any, idx: number) => (
+                                                {deferredData.exportData.map((row: any, idx: number) => (
                                                     <tr key={idx} className="hover:bg-blue-50/50 transition-colors">
                                                         <td className="px-4 py-2 text-slate-400 text-xs border-r border-slate-100 text-center bg-slate-50/50">{idx + 1}</td>
-                                                        {Object.keys(deferredData.guideExtracted[0] || {}).map(colKey => (
+                                                        {Object.keys(deferredData.exportData[0] || {}).map(colKey => (
                                                             colKey !== 'bbox' && !colKey.startsWith('_') && (
                                                                 <td key={colKey} className="px-4 py-2 text-slate-700 whitespace-nowrap border-r border-slate-100">
                                                                     {typeof row[colKey] === 'object' && row[colKey] !== null

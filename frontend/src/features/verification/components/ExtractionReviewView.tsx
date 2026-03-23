@@ -150,7 +150,14 @@ export function ExtractionReviewView({
     }, [selectedFieldKey])
 
     const handleDownload = () => {
-        // Source selection
+        // If the backend generated extracted_data mapped specifically for exports, prioritize it!
+        const backendExportData = previewData?.extracted_data || (previewData?.sub_documents?.[selectedSubDocIndex]?.data as any)?.extracted_data;
+        if (backendExportData && Array.isArray(backendExportData)) {
+            downloadAsExcel(backendExportData, `${model.name}_extraction.xlsx`);
+            return;
+        }
+
+        // Source selection (Fallback)
         const guide = latestData ? latestData.guide : (currentGuideExtracted || result || {})
         const other = latestData ? latestData.other : (currentOtherData || [])
 
@@ -159,8 +166,7 @@ export function ExtractionReviewView({
         let dataToExport: any
 
         if (Array.isArray(guide)) {
-            // TABLE MODE:
-            // Convert other_data (List of KV) to a flat object to append to every row
+            // TABLE MODE (Legacy fallback)
             const otherDataFlat = (other || []).reduce((acc: any, item: any) => {
                 if (item && item.column) {
                     acc[item.column] = item.value
@@ -168,18 +174,12 @@ export function ExtractionReviewView({
                 return acc
             }, {})
 
-            // Merge into every row
             dataToExport = guide.map(row => ({
                 ...row,
                 ...otherDataFlat
             }))
         } else {
-            // FORM MODE:
-            // Keep object structure. 'other_data' is separate.
-            // Excel util's flattenDataToRows will handle 'other_data' as detail rows if it's an array,
-            // or we can flatten it here to be safe?
-            // Existing logic passed { ...guide, other_data: other }
-            // Let's rely on the existing utility which seems to handle nested arrays for Form Mode.
+            // FORM MODE (Legacy fallback)
             dataToExport = { ...guide, other_data: other }
         }
 
@@ -251,6 +251,7 @@ export function ExtractionReviewView({
                                 currentGuideExtracted={currentGuideExtracted || {}}
                                 currentOtherData={currentOtherData || []}
                                 currentParsedContent={currentParsedContent}
+                                exportData={previewData?.extracted_data || (previewData?.sub_documents?.[selectedSubDocIndex]?.data as any)?.extracted_data || null}
                                 model={model}
                                 previewData={previewData}
                                 debugData={previewData?.debug_data}
