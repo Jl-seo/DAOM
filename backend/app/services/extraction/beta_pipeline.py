@@ -232,9 +232,10 @@ class BetaPipeline(ExtractionPipeline):
         self.semaphore = AdaptiveSemaphore(initial_value=initial_concurrency, min_value=2.0, max_value=20.0)
         logger.info(f"[BetaPipeline] Dynamic Concurrency Initialized: {int(initial_concurrency)} (Excel: {is_excel}, Pages: {page_count})")
         
-        # lowered from 150k to 40k for Excel because 150k chars of table data easily exhausts 16k output tokens
-        TEXT_CHUNK_SIZE = 40_000 if is_excel else 25_000
-        SINGLE_SHOT_CHAR_LIMIT = 60_000 if is_excel else 50_000
+        # lowered significantly for Excel: 15k chars (~150 rows).
+        # Ensures LLM does not get "lazy" and silently drop bottom rows in long tables.
+        TEXT_CHUNK_SIZE = 15_000 if is_excel else 25_000
+        SINGLE_SHOT_CHAR_LIMIT = 20_000 if is_excel else 50_000
         wo_inner = work_order.get("work_order", work_order)
         table_fields = wo_inner.get("table_fields", [])
         num_table_fields = len(table_fields)
