@@ -305,16 +305,17 @@ export function DataReviewPanel({
                 </div>
             )}
 
+
             <Tabs defaultValue="fields" className="flex-1 flex flex-col min-h-0">
                 <div className="px-6 border-b bg-muted/40">
                     <TabsList className="bg-transparent h-12 p-0 space-x-6">
                         <TabsTrigger value="fields" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">추출 필드</TabsTrigger>
-                        {/* Only show Parsed Text tab when Beta mode is enabled — content may or may not be available */}
                         {isBetaMode && (
                             <TabsTrigger value="parsed_text" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">
                                 Parsed Text {deferredData.parsedContent ? `(${(deferredData.parsedContent.length / 1000).toFixed(1)}K)` : '(대기중)'} <span className="ml-1 text-[10px] bg-blue-100 text-blue-800 px-1 rounded">BETA</span>
                             </TabsTrigger>
                         )}
+                        <TabsTrigger value="mapped" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">매핑된 결과 (Export)</TabsTrigger>
                         <TabsTrigger value="raw" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">Raw JSON</TabsTrigger>
                     </TabsList>
                 </div>
@@ -322,8 +323,6 @@ export function DataReviewPanel({
                 <div className="flex-1 overflow-hidden relative">
                     <TabsContent value="fields" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
                         <ExtractionPreview
-                            // Force remount when document changes OR when data arrives
-                            // This resets local state while preventing loops during editing
                             key={`${documentId || 'default'}-${Object.keys(deferredData.guideExtracted || {}).length}`}
                             guideExtracted={deferredData.guideExtracted || {}}
                             otherData={deferredData.otherData || []}
@@ -331,7 +330,7 @@ export function DataReviewPanel({
                             onFieldSelect={onFieldSelect}
                             onDataChange={onDataChange}
                             onSave={onSave}
-                            selectedField={selectedFieldKey} // Sync: Data Selection Control
+                            selectedField={selectedFieldKey}
                             onUnmask={onUnmask}
                             readOnly={false}
                             dexValidation={previewData?.__dex_validation__ as DexValidationData | undefined}
@@ -352,6 +351,66 @@ export function DataReviewPanel({
                                 )}
                             </div>
                         </ScrollArea>
+                    </TabsContent>
+                    <TabsContent value="mapped" className="mt-0 h-full p-0 data-[state=inactive]:hidden bg-muted/10">
+                        {Array.isArray(deferredData.guideExtracted) && deferredData.guideExtracted.length > 0 ? (
+                            <div className="h-full flex flex-col">
+                                <div className="px-6 pt-4 pb-2 flex items-center justify-between shrink-0">
+                                    <div className="text-xs text-muted-foreground">
+                                        현재 저장된 매핑 설정에 따라 변환된 <b>플랫 테이블 (Flat Table)</b> 형태입니다. 
+                                        {deferredData.guideExtracted.length > 0 && ` (총 ${deferredData.guideExtracted.length}행)`}
+                                    </div>
+                                    <Button variant="outline" size="sm" onClick={onDownload} className="h-7 text-xs gap-1.5 border-primary/20 text-primary hover:bg-primary/10">
+                                        <Download className="w-3.5 h-3.5" /> 엑셀 다운로드
+                                    </Button>
+                                </div>
+                                <div className="flex-1 overflow-auto px-6 pb-6 mt-2">
+                                    <div className="rounded-md border bg-white shadow-sm inline-block min-w-full">
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="bg-slate-50 border-b sticky top-0 z-10">
+                                                <tr>
+                                                    <th className="px-4 py-2 font-semibold text-slate-600 text-xs whitespace-nowrap bg-slate-50 border-r border-slate-200 w-12 text-center shadow-[0_1px_0_0_#e2e8f0]">#</th>
+                                                    {Object.keys(deferredData.guideExtracted[0] || {}).map(colKey => (
+                                                        colKey !== 'bbox' && !colKey.startsWith('_') && (
+                                                            <th key={colKey} className="px-4 py-2 font-semibold text-slate-700 text-xs whitespace-nowrap bg-slate-50 border-r border-slate-200 shadow-[0_1px_0_0_#e2e8f0]">
+                                                                {colKey}
+                                                            </th>
+                                                        )
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {deferredData.guideExtracted.map((row: any, idx: number) => (
+                                                    <tr key={idx} className="hover:bg-blue-50/50 transition-colors">
+                                                        <td className="px-4 py-2 text-slate-400 text-xs border-r border-slate-100 text-center bg-slate-50/50">{idx + 1}</td>
+                                                        {Object.keys(deferredData.guideExtracted[0] || {}).map(colKey => (
+                                                            colKey !== 'bbox' && !colKey.startsWith('_') && (
+                                                                <td key={colKey} className="px-4 py-2 text-slate-700 whitespace-nowrap border-r border-slate-100">
+                                                                    {typeof row[colKey] === 'object' && row[colKey] !== null
+                                                                        ? (row[colKey].value !== undefined ? String(row[colKey].value) : JSON.stringify(row[colKey]))
+                                                                        : String(row[colKey] ?? '')}
+                                                                </td>
+                                                            )
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center p-12 text-center h-full">
+                                <div className="w-12 h-12 bg-muted/50 rounded-full flex items-center justify-center mb-4">
+                                    <CheckCircle2 className="w-6 h-6 text-muted-foreground" />
+                                </div>
+                                <h3 className="text-lg font-medium text-foreground">매핑된 엑셀 데이터가 없습니다</h3>
+                                <p className="text-sm text-muted-foreground mt-2 max-w-md">
+                                    이 모델은 내보내기 매핑(Export Engine)이 설정되어 있지 않거나, 아직 추출된 배열 데이터가 존재하지 않습니다.<br/><br/>
+                                    또는 폼(Form) 형태의 데이터 추출 결과일 수 있습니다. JSON 원본 포맷만 제공됩니다.
+                                </p>
+                            </div>
+                        )}
                     </TabsContent>
                     <TabsContent value="raw" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
                         <RawJsonView data={deferredData.guideExtracted} />
