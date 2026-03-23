@@ -22,6 +22,7 @@ import { SubFieldEditorModal } from './studio/SubFieldEditorModal'
 import { ModelSettingsTab } from './studio/ModelSettingsTab'
 import { VibeDictionaryPanel } from './studio/VibeDictionaryPanel'
 import { ModelGallery } from './studio/ModelGallery'
+import { AggregatedDataView } from '../features/verification/components/AggregatedDataView'
 
 export interface ComparisonSettings {
     confidence_threshold: number; // 0.85
@@ -69,7 +70,7 @@ export interface ExtractionModel {
     excel_columns?: ExcelExportColumn[];
     reference_data?: Record<string, unknown>;  // Phase 1: 참고 데이터
     dictionaries?: string[];  // Dictionary categories for auto-normalization
-    transform_rules?: any[];  // Row expansion rules
+    transform_rules?: Record<string, unknown>[];  // Row expansion rules
 }
 
 export function ModelStudio() {
@@ -77,7 +78,7 @@ export function ModelStudio() {
     const [editingModel, setEditingModel] = useState<Partial<Model> | null>(null)
     const [originalModel, setOriginalModel] = useState<Partial<Model> | null>(null)
     const [isEditing, setIsEditing] = useState(false)
-    const [activeStudioTab, setActiveStudioTab] = useState<'settings' | 'schema' | 'reference' | 'transformation'>('settings')
+    const [activeStudioTab, setActiveStudioTab] = useState<'settings' | 'schema' | 'reference' | 'transformation' | 'aggregated'>('settings')
     const [llmOptions, setLlmOptions] = useState<string[]>([])
     const [globalDictionaries, setGlobalDictionaries] = useState<string[]>([])
 
@@ -108,6 +109,7 @@ export function ModelStudio() {
             try {
                 const res = await apiClient.get('/dictionaries/categories', { params: { model_id: editingModel.id } })
                 if (res.data?.categories) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     setGlobalDictionaries(res.data.categories.map((c: any) => c.category))
                 }
             } catch (e) {
@@ -116,6 +118,12 @@ export function ModelStudio() {
         }
         loadDictionaries()
     }, [editingModel?.id])
+
+    const handleEditModel = (model: Model) => {
+        setEditingModel({ ...model })
+        setOriginalModel({ ...model })
+        setIsEditing(false)
+    }
 
     // Listen for custom event from FieldEditorTable to open SubField Modal
     useEffect(() => {
@@ -140,6 +148,7 @@ export function ModelStudio() {
         if (targetModelId && models.length > 0 && !editingModel) {
             const found = models.find(m => m.id === targetModelId)
             if (found) {
+                // eslint-disable-next-line react-hooks/set-state-in-effect
                 handleEditModel(found)
                 // Clean up the query param so refresh doesn't re-trigger
                 searchParams.delete('modelId')
@@ -152,12 +161,6 @@ export function ModelStudio() {
         setEditingModel(DEFAULTS.NEW_MODEL)
         setOriginalModel(null)
         setIsEditing(true)
-    }
-
-    const handleEditModel = (model: Model) => {
-        setEditingModel({ ...model })
-        setOriginalModel({ ...model })
-        setIsEditing(false)
     }
 
     const handleSaveModel = async () => {
@@ -300,14 +303,27 @@ export function ModelStudio() {
                             <button
                                 onClick={() => setActiveStudioTab('transformation')}
                                 className={clsx(
-                                    "whitespace-nowrap flex-1 px-4 py-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2",
-                                    activeStudioTab === 'transformation'
-                                        ? "bg-card text-foreground shadow-sm"
-                                        : "text-muted-foreground hover:text-foreground"
-                                )}
-                            >
-                                <TerminalSquare className="w-4 h-4" /> 후처리 스크립트
-                            </button>
+                                "whitespace-nowrap flex-1 px-4 py-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2",
+                                activeStudioTab === 'transformation'
+                                    ? "bg-card text-foreground shadow-sm"
+                                    : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            <TerminalSquare className="w-4 h-4" /> 후처리 스크립트
+                        </button>
+                        )}
+                        {editingModel?.id && (
+                        <button
+                            onClick={() => setActiveStudioTab('aggregated')}
+                            className={clsx(
+                                "whitespace-nowrap flex-1 px-4 py-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2",
+                                activeStudioTab === 'aggregated'
+                                    ? "bg-card text-foreground shadow-sm bg-primary/10 text-primary border-primary/20 border"
+                                    : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            <Database className="w-4 h-4" /> 데이터 모아보기
+                        </button>
                         )}
                     </div>
 
@@ -504,6 +520,16 @@ export function ModelStudio() {
                                 <TransformationRulesEditor
                                     model={editingModel as Model}
                                     onUpdate={(updated) => setEditingModel(updated)}
+                                />
+                            </div>
+                        )
+                    }
+                    {
+                        activeStudioTab === 'aggregated' && editingModel?.id && (
+                            <div className="flex-1 h-full overflow-hidden flex flex-col">
+                                <AggregatedDataView 
+                                    model={editingModel as never} 
+                                    onBack={() => setActiveStudioTab('settings')} 
                                 />
                             </div>
                         )
