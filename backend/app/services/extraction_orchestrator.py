@@ -105,10 +105,30 @@ async def run_pipeline_job(
                  except Exception as log_sync_err:
                      logger.error(f"[Background] Log sync (error) failed for job {job_id}: {log_sync_err}")
         else:
+             export_preview = None
+             if getattr(model, "export_config", None) and model.export_config.enabled:
+                 from app.services.extraction.export_engine import apply_export_definition
+                 try:
+                     gui_data = result.get("guide_extracted", {})
+                     sub_docs = result.get("sub_documents")
+                     if not gui_data and sub_docs and len(sub_docs) > 0:
+                         gui_data = sub_docs[0].get("data", {}).get("guide_extracted", {})
+                     
+                     if isinstance(gui_data, list) and len(gui_data) > 0:
+                         exported_data = apply_export_definition(gui_data, model.export_config)
+                         if exported_data:
+                             export_preview = exported_data
+                             # Attach to result so preview_data has it too (optional, but good for logs)
+                             result["extracted_data"] = exported_data
+                             logger.info(f"[Background] Applied export definition for preview generation for {job_id}")
+                 except Exception as e:
+                     logger.error(f"[Background] Preview export mapping failed: {e}")
+
              await extraction_jobs.update_job(
                 job_id,
                 status=ExtractionStatus.PREVIEW_READY.value,
-                preview_data=result
+                preview_data=result,
+                extracted_data=export_preview
             )
              logger.info(f"[Background] Job {job_id} status set to PREVIEW_READY")
 

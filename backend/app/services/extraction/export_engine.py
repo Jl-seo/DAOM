@@ -43,6 +43,12 @@ def apply_export_definition(
     if df_base.empty:
         return []
 
+    # [Phase 14 Fix] Inject Root Variables (Scalars) into every row
+    # This solves the issue where top-level fields like "Carrier" were missing from export
+    for k, v in clean_extracted.items():
+        if k != df_def.base_table and not isinstance(v, (list, dict)):
+            df_base[k] = v
+
     # [Phase 3.5] Metadata Injection
     if getattr(df_def, "inject_metadata", False) and metadata:
         for k, v in metadata.items():
