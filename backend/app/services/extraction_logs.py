@@ -3,7 +3,7 @@ Extraction Logs Service - Stores extraction results in Azure Cosmos DB
 """
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, ConfigDict, field_validator
 from app.db.cosmos import get_extractions_container
 from app.core.enums import ExtractionType, ExtractionStatus
