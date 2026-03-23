@@ -43,6 +43,31 @@ async def get_extraction_logs_by_model(
     return [log.model_dump() for log in logs]
 
 
+@router.get("/logs/aggregated/{model_id}")
+@limiter.limit("30/minute")
+async def get_aggregated_model_data(
+    request: Request,
+    model_id: str,
+    current_user: CurrentUser = Depends(get_current_user),
+    limit: int = 1000
+):
+    """
+    Get aggregated extraction results (flattened Excel rows) across all successful documents for a model.
+    """
+    aggregated_rows = await extraction_logs.get_aggregated_data_for_model(model_id, limit=limit)
+    
+    await log_action(
+        user=current_user,
+        action=AuditAction.READ,
+        resource_type=AuditResource.EXTRACTION,
+        resource_id=model_id,
+        details={"action": "aggregated_view", "count": len(aggregated_rows)},
+        request=request
+    )
+
+    return aggregated_rows
+
+
 @router.get("/logs/all")
 @limiter.limit("30/minute")  # Enterprise: Stricter limit for /all endpoint
 async def get_all_extraction_logs(

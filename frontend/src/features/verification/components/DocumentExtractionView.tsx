@@ -15,6 +15,7 @@ import { ExtractionTabsHeader } from './ExtractionTabsHeader'
 import { ExtractionHistoryView } from './ExtractionHistoryView'
 import { ExtractionUploadView } from './ExtractionUploadView'
 import { ExtractionReviewView } from './ExtractionReviewView'
+import { AggregatedDataView } from './AggregatedDataView'
 import { ComparisonWorkspace } from '../../comparison/ComparisonWorkspace'
 
 interface DocumentExtractionViewProps {
@@ -115,6 +116,15 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
                         model={model}
                         onNewExtraction={() => setActiveStep('upload')}
                         onSelectHistory={(log) => loadFromHistory(log)}
+                        onViewAggregated={() => setActiveStep('aggregated_data')}
+                    />
+                )}
+
+                {/* Aggregated Data View */}
+                {activeStep === 'aggregated_data' && (
+                    <AggregatedDataView
+                        model={model}
+                        onBack={() => setActiveStep('history')}
                     />
                 )}
 

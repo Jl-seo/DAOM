@@ -310,6 +310,68 @@ async def get_logs_by_model(model_id: str, limit: int = 50, tenant_id: Optional[
         logger.error(f"[ExtractionLogs] Query failed: {e}")
         return []
 
+async def get_aggregated_data_for_model(
+    model_id: str, 
+    tenant_id: Optional[str] = None, 
+    user_id: Optional[str] = None,
+    limit: int = 500
+) -> List[Dict[str, Any]]:
+    """Fetch and aggregate all extracted_data arrays across successful logs for a model."""
+    container = get_extractions_container()
+    if not container:
+        return []
+
+    try:
+        # We need metadata and the extracted_data itself
+        select_fields = "c.id, c.filename, c.created_at, c.extracted_data"
+        
+        query = f"""
+            SELECT TOP {limit} {select_fields} FROM c 
+            WHERE c.model_id = @model_id 
+            AND c.status = 'success'
+            AND (NOT IS_DEFINED(c.type) OR c.type = '{ExtractionType.LOG.value}')
+        """
+        
+        parameters = [{"name": "@model_id", "value": model_id}]
+
+        from app.core.config import settings
+        if tenant_id and settings.AZURE_AD_TENANT_ID not in ("common", ""):
+            query += " AND (c.tenant_id = @tenant_id OR c.tenant_id = 'default' OR NOT IS_DEFINED(c.tenant_id))"
+            parameters.append({"name": "@tenant_id", "value": tenant_id})
+
+        if user_id:
+            query += " AND c.user_id = @user_id"
+            parameters.append({"name": "@user_id", "value": user_id})
+
+        query += " ORDER BY c.created_at DESC"
+
+        items = [item async for item in container.query_items(
+            query=query,
+            parameters=parameters,
+            # Aggregation might scan across partitions depending on keys, but we have model_id indexed
+        )]
+        
+        aggregated_rows = []
+        for item in items:
+            doc_id = item.get("id")
+            doc_name = item.get("filename", "Unknown")
+            created_at = item.get("created_at")
+            extracted = item.get("extracted_data")
+            
+            if isinstance(extracted, list):
+                for row in extracted:
+                    if isinstance(row, dict):
+                        # Inject metadata into each row
+                        row["_log_id"] = doc_id
+                        row["_document_name"] = doc_name
+                        row["_created_at"] = created_at
+                        aggregated_rows.append(row)
+        
+        return aggregated_rows
+    except Exception as e:
+        logger.error(f"[ExtractionLogs] Failed to aggregate data: {e}")
+        return []
+
 
 async def get_all_logs(limit: int = 100, tenant_id: Optional[str] = None) -> List[ExtractionLog]:
     """Get all recent extraction logs, enforcing tenant isolation"""

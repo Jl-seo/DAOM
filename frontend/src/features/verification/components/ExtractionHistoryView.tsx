@@ -15,12 +15,14 @@ interface ExtractionHistoryViewProps {
     model: ExtractionModel
     onNewExtraction: () => void
     onSelectHistory: (log: any) => void
+    onViewAggregated: () => void
 }
 
 export function ExtractionHistoryView({
     model,
     onNewExtraction,
-    onSelectHistory
+    onSelectHistory,
+    onViewAggregated
 }: ExtractionHistoryViewProps) {
     const queryClient = useQueryClient()
     const fileInputRef = useRef<HTMLInputElement>(null)
@@ -80,6 +82,13 @@ export function ExtractionHistoryView({
                                 <ScanLine className="w-4 h-4 md:w-5 md:h-5 mr-2" /> 실시간 스캔 (DEX Beta)
                             </Button>
                         )}
+                        <Button
+                            variant="secondary"
+                            onClick={onViewAggregated}
+                            className="bg-primary/10 text-primary hover:bg-primary/20 text-sm md:text-base px-4 md:px-6 h-10 md:h-12 shadow-sm transition-all"
+                        >
+                            <Files className="w-4 h-4 md:w-5 md:h-5 mr-2" /> 통합 데이터 모아보기
+                        </Button>
                         <Button
                             variant="outline"
                             size="default"
