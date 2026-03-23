@@ -958,6 +958,22 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             
                 logger.info(f"[{target_key}] Segment '{sheet}', data_rows={len(data_rows)}")
             
+                # Phase 12: Targeted Forward-Fill for Grouping Keys
+                # Safely copy down categorical keys for empty cells in a merged/spanned table layout.
+                _FFILL_KEYS = ["carrier", "선사", "선명", "pol", "pod", "dest", "origin", "country", "region", "port", "vendor", "shipping", "mode", "type"]
+                _NO_FFILL_KEYS = ["remark", "note", "desc", "amount", "rate", "price", "fee", "cost", "validity"]
+                
+                if not data_rows.empty:
+                    data_rows = data_rows.copy()
+                    for sub_key, excel_col in col_map.items():
+                        sk_lower = str(sub_key).strip().lower()
+                        is_grouping = any(k in sk_lower for k in _FFILL_KEYS) and not any(k in sk_lower for k in _NO_FFILL_KEYS)
+                        if is_grouping and excel_col in data_rows.columns:
+                            import numpy as np
+                            # Replace purely empty/whitespace cells with NaN so pandas ffill can work
+                            data_rows[excel_col] = data_rows[excel_col].replace(r'^\s*$', np.nan, regex=True).ffill()
+                            logger.debug(f"[{target_key}] Forward-filled grouping key '{sk_lower}' (col: {excel_col})")
+
                 _EMPTY_CELL = {"value": "", "confidence": 0.0, "validation_status": "flagged", "original_value": "", "bbox": None}
                 segment_extracted_rows = []
             

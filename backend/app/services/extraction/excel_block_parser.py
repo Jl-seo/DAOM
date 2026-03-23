@@ -226,17 +226,19 @@ def detect_blocks(df: pd.DataFrame, sheet_name: str, start_block_id: int = 1) ->
                     logger.debug(f"[BlockDetect] Column shift at row {row_ids[i]} (jaccard={jaccard:.2f})")
 
         # Signal C: Numeric ratio sharp break
-        # Require at least 3 rows in the block
-        if len(recent_numeric_ratios) >= 3 and not should_split:
-            avg_recent = sum(recent_numeric_ratios[-5:]) / len(recent_numeric_ratios[-5:])
-            # Only split if we transition from Data (high numeric) to Text (low numeric)
-            # A transition from Text (Header) to Data should NOT split the table!
-            if avg_recent > 0.3 and sig["numeric_ratio"] < avg_recent - 0.4 and sig["non_empty_count"] >= 3:
-                # Only split if this isn't a single outlier — check next row too
-                if i + 1 < len(row_sigs) and not row_sigs[i + 1]["empty"]:
-                    if row_sigs[i + 1]["numeric_ratio"] < avg_recent - 0.2:
-                        should_split = True
-                        logger.debug(f"[BlockDetect] Numeric break at row {row_ids[i]} (dropped from {avg_recent:.2f} to {sig['numeric_ratio']:.2f})")
+        # [REMOVED IN PHASE 12]: Rate sheets frequently have empty rate columns for certain ports (e.g. Manila missing rates).
+        # Splitting simply because the numeric ratio drops to 0 causes perfectly valid table rows to be orphaned
+        # and misclassified as headers. Only Structural Gaps or Column Shifts should split a table.
+        # if len(recent_numeric_ratios) >= 3 and not should_split:
+        #     avg_recent = sum(recent_numeric_ratios[-5:]) / len(recent_numeric_ratios[-5:])
+        #     # Only split if we transition from Data (high numeric) to Text (low numeric)
+        #     # A transition from Text (Header) to Data should NOT split the table!
+        #     if avg_recent > 0.3 and sig["numeric_ratio"] < avg_recent - 0.4 and sig["non_empty_count"] >= 3:
+        #         # Only split if this isn't a single outlier — check next row too
+        #         if i + 1 < len(row_sigs) and not row_sigs[i + 1]["empty"]:
+        #             if row_sigs[i + 1]["numeric_ratio"] < avg_recent - 0.2:
+        #                 should_split = True
+        #                 logger.debug(f"[BlockDetect] Numeric break at row {row_ids[i]} (dropped from {avg_recent:.2f} to {sig['numeric_ratio']:.2f})")
 
         if should_split:
             # Close current block at previous row
