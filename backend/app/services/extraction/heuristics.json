@@ -39,7 +39,17 @@
       "pol": ["origin", "pol", "port of loading", "loading port", "출발항", "적항", "from"],
       "pod": ["pod", "port of discharge", "discharge port", "양하항", "도착항"],
       "dest": ["destination", "dest", "final destination", "최종목적지", "delivery", "del"]
-    }
+    },
+    "countries": [
+      "CHINA", "JAPAN", "SOUTH KOREA", "KOREA", "TAIWAN", "HONG KONG", 
+      "VIETNAM", "THAILAND", "MALAYSIA", "SINGAPORE", "INDONESIA", "PHILIPPINES",
+      "INDIA", "BANGLADESH", "PAKISTAN", "SRI LANKA", "UNITED ARAB EMIRATES", "UAE",
+      "SAUDI ARABIA", "TURKEY", "RUSSIA", "GERMANY", "NETHERLANDS", "BELGIUM", 
+      "FRANCE", "ITALY", "SPAIN", "UNITED KINGDOM", "UK", "POLAND", "SWEDEN", 
+      "NORWAY", "DENMARK", "FINLAND", "USA", "UNITED STATES", "CANADA", "MEXICO",
+      "BRAZIL", "ARGENTINA", "CHILE", "COLOMBIA", "PERU", "AUSTRALIA", "NEW ZEALAND",
+      "SOUTH AFRICA", "EGYPT", "NIGERIA", "KENYA", "MOROCCO"
+    ]
   },
   "guards": {
     "protected_values": {

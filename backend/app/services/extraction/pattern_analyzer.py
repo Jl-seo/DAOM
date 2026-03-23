@@ -156,6 +156,15 @@ class PatternAnalyzer:
         for pattern_str in guards:
             if re.match(pattern_str, v):
                 return True
+                
+        # Guard "City, Country" like "BANGKOK, THAILAND"
+        parts = [p.strip() for p in v.split(',')]
+        if len(parts) == 2:
+            country_candidate = parts[1].upper()
+            known_countries = self.rules.get("keywords", {}).get("countries", [])
+            if country_candidate in (c.upper() for c in known_countries):
+                return True
+                
         return False
 
 # Global Singleton
