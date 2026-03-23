@@ -81,7 +81,7 @@ function truncateCellValue(value: any): any {
  * - Single values (Head) are repeated on every row
  * - Array values (Line Items) create new rows
  */
-function flattenDataToRows(data: Record<string, any>): Record<string, any>[] {
+export function flattenDataToRows(data: Record<string, any>): Record<string, any>[] {
     const singleData: Record<string, any> = {}
     const arrayData: Record<string, any[]> = {}
 

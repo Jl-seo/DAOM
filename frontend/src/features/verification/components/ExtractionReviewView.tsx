@@ -11,8 +11,7 @@ import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'reac
 import { DocumentDeck } from './DocumentDeck'
 import { DocumentPreviewPanel } from './DocumentPreviewPanel'
 import { DataReviewPanel } from './DataReviewPanel'
-import type { PDFViewerHandle } from './PDFViewer'
-import { downloadAsExcel } from '../../../utils/excel'
+import { downloadAsExcel, flattenDataToRows } from '../../../utils/excel'
 import type { PreviewData, ExtractionModel, Highlight } from '../types'
 
 interface ExtractionReviewViewProps {
@@ -251,7 +250,17 @@ export function ExtractionReviewView({
                                 currentGuideExtracted={currentGuideExtracted || {}}
                                 currentOtherData={currentOtherData || []}
                                 currentParsedContent={currentParsedContent}
-                                exportData={previewData?.extracted_data || (previewData?.sub_documents?.[selectedSubDocIndex]?.data as any)?.extracted_data || null}
+                                exportData={
+                                    previewData?.extracted_data || 
+                                    (previewData?.sub_documents?.[selectedSubDocIndex]?.data as any)?.extracted_data || 
+                                    (
+                                        // FALLBACK: if no export mapping, try to extract rows from guide dictionary 
+                                        // (e.g. { "Invoice": { "value": [...] } } -> [...])
+                                        currentGuideExtracted && typeof currentGuideExtracted === 'object' && !Array.isArray(currentGuideExtracted)
+                                            ? flattenDataToRows({ ...currentGuideExtracted, other_data: currentOtherData })
+                                            : null
+                                    )
+                                }
                                 model={model}
                                 previewData={previewData}
                                 debugData={previewData?.debug_data}
