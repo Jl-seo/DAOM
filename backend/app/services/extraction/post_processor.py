@@ -220,7 +220,7 @@ def _apply_rules_to_field(
                 logger.debug(f"[PostProcessor] Skipping extract_digits for protected value: '{val}'")
                 continue
 
-            new_val = re.sub(r'[^\d\.]', '', val)
+            new_val = re.sub(r'[^\d\.\-]', '', val)
             if new_val and new_val != val:
                 node["value"] = new_val
                 node["_modifier"] = "Rule: Extract Digits"
@@ -235,6 +235,7 @@ def _apply_rules_to_field(
                 node["_modified_from"] = val
                 val = new_val
 
+        elif action in ("date_format_iso", "normalize_date_separator"):
             # Guard: skip pure numeric values (no separators) — dateutil would parse "1480" as a date
             # But don't skip if it looks like a date with separators like "2025.1.2"
             stripped = val.strip()
