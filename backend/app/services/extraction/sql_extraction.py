@@ -642,21 +642,23 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                 logs.append({"step": f"Validator [{t['field_key']}] Warnings", "message": f"{len(warnings_list)} warnings: {json.dumps(warnings_list, ensure_ascii=False)}"})
             
             col_map_dict = validated_mapping
-        tables_map[t["field_key"]] = {
-            "segments": [
-                {
-                    "block_id": block_id,
-                    "sheet_name": t.get("sheet_name", "Sheet1"),
-                    "first_data_row_id": t.get("first_data_row_id", 1),
-                    "last_data_row_id": t.get("last_data_row_id"),
-                    "columns_mapping": col_map_dict,
-                    "mapping_source": "llm_primary",
-                    "compatibility_score": 1.0,
-                    "block_context": block_meta.get("context", {}),
-                }
-            ],
-            "table_kind": t.get("table_kind", "flat_table"),
+        new_segment = {
+            "block_id": block_id,
+            "sheet_name": t.get("sheet_name", "Sheet1"),
+            "first_data_row_id": t.get("first_data_row_id", 1),
+            "last_data_row_id": t.get("last_data_row_id"),
+            "columns_mapping": col_map_dict,
+            "mapping_source": "llm_primary",
+            "compatibility_score": 1.0,
+            "block_context": block_meta.get("context", {}),
         }
+        if t["field_key"] in tables_map:
+            tables_map[t["field_key"]]["segments"].append(new_segment)
+        else:
+            tables_map[t["field_key"]] = {
+                "segments": [new_segment],
+                "table_kind": t.get("table_kind", "flat_table"),
+            }
     
     # ── Phase C-2: Multi-segment Aggregation & Sheet Enforcement ──────────
     _FIELD_ROLE_MAP = {

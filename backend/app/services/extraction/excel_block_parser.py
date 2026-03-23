@@ -315,7 +315,8 @@ def merge_similar_blocks(blocks: List[BlockInfo], df: pd.DataFrame) -> List[Bloc
                 vals_lower = " ".join(vals).lower()
                 
                 # 1. Keyword Check
-                if any(kw in vals_lower for kw in REMARK_KEYWORDS + CONTEXT_KEYWORDS + GROUP_KEYWORDS + ["japan", "only", "reefer", "valid", "except", "via"]):
+                combined_kws = set(REMARK_KEYWORDS) | set(CONTEXT_KEYWORDS) | set(GROUP_KEYWORDS) | {"japan", "only", "reefer", "valid", "except", "via"}
+                if any(kw in vals_lower for kw in combined_kws):
                     guard_triggered = True
                     break
                 
@@ -1152,9 +1153,10 @@ def classify_sheets(
             
             # Content signal boosters
             if role == "primary_rate":
-                if "money" in top_type_names and "port_code" in top_type_names:
+                has_pol_pod = any(h for h in all_headers if "pol" in str(h).lower() or "pod" in str(h).lower())
+                if "money" in top_type_names and ("port_code" in top_type_names or has_pol_pod):
                     score += 10  # Strong signal for rate matrix
-                elif "money" in top_type_names or "port_code" in top_type_names:
+                elif "money" in top_type_names or "port_code" in top_type_names or has_pol_pod:
                     score += 5
             elif role == "surcharge":
                 if "money" in top_type_names:
