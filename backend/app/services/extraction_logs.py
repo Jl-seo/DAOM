@@ -328,7 +328,7 @@ async def get_aggregated_data_for_model(
         query = f"""
             SELECT TOP {limit} {select_fields} FROM c 
             WHERE c.model_id = @model_id 
-            AND c.status = 'success'
+            AND c.status IN ('success', '{ExtractionStatus.SUCCESS.value}', '{ExtractionStatus.PREVIEW_READY.value}')
             AND (NOT IS_DEFINED(c.type) OR c.type = '{ExtractionType.LOG.value}')
         """
         

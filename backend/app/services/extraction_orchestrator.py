@@ -139,7 +139,8 @@ async def run_pipeline_job(
                      await extraction_logs.update_log_status(
                          log_id=str(job.original_log_id),
                          status=ExtractionStatus.PREVIEW_READY.value,
-                         preview_data=result
+                         preview_data=result,
+                         extracted_data=export_preview
                      )
                  except Exception as log_sync_err:
                      logger.error(f"[Background] Log sync failed for job {job_id} (non-fatal, job is already PREVIEW_READY): {log_sync_err}")
