@@ -78,8 +78,40 @@ def _find_currency_key(parent_row: Dict[str, Any], fields_def: Optional[List[Any
 # Public API
 # ──────────────────────────────────────────────
 
+def _apply_generic_normalizations(data: Any, current_path: str = ""):
+    """Built-in generic normalizations applicable to all extractions."""
+    if isinstance(data, dict):
+        for key, node in data.items():
+            path_key = f"{current_path}.{key}" if current_path else key
+            
+            if isinstance(node, dict) and "value" in node:
+                if isinstance(node["value"], list):
+                    for row in node["value"]:
+                        _apply_generic_normalizations(row, current_path=path_key)
+                else:
+                    val = str(node.get("value", "")).strip()
+                    if not val:
+                        continue
+                        
+                    # 1. Port Validation (pol, pod, port, por, pvd)
+                    # Exclude single character values "O", "F" or invalid strings like "O/F"
+                    key_lower = key.lower()
+                    if "port" in key_lower or key_lower in ("pol", "pod", "por", "pvd", "origin", "destination"):
+                        if val.upper() in ("O", "F", "O/F", "OF", "N/A", "-", ".", "I", "I/B", "O/B"):
+                            node["value"] = ""
+                            node["_modifier"] = "Built-in: Invalid Port Filter"
+                            node["_modified_from"] = val
+
+            elif isinstance(node, dict):
+                _apply_generic_normalizations(node, current_path=path_key)
+
+
 def apply_post_processing(guide_extracted: Dict[str, Any], rules: List[Any], fields_def: List[Any]) -> Dict[str, Any]:
     """Stage 3: Deterministic Rule-Based Post-Processing."""
+    
+    # Apply built-in universal rules first (e.g. O/F port scrubbing)
+    _apply_generic_normalizations(guide_extracted)
+
     if not rules:
         return guide_extracted
 
