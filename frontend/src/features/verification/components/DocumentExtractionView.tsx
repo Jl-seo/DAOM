@@ -96,7 +96,7 @@ function ExtractionContainer({ modelId, initialFile, onFileConsumed }: { modelId
     return (
         <div className="flex flex-col h-full bg-background relative overflow-hidden">
             {/* Header (Tabs) - Shows only during extraction flow */}
-            {activeStep !== 'history' && (
+            {activeStep !== 'history' && activeStep !== 'aggregated_data' && (
                 <ExtractionTabsHeader
                     activeStep={activeStep}
                     modelName={model.name}
