@@ -23,6 +23,7 @@ export interface SubDocument {
         raw_content?: string
         _beta_parsed_content?: string
         _beta_ref_map?: Record<string, any>
+        extracted_data?: any[] // Export-mapped flat table
     }
 }
 
@@ -34,6 +35,7 @@ export interface PreviewData {
     raw_extracted?: Record<string, any>
     other_data: Array<{ column: string; value: any; confidence?: number; bbox?: number[] }>
     model_fields: Array<{ key: string; label: string }>
+    extracted_data?: any[] // Export-mapped flat table
     debug_data?: any // Raw debug information from backend
     sub_documents?: SubDocument[]
     raw_content?: string // Raw text from Document Intelligence

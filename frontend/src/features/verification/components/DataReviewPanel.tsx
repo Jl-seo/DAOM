@@ -11,6 +11,7 @@ import { DebugInfoModal } from './DebugInfoModal'
 import type { ExtractionModel, PreviewData } from '../types'
 
 interface DataReviewPanelProps {
+    currentGuideExtracted: Record<string, any>
     currentOtherData: any[]
     exportData?: any[] | null
     model: ExtractionModel
@@ -374,7 +375,7 @@ export function DataReviewPanel({
                                             <thead className="bg-slate-50 border-b sticky top-0 z-10">
                                                 <tr>
                                                     <th className="px-4 py-2 font-semibold text-slate-600 text-xs whitespace-nowrap bg-slate-50 border-r border-slate-200 w-12 text-center shadow-[0_1px_0_0_#e2e8f0]">#</th>
-                                                    {Object.keys(deferredData.exportData[0] || {}).map(colKey => (
+                                                    {Object.keys(deferredData.exportData?.[0] || {}).map(colKey => (
                                                         colKey !== 'bbox' && !colKey.startsWith('_') && (
                                                             <th key={colKey} className="px-4 py-2 font-semibold text-slate-700 text-xs whitespace-nowrap bg-slate-50 border-r border-slate-200 shadow-[0_1px_0_0_#e2e8f0]">
                                                                 {colKey}
@@ -387,7 +388,7 @@ export function DataReviewPanel({
                                                 {deferredData.exportData.map((row: any, idx: number) => (
                                                     <tr key={idx} className="hover:bg-blue-50/50 transition-colors">
                                                         <td className="px-4 py-2 text-slate-400 text-xs border-r border-slate-100 text-center bg-slate-50/50">{idx + 1}</td>
-                                                        {Object.keys(deferredData.exportData[0] || {}).map(colKey => (
+                                                        {Object.keys(deferredData.exportData?.[0] || {}).map(colKey => (
                                                             colKey !== 'bbox' && !colKey.startsWith('_') && (
                                                                 <td key={colKey} className="px-4 py-2 text-slate-700 whitespace-nowrap border-r border-slate-100">
                                                                     {typeof row[colKey] === 'object' && row[colKey] !== null

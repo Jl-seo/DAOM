@@ -11,6 +11,7 @@ import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'reac
 import { DocumentDeck } from './DocumentDeck'
 import { DocumentPreviewPanel } from './DocumentPreviewPanel'
 import { DataReviewPanel } from './DataReviewPanel'
+import type { PDFViewerHandle } from './PDFViewer'
 import { downloadAsExcel, flattenDataToRows } from '../../../utils/excel'
 import type { PreviewData, ExtractionModel, Highlight } from '../types'
 
