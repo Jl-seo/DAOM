@@ -108,9 +108,9 @@ async def hydrate_debug_data(debug_data: Optional[Dict[str, Any]]) -> Optional[D
     return debug_data
 
 
-async def hydrate_extracted_data(extracted_data: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+async def hydrate_extracted_data(extracted_data: Optional[Any]) -> Optional[Any]:
     """
-    Hydrate extracted_data dict by restoring Blob-offloaded content.
+    Hydrate extracted_data by restoring Blob-offloaded content.
     Handles the pattern: {"source": "blob_storage", "blob_path": "..."}
     """
     if not extracted_data or not isinstance(extracted_data, dict):

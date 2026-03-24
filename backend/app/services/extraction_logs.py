@@ -156,7 +156,7 @@ async def save_extraction_log(
             if psize <= THRESHOLD_BYTES: return target_dict
 
             # Offload extracted_data
-            if "extracted_data" in target_dict and isinstance(target_dict["extracted_data"], dict) and get_json_size(target_dict["extracted_data"]) > 100_000:
+            if "extracted_data" in target_dict and isinstance(target_dict["extracted_data"], (dict, list)) and get_json_size(target_dict["extracted_data"]) > 100_000:
                 blob_path = f"logs/{job_id_or_log_id}/extracted_data.json"
                 try:
                     await save_json_as_blob(target_dict["extracted_data"], blob_path)
@@ -358,6 +358,9 @@ async def get_aggregated_data_for_model(
             created_at = item.get("created_at")
             extracted = item.get("extracted_data")
             
+            from app.services.hydration import hydrate_extracted_data
+            extracted = await hydrate_extracted_data(extracted)
+            
             if isinstance(extracted, list):
                 for row in extracted:
                     if isinstance(row, dict):
@@ -551,9 +554,11 @@ async def update_log_status(
                 subs = preview_data["sub_documents"]
                 if subs and len(subs) > 0:
                     first_data = subs[0].get("data", {})
-                    # prioritize guide_extracted
-                    if "guide_extracted" in first_data:
-                         log_dict["extracted_data"] = first_data["guide_extracted"]
+                    # Prioritize the flat export array `extracted_data` first
+                    if "extracted_data" in first_data:
+                        log_dict["extracted_data"] = first_data["extracted_data"]
+                    elif "guide_extracted" in first_data:
+                        log_dict["extracted_data"] = first_data["guide_extracted"]
 
         if extracted_data:
             log_dict["extracted_data"] = extracted_data
@@ -600,7 +605,7 @@ async def update_log_status(
             if psize <= THRESHOLD_BYTES: return target_dict
 
             # Offload extracted_data
-            if "extracted_data" in target_dict and isinstance(target_dict["extracted_data"], dict) and get_json_size(target_dict["extracted_data"]) > 100_000:
+            if "extracted_data" in target_dict and isinstance(target_dict["extracted_data"], (dict, list)) and get_json_size(target_dict["extracted_data"]) > 100_000:
                 blob_path = f"logs/{job_id_or_log_id}/extracted_data.json"
                 try:
                     await save_json_as_blob(target_dict["extracted_data"], blob_path)
