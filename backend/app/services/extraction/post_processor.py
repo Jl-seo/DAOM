@@ -268,22 +268,86 @@ def _apply_rules_to_field(
                 val = new_val
 
         elif action in ("date_format_iso", "normalize_date_separator"):
-            # Guard: skip pure numeric values (no separators) — dateutil would parse "1480" as a date
-            # But don't skip if it looks like a date with separators like "2025.1.2"
             stripped = val.strip()
+            # 1. Check for Quarters (e.g. "2025 4Q", "4Q")
+            mq = re.search(r'((?:20)?\d{2})?\s*([1-4])Q', stripped, re.IGNORECASE)
+            # 2. Check for ranges (e.g. "11-1~11-14", "2025.10.01 - 2025.10.31")
+            mr = re.search(r'(\d{1,4}[-/\.]\d{1,2}[-/\.]\d{1,2}|\d{1,2}[-/\.]\d{1,2})\s*[~-]\s*(\d{1,4}[-/\.]\d{1,2}[-/\.]\d{1,2}|\d{1,2}[-/\.]\d{1,2})', stripped)
+            
+            start_dt, end_dt = None, None
+            
+            if mq:
+                import datetime
+                current_year = datetime.datetime.now().year
+                year_str, q_str = mq.group(1), mq.group(2)
+                year = int(year_str) if year_str else current_year
+                if year < 100: year += 2000
+                q = int(q_str)
+                start_month = (q - 1) * 3 + 1
+                end_month = q * 3
+                end_day = 31 if end_month in (1,3,5,7,8,10,12) else 30
+                start_dt = f"{year}-{start_month:02d}-01"
+                end_dt = f"{year}-{end_month:02d}-{end_day:02d}"
+                
+            elif mr:
+                import datetime
+                current_year = datetime.datetime.now().year
+                s_part, e_part = mr.group(1), mr.group(2)
+                s_part = re.sub(r'[\./]', '-', s_part)
+                e_part = re.sub(r'[\./]', '-', e_part)
+                if s_part.count('-') == 1: s_part = f"{current_year}-{s_part}"
+                if e_part.count('-') == 1: e_part = f"{current_year}-{e_part}"
+                
+                def _fmt(d_str):
+                    parts = d_str.split('-')
+                    if len(parts) == 3:
+                        y,m,d = parts
+                        if len(y) == 2: y = "20" + y
+                        return f"{y}-{int(m):02d}-{int(d):02d}"
+                    return d_str
+                
+                start_dt = _fmt(s_part)
+                end_dt = _fmt(e_part)
+
+            if start_dt and end_dt:
+                node["value"] = start_dt
+                node["_modifier"] = "Rule: Split Date Range (Start)"
+                node["_modified_from"] = val
+                
+                if parent_row:
+                    fk = field_key.split('.')[-1]
+                    end_key_guess = fk.replace("start", "end").replace("from", "to")
+                    end_key = None
+                    if end_key_guess in parent_row and end_key_guess != fk:
+                        end_key = end_key_guess
+                    else:
+                        for pk in parent_row.keys():
+                            if pk == fk: continue
+                            pk_lower = pk.lower()
+                            if "end" in pk_lower or "expire" in pk_lower or "to" in pk_lower:
+                                end_key = pk
+                                break
+                                
+                    if end_key and end_key in parent_row:
+                        end_cell = parent_row[end_key]
+                        if isinstance(end_cell, dict):
+                            end_cell["value"] = end_dt
+                            end_cell["_modifier"] = "Rule: Split Date Range (End)"
+                val = start_dt
+                continue
+
+            # Standard single date processing guard
             date_regex = analyzer.compiled_guards.get("date")
             has_date_fmt = date_regex.search(stripped) if date_regex else False
             if not has_date_fmt and re.match(r'^[\d,]+$', stripped):
                 continue
 
-            # Try real ISO parsing first, fallback to separator normalization
             new_val = val
             try:
                 from dateutil.parser import parse as dateparse
                 parsed = dateparse(val, dayfirst=False)
                 new_val = parsed.strftime("%Y-%m-%d")
             except Exception:
-                # Fallback: simple separator normalization
                 new_val = re.sub(r'[\./]', '-', val)
 
             if new_val != val:
