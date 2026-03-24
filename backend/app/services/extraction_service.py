@@ -115,6 +115,12 @@ class ExtractionService:
                     from fastapi.concurrency import run_in_threadpool
                     ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else 'xlsx'
                     if mime_type == "text/csv": ext = "csv"
+                    
+                    # Phase 32: Normalize complex horizontal pivots into flat standard Excel files first
+                    _t_norm = _time.monotonic()
+                    file_content = await run_in_threadpool(ExcelParser.normalize_bytes, file_content, ext)
+                    logger.info(f"⏱️ [SVC TIMER] ExcelParser.normalize_bytes: {_time.monotonic() - _t_norm:.2f}s")
+                    
                     _t_parse = _time.monotonic()
                     parsed_sheets = await run_in_threadpool(ExcelParser.from_bytes, file_content, ext)
                     _t_parse_done = _time.monotonic() - _t_parse

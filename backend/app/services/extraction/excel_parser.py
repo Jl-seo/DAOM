@@ -2,16 +2,159 @@ import io
 import logging
 from typing import Dict, Any, List, Optional
 import pandas as pd
+import re
 
 logger = logging.getLogger(__name__)
 
 class ExcelParser:
     """
-    Direct Excel/CSV to Markdown Parser.
+    Direct Excel/CSV to Markdown Parser & Structural Normalizer.
     Bypasses Azure Document Intelligence and generates clean Markdown tables
-    directly from Excel bytes. This output is ready for the BetaPipeline LLM.
+    directly from Excel bytes or cleanly transforms complex pivots.
     """
     
+    @classmethod
+    def normalize_bytes(cls, file_bytes: bytes, ext: str) -> bytes:
+        """
+        Reads an Excel/CSV file into memory. If any sheet holds a horizontal cross-tab
+        matrix (e.g., PODs arranged horizontally with repeating equipment patterns), 
+        it intelligently 'half-unpivots' it into a flat vertical table. 
+        Returns the modified workbook as new XLSX bytes compatible with downstream.
+        """
+        try:
+            if ext.lower() == 'csv':
+                content_str = None
+                for encoding in ["utf-8", "utf-8-sig", "cp949", "euc-kr", "latin-1"]:
+                    try:
+                        content_str = file_bytes.decode(encoding)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                if not content_str: return file_bytes
+                import csv
+                reader = csv.reader(io.StringIO(content_str))
+                df = pd.DataFrame(list(reader))
+                excel_data = {"Data": df}
+            else:
+                fc_io = io.BytesIO(file_bytes)
+                try:
+                    excel_data = pd.read_excel(fc_io, sheet_name=None, header=None, engine="calamine")
+                except ImportError:
+                    fc_io.seek(0)
+                    excel_data = pd.read_excel(fc_io, sheet_name=None, header=None, engine="openpyxl")
+        except Exception as e:
+            logger.debug(f"Failed to load Excel for normalization: {e}")
+            return file_bytes
+            
+        needs_rewrite = False
+        processed_sheets = {}
+        
+        for sheet_name, df in excel_data.items():
+            if df.empty:
+                processed_sheets[sheet_name] = df
+                continue
+                
+            unpivoted_df = cls._try_half_unpivot_matrix(df)
+            if len(unpivoted_df.columns) != len(df.columns) or len(unpivoted_df) != len(df):
+                logger.info(f"Sheet '{sheet_name}' was UNPIVOTED by Parser! Original: {df.shape}, New: {unpivoted_df.shape}")
+                needs_rewrite = True
+                unpivoted_df.loc[-1] = unpivoted_df.columns
+                unpivoted_df.index = unpivoted_df.index + 1
+                unpivoted_df = unpivoted_df.sort_index()
+                unpivoted_df.columns = range(len(unpivoted_df.columns))
+                processed_sheets[sheet_name] = unpivoted_df
+            else:
+                processed_sheets[sheet_name] = df
+                
+        if not needs_rewrite:
+            return file_bytes
+            
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            for sheet_name, df in processed_sheets.items():
+                df.to_excel(writer, sheet_name=str(sheet_name)[:31], index=False, header=False)
+                
+        logger.info("[ExcelParser] Excel structurally normalized (Virtual Workbook Created).")
+        return output.getvalue()
+        
+    @classmethod
+    def _try_half_unpivot_matrix(cls, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Detects if a DataFrame is a horizontal cross-tab where the bottom-most 
+        header contains repeating equipment sizes, and flattens it properly.
+        """
+        equip_pattern = re.compile(r"^\s*(20|40|45|hc|hcd|hq|dc|rf|ot)[\'\s]*$", re.IGNORECASE)
+        
+        header_bottom_idx = -1
+        for i in range(min(20, len(df))):
+            row = df.iloc[i].fillna("").astype(str).tolist()
+            equip_matches = [x for x in row if equip_pattern.match(x)]
+            if len(equip_matches) >= 6:
+                counts = pd.Series(equip_matches).value_counts()
+                if any(c > 1 for c in counts):
+                    header_bottom_idx = i
+                    break
+                    
+        if header_bottom_idx == -1: return df
+        
+        header_top_idx = max(0, header_bottom_idx - 2)
+        header_block = df.iloc[header_top_idx : header_bottom_idx + 1].copy()
+        for i in range(len(header_block) - 1):
+            header_block.iloc[i] = header_block.iloc[i].replace(r'^\s*$', pd.NA, regex=True).ffill()
+            
+        bottom_row = df.iloc[header_bottom_idx].fillna("").astype(str).tolist()
+        
+        idx_cols, val_cols = [], []
+        for c in range(len(df.columns)):
+            val = bottom_row[c].strip()
+            if equip_pattern.match(val):
+                val_cols.append(df.columns[c])
+            else:
+                idx_cols.append(df.columns[c])
+                
+        upper_cols = []
+        for c in range(len(df.columns)):
+            col_parts = []
+            for r in range(header_top_idx, header_bottom_idx):
+                val = str(header_block.loc[r, df.columns[c]]).strip()
+                if val and val.lower() != 'nan':
+                    col_parts.append(val)
+            upper_cols.append(" | ".join(col_parts))
+            
+        idx_names = [bottom_row[df.columns.get_loc(ic)] or f"IDX_{ic}" for ic in idx_cols]
+        data_df = df.iloc[header_bottom_idx + 1:].copy()
+        
+        flattened_rows = []
+        pod_groups = {}
+        for vc in val_cols:
+            pod_info = upper_cols[df.columns.get_loc(vc)]
+            if pod_info not in pod_groups:
+                pod_groups[pod_info] = {}
+            equipment = bottom_row[df.columns.get_loc(vc)]
+            pod_groups[pod_info][equipment] = vc
+            
+        for _, row in data_df.iterrows():
+            base_dict = {}
+            for ic, name in zip(idx_cols, idx_names):
+                base_dict[name] = row[ic]
+                
+            for pod_info, equip_dict in pod_groups.items():
+                has_val = False
+                equip_vals = {}
+                for eq, vc in equip_dict.items():
+                    val = str(row[vc]).strip()
+                    if val and val.lower() not in ('nan', 'none'):
+                        has_val = True
+                    equip_vals[eq] = val
+                    
+                if has_val:
+                    new_row = base_dict.copy()
+                    new_row['CROSS_TAB_DEST_INFO'] = pod_info
+                    new_row.update(equip_vals)
+                    flattened_rows.append(new_row)
+                    
+        return pd.DataFrame(flattened_rows)
+
     @classmethod
     def from_bytes(cls, file_bytes: bytes, file_ext: str) -> List[Dict[str, str]]:
         """
