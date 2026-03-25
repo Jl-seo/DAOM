@@ -419,6 +419,14 @@ export function VibeDictionaryPage() {
                                         >
                                             <Plus className="w-3.5 h-3.5" /> 추가
                                         </Button>
+                                        <Button
+                                            size="sm"
+                                            className="h-8 gap-1.5 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                                            variant="outline"
+                                            onClick={() => handleDeleteCategory(selectedCategory!)}
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" /> 카테고리 삭제
+                                        </Button>
                                         <Input
                                             id="entry-search"
                                             name="entry-search"
