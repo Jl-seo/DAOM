@@ -111,6 +111,7 @@ export interface ExtractionModel {
         use_virtual_excel_ocr?: boolean
         [key: string]: any
     }
+    export_config?: any
 }
 
 /**
