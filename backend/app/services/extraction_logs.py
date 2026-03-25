@@ -351,6 +351,11 @@ async def get_aggregated_data_for_model(
             # Aggregation might scan across partitions depending on keys, but we have model_id indexed
         )]
         
+        # Fetch model to check for export mapping
+        from app.services.models import get_model_by_id
+        model = await get_model_by_id(model_id, tenant_id=tenant_id)
+        has_export_mapping = model and getattr(model, "export_mapping", None) and getattr(model.export_mapping, "definition", None)
+        
         aggregated_rows = []
         for item in items:
             doc_id = item.get("id")
@@ -361,30 +366,44 @@ async def get_aggregated_data_for_model(
             from app.services.hydration import hydrate_extracted_data
             extracted = await hydrate_extracted_data(extracted)
             
-            # Handle both list (flat documents) and dict (multi-table documents)
+            metadata = {
+                "_log_id": doc_id,
+                "_document_name": doc_name,
+                "_created_at": created_at
+            }
+            
+            if has_export_mapping:
+                from app.services.extraction.export_engine import apply_export_definition
+                try:
+                    mapped_rows = apply_export_definition(extracted, model.export_mapping, metadata=metadata)
+                    
+                    # Ensure metadata is present even if export engine missed it
+                    for row in mapped_rows:
+                        row.update(metadata)
+                    
+                    aggregated_rows.extend(mapped_rows)
+                    continue  # Skip raw flattening if mapping is applied
+                except Exception as e:
+                    logger.error(f"[ExtractionLogs] Failed to apply export mapping for log {doc_id}: {e}")
+                    # Fallback to raw flattening below
+            
+            # Handle both list (flat documents) and dict (multi-table documents) - Default Raw Flattening
             if isinstance(extracted, dict):
                 # Flatten the dictionary of lists into a single list of rows
-                # Option 1: Combine all tables into one flat row (lossy if multiple rows per table)
-                # Option 2: Append rows from each table, optionally prefixing keys with the table name
-                # Let's take Option 2, which preserves all rows and prefixes keys
                 for table_name, table_data in extracted.items():
                     if isinstance(table_data, list):
                         for row in table_data:
                             if isinstance(row, dict):
                                 # Prefix keys with table name to avoid collision and clarify source
                                 new_row = {f"[{table_name}] {k}": v for k, v in row.items()}
-                                new_row["_log_id"] = doc_id
-                                new_row["_document_name"] = doc_name
-                                new_row["_created_at"] = created_at
+                                new_row.update(metadata)
                                 aggregated_rows.append(new_row)
             
             elif isinstance(extracted, list):
                 for row in extracted:
                     if isinstance(row, dict):
                         # Inject metadata into each row
-                        row["_log_id"] = doc_id
-                        row["_document_name"] = doc_name
-                        row["_created_at"] = created_at
+                        row.update(metadata)
                         aggregated_rows.append(row)
         
         return aggregated_rows
