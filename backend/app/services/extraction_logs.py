@@ -361,7 +361,24 @@ async def get_aggregated_data_for_model(
             from app.services.hydration import hydrate_extracted_data
             extracted = await hydrate_extracted_data(extracted)
             
-            if isinstance(extracted, list):
+            # Handle both list (flat documents) and dict (multi-table documents)
+            if isinstance(extracted, dict):
+                # Flatten the dictionary of lists into a single list of rows
+                # Option 1: Combine all tables into one flat row (lossy if multiple rows per table)
+                # Option 2: Append rows from each table, optionally prefixing keys with the table name
+                # Let's take Option 2, which preserves all rows and prefixes keys
+                for table_name, table_data in extracted.items():
+                    if isinstance(table_data, list):
+                        for row in table_data:
+                            if isinstance(row, dict):
+                                # Prefix keys with table name to avoid collision and clarify source
+                                new_row = {f"[{table_name}] {k}": v for k, v in row.items()}
+                                new_row["_log_id"] = doc_id
+                                new_row["_document_name"] = doc_name
+                                new_row["_created_at"] = created_at
+                                aggregated_rows.append(new_row)
+            
+            elif isinstance(extracted, list):
                 for row in extracted:
                     if isinstance(row, dict):
                         # Inject metadata into each row

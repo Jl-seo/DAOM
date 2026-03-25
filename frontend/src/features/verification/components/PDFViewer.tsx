@@ -1,25 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, forwardRef, useImperativeHandle } from 'react'
-import { Viewer, Worker, SpecialZoomLevel } from '@react-pdf-viewer/core'
-import { pageNavigationPlugin } from '@react-pdf-viewer/page-navigation'
-import { highlightPlugin, type RenderHighlightsProps } from '@react-pdf-viewer/highlight'
-import { searchPlugin } from '@react-pdf-viewer/search'
-import { zoomPlugin, type RenderZoomInProps, type RenderZoomOutProps } from '@react-pdf-viewer/zoom'
-
-import '@react-pdf-viewer/core/lib/styles/index.css'
-import '@react-pdf-viewer/page-navigation/lib/styles/index.css'
-import '@react-pdf-viewer/highlight/lib/styles/index.css'
-import '@react-pdf-viewer/search/lib/styles/index.css'
-import '@react-pdf-viewer/zoom/lib/styles/index.css'
+import { useState, useRef, useCallback, forwardRef, useImperativeHandle, useEffect } from 'react'
+import { Document, Page, pdfjs } from 'react-pdf'
+import 'react-pdf/dist/Page/AnnotationLayer.css'
+import 'react-pdf/dist/Page/TextLayer.css'
 
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCcw, FileText, File } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { OcrTextViewer } from './OcrTextViewer'
 import { RawTableRenderer } from './RawTableRenderer'
 
+// PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+
 // ... Highlight Interface ...
 interface Highlight {
-    fieldKey?: string // Add fieldKey to identify specific highlights
+    fieldKey?: string
     content: string
     pageIndex: number
     position: {
@@ -40,7 +35,7 @@ interface PDFViewerProps {
     activeFieldKey?: string | null
     onHighlightClick?: (fieldKey: string) => void
     ocrText?: string
-    rawTables?: any[]  // Tables from Document Intelligence
+    rawTables?: any[]
     isBetaMode?: boolean
 }
 
@@ -49,161 +44,182 @@ export interface PDFViewerHandle {
 }
 
 export const PDFViewer = forwardRef<PDFViewerHandle, PDFViewerProps>(({ fileUrl, highlights = [], activeFieldKey, onHighlightClick, ocrText, rawTables = [], isBetaMode = false }, ref) => {
-    const [currentPage, setCurrentPage] = useState(0)
     const [totalPages, setTotalPages] = useState(0)
+    const [currentPage, setCurrentPage] = useState(1) // 1-indexed for react-pdf
+    const [scale, setScale] = useState(1.0)
     const [activeTab, setActiveTab] = useState<'pdf' | 'ocr' | 'tables'>('pdf')
+    const containerRef = useRef<HTMLDivElement>(null)
+    const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
 
-    // Plugins
-    const pageNavigationPluginInstance = pageNavigationPlugin()
-    const { jumpToPage } = pageNavigationPluginInstance
+    // Auto-fit to container width on load
+    const [containerWidth, setContainerWidth] = useState<number | undefined>(undefined)
 
-    const searchPluginInstance = searchPlugin({
-        keyword: '',
-        onHighlightKeyword: (props) => {
-            props.highlightEle.style.backgroundColor = 'rgba(59, 130, 246, 0.3)'
-            props.highlightEle.style.border = '1px solid rgba(59, 130, 246, 0.5)'
+    useEffect(() => {
+        if (!containerRef.current) return
+        const observer = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                setContainerWidth(entry.contentRect.width)
+            }
+        })
+        observer.observe(containerRef.current)
+        return () => observer.disconnect()
+    }, [])
+
+    // Track visible page via IntersectionObserver
+    useEffect(() => {
+        if (totalPages === 0) return
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                // Find the most visible page
+                let maxRatio = 0
+                let visiblePage = currentPage
+                entries.forEach(entry => {
+                    if (entry.intersectionRatio > maxRatio) {
+                        maxRatio = entry.intersectionRatio
+                        const pageNum = Number(entry.target.getAttribute('data-page-number'))
+                        if (pageNum) visiblePage = pageNum
+                    }
+                })
+                if (maxRatio > 0) {
+                    setCurrentPage(visiblePage)
+                }
+            },
+            {
+                root: containerRef.current,
+                threshold: [0, 0.25, 0.5, 0.75, 1.0],
+            }
+        )
+
+        pageRefs.current.forEach((el) => {
+            observer.observe(el)
+        })
+
+        return () => observer.disconnect()
+    }, [totalPages, currentPage])
+
+    const handleDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+        setTotalPages(numPages)
+    }
+
+    const jumpToPage = useCallback((pageNum: number) => {
+        const el = pageRefs.current.get(pageNum)
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            setCurrentPage(pageNum)
         }
-    })
-    const { highlight, clearHighlights } = searchPluginInstance
+    }, [])
 
-    const zoomPluginInstance = zoomPlugin()
-    const { ZoomIn: ZoomInCtrl, ZoomOut: ZoomOutCtrl } = zoomPluginInstance
+    const handlePrevPage = () => {
+        if (currentPage > 1) jumpToPage(currentPage - 1)
+    }
+
+    const handleNextPage = () => {
+        if (currentPage < totalPages) jumpToPage(currentPage + 1)
+    }
+
+    const handleZoomIn = () => setScale(s => Math.min(s + 0.25, 3.0))
+    const handleZoomOut = () => setScale(s => Math.max(s - 0.25, 0.5))
+    const handleFitWidth = () => setScale(1.0)
 
     // Expose methods to parent
     useImperativeHandle(ref, () => ({
         scrollToHighlight: (fieldKey: string) => {
             const target = highlights.find(h => h.fieldKey === fieldKey)
+            if (!target) return
 
-            // 1. Text Search Highlight (Visual Correction)
-            clearHighlights()
-            if (target && target.content) {
-                const searchContent = target.content.toString().trim()
-                if (searchContent.length > 0) {
-                    highlight({
-                        keyword: searchContent,
-                        matchCase: false,
-                        wholeWords: false,
-                    })
+            // Jump to page (react-pdf uses 1-indexed)
+            const targetPage = target.pageIndex + 1
+            jumpToPage(targetPage)
+
+            // Zoom in for focus
+            setScale(1.5)
+
+            // Poll for highlight element and scroll to it
+            let attempts = 0
+            const maxAttempts = 20
+            const interval = setInterval(() => {
+                attempts++
+                const el = document.getElementById(`highlight-${fieldKey}`)
+                if (el) {
+                    clearInterval(interval)
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
+                    // Flash effect
+                    el.style.boxShadow = '0 0 0 4px rgba(250, 204, 21, 0.8)'
+                    setTimeout(() => {
+                        el.style.transition = 'box-shadow 0.5s ease-out'
+                        el.style.boxShadow = 'none'
+                    }, 1000)
+                } else if (attempts >= maxAttempts) {
+                    clearInterval(interval)
+                    console.warn(`[PDFViewer] Could not find highlight element: highlight-${fieldKey}`)
                 }
-            }
-
-            // 2. OCR Coordinate Jump (Navigation)
-            if (target) {
-                // If we are not on the target page, jump to it
-                if (currentPage !== target.pageIndex) {
-                    jumpToPage(target.pageIndex)
-                }
-
-                // ZOOM IN for focus (User Request)
-                zoomPluginInstance.zoomTo(1.5) // 150% zoom
-
-                // Robust Polling: Wait for element to appear in DOM
-                let attempts = 0
-                const maxAttempts = 20 // 2 seconds max
-                const interval = setInterval(() => {
-                    attempts++
-                    const el = document.getElementById(`highlight-${fieldKey}`)
-
-                    if (el) {
-                        clearInterval(interval)
-
-                        // Scroll logic
-                        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
-
-                        // Add temporary visual cue (flash)
-                        el.style.boxShadow = '0 0 0 4px rgba(250, 204, 21, 0.8)'
-                        setTimeout(() => {
-                            el.style.transition = 'box-shadow 0.5s ease-out'
-                            el.style.boxShadow = 'none'
-                        }, 1000)
-
-                    } else if (attempts >= maxAttempts) {
-                        clearInterval(interval)
-                        console.warn(`[PDFViewer] Could not find highlight element: highlight-${fieldKey} after ${maxAttempts} attempts`)
-                    }
-                }, 100)
-            }
+            }, 100)
         }
-    }), [highlights, jumpToPage, highlight, clearHighlights, zoomPluginInstance, currentPage])
+    }), [highlights, jumpToPage])
 
-    // Highlight Rendering
-    const renderHighlights = (props: RenderHighlightsProps) => {
+    // Render highlight overlays for a specific page
+    const renderHighlightsForPage = (pageIndex: number) => {
+        const pageHighlights = highlights.filter(h => h.pageIndex === pageIndex)
+        if (pageHighlights.length === 0) return null
+
         return (
-            <div>
-                {highlights
-                    .filter(area => area.pageIndex === props.pageIndex)
-                    .map((area, idx) => {
-                        const isActive = area.fieldKey === activeFieldKey
-                        const hasActive = !!activeFieldKey
-                        const isDimmed = hasActive && !isActive
+            <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
+                {pageHighlights.map((area, idx) => {
+                    const isActive = area.fieldKey === activeFieldKey
+                    const hasActive = !!activeFieldKey
+                    const isDimmed = hasActive && !isActive
 
-                        return (
+                    return (
+                        <div
+                            key={idx}
+                            id={`highlight-${area.fieldKey}`}
+                            className={`
+                                absolute transition-all duration-300 ease-out cursor-pointer group pointer-events-auto
+                                ${isActive ? 'z-50' : 'z-10 hover:z-20'}
+                                ${isDimmed ? 'opacity-30 grayscale' : 'opacity-100'}
+                            `}
+                            style={{
+                                left: `${area.position.boundingRect.x1}%`,
+                                top: `${area.position.boundingRect.y1}%`,
+                                width: `${area.position.boundingRect.width}%`,
+                                height: `${area.position.boundingRect.height}%`,
+                            }}
+                            title={area.content}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                if (area.fieldKey) {
+                                    onHighlightClick?.(area.fieldKey)
+                                }
+                            }}
+                        >
                             <div
-                                key={idx}
-                                id={`highlight-${area.fieldKey}`}
                                 className={`
-                                    absolute transition-all duration-300 ease-out cursor-pointer group
-                                    ${isActive ? 'z-50' : 'z-10 hover:z-20'}
-                                    ${isDimmed ? 'opacity-30 grayscale' : 'opacity-100'}
-                                `}
-                                style={{
-                                    left: `${area.position.boundingRect.x1}%`,
-                                    top: `${area.position.boundingRect.y1}%`,
-                                    width: `${area.position.boundingRect.width}%`,
-                                    height: `${area.position.boundingRect.height}%`,
-                                }}
-                                title={area.content}
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (area.fieldKey) {
-                                        onHighlightClick?.(area.fieldKey)
+                                    w-full h-full rounded-[2px] backdrop-blur-[1px]
+                                    ${isActive
+                                        ? 'bg-yellow-400/30 border-2 border-yellow-600 shadow-[0_0_15px_rgba(234,179,8,0.6)] animate-pulse-subtle'
+                                        : 'bg-yellow-300/10 border border-yellow-500/50 hover:bg-yellow-300/20 hover:border-yellow-600'
                                     }
-                                }}
-                            >
-                                {/* The visual box - separated for better animation handling */}
-                                <div
-                                    className={`
-                                        w-full h-full rounded-[2px] backdrop-blur-[1px]
-                                        ${isActive
-                                            ? 'bg-yellow-400/30 border-2 border-yellow-600 shadow-[0_0_15px_rgba(234,179,8,0.6)] animate-pulse-subtle'
-                                            : 'bg-yellow-300/10 border border-yellow-500/50 hover:bg-yellow-300/20 hover:border-yellow-600'
-                                        }
-                                    `}
-                                />
-
-                                {/* Label Tag (Only visible on hover or active) */}
-                                {(isActive || !hasActive) && (
-                                    <div className={`
-                                        absolute -top-6 left-0 px-1.5 py-0.5 text-[10px] font-bold text-white bg-yellow-600 rounded shadow-sm
-                                        opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none
-                                        ${isActive ? 'opacity-100' : ''}
-                                    `}>
-                                        {area.fieldKey}
-                                    </div>
-                                )}
-                            </div>
-                        )
-                    })}
+                                `}
+                            />
+                            {(isActive || !hasActive) && (
+                                <div className={`
+                                    absolute -top-6 left-0 px-1.5 py-0.5 text-[10px] font-bold text-white bg-yellow-600 rounded shadow-sm
+                                    opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none
+                                    ${isActive ? 'opacity-100' : ''}
+                                `}>
+                                    {area.fieldKey}
+                                </div>
+                            )}
+                        </div>
+                    )
+                })}
             </div>
         )
     }
 
-    const highlightPluginInstance = highlightPlugin({
-        renderHighlights,
-    })
-
-
-    const handlePrevPage = () => {
-        if (currentPage > 0) {
-            jumpToPage(currentPage - 1)
-        }
-    }
-
-    const handleNextPage = () => {
-        if (currentPage < totalPages - 1) {
-            jumpToPage(currentPage + 1)
-        }
-    }
+    // Calculate page width based on scale and container
+    const pageWidth = containerWidth ? (containerWidth - 32) * scale : undefined
 
     return (
         <div className="w-full h-full flex flex-col bg-muted rounded-lg overflow-hidden min-h-0 border border-border">
@@ -238,38 +254,29 @@ export const PDFViewer = forwardRef<PDFViewerHandle, PDFViewerProps>(({ fileUrl,
                         <div className="flex items-center">
                             {/* Page Nav */}
                             <div className="flex items-center gap-1 bg-background/50 rounded-md px-1 py-0.5 border">
-                                <button onClick={handlePrevPage} disabled={currentPage <= 0} className="p-1 rounded hover:bg-accent disabled:opacity-30">
+                                <button onClick={handlePrevPage} disabled={currentPage <= 1} className="p-1 rounded hover:bg-accent disabled:opacity-30">
                                     <ChevronLeft className="w-3 h-3" />
                                 </button>
                                 <span className="text-[10px] font-medium w-12 text-center tabular-nums">
-                                    {totalPages > 0 ? `${currentPage + 1} / ${totalPages}` : '-'}
+                                    {totalPages > 0 ? `${currentPage} / ${totalPages}` : '-'}
                                 </span>
-                                <button onClick={handleNextPage} disabled={currentPage >= totalPages - 1} className="p-1 rounded hover:bg-accent disabled:opacity-30">
+                                <button onClick={handleNextPage} disabled={currentPage >= totalPages} className="p-1 rounded hover:bg-accent disabled:opacity-30">
                                     <ChevronRight className="w-3 h-3" />
                                 </button>
                             </div>
 
                             {/* Zoom Controls */}
                             <div className="flex items-center gap-0.5 ml-2">
-                                <ZoomOutCtrl>
-                                    {(props: RenderZoomOutProps) => (
-                                        <button onClick={props.onClick} className="p-1.5 rounded hover:bg-accent text-foreground" title="축소">
-                                            <ZoomOut className="w-3.5 h-3.5" />
-                                        </button>
-                                    )}
-                                </ZoomOutCtrl>
-                                <ZoomInCtrl>
-                                    {(props: RenderZoomInProps) => (
-                                        <button onClick={props.onClick} className="p-1.5 rounded hover:bg-accent text-foreground" title="확대">
-                                            <ZoomIn className="w-3.5 h-3.5" />
-                                        </button>
-                                    )}
-                                </ZoomInCtrl>
-                                <button
-                                    onClick={() => zoomPluginInstance.zoomTo(SpecialZoomLevel.PageWidth)}
-                                    className="p-1.5 rounded hover:bg-accent text-foreground"
-                                    title="전체보기"
-                                >
+                                <button onClick={handleZoomOut} className="p-1.5 rounded hover:bg-accent text-foreground" title="축소">
+                                    <ZoomOut className="w-3.5 h-3.5" />
+                                </button>
+                                <span className="text-[10px] font-medium w-10 text-center tabular-nums">
+                                    {Math.round(scale * 100)}%
+                                </span>
+                                <button onClick={handleZoomIn} className="p-1.5 rounded hover:bg-accent text-foreground" title="확대">
+                                    <ZoomIn className="w-3.5 h-3.5" />
+                                </button>
+                                <button onClick={handleFitWidth} className="p-1.5 rounded hover:bg-accent text-foreground" title="전체보기">
                                     <RotateCcw className="w-3.5 h-3.5" />
                                 </button>
                             </div>
@@ -280,17 +287,48 @@ export const PDFViewer = forwardRef<PDFViewerHandle, PDFViewerProps>(({ fileUrl,
                 {/* Content Area */}
                 <div className="flex-1 overflow-hidden relative bg-muted/30">
                     <TabsContent value="pdf" className="h-full mt-0 w-full absolute inset-0">
-                        <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
-                            <div className="h-full w-full custom-pdf-viewer">
-                                <Viewer
-                                    fileUrl={fileUrl}
-                                    plugins={[highlightPluginInstance, pageNavigationPluginInstance, zoomPluginInstance, searchPluginInstance]}
-                                    onDocumentLoad={(e) => setTotalPages(e.doc.numPages)}
-                                    onPageChange={(e) => setCurrentPage(e.currentPage)}
-                                    defaultScale={SpecialZoomLevel.PageWidth}
-                                />
-                            </div>
-                        </Worker>
+                        <div
+                            ref={containerRef}
+                            className="h-full w-full overflow-auto custom-pdf-viewer"
+                            style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '16px' }}
+                        >
+                            <Document
+                                file={fileUrl}
+                                onLoadSuccess={handleDocumentLoadSuccess}
+                                loading={
+                                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                                        PDF 로딩 중...
+                                    </div>
+                                }
+                                error={
+                                    <div className="flex items-center justify-center h-full text-destructive text-sm">
+                                        PDF를 불러올 수 없습니다.
+                                    </div>
+                                }
+                            >
+                                {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+                                    <div
+                                        key={pageNum}
+                                        ref={(el) => {
+                                            if (el) pageRefs.current.set(pageNum, el)
+                                            else pageRefs.current.delete(pageNum)
+                                        }}
+                                        data-page-number={pageNum}
+                                        className="relative shadow-md bg-white mb-2"
+                                        style={{ display: 'inline-block' }}
+                                    >
+                                        <Page
+                                            pageNumber={pageNum}
+                                            width={pageWidth}
+                                            renderTextLayer={true}
+                                            renderAnnotationLayer={true}
+                                        />
+                                        {/* Highlight Overlays */}
+                                        {renderHighlightsForPage(pageNum - 1)}
+                                    </div>
+                                ))}
+                            </Document>
+                        </div>
                     </TabsContent>
 
                     <TabsContent value="ocr" className="h-full mt-0 w-full absolute inset-0 overflow-auto bg-background">
