@@ -599,13 +599,6 @@ export function VibeDictionaryPage() {
                                                         >
                                                             <Download className="w-3.5 h-3.5" />
                                                         </button>
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); handleDeleteCategory(cat.category) }}
-                                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600"
-                                                            title="카테고리 삭제"
-                                                        >
-                                                            <Trash2 className="w-3.5 h-3.5" />
-                                                        </button>
                                                     </div>
                                                 </div>
                                                 <p className="text-xs text-slate-500">
