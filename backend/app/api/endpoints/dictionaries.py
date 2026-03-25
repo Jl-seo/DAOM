@@ -112,37 +112,43 @@ async def export_dictionary(
     if not service.is_available:
         raise HTTPException(status_code=503, detail="Dictionary service not configured.")
 
-    df = await service.get_all_entries_for_export(model_id, category)
-    if df.empty:
-        raise HTTPException(status_code=404, detail="No entries found for this category.")
+    try:
+        df = await service.get_all_entries_for_export(model_id, category)
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No entries found for this category.")
 
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name=category[:31])
-    buffer.seek(0)
-    
-    headers = {
-        "Content-Disposition": f'attachment; filename="dictionary_{category}.xlsx"'
-    }
-    
-    # Audit log
-    await log_action(
-        user=current_user,
-        action=AuditAction.VIEW_EXTRACTION,
-        resource_type=AuditResource.MODEL,
-        resource_id=f"dictionary:{category}",
-        details={
-            "action": "dictionary_export",
-            "category": category,
-            "count": len(df)
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name=category[:31])
+        buffer.seek(0)
+        
+        headers = {
+            "Content-Disposition": f'attachment; filename="dictionary_{category}.xlsx"'
         }
-    )
+        
+        # Audit log
+        await log_action(
+            user=current_user,
+            action=AuditAction.VIEW_EXTRACTION,
+            resource_type=AuditResource.MODEL,
+            resource_id=f"dictionary:{category}",
+            details={
+                "action": "dictionary_export",
+                "category": category,
+                "count": len(df)
+            }
+        )
 
-    return StreamingResponse(
-        buffer,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=headers
-    )
+        return StreamingResponse(
+            buffer,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Dict Export] Failed for category={category}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Export failed: {type(e).__name__}: {str(e)}")
 
 
 @router.delete("/{category}", dependencies=[Depends(require_admin)])

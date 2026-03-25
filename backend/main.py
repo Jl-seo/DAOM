@@ -50,6 +50,21 @@ try:
             expose_headers=["Content-Disposition"],
         )
 
+    # ── Global Exception Handler ──
+    # Ensures ALL error responses (500, etc.) include CORS headers.
+    # Without this, unhandled exceptions bypass CORSMiddleware and the
+    # browser interprets the missing Access-Control-Allow-Origin as a CORS violation.
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.error(f"[GlobalHandler] Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Internal Server Error: {type(exc).__name__}"}
+        )
+
     app.include_router(api_router, prefix=settings.API_V1_STR)
 
     # Mount static files for uploaded documents
