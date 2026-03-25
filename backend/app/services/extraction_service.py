@@ -387,12 +387,83 @@ class ExtractionService:
         # Phase 3: Validation Rules — cross-field checks & constraints
         if model.reference_data:
             final_result = rule_engine.apply_validation_rules(final_result, model.reference_data)
+            
+            # [NEW] Phase 3.5: Auto-Infer Routes for Excel tables
+            if "route_master_logic" in model.reference_data:
+                guide_extracted = final_result.get("guide_extracted", {})
+                if isinstance(guide_extracted, dict):
+                    final_result["guide_extracted"] = self._auto_infer_routes_from_pod(
+                        guide_extracted, 
+                        model.reference_data["route_master_logic"]
+                    )
 
         # 5. DEX Integration (LLM vs LIS Check)
         if barcode:
             final_result = self._apply_dex_validation(final_result, model, barcode)
 
         return _strip_debug_metadata(final_result)
+
+    def _auto_infer_routes_from_pod(self, guide_extracted: Dict[str, Any], route_master_logic: Dict[str, Any]) -> Dict[str, Any]:
+        """Automatically infers the Route field in list items if missing, based on POD and route_master_logic."""
+        if not route_master_logic:
+            return guide_extracted
+            
+        # Build search corpus
+        route_map = {}
+        for route_name, data in route_master_logic.items():
+            keywords = []
+            if isinstance(data, dict):
+                keywords.extend(data.get("regions", []))
+                keywords.extend(data.get("key_cities", []))
+            # Lowercase for loose matching
+            route_map[route_name] = [k.lower() for k in keywords if isinstance(k, str)]
+            
+        def infer_route(pod_val: str) -> str:
+            if not pod_val: return ""
+            pod_low = str(pod_val).lower()
+            for route_name, keywords in route_map.items():
+                for kw in keywords:
+                    if kw in pod_low:
+                        return route_name
+            return ""
+
+        for key, item in guide_extracted.items():
+            if key.startswith("_"): continue
+            
+            list_val = None
+            if isinstance(item, list):
+                list_val = item
+            elif isinstance(item, dict) and "value" in item and isinstance(item["value"], list):
+                list_val = item["value"]
+                
+            if list_val:
+                for row in list_val:
+                    if not isinstance(row, dict): continue
+                    
+                    # Check if POD exists
+                    pod_node = row.get("POD")
+                    if not pod_node: continue
+                    
+                    pod_val = pod_node.get("value") if isinstance(pod_node, dict) else str(pod_node)
+                    if not pod_val: continue
+                    
+                    route_val = row.get("Route")
+                    route_actual = ""
+                    if route_val:
+                        route_actual = route_val.get("value") if isinstance(route_val, dict) else str(route_val)
+                    
+                    # If Route is missing or empty, infer it!
+                    if not route_actual or str(route_actual).lower() in ["none", "null", "n/a", "-"]:
+                        inferred = infer_route(pod_val)
+                        if inferred:
+                            # Set the inferred route
+                            if isinstance(route_val, dict):
+                                route_val["value"] = inferred
+                                route_val["_modifier"] = "Auto-Inferred from POD"
+                            else:
+                                row["Route"] = {"value": inferred, "_modifier": "Auto-Inferred from POD", "confidence": 1.0}
+                                
+        return guide_extracted
 
     def _filter_ocr_data(self, ocr_data: Dict[str, Any], focus_pages: List[int]) -> Dict[str, Any]:
         """Filter OCR data to only include specific pages"""
