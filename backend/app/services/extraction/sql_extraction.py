@@ -667,7 +667,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
         "main": ["primary_rate"],
         "surcharge": ["surcharge"],
         "add_on": ["surcharge", "special_equipment", "transshipment"],
-        "optional": ["surcharge", "special_equipment"],
+        "optional": ["surcharge", "special_equipment", "primary_rate"],
         "freetime": ["freetime"],
         "free_time": ["freetime"],
     }
