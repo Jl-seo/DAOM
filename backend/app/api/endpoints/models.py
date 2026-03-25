@@ -63,82 +63,6 @@ async def create_model(
 
     return new_model
 
-@router.get("/{model_id}", response_model=ExtractionModel, dependencies=[Depends(verify_model_access)])
-async def get_model(model_id: str):
-    model = await get_model_by_id(model_id)
-    if not model:
-        raise HTTPException(status_code=404, detail="Model not found")
-    return model
-
-@router.put("/{model_id}", response_model=ExtractionModel, dependencies=[Depends(verify_model_admin)])
-async def update_model(
-    model_id: str,
-    model_in: ExtractionModelCreate,
-    request: Request,
-    current_user: CurrentUser = Depends(get_current_user)
-):
-    """모델 업데이트"""
-    models = await load_models()
-    for i, m in enumerate(models):
-        if m.id == model_id:
-            # Preserve existing fields if not explicitly overridden by model_in
-            updated_dict = m.model_dump()
-            model_in_dict = model_in.model_dump(exclude_unset=True)
-            
-            # Explicitly preserve reference_data if it's NOT provided at all in model_in
-            if "reference_data" not in model_in_dict:
-                if m.reference_data is not None:
-                    model_in_dict["reference_data"] = m.reference_data
-                    
-            updated_dict.update(model_in_dict)
-            
-            updated_model = ExtractionModel(
-                **updated_dict
-            )
-            models[i] = updated_model
-            await save_models(models)
-
-            # Audit: Model update
-            await log_action(
-                user=current_user,
-                action=AuditAction.UPDATE_MODEL,
-                resource_type=AuditResource.MODEL,
-                resource_id=model_id,
-                details={"model_name": updated_model.name},
-                request=request
-            )
-
-            return updated_model
-    raise HTTPException(status_code=404, detail="Model not found")
-
-@router.delete("/{model_id}", dependencies=[Depends(verify_model_admin)])
-async def delete_model(
-    model_id: str,
-    request: Request,
-    current_user: CurrentUser = Depends(get_current_user)
-):
-    models = await load_models()
-    for i, m in enumerate(models):
-        if m.id == model_id:
-            # Soft delete
-            updated_model = m.model_copy(update={"is_active": False})
-            models[i] = updated_model
-            await save_models(models)
-
-            # Audit: Model deletion (soft delete)
-            await log_action(
-                user=current_user,
-                action=AuditAction.DELETE_MODEL,
-                resource_type=AuditResource.MODEL,
-                resource_id=model_id,
-                details={"model_name": m.name},
-                request=request
-            )
-
-            return {"message": "Model deactivated"}
-
-    raise HTTPException(status_code=404, detail="Model not found")
-
 @router.get("/options/list", dependencies=[Depends(require_admin_or_model_admin)])
 def list_model_options():
     """Get available Azure model types"""
@@ -304,3 +228,79 @@ async def upload_export_template(
         shutil.copyfileobj(file.file, buffer)
         
     return {"template_file_path": file_path, "filename": safe_filename}
+@router.get("/{model_id}", response_model=ExtractionModel, dependencies=[Depends(verify_model_access)])
+async def get_model(model_id: str):
+    model = await get_model_by_id(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+    return model
+
+@router.put("/{model_id}", response_model=ExtractionModel, dependencies=[Depends(verify_model_admin)])
+async def update_model(
+    model_id: str,
+    model_in: ExtractionModelCreate,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """모델 업데이트"""
+    models = await load_models()
+    for i, m in enumerate(models):
+        if m.id == model_id:
+            # Preserve existing fields if not explicitly overridden by model_in
+            updated_dict = m.model_dump()
+            model_in_dict = model_in.model_dump(exclude_unset=True)
+            
+            # Explicitly preserve reference_data if it's NOT provided at all in model_in
+            if "reference_data" not in model_in_dict:
+                if m.reference_data is not None:
+                    model_in_dict["reference_data"] = m.reference_data
+                    
+            updated_dict.update(model_in_dict)
+            
+            updated_model = ExtractionModel(
+                **updated_dict
+            )
+            models[i] = updated_model
+            await save_models(models)
+
+            # Audit: Model update
+            await log_action(
+                user=current_user,
+                action=AuditAction.UPDATE_MODEL,
+                resource_type=AuditResource.MODEL,
+                resource_id=model_id,
+                details={"model_name": updated_model.name},
+                request=request
+            )
+
+            return updated_model
+    raise HTTPException(status_code=404, detail="Model not found")
+
+@router.delete("/{model_id}", dependencies=[Depends(verify_model_admin)])
+async def delete_model(
+    model_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    models = await load_models()
+    for i, m in enumerate(models):
+        if m.id == model_id:
+            # Soft delete
+            updated_model = m.model_copy(update={"is_active": False})
+            models[i] = updated_model
+            await save_models(models)
+
+            # Audit: Model deletion (soft delete)
+            await log_action(
+                user=current_user,
+                action=AuditAction.DELETE_MODEL,
+                resource_type=AuditResource.MODEL,
+                resource_id=model_id,
+                details={"model_name": m.name},
+                request=request
+            )
+
+            return {"message": "Model deactivated"}
+
+    raise HTTPException(status_code=404, detail="Model not found")
+
