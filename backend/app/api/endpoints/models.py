@@ -270,6 +270,37 @@ async def refine_schema_endpoint(
 
     try:
         refined_fields = await llm.refine_schema(fields, instruction)
-        return {"fields": refined_fields}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+import shutil
+import os
+
+@router.post("/{model_id}/export-template", dependencies=[Depends(verify_model_admin)])
+async def upload_export_template(
+    model_id: str,
+    file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """
+    Upload a custom Excel template for the export engine.
+    """
+    if not file.filename.lower().endswith(('.xlsx', '.xls')):
+        raise HTTPException(status_code=400, detail="Only .xlsx or .xls files are supported")
+        
+    models = await load_models()
+    model = next((m for m in models if m.id == model_id), None)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    TEMPLATE_DIR = os.path.join(os.getcwd(), "exported_dictionaries", "templates")
+    os.makedirs(TEMPLATE_DIR, exist_ok=True)
+    
+    # Safe filename
+    safe_filename = "".join([c for c in file.filename if c.isalpha() or c.isdigit() or c in (' ', '.', '_', '-')]).rstrip()
+    file_path = os.path.join(TEMPLATE_DIR, f"{model_id}_{safe_filename}")
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    return {"template_file_path": file_path, "filename": safe_filename}

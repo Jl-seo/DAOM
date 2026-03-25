@@ -117,10 +117,28 @@ export interface ExportDefinition {
     inject_metadata: boolean
 }
 
+export interface CustomTemplateMapping {
+    type: 'column' | 'repeat_block'
+    target: string
+    field_key?: string
+    list_field_key?: string
+    block_width?: number
+    max_blocks?: number
+    block_mappings?: Array<{ offset: number; field_key: string }>
+}
+
+export interface CustomExportTemplateDef {
+    enabled: boolean
+    template_file_path?: string
+    data_start_row: number
+    mappings: CustomTemplateMapping[]
+}
+
 export interface ExportConfig {
     enabled: boolean
     webhook_url?: string
     definition: ExportDefinition
+    custom_template?: CustomExportTemplateDef
 }
 
 export interface TransformRule {

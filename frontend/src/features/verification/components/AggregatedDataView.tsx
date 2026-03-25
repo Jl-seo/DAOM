@@ -42,6 +42,16 @@ export function AggregatedDataView({ model, onBack }: AggregatedDataViewProps) {
           )
         : []
 
+    const getCellValue = (val: any): string => {
+        if (val === null || val === undefined) return ''
+        if (typeof val === 'object' && val !== null) {
+            if ('value' in val) return String(val.value)
+            // fallback if it's an array or some other object
+            try { return JSON.stringify(val) } catch { return String(val) }
+        }
+        return String(val)
+    }
+
     const handleExportExcel = () => {
         if (!data.length) {
             toast.error('내보낼 데이터가 없습니다.')
@@ -56,7 +66,7 @@ export function AggregatedDataView({ model, onBack }: AggregatedDataViewProps) {
                 orderedRow['추출일시'] = row['_created_at'] ? format(new Date(row['_created_at']), 'yyyy-MM-dd HH:mm') : ''
                 
                 columns.forEach(col => {
-                    orderedRow[col] = row[col]
+                    orderedRow[col] = getCellValue(row[col])
                 })
                 return orderedRow
             })
@@ -141,7 +151,7 @@ export function AggregatedDataView({ model, onBack }: AggregatedDataViewProps) {
                                             </TableCell>
                                             {columns.map((col) => (
                                                 <TableCell key={col} className="px-4">
-                                                    {row[col] !== null && row[col] !== undefined ? String(row[col]) : '-'}
+                                                    {getCellValue(row[col]) || '-'}
                                                 </TableCell>
                                             ))}
                                         </TableRow>

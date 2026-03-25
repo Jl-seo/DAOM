@@ -447,6 +447,46 @@ async def get_log_by_id(
         "user_email": log.user_email,
     }
 
+@router.get("/log/{log_id}/export-template")
+async def get_log_export_template(
+    log_id: str,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """Download the Custom Excel Template with injected extracted data."""
+    from app.services.extraction_logs import get_log
+    from app.services.models import get_model_by_id
+    from fastapi.responses import Response
+
+    log = await get_log(log_id)
+    if not log:
+        raise HTTPException(status_code=404, detail="Extraction log not found")
+        
+    model = await get_model_by_id(log.model_id)
+    if not model or not getattr(model, "export_config", None) or not getattr(model.export_config, "custom_template", None) or not model.export_config.custom_template.enabled:
+        raise HTTPException(status_code=400, detail="Custom Excel Template is not enabled for this model")
+        
+    from app.services.extraction.template_export_engine import generate_custom_excel
+    from app.services.extraction.export_engine import apply_export_definition
+    
+    # 1. We must flatten the data using standard export engine first
+    flat_data = apply_export_definition(log.extracted_data, model.export_config)
+    
+    if not flat_data:
+        raise HTTPException(status_code=400, detail="Standard export mapping failed to generate flat data")
+        
+    # 2. Inject flat data into custom template
+    try:
+        excel_bytes = generate_custom_excel(model.export_config.custom_template, flat_data)
+        return Response(
+            content=excel_bytes, 
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=export_{log_id}.xlsx"}
+        )
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"[TemplateEngine] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 
@@ -554,6 +594,7 @@ async def save_extraction(
                 user_name=current_user.name if current_user else "Unknown",
                 filename=request.filename,
                 file_url=request.file_url,
+                log_id=request.log_id, # FIX: use existing log id instead of creating a new one
                 status=ExtractionStatus.ERROR.value,
                 error=str(e)
             )

@@ -476,6 +476,10 @@ OUTPUT FORMAT — return ONLY valid JSON:
     "Critical observation 1 about this document",
     "Critical observation 2"
   ],
+  "global_surcharge_rules": [
+    "LATAM 향 BAF $50 적용",
+    "전 구간 CRS EUR44/TEU 적용"
+  ],
   "field_mappings": [
     {{
       "target_key": "TableName.FieldKey",
@@ -505,6 +509,11 @@ OUTPUT FORMAT — return ONLY valid JSON:
     "notes_location": "below_table"
   }}
 }}
+
+GLOBAL SURCHARGE RULES GUIDELINES:
+- Extract document-wide or region-wide common surcharge (할증료) rules.
+- Only extract rules that apply globally or broadly across many routes. Do NOT extract highly specific rules tied directly to small sub-tables (these will be mapped locally).
+- Keep descriptions clear and concise (e.g. ["All Latin America: BAF $50", "Mexico only: PSS $100"]).
 
 FIELD MAPPING GUIDELINES:
 - source_selector.type values:

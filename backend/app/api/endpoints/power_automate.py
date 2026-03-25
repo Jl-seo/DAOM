@@ -355,10 +355,10 @@ async def upload_document(
                     
     except Exception as e:
         raise HTTPException(status_code=400, detail="유효하지 않은 Base64 파일 내용입니다.")
-    job_id = str(uuid.uuid4())
+    upload_id = str(uuid.uuid4())
 
     try:
-        file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{job_id}")
+        file_url = await upload_bytes_to_blob(file_content, filename, f"connector/{upload_id}")
     except Exception as e:
         logger.error(f"[Connector] File upload failed: {e}")
         raise HTTPException(status_code=500, detail="File upload failed")
@@ -428,16 +428,18 @@ async def upload_document(
         })
 
     # Return JSONResponse specifically to inject the Location and Retry-After headers
+    # Use log.id as the poll identifier (get_extraction_result queries extraction_logs)
+    poll_id = log.id if log else job.id
     return JSONResponse(
         status_code=202,
         content={
-            "job_id": job_id,
+            "job_id": poll_id,
             "status": "pending",
             "message": "추출 작업이 시작되었습니다",
-            "poll_url": f"/api/v1/connectors/result/{job_id}"
+            "poll_url": f"/api/v1/connectors/result/{poll_id}"
         },
         headers={
-            "Location": f"/api/v1/connectors/result/{job_id}",
+            "Location": f"/api/v1/connectors/result/{poll_id}",
             "Retry-After": "5"
         }
     )
@@ -564,8 +566,14 @@ async def batch_upload_documents_json(
             else:
                 raise ValueError("contentBytes must be a string or object.")
                 
-            # FIX: If Power Automate fallback expression intentionally injected an empty string (''), skip it
+            # If Power Automate fallback expression intentionally injected an empty string (''), report it
             if not b64_str:
+                results.append(BatchUploadItemResponse(
+                    filename=filename,
+                    status="skipped",
+                    message="빈 파일 콘텐츠로 스킵되었습니다",
+                    error="Empty contentBytes"
+                ))
                 continue
             
             # DoS Prevention: Limit base64 length (approx 15MB) per file
@@ -579,28 +587,23 @@ async def batch_upload_documents_json(
                 continue
 
             if "," in b64_str:
-                import logging
-                logging.getLogger("uvicorn.error").error(f"[PA-DEBUG] Data URI removed. Snippet: {b64_str[:50]}")
+                logger.debug(f"[PA-DEBUG] Data URI removed. Snippet: {b64_str[:50]}")
                 b64_str = b64_str.split(",", 1)[1]
-            
-            import logging
-            pa_logger = logging.getLogger("uvicorn.error")
-            pa_logger.error(f"[PA-DEBUG] Before Replace: len={len(b64_str)} snippet={b64_str[:50]} end={b64_str[-20:]}")
-            
+
+            logger.debug(f"[PA-DEBUG] Before Replace: len={len(b64_str)}")
+
             # Convert URL-safe base64 to standard base64 before stripping
             b64_str = b64_str.replace('-', '+').replace('_', '/')
-            pa_logger.error(f"[PA-DEBUG] After Replace: len={len(b64_str)} snippet={b64_str[:50]}")
-            
+
             b64_str = re.sub(r'[^a-zA-Z0-9+/=]', '', b64_str)
-            pa_logger.error(f"[PA-DEBUG] After Strip: len={len(b64_str)} snippet={b64_str[:50]}")
-            
+
             padding_needed = len(b64_str) % 4
             if padding_needed:
                 b64_str += '=' * (4 - padding_needed)
-            pa_logger.error(f"[PA-DEBUG] After Padding: len={len(b64_str)}")
+            logger.debug(f"[PA-DEBUG] After processing: len={len(b64_str)}")
                 
             file_content = base64.b64decode(b64_str, validate=True)
-            pa_logger.error(f"[PA-DEBUG] Decoded Bytes len: {len(file_content)}, start: {file_content[:10]}")
+            logger.debug(f"[PA-DEBUG] Decoded Bytes len: {len(file_content)}")
             
             # THE ULTIMATE ROOT CAUSE FIX: Power Automate Double-Encoding.
             # Fallback: if the first decode did NOT yield a valid binary signature (like %PDF),
@@ -614,7 +617,7 @@ async def batch_upload_documents_json(
                         next_layer = base64.b64decode(current_decode, validate=True)
                         if is_valid_binary_magic(next_layer):
                             file_content = next_layer
-                            pa_logger.error(f"[PA-DEBUG] DOUBLE-DECODED successfully. Bytes len: {len(file_content)}, start: {file_content[:10]}")
+                            logger.debug(f"[PA-DEBUG] DOUBLE-DECODED successfully. Bytes len: {len(file_content)}")
                             break
                         current_decode = next_layer
                     except binascii.Error:
@@ -796,7 +799,17 @@ async def get_extraction_result(
             response_data["confidence"] = sum(confidences) / len(confidences)
 
     # Return 202 if still processing (for async polling pattern)
-    if log.status in ["pending", "processing"]:
+    processing_statuses = [
+        "pending", "processing",
+        ExtractionStatus.PENDING.value,
+        ExtractionStatus.UPLOADING.value,
+        ExtractionStatus.ANALYZING.value,
+    ]
+    # Also catch any P-prefixed enum statuses (P100, P200, P300, P400, P500)
+    is_processing = log.status in processing_statuses or (
+        isinstance(log.status, str) and log.status.startswith("P")
+    )
+    if is_processing:
         return JSONResponse(
             status_code=202,
             content=response_data,
@@ -897,6 +910,10 @@ async def query_extraction_results(
         parameters.append({"name": "@filename_contains", "value": filename_contains})
         
     if metadata_key and metadata_value:
+        # Sanitize metadata_key to prevent NoSQL injection (allow only alphanumeric + underscore)
+        import re as _re
+        if not _re.match(r'^[a-zA-Z0-9_]+$', metadata_key):
+            raise HTTPException(status_code=400, detail="metadata_key must contain only alphanumeric characters and underscores")
         query += f" AND c.metadata['{metadata_key}'] = @metadata_value"
         parameters.append({"name": "@metadata_value", "value": metadata_value})
 
@@ -1026,7 +1043,14 @@ async def cancel_extraction(
     if not log:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    if log.status in ["success", "error"]:
+    terminal_statuses = [
+        "success", "error", "cancelled",
+        ExtractionStatus.SUCCESS.value,
+        ExtractionStatus.ERROR.value,
+        ExtractionStatus.FAILED.value,
+        ExtractionStatus.CANCELLED.value,
+    ]
+    if log.status in terminal_statuses:
         raise HTTPException(status_code=400, detail="Cannot cancel completed job")
 
     # Update status to cancelled

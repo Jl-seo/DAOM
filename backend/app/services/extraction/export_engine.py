@@ -64,10 +64,21 @@ def apply_export_definition(
         if df_pivot_raw.empty:
             continue
 
-        # Check required columns for pivoting
-        required_cols = [pivot_def.category_field, pivot_def.subcategory_field, pivot_def.value_field]
+        # Check required columns for pivoting (ignore empty fields)
+        cat_cols = [c for c in [pivot_def.category_field, pivot_def.subcategory_field] if c]
+        if not cat_cols:
+            continue
+            
+        required_cols = cat_cols + [pivot_def.value_field]
         if not all(col in df_pivot_raw.columns for col in required_cols):
             continue
+
+        # Handle 'applied_pods' dynamic expansion (Issue #4290 user request)
+        if "applied_pods" in df_pivot_raw.columns and "POD" in df_def.merge_keys:
+            # If the Surcharge has an applied_pods array, explode it into rows and map to the 'POD' merge key
+            # This enables deterministic matching for block-specific surcharges
+            df_pivot_raw = df_pivot_raw.explode("applied_pods").reset_index(drop=True)
+            df_pivot_raw["POD"] = df_pivot_raw["applied_pods"]
 
         # Prepare pivot index which are all columns EXCEPT the ones being pivoted
         index_cols = [c for c in df_pivot_raw.columns if c not in required_cols]
@@ -78,21 +89,28 @@ def apply_export_definition(
 
         try:
             # Drop duplicates before pivot to avoid unstacking issues
-            df_pivot_raw = df_pivot_raw.drop_duplicates(subset=valid_merge_keys + [pivot_def.category_field, pivot_def.subcategory_field])
+            df_pivot_raw = df_pivot_raw.drop_duplicates(subset=valid_merge_keys + cat_cols)
             
             # Pivot table
             df_pivoted = df_pivot_raw.pivot(
                 index=valid_merge_keys,
-                columns=[pivot_def.category_field, pivot_def.subcategory_field],
+                columns=cat_cols,
                 values=pivot_def.value_field
             )
             
             # Flatten multi-index columns according strictly to column naming
-            df_pivoted.columns = [
-                pivot_def.column_naming.format(
-                    **{pivot_def.category_field: str(cat), pivot_def.subcategory_field: str(sub)}
-                ) for cat, sub in df_pivoted.columns
-            ]
+            if len(cat_cols) == 1:
+                # pandas returns Index of strings
+                df_pivoted.columns = [
+                    pivot_def.column_naming.replace("{category_field}", str(cat)).replace("{subcategory_field}", "").replace("{value_field}", pivot_def.value_field).replace("__", "_").strip("_")
+                    for cat in df_pivoted.columns
+                ]
+            else:
+                # pandas returns MultiIndex tuples
+                df_pivoted.columns = [
+                    pivot_def.column_naming.replace("{category_field}", str(cat)).replace("{subcategory_field}", str(sub)).replace("{value_field}", pivot_def.value_field).replace("__", "_").strip("_")
+                    for cat, sub in df_pivoted.columns
+                ]
             
             df_pivoted = df_pivoted.reset_index()
 
@@ -170,8 +188,6 @@ def apply_export_definition(
             import logging
             logging.getLogger(__name__).error(f"Failed to group dataframe by {valid_group_keys}: {e}")
 
-    # Convert NaN back to None (standard JSON null)
-    df_base = df_base.where(pd.notna(df_base), None)
-    
-    # Return as list of dicts
-    return df_base.to_dict(orient="records")
+    # Export to json and load to respect nulls safely instead of using where()
+    import json
+    return json.loads(df_base.to_json(orient="records", force_ascii=False))

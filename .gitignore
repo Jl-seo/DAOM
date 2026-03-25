@@ -78,3 +78,4 @@ COMPARISON_FEATURE_REVIEW.md
 scripts/test_*.py
 scripts/verify_*.py
 
+exported_dictionaries/

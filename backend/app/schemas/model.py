@@ -167,10 +167,31 @@ class ExportDefinition(BaseModel):
                 data["final_column_mappings"] = [{"target": k, "source": v} for k, v in mappings.items()]
         return data
 
+class TemplateMappingType(str, Enum):
+    COLUMN = "column"
+    REPEAT_BLOCK = "repeat_block"
+
+class CustomTemplateMapping(BaseModel):
+    type: TemplateMappingType = TemplateMappingType.COLUMN
+    target: str  # The column letter (e.g. "A", "U")
+    field_key: Optional[str] = None # For type=column
+    # For type=repeat_block
+    list_field_key: Optional[str] = None # e.g., "Surcharges_Rate_List"
+    block_width: Optional[int] = None # e.g., 6
+    max_blocks: Optional[int] = None # e.g., 10
+    block_mappings: Optional[List[Dict[str, Any]]] = None # [{"offset": 0, "field_key": "Charge_Type"}]
+
+class CustomExportTemplateDef(BaseModel):
+    enabled: bool = False
+    template_file_path: Optional[str] = None
+    data_start_row: int = 3
+    mappings: List[CustomTemplateMapping] = []
+
 class ExportConfig(BaseModel):
     enabled: bool = False
     webhook_url: Optional[str] = None
     definition: ExportDefinition
+    custom_template: Optional[CustomExportTemplateDef] = None
 
 
 class _BaseExtractionModel(BaseModel):

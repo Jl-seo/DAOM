@@ -149,7 +149,43 @@ export function ExtractionReviewView({
         }
     }, [selectedFieldKey])
 
-    const handleDownload = () => {
+    const handleDownload = async () => {
+        // [New Feature] Custom Excel Template Engine
+        if (model.export_config?.custom_template?.enabled) {
+            try {
+                const logId = (previewData as any)?.id;
+                if (!logId) {
+                    alert("추출 로그 ID를 찾을 수 없습니다. 문서를 다시 저장한 후 시도해보세요.");
+                    return;
+                }
+                const token = localStorage.getItem('token');
+                const response = await fetch(`/api/extraction/log/${logId}/export-template`, {
+                    headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+                });
+                
+                if (!response.ok) {
+                    const errText = await response.text();
+                    throw new Error(`에러: ${response.status} - ${errText}`);
+                }
+                
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${model.name}_양식출력_${new Date().toISOString().slice(0, 10)}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                return;
+            } catch (err) {
+                console.error("Custom Export Error", err);
+                alert("템플릿 엑셀 생성 중 오류가 발생했습니다. 브라우저 콘솔을 확인하세요.");
+                // Fallthrough to standard download if template fails? Let's just return.
+                return; 
+            }
+        }
+
         // If the backend generated extracted_data mapped specifically for exports, prioritize it!
         const backendExportData = previewData?.extracted_data || (previewData?.sub_documents?.[selectedSubDocIndex]?.data as any)?.extracted_data;
         if (backendExportData && Array.isArray(backendExportData)) {

@@ -95,6 +95,7 @@ export function ExportMappingEditor({ model, onUpdate }: ExportMappingEditorProp
 
     const [isExpanded, setIsExpanded] = useState(false)
     const [showAdvanced, setShowAdvanced] = useState(false)
+    const [showCustomTemplate, setShowCustomTemplate] = useState(false)
     const [expandedPivotIdx, setExpandedPivotIdx] = useState<number | null>(null)
     const [targetError, setTargetError] = useState<string | null>(null)
 
@@ -151,6 +152,36 @@ export function ExportMappingEditor({ model, onUpdate }: ExportMappingEditorProp
         updateConfig({
             definition: { ...def, ...updates }
         })
+    }
+
+    const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file) return
+        
+        try {
+            const formData = new FormData()
+            formData.append('file', file)
+            const token = localStorage.getItem('token')
+            const res = await fetch(`/api/models/${model.id}/export-template`, {
+                method: 'POST',
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+                body: formData
+            })
+            if (!res.ok) throw new Error("Upload failed")
+            const data = await res.json()
+            
+            const currentCustom = config.custom_template || { enabled: false, data_start_row: 3, mappings: [] }
+            updateConfig({
+                custom_template: {
+                    ...currentCustom,
+                    template_file_path: data.template_file_path
+                }
+            })
+            alert("템플릿이 성공적으로 업로드되었습니다. 상단의 저장 버튼을 눌러 확정하세요.")
+        } catch (err) {
+            console.error(err)
+            alert("템플릿 업로드 실패")
+        }
     }
 
     const autoConfigureExport = () => {
@@ -619,6 +650,102 @@ export function ExportMappingEditor({ model, onUpdate }: ExportMappingEditorProp
                                         <p className="text-[9px] text-muted-foreground mt-1 ml-1 opacity-70">Power Automate URL 등을 등록하시면, 엑셀 병합 처리가 완료된 즉시 결과(JSON)를 쏩니다.</p>
                                     </div>
                                 </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* NEW: Custom Template Export Engine */}
+                    <div className="border-t border-dashed mt-6 pt-4">
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-xs text-muted-foreground hover:text-foreground w-full flex justify-between px-2"
+                            onClick={() => setShowCustomTemplate(!showCustomTemplate)}
+                        >
+                            <span className="flex items-center gap-1.5"><Table className="w-3.5 h-3.5" /> 사용자 정의 엑셀 양식 엔진 (Custom Template)</span>
+                            {showCustomTemplate ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                        </Button>
+                        
+                        {showCustomTemplate && (
+                            <div className="mt-4 bg-background/80 p-3 rounded-lg border border-emerald-100 dark:border-emerald-800/50 shadow-sm animate-in slide-in-from-top-2">
+                                <div className="flex items-center justify-between mb-4 pb-2 border-b border-dashed">
+                                    <div className="flex items-center gap-2">
+                                        <Switch
+                                            checked={config.custom_template?.enabled || false}
+                                            onCheckedChange={(checked) => {
+                                                const current = config.custom_template || { enabled: false, data_start_row: 3, mappings: [] }
+                                                updateConfig({ custom_template: { ...current, enabled: checked } })
+                                            }}
+                                            id="enable-custom-template"
+                                        />
+                                        <label htmlFor="enable-custom-template" className="text-sm font-semibold cursor-pointer text-foreground">
+                                            고급 엑셀 양식 엔진 활성화
+                                        </label>
+                                    </div>
+                                    {config.custom_template?.enabled && (
+                                        <Badge variant="outline" className="bg-emerald-50 text-emerald-600 border-emerald-200">
+                                            활성 상태 (다운로드 시 이 양식이 우선됩니다)
+                                        </Badge>
+                                    )}
+                                </div>
+                                
+                                {config.custom_template?.enabled && (
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs font-bold text-muted-foreground block mb-1">엑셀 원본 파일 등록 (.xlsx)</label>
+                                                <input 
+                                                    type="file" 
+                                                    accept=".xlsx,.xls" 
+                                                    onChange={handleTemplateUpload}
+                                                    className="text-xs block w-full border border-input bg-transparent px-3 py-1.5 rounded-md file:border-0 file:bg-emerald-50 file:text-emerald-700 file:font-semibold file:px-2 file:py-1 file:rounded-md hover:file:bg-emerald-100"
+                                                />
+                                                {config.custom_template?.template_file_path && (
+                                                    <p className="text-[10px] text-emerald-600 mt-1">
+                                                        현재 등록됨: {config.custom_template.template_file_path.split('/').pop()}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-muted-foreground block mb-1">데이터 분배 시작 행 (Start Row)</label>
+                                                <input 
+                                                    type="number"
+                                                    min={1}
+                                                    value={config.custom_template.data_start_row || 3}
+                                                    onChange={e => {
+                                                        const current = config.custom_template || { enabled: false, data_start_row: 3, mappings: [] }
+                                                        updateConfig({ custom_template: { ...current, data_start_row: parseInt(e.target.value) || 3 } })
+                                                    }}
+                                                    className="w-full text-sm px-2 py-1.5 rounded border bg-background"
+                                                />
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="pt-2">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <label className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                                                    <Wand2 className="w-3.5 h-3.5" /> 엑셀 셀 & 블록 매핑 (JSON)
+                                                </label>
+                                            </div>
+                                            <p className="text-[10px] text-muted-foreground mb-2 leading-relaxed">
+                                                A열 단일 매핑이나 반복형 블록(repeat_block) 등 복합적인 HLMS 양식 전용 룰셋을 정의합니다. (아래 JSON을 수정하세요)
+                                            </p>
+                                            <textarea
+                                                className="w-full h-80 p-3 text-[11px] font-mono border rounded-md bg-slate-50 dark:bg-slate-900/50"
+                                                value={JSON.stringify(config.custom_template.mappings || [], null, 2)}
+                                                onChange={(e) => {
+                                                    try {
+                                                        const parsed = JSON.parse(e.target.value)
+                                                        const current = config.custom_template || { enabled: false, data_start_row: 3, mappings: [] }
+                                                        updateConfig({ custom_template: { ...current, mappings: parsed } })
+                                                    } catch (err) {
+                                                        // ignore parsing errors while typing
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

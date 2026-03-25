@@ -118,7 +118,7 @@ class BetaPipeline(ExtractionPipeline):
         # Inject mapping plan into work_order
         wo_target = work_order.get("work_order", work_order)
         if analyst_result:
-            mapping_keys = ("dynamic_hints", "field_mappings", "inheritance_rules", "table_structure")
+            mapping_keys = ("dynamic_hints", "field_mappings", "inheritance_rules", "table_structure", "global_surcharge_rules")
             injected = []
             for key in mapping_keys:
                 if key in analyst_result:
@@ -757,8 +757,18 @@ class BetaPipeline(ExtractionPipeline):
                 + "\n--- END SECTION HEADERS ---\n\n"
                 "CRITICAL: Match each table's rows to the nearest preceding section header for date/validity context.\n\n"
             )
+            
+        # Extract Global Surcharge Rules (Analyzed by Refiner)
+        global_rules = wo_inner.get("global_surcharge_rules", [])
+        global_rules_str = ""
+        if global_rules:
+            global_rules_str = (
+                "--- 🚨 GLOBAL SURCHARGE RULES (APPLY TO EVERY ROW) ---\n"
+                + "\n".join(f"- {rule}" for rule in global_rules) + "\n\n"
+            )
         
         context_preamble = (
+            f"{global_rules_str}"
             f"--- START PAST CONTEXT (FOR QUICK REFERENCE ONLY) ---\n"
             f"{doc_context}\n...\n"
             f"--- END PAST CONTEXT ---\n\n"
