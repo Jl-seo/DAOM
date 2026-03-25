@@ -117,7 +117,7 @@ async def export_dictionary(
         raise HTTPException(status_code=404, detail="No entries found for this category.")
 
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name=category[:31])
     buffer.seek(0)
     

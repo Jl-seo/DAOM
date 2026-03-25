@@ -246,8 +246,7 @@ class ReferenceDataService:
             # Get total count
             count_query = f"SELECT VALUE COUNT(1) FROM c {where}"
             counts = [c async for c in container.query_items(
-                query=count_query, parameters=params,
-                enable_cross_partition_query=True
+                query=count_query, parameters=params
             )]
             total = counts[0] if counts else 0
 
@@ -258,8 +257,7 @@ class ReferenceDataService:
                 {"name": "@limit", "value": limit}
             ])
             entries = [item async for item in container.query_items(
-                query=query, parameters=params,
-                enable_cross_partition_query=True
+                query=query, parameters=params
             )]
 
             return {"entries": entries, "total": total}
@@ -288,8 +286,7 @@ class ReferenceDataService:
             query = f"SELECT c.standard_code, c.standard_label, c.aliases, c.extra FROM c {where}"
             
             entries = [item async for item in container.query_items(
-                query=query, parameters=params,
-                enable_cross_partition_query=True
+                query=query, parameters=params
             )]
             
             rows = []
