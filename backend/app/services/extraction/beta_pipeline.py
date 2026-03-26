@@ -443,11 +443,15 @@ class BetaPipeline(ExtractionPipeline):
                         clean_header = re.sub(REF_TAG_PATTERN, '', stripped).strip()
                         table_headers.append(f"L{i}: {clean_header}")
         
-        # 4. Document tail (last 500 chars for notes/footer), stripped of ref tags
+        # 4. Document tail (last 4000 chars for notes/footer/surcharges), stripped of ref tags
         tail = ""
-        if len(tagged_text) > 3500:
-            raw_tail = tagged_text[-500:]
+        if len(tagged_text) > 5000:
+            raw_tail = tagged_text[-4000:]
             tail = re.sub(REF_TAG_PATTERN, '', raw_tail).strip()
+        else:
+            # For short documents, we just take the whole tail so we don't miss anything
+            # although the head probably covered it anyway.
+            tail = ""
         
         # Assemble skeleton
         parts = [head]
