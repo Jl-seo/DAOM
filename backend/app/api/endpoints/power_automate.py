@@ -773,7 +773,7 @@ async def get_extraction_result(
 
     # Support both legacy "success" and new enum status codes
     is_done = log.status in ["success", ExtractionStatus.SUCCESS.value, ExtractionStatus.PREVIEW_READY.value]
-    is_err = log.status in ["error", ExtractionStatus.ERROR.value, ExtractionStatus.FAILED.value]
+    is_err = log.status in ["error", ExtractionStatus.ERROR.value, ExtractionStatus.FAILED.value, ExtractionStatus.CANCELLED.value]
 
     response_data = {
         "job_id": job_id,
@@ -806,8 +806,9 @@ async def get_extraction_result(
         ExtractionStatus.ANALYZING.value,
     ]
     # Also catch any P-prefixed enum statuses (P100, P200, P300, P400, P500)
+    # CRITICAL: Exclude P500 (PREVIEW_READY) because it is considered done and should return 200.
     is_processing = log.status in processing_statuses or (
-        isinstance(log.status, str) and log.status.startswith("P")
+        isinstance(log.status, str) and log.status.startswith("P") and log.status != ExtractionStatus.PREVIEW_READY.value
     )
     if is_processing:
         return JSONResponse(

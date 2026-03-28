@@ -208,6 +208,9 @@ class BetaPipeline(ExtractionPipeline):
         analyst_row_rules = analyst_result.get("row_classification_rules", []) if analyst_result else []
         if analyst_row_rules:
             for rule in analyst_row_rules:
+                if not isinstance(rule, dict):
+                    logger.warning(f"[BetaPipeline] Ignored malformed analyst rule (not a dict): {rule}")
+                    continue
                 table_key = rule.get("table_field", "")
                 if table_key and table_key not in schema_rules_by_key:
                     for tf in wo_target.get("table_fields", []):
@@ -518,10 +521,14 @@ class BetaPipeline(ExtractionPipeline):
                     sub_props = {}
                     sub_req = []
                     for sf in f.sub_fields:
-                        sf_key = sf.get("key", "")
+                        if isinstance(sf, str):
+                            sf_key = sf
+                            sf_type = "string"
+                        else:
+                            sf_key = sf.get("key", "") if isinstance(sf, dict) else getattr(sf, "key", "")
+                            sf_type = sf.get("type", "string") if isinstance(sf, dict) else getattr(sf, "type", "string")
+                            
                         if sf_key:
-                            # Parse expected type from sub_field
-                            sf_type = sf.get("type", "string")
                             if sf_type == "number":
                                 sf_schema_type = ["number", "null"]
                             elif sf_type == "boolean":
@@ -648,15 +655,26 @@ class BetaPipeline(ExtractionPipeline):
                 entry["columns"] = {}
                 sub_fields = getattr(f, 'sub_fields', None) or []
                 for sf in sub_fields:
-                    sf_key = sf.get("key")
-                    sf_label = sf.get("label", sf_key)
-                    if sf_key:
+                    if isinstance(sf, str):
+                        sf_key = sf
+                        sf_label = sf
                         col_dict = {"instruction": f"Extract '{sf_label}'."}
-                        if sf.get("description"):
-                            col_dict["instruction"] += f" Description: {sf.get('description')}"
-                        if sf.get("rules"):
-                            col_dict["rules"] = [sf.get("rules")]
-                        entry["columns"][sf_key] = col_dict
+                    else:
+                        sf_key = sf.get("key") if isinstance(sf, dict) else getattr(sf, "key", None)
+                        if not sf_key:
+                            continue
+                        sf_label = (sf.get("label", sf_key) if isinstance(sf, dict) else getattr(sf, "label", sf_key)) or sf_key
+                        col_dict = {"instruction": f"Extract '{sf_label}'."}
+                        
+                        desc = sf.get("description") if isinstance(sf, dict) else getattr(sf, "description", None)
+                        if desc:
+                            col_dict["instruction"] += f" Description: {desc}"
+                            
+                        rules = sf.get("rules") if isinstance(sf, dict) else getattr(sf, "rules", None)
+                        if rules:
+                            col_dict["rules"] = [rules]
+                            
+                    entry["columns"][sf_key] = col_dict
                 entry["rules"].append("Extract ALL rows.")
                 table_fields.append(entry)
             else:
@@ -1869,12 +1887,19 @@ class BetaPipeline(ExtractionPipeline):
                 "_raw_llm_content": str(result)
             }
         
-        # Ensure guide_extracted key exists
-        if isinstance(result, dict) and "guide_extracted" not in result:
-            # LLM might return flat {field: value} without wrapper — wrap it
-            if any(k not in ("_token_usage", "_truncated", "error", "_raw_llm_content") for k in result.keys()):
-                logger.info(f"[BetaPipeline] LLM returned flat dict without guide_extracted wrapper. Wrapping.")
-                result = {"guide_extracted": result}
+        # Ensure guide_extracted key exists and is a dictionary
+        if isinstance(result, dict):
+            if "guide_extracted" not in result:
+                # LLM might return flat {field: value} without wrapper — wrap it
+                if any(k not in ("_token_usage", "_truncated", "error", "_raw_llm_content") for k in result.keys()):
+                    logger.info(f"[BetaPipeline] LLM returned flat dict without guide_extracted wrapper. Wrapping.")
+                    result = {"guide_extracted": result}
+                else:
+                    result["guide_extracted"] = {}
+            elif not isinstance(result["guide_extracted"], dict):
+                logger.warning(f"[BetaPipeline] LLM returned non-dict for guide_extracted: {type(result['guide_extracted'])}. Wrapping it.")
+                result["_raw_guide_extracted_string"] = str(result["guide_extracted"])
+                result["guide_extracted"] = {}
         
         # Detect LLM output truncation
         if finish_reason == "length":
