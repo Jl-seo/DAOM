@@ -73,7 +73,8 @@ class RuleEngine:
             if not target_array or not keys:
                 continue
             
-            array_data = guide_extracted.get(target_array, {}).get("value")
+            target_node = guide_extracted.get(target_array, {})
+            array_data = target_node.get("value") if isinstance(target_node, dict) else None
             if not isinstance(array_data, list):
                 continue
 
@@ -105,7 +106,13 @@ class RuleEngine:
         import re
         validation_rules = reference_data.get("validation_rules", [])
         
+        if isinstance(validation_rules, dict):
+            logger.warning("[RuleEngine] Deprecated validation_rules as dict detected. Skipping.")
+            validation_rules = []
+            
         for rule in validation_rules:
+            if not isinstance(rule, dict):
+                continue
             rule_type = rule.get("type")
             severity = rule.get("severity", "warning")
             message = rule.get("message", "Validation failed")

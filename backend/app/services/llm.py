@@ -644,13 +644,23 @@ async def generate_schema_from_content(content_text: str, tables: List[dict] = N
     Each object must have:
     - "key": snake_case identifier (e.g., "invoice_number")
     - "label": Human readable name (e.g., "Invoice Number")
-    - "type": One of ["string", "number", "date", "currency", "array", "object"]
+    - "type": One of ["string", "number", "date", "currency", "array", "table", "object"]
     - "description": specific description of what this field contains and where it might be found.
+    - "sub_fields": ONLY if the type is "array", "list", or "table". This MUST be an array of objects follow the exact same structure `{"key": "...", "label": "...", "type": "...", "description": "..."}`. NEVER use a simple list of strings.
     
     Example:
     {
       "fields": [
-        {"key": "total_amount", "label": "Total Amount", "type": "currency", "description": "The final total including tax, usually at the bottom"}
+        {"key": "total_amount", "label": "Total Amount", "type": "currency", "description": "The final total including tax, usually at the bottom"},
+        {
+          "key": "items", 
+          "label": "Line Items", 
+          "type": "table",
+          "sub_fields": [
+            {"key": "quantity", "label": "Quantity", "type": "number", "description": "Item qty"},
+            {"key": "description", "label": "Description", "type": "string", "description": "Item name"}
+          ]
+        }
       ]
     }
     """

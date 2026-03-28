@@ -103,12 +103,22 @@ INSTRUCTIONS FOR REFERENCE DATA:
             if getattr(field, 'sub_fields', None):
                 prompt += "  Sub-Fields (apply recursively):\n"
                 for sf in field.sub_fields:
-                    sf_req = "[REQUIRED]" if sf.get('required') else "[OPTIONAL]"
-                    prompt += f"    - {sf.get('key')} ({sf.get('label')}) {sf_req}: Type {sf.get('type', 'string')}\n"
-                    if sf.get('rules'):
-                        prompt += f"      Rule: {sf.get('rules')}\n"
-                    if sf.get('validation_regex'):
-                        prompt += f"      Regex: MUST exactly match pattern `{sf.get('validation_regex')}`\n"
+                    if isinstance(sf, str):
+                        prompt += f"    - {sf} ({sf}) [REQUIRED]: Type string\n"
+                    else:
+                        sf_key = sf.get('key', '?') if isinstance(sf, dict) else getattr(sf, 'key', '?')
+                        sf_label = sf.get('label', sf_key) if isinstance(sf, dict) else getattr(sf, 'label', sf_key)
+                        sf_req_bool = sf.get('required') if isinstance(sf, dict) else getattr(sf, 'required', False)
+                        sf_type = sf.get('type', 'string') if isinstance(sf, dict) else getattr(sf, 'type', 'string')
+                        sf_rules = sf.get('rules') if isinstance(sf, dict) else getattr(sf, 'rules', None)
+                        sf_regex = sf.get('validation_regex') if isinstance(sf, dict) else getattr(sf, 'validation_regex', None)
+                        
+                        sf_req = "[REQUIRED]" if sf_req_bool else "[OPTIONAL]"
+                        prompt += f"    - {sf_key} ({sf_label}) {sf_req}: Type {sf_type}\n"
+                        if sf_rules:
+                            prompt += f"      Rule: {sf_rules}\n"
+                        if sf_regex:
+                            prompt += f"      Regex: MUST exactly match pattern `{sf_regex}`\n"
 
         # 4. Output Formatting — detect table from field types (data_structure manual selector deprecated)
         # data_structure = get_attr(model, 'data_structure', 'data')  # DEPRECATED
