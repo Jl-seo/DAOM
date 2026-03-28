@@ -1861,6 +1861,13 @@ class BetaPipeline(ExtractionPipeline):
                 result = {"guide_extracted": result[0]}
             else:
                 result = {"guide_extracted": {}, "error": "LLM returned array instead of object"}
+        elif not isinstance(result, dict):
+            logger.warning(f"[BetaPipeline] LLM returned {type(result).__name__} instead of dict.")
+            result = {
+                "guide_extracted": {}, 
+                "error": f"LLM returned {type(result).__name__} instead of object", 
+                "_raw_llm_content": str(result)
+            }
         
         # Ensure guide_extracted key exists
         if isinstance(result, dict) and "guide_extracted" not in result:
