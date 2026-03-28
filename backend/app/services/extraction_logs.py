@@ -557,7 +557,8 @@ async def update_log_status(
     extracted_data: Optional[dict] = None,
     debug_data: Optional[dict] = None,
     error: Optional[str] = None,
-    token_usage: Optional[dict] = None  # NEW: explicit token_usage override
+    token_usage: Optional[dict] = None,  # NEW: explicit token_usage override
+    llm_model: Optional[str] = None      # NEW: allow tracking model on update
 ) -> bool:
     """Update just the status (and optionally data) of an existing log"""
     container = get_extractions_container()
@@ -580,6 +581,9 @@ async def update_log_status(
         log_dict["status"] = status
         log_dict["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         log_dict["type"] = ExtractionType.LOG.value
+        
+        if llm_model:
+            log_dict["llm_model"] = llm_model
 
         if preview_data:
             log_dict["preview_data"] = preview_data

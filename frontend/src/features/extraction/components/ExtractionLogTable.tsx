@@ -171,6 +171,24 @@ export function ExtractionLogTable({
             ),
         })
 
+        // AI Model Column
+        cols.push({
+            accessorKey: 'llm_model',
+            header: 'AI 모델',
+            cell: ({ row }) => (
+                <div className="text-sm text-muted-foreground whitespace-nowrap">
+                    {row.original.llm_model ? (
+                        <Badge variant="secondary" className="text-xs font-normal bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800">
+                            {row.original.llm_model}
+                        </Badge>
+                    ) : (
+                        '-'
+                    )}
+                </div>
+            ),
+            size: 110,
+        })
+
         // User Column
         cols.push({
             accessorKey: 'user_id',

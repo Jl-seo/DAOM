@@ -332,13 +332,19 @@ async def update_job(
             try:
                 from app.services import extraction_logs
                 log_id_to_update = job.original_log_id or job.log_id
+                
+                llm_model_val = None
+                if preview_data and "_llm_model" in preview_data:
+                    llm_model_val = preview_data["_llm_model"]
+                    
                 await extraction_logs.update_log_status(
                     log_id_to_update,
                     status=status,
                     preview_data=preview_data,
                     extracted_data=extracted_data, # FIX: ensure extracted_data is synced
                     debug_data=debug_data, 
-                    error=error 
+                    error=error,
+                    llm_model=llm_model_val
                 )
             except Exception as e:
                 logger.error(f"[ExtractionJobs] Failed to sync status to log {job.original_log_id}: {e}")

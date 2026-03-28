@@ -141,6 +141,7 @@ export interface ExtractionLog {
     id: string
     model_id: string
     model_name?: string // Optional, for global view/UI
+    llm_model?: string // AI Model used for extraction
     user_id: string
     user_name?: string
     user_email?: string

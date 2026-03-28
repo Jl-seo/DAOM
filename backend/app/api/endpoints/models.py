@@ -174,12 +174,11 @@ async def analyze_sample(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+from fastapi import Body
+
 @router.post("/schema/refine", dependencies=[Depends(require_admin_or_model_admin)])
 async def refine_schema_endpoint(
-    payload: dict = {
-        "fields": [],
-        "instruction": ""
-    }
+    payload: dict = Body(...)
 ):
     """
     Refine schema based on natural language instruction
@@ -194,6 +193,7 @@ async def refine_schema_endpoint(
 
     try:
         refined_fields = await llm.refine_schema(fields, instruction)
+        return {"fields": refined_fields}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

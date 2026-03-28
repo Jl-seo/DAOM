@@ -102,4 +102,16 @@ jobs:
                 --revision-weight ${REVISION_NAME}=100
             fi
 
+            # Step 4: Deactivate old revisions (only for master production to avoid killing test branches)
+            if [[ "${{ github.ref_name }}" == "master" ]]; then
+              echo "4. Deactivating old production revisions..."
+              ACTIVE_REVISIONS=$(az containerapp revision list --name $APP_NAME --resource-group $RG --query "[?properties.active == \`true\` && name != \`$REVISION_NAME\`].name" -o tsv)
+              for rev in $ACTIVE_REVISIONS; do
+                if [[ $rev != *"--test-"* ]]; then
+                  echo "Deactivating old production revision $rev"
+                  az containerapp revision deactivate --name $APP_NAME --resource-group $RG --revision $rev
+                fi
+              done
+            fi
+
             echo "✓ Deployment complete!"

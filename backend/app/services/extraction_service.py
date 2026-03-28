@@ -712,6 +712,7 @@ If a field is not found, return null.
 
             result = json.loads(content)
             result["_token_usage"] = token_usage
+            result["_llm_model"] = current_model_name
             if "raw_content" not in result:
                 result["raw_content"] = raw_content
             return result

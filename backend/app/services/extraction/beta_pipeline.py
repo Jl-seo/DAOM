@@ -1773,6 +1773,7 @@ class BetaPipeline(ExtractionPipeline):
         finish_reason = getattr(response.choices[0], "finish_reason", "stop")
         
         result = self._parse_llm_response(content, finish_reason, response.usage)
+        result["_llm_model"] = current_model_name
         if had_429:
             result["_had_429"] = True
         return result
@@ -1814,6 +1815,7 @@ class BetaPipeline(ExtractionPipeline):
                         self.total_tokens = d.get("total_tokens", 0)
                 
                 parsed_res = self._parse_llm_response(content, finish_reason, _MockUsage(usage))
+                parsed_res["_llm_model"] = model_name
                 if had_429:
                     parsed_res["_had_429"] = True
                 return parsed_res

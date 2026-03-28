@@ -109,3 +109,19 @@ jobs:
                 --name $APP_NAME \
                 --label-weight $LABEL=100
             fi
+
+            echo "4. Deactivating old revisions for this context"
+            ACTIVE_REVISIONS=$(az containerapp revision list --name $APP_NAME --resource-group $RG --query "[?properties.active == \`true\` && name != \`$REVISION_NAME\`].name" -o tsv)
+            for rev in $ACTIVE_REVISIONS; do
+              if [[ "${{ github.ref_name }}" == "master" ]]; then
+                if [[ $rev == *"--prod-"* ]]; then
+                  echo "Deactivating old production revision: $rev"
+                  az containerapp revision deactivate --name $APP_NAME --resource-group $RG --revision $rev
+                fi
+              else
+                if [[ $rev == *"--test-$SAFE_BRANCH-"* ]]; then
+                  echo "Deactivating old test revision for this branch: $rev"
+                  az containerapp revision deactivate --name $APP_NAME --resource-group $RG --revision $rev
+                fi
+              fi
+            done

@@ -136,11 +136,13 @@ async def run_pipeline_job(
              # This explicit call is a safety fallback but MUST NOT crash the pipeline.
              if job and getattr(job, "original_log_id", None):
                  try:
+                     llm_model_val = result.get("_llm_model") if isinstance(result, dict) else None
                      await extraction_logs.update_log_status(
                          log_id=str(job.original_log_id),
                          status=ExtractionStatus.PREVIEW_READY.value,
                          preview_data=result,
-                         extracted_data=export_preview
+                         extracted_data=export_preview,
+                         llm_model=llm_model_val
                      )
                  except Exception as log_sync_err:
                      logger.error(f"[Background] Log sync failed for job {job_id} (non-fatal, job is already PREVIEW_READY): {log_sync_err}")
