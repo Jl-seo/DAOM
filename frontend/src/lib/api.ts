@@ -20,22 +20,42 @@ const apiClient: AxiosInstance = axios.create({
     // JSON Content-Type is set dynamically in the request interceptor below.
 })
 
+import { InteractionRequiredAuthError } from '@azure/msal-browser'
+
 // Request interceptor for auth token
 apiClient.interceptors.request.use(
     async (config) => {
         try {
             const accounts = msalInstance.getAllAccounts()
             if (accounts.length > 0) {
-                const response = await msalInstance.acquireTokenSilent({
-                    ...loginRequest,
-                    account: accounts[0]
-                })
-                if (response.accessToken) {
-                    config.headers.Authorization = `Bearer ${response.accessToken}`
+                try {
+                    const response = await msalInstance.acquireTokenSilent({
+                        ...loginRequest,
+                        account: accounts[0]
+                    })
+                    if (response.accessToken) {
+                        config.headers.Authorization = `Bearer ${response.accessToken}`
+                    }
+                } catch (silentError: any) {
+                    console.error('Silent token acquisition failed:', silentError)
+                    // Fallback to popup if silent acquisition fails (e.g. iframe timeout or InteractionRequiredAuthError)
+                    if (silentError instanceof InteractionRequiredAuthError || silentError.name === 'BrowserAuthError') {
+                        try {
+                            const response = await msalInstance.acquireTokenPopup({
+                                ...loginRequest,
+                                account: accounts[0]
+                            })
+                            if (response.accessToken) {
+                                config.headers.Authorization = `Bearer ${response.accessToken}`
+                            }
+                        } catch (popupError) {
+                            console.error('Popup token acquisition failed:', popupError)
+                        }
+                    }
                 }
             }
         } catch (error) {
-            console.error('Failed to get access token:', error)
+            console.error('Failed to get access token completely:', error)
         }
         return config
     },

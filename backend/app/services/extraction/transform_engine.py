@@ -40,11 +40,13 @@ class TransformEngine:
         result = copy.deepcopy(guide_extracted)
 
         for rule in rules:
+            if not isinstance(rule, dict):
+                logger.warning(f"[TransformEngine] Expected rule to be a dict, got {type(rule)}")
+                continue
             try:
                 result = TransformEngine._apply_rule(result, rule)
             except Exception as e:
-                logger.error(f"[TransformEngine] Rule '{rule.get('name', '?')}' failed: {e}")
-                # Continue with other rules — don't break the pipeline
+                logger.error(f"[TransformEngine] Rule '{rule.get('name', 'unnamed')}' failed: {e}")
 
         return result
 
