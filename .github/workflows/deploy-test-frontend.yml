@@ -89,7 +89,7 @@ jobs:
               --revision-weight ${REVISION}=100
 
             echo ">> Deactivating old test revisions..."
-            ACTIVE_REVISIONS=$(az containerapp revision list --name $APP_NAME --resource-group $RG --query "[?properties.active == \`true\` && name != \`$REVISION_NAME\`].name" -o tsv)
+            ACTIVE_REVISIONS=$(az containerapp revision list --name $APP_NAME --resource-group $RG --query "[?properties.active == \`true\` && name != \`$REVISION\`].name" -o tsv)
             for rev in $ACTIVE_REVISIONS; do
               if [[ $rev == *"--test-"* ]]; then
                 echo "Deactivating old test revision: $rev"
