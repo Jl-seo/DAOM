@@ -714,48 +714,37 @@ class BetaPipeline(ExtractionPipeline):
 
     @staticmethod
     def _estimate_table_row_counts(tagged_text: str) -> str:
-        """
+        \"\"\"
         Count markdown table data rows in tagged text to generate a row count hint.
         Returns a hint string like:
           "TABLE ROW COUNTS: This document contains approximately 45 data rows across 2 tables."
         Production-safe: purely informational, never modifies extraction logic.
-        """
+        \"\"\"
         import re
         lines = tagged_text.split("\n")
         total_data_rows = 0
-        table_count = 0
-        in_table = False
-        header_seen = False
         
         for line in lines:
             stripped = line.strip()
+            # It must look like a markdown row: starts and ends with |
             if stripped.startswith("|") and stripped.endswith("|"):
-                if not in_table:
-                    in_table = True
-                    header_seen = False
-                    table_count += 1
-                    continue  # First row is header
-                if not header_seen:
-                    # This is the separator row (|---|---| ...)
-                    if re.match(r"^\|[\s\-\:\|]+\|$", stripped):
-                        header_seen = True
-                        continue
-                # Data row
-                if header_seen:
+                # Ignore separators
+                if re.match(r"^\|[\s\-\:\.\*]+\|$", stripped.replace(" ", "").replace("-", "")):
+                    continue
+                if "---" in stripped:
+                    continue
+                    
+                # A valid row should have some columns
+                if stripped.count("|") > 2:
                     total_data_rows += 1
-            else:
-                if in_table and stripped == "":
-                    continue  # Tolerate blank lines within table
-                in_table = False
-                header_seen = False
-        
+                    
         if total_data_rows == 0:
             return ""
         
         return (
             f"\n\nTABLE ROW COUNTS (CRITICAL — DO NOT STOP EARLY):\n"
-            f"This document contains approximately {total_data_rows} data rows "
-            f"across {table_count} table(s). You MUST extract ALL {total_data_rows} rows. "
+            f"This document contains approximately {total_data_rows} data rows. "
+            f"You MUST extract ALL {total_data_rows} rows. "
             f"Do NOT stop after a few rows. Completeness is mandatory.\n"
         )
 
