@@ -62,6 +62,7 @@ class ExtractionResultResponse(BaseModel):
     filename: Optional[str] = None
     extracted_data: Optional[Dict[str, Any]] = None
     confidence: Optional[float] = None
+    confidence_data: Optional[Dict[str, float]] = None  # Per-field confidence scores
     error: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None  # Passthrough user data
     created_at: Optional[str] = None
@@ -751,6 +752,15 @@ async def get_extraction_result(
             except Exception as e:
                 logger.error(f"[Connector] Failed to hydrate extracted_data from blob: {e}")
 
+    if log.preview_data and isinstance(log.preview_data, dict):
+        try:
+            from app.services.hydration import hydrate_preview_data
+            hydrated_preview = await hydrate_preview_data(log.preview_data)
+            if hydrated_preview is not None:
+                log.preview_data = hydrated_preview
+        except Exception as e:
+            logger.error(f"[Connector] Failed to hydrate preview_data from blob: {e}")
+
     # ========== IDOR Security Check ==========
     if log.user_id != current_user.id:
         is_super = await is_super_admin(current_user)
@@ -775,6 +785,10 @@ async def get_extraction_result(
     is_done = log.status in ["success", ExtractionStatus.SUCCESS.value, ExtractionStatus.PREVIEW_READY.value]
     is_err = log.status in ["error", ExtractionStatus.ERROR.value, ExtractionStatus.FAILED.value, ExtractionStatus.CANCELLED.value]
 
+    raw_data = None
+    if is_done and log.preview_data:
+        raw_data = log.preview_data.get("guide_extracted")
+
     response_data = {
         "job_id": job_id,
         "status": log.status,
@@ -783,20 +797,45 @@ async def get_extraction_result(
         "filename": log.filename,
         "file_url": log.file_url,
         "extracted_data": log.extracted_data if is_done else None,
+        "raw_data": raw_data,
         "is_table": isinstance(log.extracted_data, list) if log.extracted_data else False,
         "error": log.error if is_err else None,
         "metadata": log.metadata,
         "created_at": log.created_at
     }
 
-    # Calculate confidence if available
-    if log.extracted_data and isinstance(log.extracted_data, dict):
-        confidences = []
-        for field_data in log.extracted_data.values():
+    # Build per-field confidence_data from preview_data.guide_extracted (source of truth).
+    # extracted_data is unwrapped by ExportEngine and loses confidence; preview_data retains it.
+    confidence_data = {}
+    avg_confidences = []
+    source = log.preview_data.get("guide_extracted", {}) if log.preview_data else {}
+    if isinstance(source, dict):
+        for field_key, field_data in source.items():
+            if field_key.startswith("_"):
+                continue
             if isinstance(field_data, dict) and "confidence" in field_data:
-                confidences.append(field_data["confidence"])
-        if confidences:
-            response_data["confidence"] = sum(confidences) / len(confidences)
+                conf = field_data.get("confidence")
+                if conf is not None:
+                    confidence_data[field_key] = round(float(conf), 4)
+                    avg_confidences.append(float(conf))
+            elif isinstance(field_data, list):
+                # Table field: average confidence across all cells in all rows
+                cell_confs = []
+                for row in field_data:
+                    if isinstance(row, dict):
+                        for cell in row.values():
+                            if isinstance(cell, dict) and "confidence" in cell:
+                                c = cell.get("confidence")
+                                if c is not None:
+                                    cell_confs.append(float(c))
+                if cell_confs:
+                    table_avg = sum(cell_confs) / len(cell_confs)
+                    confidence_data[field_key] = round(table_avg, 4)
+                    avg_confidences.append(table_avg)
+    if confidence_data:
+        response_data["confidence_data"] = confidence_data
+    if avg_confidences:
+        response_data["confidence"] = round(sum(avg_confidences) / len(avg_confidences), 4)
 
     # Return 202 if still processing (for async polling pattern)
     processing_statuses = [
