@@ -19,8 +19,8 @@ LLM_CONFIG_ID = "llm_config"
 
 # Safety clamp: deployed model's actual max completion tokens.
 # GPT-4o = 16384, GPT-4o-2024-08-06+ = 16384, GPT-4.1 = 32768
-# Lowering default to 16384 to support standard gpt-4o models without throwing 400 Bad Request.
-MODEL_MAX_COMPLETION_TOKENS = 16384
+# Bumping default to 32768 to fully support GPT-4.1 output length for complex large extractions.
+MODEL_MAX_COMPLETION_TOKENS = 32768
 
 # Singleton client — reuse across all calls
 _openai_client: Optional[AsyncAzureOpenAI] = None
@@ -251,14 +251,18 @@ async def analyze_document_content(
             tables_context += f"\nTable {idx+1} ({row_count}x{col_count}):\n"
 
             # Simple Grid Reconstruction for Prompt
+            # Dynamic budget: short cells → more rows, long cells → fewer rows
+            MAX_TABLE_CONTEXT_CHARS = 50_000
+            table_chars_used = 0
             grid = {}
             for cell in cells:
                 r = cell.get("rowIndex", 0)
                 c = cell.get("columnIndex", 0)
                 content = cell.get("content", "").replace("\n", " ")
-                if r < 20: # Limit rows
+                if table_chars_used < MAX_TABLE_CONTEXT_CHARS:
                     if r not in grid: grid[r] = {}
                     grid[r][c] = content
+                    table_chars_used += len(content) + 3
 
             # Render rows
             for r in sorted(grid.keys()):
@@ -266,8 +270,9 @@ async def analyze_document_content(
                 row_str = " | ".join([row_cells.get(c, "") for c in range(col_count)])
                 tables_context += f"| {row_str} |\n"
 
-            if row_count > 20:
-                tables_context += f"... ({row_count - 20} more rows) ...\n"
+            rows_shown = len(grid)
+            if row_count > rows_shown:
+                tables_context += f"... ({row_count - rows_shown} more rows) ...\n"
 
     user_prompt = f"Document Text:\n{content_text}\n{tables_context}"
 

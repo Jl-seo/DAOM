@@ -556,23 +556,29 @@ def _build_tables_context(tables: List[Dict]) -> str:
 
         context += f"\nTable {idx + 1} ({row_count}x{col_count}):\n"
 
+        # Dynamic budget: allow more rows for tables with short cells,
+        # fewer rows for tables with long cell content. Safer than fixed r<20.
+        MAX_TABLE_CONTEXT_CHARS = 50_000  # ~12K tokens budget for table structure hints
+        table_chars_used = 0
         grid: Dict[int, Dict[int, str]] = {}
         for cell in cells:
             r = cell.get("rowIndex", 0)
             c = cell.get("columnIndex", 0)
             cell_content = cell.get("content", "").replace("\n", " ")
-            if r < 20:  # Limit rows
+            if table_chars_used < MAX_TABLE_CONTEXT_CHARS:
                 if r not in grid:
                     grid[r] = {}
                 grid[r][c] = cell_content
+                table_chars_used += len(cell_content) + 3  # +3 for " | " separator
 
         for r in sorted(grid.keys()):
             row_cells = grid[r]
             row_str = " | ".join(row_cells.get(c, "") for c in range(col_count))
             context += f"| {row_str} |\n"
 
-        if row_count > 20:
-            context += f"... ({row_count - 20} more rows) ...\n"
+        rows_shown = len(grid)
+        if row_count > rows_shown:
+            context += f"... ({row_count - rows_shown} more rows) ...\n"
 
     return context
 

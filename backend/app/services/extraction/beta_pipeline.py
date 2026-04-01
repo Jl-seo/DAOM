@@ -712,6 +712,53 @@ class BetaPipeline(ExtractionPipeline):
     # Phase ②: Engineer LLM (Value Extraction)
     # ==================================================================
 
+    @staticmethod
+    def _estimate_table_row_counts(tagged_text: str) -> str:
+        """
+        Count markdown table data rows in tagged text to generate a row count hint.
+        Returns a hint string like:
+          "TABLE ROW COUNTS: This document contains approximately 45 data rows across 2 tables."
+        Production-safe: purely informational, never modifies extraction logic.
+        """
+        import re
+        lines = tagged_text.split("\n")
+        total_data_rows = 0
+        table_count = 0
+        in_table = False
+        header_seen = False
+        
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|") and stripped.endswith("|"):
+                if not in_table:
+                    in_table = True
+                    header_seen = False
+                    table_count += 1
+                    continue  # First row is header
+                if not header_seen:
+                    # This is the separator row (|---|---| ...)
+                    if re.match(r"^\|[\s\-\:\|]+\|$", stripped):
+                        header_seen = True
+                        continue
+                # Data row
+                if header_seen:
+                    total_data_rows += 1
+            else:
+                if in_table and stripped == "":
+                    continue  # Tolerate blank lines within table
+                in_table = False
+                header_seen = False
+        
+        if total_data_rows == 0:
+            return ""
+        
+        return (
+            f"\n\nTABLE ROW COUNTS (CRITICAL — DO NOT STOP EARLY):\n"
+            f"This document contains approximately {total_data_rows} data rows "
+            f"across {table_count} table(s). You MUST extract ALL {total_data_rows} rows. "
+            f"Do NOT stop after a few rows. Completeness is mandatory.\n"
+        )
+
     async def _run_engineer(self, work_order: dict, tagged_text: str, model: ExtractionModel = None) -> dict:
         """
         Single-shot Engineer extraction.
@@ -719,7 +766,8 @@ class BetaPipeline(ExtractionPipeline):
         """
         ref_data = (model.reference_data if model else None) or None
         system_prompt = RefinerEngine.construct_engineer_prompt(work_order, reference_data=ref_data)
-        user_prompt = f"DOCUMENT DATA (Tagged Layout Format):\n{tagged_text}\n\nExtract all fields. Return valid JSON."
+        row_count_hint = self._estimate_table_row_counts(tagged_text)
+        user_prompt = f"DOCUMENT DATA (Tagged Layout Format):\n{tagged_text}\n{row_count_hint}\nExtract all fields. Return valid JSON."
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -808,11 +856,13 @@ class BetaPipeline(ExtractionPipeline):
             else:
                 prefix = ""
             
+            row_count_hint = self._estimate_table_row_counts(chunk_text)
             user_prompt = (
                 f"{prefix}"
                 f"--- START ACTUAL CHUNK DATA (Chunk {chunk_idx + 1}/{len(chunks)}) ---\n"
                 f"{chunk_text}\n"
-                f"--- END ACTUAL CHUNK DATA ---\n\n"
+                f"--- END ACTUAL CHUNK DATA ---\n"
+                f"{row_count_hint}\n"
                 f"Extract all fields from the ACTUAL CHUNK DATA only. Return valid JSON with guide_extracted wrapper."
             )
             messages = [
