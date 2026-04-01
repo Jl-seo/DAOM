@@ -714,12 +714,12 @@ class BetaPipeline(ExtractionPipeline):
 
     @staticmethod
     def _estimate_table_row_counts(tagged_text: str) -> str:
-        \"\"\"
+        """
         Count markdown table data rows in tagged text to generate a row count hint.
         Returns a hint string like:
           "TABLE ROW COUNTS: This document contains approximately 45 data rows across 2 tables."
         Production-safe: purely informational, never modifies extraction logic.
-        \"\"\"
+        """
         import re
         lines = tagged_text.split("\n")
         total_data_rows = 0
