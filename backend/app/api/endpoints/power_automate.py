@@ -806,6 +806,25 @@ async def get_extraction_result(
 
     # Build per-field confidence_data from preview_data.guide_extracted (source of truth).
     # extracted_data is unwrapped by ExportEngine and loses confidence; preview_data retains it.
+    #
+    # IMPORTANT: _validate_and_format() wraps ALL fields (including tables) into
+    # {value, confidence, bbox, ...} dicts.  For table fields, the wrapper looks like:
+    #   {"value": [{row1}, {row2}, ...], "confidence": 0, "bbox": null}
+    # The outer "confidence" is meaningless for tables (always 0).
+    # We must unwrap and average the INNER cell-level confidences — matching the
+    # frontend's calculateTableAverage() logic.
+    def _calc_table_confidence(rows: list) -> float | None:
+        """Average confidence across all cells in all rows of a table field."""
+        cell_confs = []
+        for row in rows:
+            if isinstance(row, dict):
+                for cell in row.values():
+                    if isinstance(cell, dict) and "confidence" in cell:
+                        c = cell.get("confidence")
+                        if c is not None:
+                            cell_confs.append(float(c))
+        return sum(cell_confs) / len(cell_confs) if cell_confs else None
+
     confidence_data = {}
     avg_confidences = []
     source = log.preview_data.get("guide_extracted", {}) if log.preview_data else {}
@@ -813,23 +832,24 @@ async def get_extraction_result(
         for field_key, field_data in source.items():
             if field_key.startswith("_"):
                 continue
-            if isinstance(field_data, dict) and "confidence" in field_data:
-                conf = field_data.get("confidence")
-                if conf is not None:
-                    confidence_data[field_key] = round(float(conf), 4)
-                    avg_confidences.append(float(conf))
+            if isinstance(field_data, dict) and "value" in field_data:
+                inner_value = field_data.get("value")
+                if isinstance(inner_value, list) and len(inner_value) > 0 and isinstance(inner_value[0], dict):
+                    # Table field wrapped by _validate_and_format → drill into rows
+                    table_avg = _calc_table_confidence(inner_value)
+                    if table_avg is not None:
+                        confidence_data[field_key] = round(table_avg, 4)
+                        avg_confidences.append(table_avg)
+                else:
+                    # Scalar field — use the wrapper confidence directly
+                    conf = field_data.get("confidence")
+                    if conf is not None:
+                        confidence_data[field_key] = round(float(conf), 4)
+                        avg_confidences.append(float(conf))
             elif isinstance(field_data, list):
-                # Table field: average confidence across all cells in all rows
-                cell_confs = []
-                for row in field_data:
-                    if isinstance(row, dict):
-                        for cell in row.values():
-                            if isinstance(cell, dict) and "confidence" in cell:
-                                c = cell.get("confidence")
-                                if c is not None:
-                                    cell_confs.append(float(c))
-                if cell_confs:
-                    table_avg = sum(cell_confs) / len(cell_confs)
+                # Raw list (no wrapper) — shouldn't happen after _validate_and_format but handle defensively
+                table_avg = _calc_table_confidence(field_data)
+                if table_avg is not None:
                     confidence_data[field_key] = round(table_avg, 4)
                     avg_confidences.append(table_avg)
     if confidence_data:
