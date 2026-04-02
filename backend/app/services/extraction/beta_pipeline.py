@@ -794,7 +794,24 @@ class BetaPipeline(ExtractionPipeline):
             field_keys.append(tf.get("key", ""))
         field_keys = [k for k in field_keys if k]
         
-        doc_context = tagged_text[:500].rstrip()
+        # Build doc_context from the head of the document, but EXCLUDE table data rows
+        # to prevent LLM from copying page-1 values into all subsequent chunks.
+        # Only keep non-table text (company name, dates, invoice headers, etc.)
+        doc_context_lines = []
+        doc_context_len = 0
+        for line in tagged_text.splitlines():
+            stripped = line.strip()
+            # Skip table rows (data lines starting with |)
+            if stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") > 2:
+                continue
+            # Skip table separator rows
+            if stripped.startswith("|") and "---" in stripped:
+                continue
+            if doc_context_len + len(line) > 800:
+                break
+            doc_context_lines.append(line)
+            doc_context_len += len(line) + 1
+        doc_context = "\n".join(doc_context_lines).rstrip()
         
         # Extract section headers (e.g., "1. Validity: 12/1 ~ 12/7") for context preservation
         import re
@@ -852,6 +869,11 @@ class BetaPipeline(ExtractionPipeline):
                 f"{chunk_text}\n"
                 f"--- END ACTUAL CHUNK DATA ---\n"
                 f"{row_count_hint}\n"
+                f"CRITICAL EXTRACTION RULES:\n"
+                f"1. Read EACH ROW's actual cell values individually from the CHUNK DATA above.\n"
+                f"2. DO NOT copy/repeat values from the first row or any other row.\n"
+                f"3. Every row has DIFFERENT values for description, item_no, qty, unit_price, amount, etc.\n"
+                f"4. If two rows appear identical, re-read the source text carefully — they are different.\n"
                 f"Extract all fields from the ACTUAL CHUNK DATA only. Return valid JSON with guide_extracted wrapper."
             )
             messages = [
