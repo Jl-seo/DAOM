@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { ExtractionPreview } from './ExtractionPreview'
 import { DexValidationBanner, type DexValidationData } from './DexValidationBanner'
 import { DebugInfoModal } from './DebugInfoModal'
+import { ReasoningMapPanel } from './ReasoningMapPanel'
 import type { ExtractionModel, PreviewData } from '../types'
 
 interface DataReviewPanelProps {
@@ -322,6 +323,11 @@ export function DataReviewPanel({
                         )}
                         <TabsTrigger value="mapped" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">매핑된 결과 (Export)</TabsTrigger>
                         <TabsTrigger value="raw" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">Raw JSON</TabsTrigger>
+                        {isBetaMode && (previewData as any)?._survey_result && (
+                            <TabsTrigger value="reasoning" className="h-full rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-0">
+                                추론 맵 <span className="ml-1 text-[10px] bg-purple-100 text-purple-800 px-1 rounded">BETA</span>
+                            </TabsTrigger>
+                        )}
                     </TabsList>
                 </div>
 
@@ -419,6 +425,13 @@ export function DataReviewPanel({
                     </TabsContent>
                     <TabsContent value="raw" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
                         <RawJsonView data={deferredData.guideExtracted} />
+                    </TabsContent>
+                    <TabsContent value="reasoning" className="mt-0 h-full p-0 data-[state=inactive]:hidden">
+                        <ReasoningMapPanel
+                            surveyResult={(previewData as any)?._survey_result}
+                            judgeResult={(previewData as any)?._judge_result}
+                            extractedData={deferredData.guideExtracted}
+                        />
                     </TabsContent>
                 </div>
             </Tabs>

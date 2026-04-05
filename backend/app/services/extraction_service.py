@@ -557,6 +557,8 @@ class ExtractionService:
             if extraction_result.beta_metadata:
                 result_dict["_beta_parsed_content"] = extraction_result.beta_metadata.get("parsed_content")
                 result_dict["_beta_ref_map"] = extraction_result.beta_metadata.get("ref_map")
+                result_dict["_survey_result"] = extraction_result.beta_metadata.get("survey_result")
+                result_dict["_judge_result"] = extraction_result.beta_metadata.get("judge_result")
                 
             return result_dict
 

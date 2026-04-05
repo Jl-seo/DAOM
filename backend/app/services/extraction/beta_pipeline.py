@@ -250,6 +250,57 @@ class BetaPipeline(ExtractionPipeline):
         should_run_table_mapper = getattr(settings, 'ENABLE_TABLE_MAPPER', False)
         engineer_text_payload = tagged_text
 
+        # --- 3b. Document Survey (Optional — Python facts + AI interpretation) ---
+        survey_result = None
+        survey_context = ""
+        use_judge = model.beta_features.get("use_judge", False) if model.beta_features else False
+        if use_judge:
+            try:
+                task_list = self._build_task_list(model)
+                survey_result = await self._search_locations(task_list, tagged_text, model)
+                if survey_result:
+                    pf = survey_result.get("python_facts", {})
+                    ai = survey_result.get("ai_interpretation", {})
+                    ta = ai.get("table_analysis", {})
+                    # Build context string for Engineer
+                    survey_lines = [
+                        "--- DOCUMENT SURVEY (PRE-EXTRACTION ANALYSIS) ---",
+                        f"Document has {pf.get('total_table_rows', '?')} table rows, "
+                        f"{pf.get('total_unique_entities', '?')} unique entities across "
+                        f"{pf.get('num_tables', '?')} table(s).",
+                    ]
+                    # Add estimated output rows and destination list from AI
+                    for fk, info in ta.items():
+                        est = info.get("estimated_output_rows", "")
+                        dests = info.get("all_destination_names", [])
+                        skip = info.get("header_rows_to_skip", [])
+                        excl = info.get("rows_to_exclude", [])
+                        if est:
+                            survey_lines.append(f"Expected output rows for '{fk}': ~{est}")
+                        if dests:
+                            survey_lines.append(f"ALL destinations to extract: {', '.join(dests[:40])}")
+                        if skip:
+                            survey_lines.append(f"Skip (group headers, not data): {skip}")
+                        if excl:
+                            survey_lines.append(f"Exclude (no rate data): {excl}")
+                    # Fallback: use Python entities if AI didn't provide destinations
+                    if not any(info.get("all_destination_names") for info in ta.values()):
+                        ents = survey_result.get("all_entities", [])
+                        if ents:
+                            survey_lines.append(f"Detected entities (ensure none are missed): {', '.join(ents[:40])}")
+                    survey_lines.append(
+                        "CRITICAL: Do NOT truncate output. Extract ALL rows matching the above destinations."
+                    )
+                    survey_lines.append("--- END DOCUMENT SURVEY ---")
+                    survey_context = "\n".join(survey_lines) + "\n\n"
+                    logger.info(f"[BetaPipeline] Survey context: {len(survey_context)} chars")
+            except Exception as e:
+                logger.warning(f"[BetaPipeline] Survey failed (non-fatal): {e}")
+
+        # Inject survey context into Engineer payload (prepend to document text)
+        if survey_context:
+            engineer_text_payload = survey_context + engineer_text_payload
+
         async def run_engineer_pipeline():
             # UNIFIED EXTRACTION FIRST (all tables together)
             # Per-Table Split is only used as fallback when output is truncated.
@@ -312,6 +363,113 @@ class BetaPipeline(ExtractionPipeline):
         # via the `rule_engine` module to ensure consistency across all extraction engines.
 
         
+        # --- 4b. Judge LLM — Self-Audit (Optional) ---
+        judge_result = None
+        # use_judge already set above in Survey section
+        if use_judge:
+            try:
+                processed_guide_pre = final_guide.get("guide_extracted", {})
+                judge_result = await self._run_judge(
+                    processed_guide_pre, tagged_text, model
+                )
+                # Apply confidence adjustments from Judge
+                issues = judge_result.get("issues", [])
+                if issues:
+                    logger.warning(
+                        f"[BetaPipeline] Judge flagged {len(issues)} issue(s): "
+                        + ", ".join(i.get("field", "?") + "=" + i.get("type", "?") for i in issues[:5])
+                    )
+                    for issue in issues:
+                        field_key = issue.get("field", "")
+                        issue_type = issue.get("type", "")
+                        if field_key and field_key in processed_guide_pre:
+                            node = processed_guide_pre[field_key]
+                            if isinstance(node, dict) and "confidence" in node:
+                                orig_conf = node.get("confidence", 1.0)
+                                if issue_type == "HALLUCINATION":
+                                    node["confidence"] = 0.0
+                                    node["_judge_flag"] = "HALLUCINATION"
+                                elif issue_type == "SCOPE_ERROR":
+                                    node["confidence"] = min(orig_conf, 0.3)
+                                    node["_judge_flag"] = "SCOPE_ERROR"
+                                elif issue_type == "VALUE_MISMATCH":
+                                    node["confidence"] = min(orig_conf, 0.5)
+                                    node["_judge_flag"] = "VALUE_MISMATCH"
+                            # Handle INCOMPLETE (missing rows) — can't auto-fix, but flag for visibility
+                            elif issue_type == "INCOMPLETE":
+                                logger.warning(
+                                    f"[BetaPipeline] Judge: INCOMPLETE — {field_key} "
+                                    f"is missing rows: {issue.get('suggestion', '?')[:200]}"
+                                )
+                else:
+                    logger.info("[BetaPipeline] Judge: All fields verified OK")
+
+                # --- 4b-2. Field-Level Retry for flagged fields ---
+                retryable = [
+                    i for i in issues
+                    if i.get("type") in ("HALLUCINATION", "SCOPE_ERROR", "VALUE_MISMATCH")
+                ]
+                if retryable and len(retryable) <= 10:
+                    try:
+                        retry_result = await self._retry_flagged_fields(
+                            retryable, work_order, tagged_text, model
+                        )
+                        if retry_result:
+                            for fk, fv in retry_result.items():
+                                if fk.startswith("_"):
+                                    continue
+                                processed_guide_pre[fk] = fv
+                                logger.info(f"[BetaPipeline] Retry replaced: {fk}")
+                            judge_result["_retry_applied"] = list(retry_result.keys())
+                    except Exception as re:
+                        logger.warning(f"[BetaPipeline] Field retry failed (non-fatal): {re}")
+
+            except Exception as e:
+                logger.warning(f"[BetaPipeline] Judge failed (non-fatal): {e}")
+
+            # --- 4b-3. Survey-based Gap Check (Python, no LLM) ---
+            if survey_result:
+                try:
+                    survey_entities = set(
+                        e.upper() for e in survey_result.get("all_entities", [])
+                        if len(e) > 2 and not e[0].isdigit()
+                    )
+                    guide_pre = final_guide.get("guide_extracted", {})
+                    for fk, fv in guide_pre.items():
+                        actual_val = fv
+                        if isinstance(fv, dict) and "value" in fv and isinstance(fv["value"], list):
+                            actual_val = fv["value"]
+                        if isinstance(actual_val, list) and len(actual_val) > 0:
+                            extracted_vals = set()
+                            for row in actual_val:
+                                if isinstance(row, dict):
+                                    for col in ["POD", "PORT", "port", "destination"]:
+                                        pv = row.get(col, {})
+                                        val = pv.get("value", "") if isinstance(pv, dict) else str(pv)
+                                        if val:
+                                            extracted_vals.add(val.upper())
+                            missing = survey_entities - extracted_vals
+                            # Filter to likely destination names (exclude headers like TRADE, COMMODITY)
+                            skip_words = {"TRADE", "COMMODITY", "PORT", "VALIDITY", "OWS", "GFS", "GRI",
+                                          "PSS", "REMARK", "20FT", "40FT", "CURRENCY", "FAK", "FALCON"}
+                            missing = {m for m in missing if m not in skip_words}
+                            if missing and len(missing) > 2:
+                                logger.warning(
+                                    f"[BetaPipeline] Survey Gap: {fk} has {len(actual_val)} rows "
+                                    f"but {len(missing)} entities not found in extraction: "
+                                    f"{', '.join(sorted(missing)[:15])}"
+                                )
+                                if judge_result is None:
+                                    judge_result = {"issues": [], "verdict": "flagged"}
+                                judge_result["_survey_gap"] = {
+                                    "field": fk,
+                                    "extracted_count": len(actual_val),
+                                    "missing_count": len(missing),
+                                    "missing_entities": sorted(missing)[:30],
+                                }
+                except Exception as e:
+                    logger.warning(f"[BetaPipeline] Survey gap check failed: {e}")
+
         # --- 4c. Extract unmapped_critical_info → other_data ---
         other_data = []
         processed_guide = final_guide.get("guide_extracted", {})
@@ -352,6 +510,13 @@ class BetaPipeline(ExtractionPipeline):
                 "pipeline_mode": "designer-engineer",
                 "partial": engineer_output.get("_partial", False),
                 "chunk_stats": engineer_output.get("_chunk_stats"),
+                "judge_result": judge_result,
+                "survey_result": {
+                    "python_facts": survey_result.get("python_facts", {}) if survey_result else {},
+                    "ai_interpretation": survey_result.get("ai_interpretation", {}) if survey_result else {},
+                    "all_entities": survey_result.get("all_entities", []) if survey_result else [],
+                    "elapsed_seconds": survey_result.get("_elapsed_seconds") if survey_result else None,
+                } if survey_result else None,
             },
             model_name=model.name,
             duration_seconds=(datetime.utcnow() - start_time).total_seconds()
@@ -412,6 +577,463 @@ class BetaPipeline(ExtractionPipeline):
         logger.info(f"[BetaPipeline] Designer: Work order cached (key={cache_key[:16]}...)")
         
         return work_order
+
+    # ==================================================================
+    # Phase ③-b: Document Survey (Task List + Location Search)
+    # ==================================================================
+
+    @staticmethod
+    def _build_task_list(model: ExtractionModel) -> list:
+        """
+        Step ①: Build a deterministic task list from the model schema.
+        No LLM call — pure Python transformation.
+        """
+        tasks = []
+        for f in model.fields:
+            task = {
+                "task_id": f"T_{f.key}",
+                "field_key": f.key,
+                "label": f.label,
+                "type": "table_field" if f.type in ("table", "list") else "common_field",
+                "description": f.description or f.label,
+                "rules": f.rules or "",
+            }
+            if f.type in ("table", "list") and f.sub_fields:
+                task["sub_field_keys"] = [
+                    sf.get("key", sf.get("label", "")) for sf in f.sub_fields
+                ]
+            tasks.append(task)
+        return tasks
+
+    async def _search_locations(
+        self, task_list: list, tagged_text: str, model: ExtractionModel
+    ) -> dict:
+        """
+        Step ②: Hybrid Document Survey.
+        - Python: deterministic facts (row counts, entities, table boundaries)
+        - AI: semantic interpretation (header vs data, split/merge, field mapping)
+        """
+        import re
+        import time as _time
+        _t = _time.monotonic()
+
+        if not tagged_text or len(tagged_text) < 50:
+            logger.warning("[BetaPipeline] Survey: tagged_text too short, skipping")
+            return {}
+
+        # ─── Phase A: Python Deterministic Analysis ───────────────
+        lines = tagged_text.split("\n")
+
+        # A1. Extract all table rows (pipe-delimited)
+        table_rows = []
+        header_text_parts = []
+        header_len = 0
+        for line in lines:
+            stripped = line.strip()
+            is_table = stripped.startswith("|") and stripped.count("|") >= 3
+            if is_table and "---" not in stripped:
+                cells = [re.sub(r'\^[A-Z0-9]+', '', c).strip() for c in stripped.split("|")[1:-1]]
+                table_rows.append(cells)
+            elif not is_table and header_len < 1500:
+                header_text_parts.append(stripped)
+                header_len += len(stripped)
+
+        # A2. Detect table boundaries (column count changes)
+        tables_raw = []
+        current_table = []
+        prev_ncols = 0
+        for row in table_rows:
+            ncols = len(row)
+            if ncols != prev_ncols and current_table:
+                tables_raw.append(current_table)
+                current_table = []
+            current_table.append(row)
+            prev_ncols = ncols
+        if current_table:
+            tables_raw.append(current_table)
+
+        # A3. Extract entities from each table
+        tables_info = []
+        all_entities = set()
+        for ti, table in enumerate(tables_raw):
+            header = table[0] if table else []
+            data_rows = table[1:] if len(table) > 1 else table
+            entities = set()
+            for row in data_rows:
+                for cell in row[:5]:  # first 5 columns
+                    cleaned = cell.strip()
+                    if not cleaned:
+                        continue
+                    # Skip pure numbers, dates, currency patterns
+                    if re.match(r'^[\d,.\-/~\s]+$', cleaned):
+                        continue
+                    if len(cleaned) <= 1:
+                        continue
+                    entities.add(cleaned)
+            all_entities.update(entities)
+            tables_info.append({
+                "table_index": ti,
+                "headers": header[:8],
+                "total_rows": len(table),
+                "data_rows": len(data_rows),
+                "entities": sorted(entities)[:30],
+                "entity_count": len(entities),
+            })
+
+        python_facts = {
+            "total_table_rows": len(table_rows),
+            "num_tables": len(tables_raw),
+            "tables": tables_info,
+            "total_unique_entities": len(all_entities),
+            "header_text": "\n".join(header_text_parts[:15]),
+        }
+
+        logger.info(
+            f"[BetaPipeline] Survey Python: {len(table_rows)} rows, "
+            f"{len(tables_raw)} tables, {len(all_entities)} entities"
+        )
+
+        # ─── Phase B: AI Semantic Interpretation ──────────────────
+        # Build compact fact sheet for AI
+        fact_sheet = f"""PYTHON ANALYSIS RESULTS:
+- Document has {len(table_rows)} table rows across {len(tables_raw)} table(s)
+- {len(all_entities)} unique non-numeric entities found
+
+DOCUMENT HEADER (non-table text):
+{python_facts['header_text'][:800]}
+"""
+        for ti in tables_info:
+            all_ents = ", ".join(ti["entities"])
+            fact_sheet += f"\nTable {ti['table_index']+1}: {ti['data_rows']} data rows\n  Headers: {ti['headers'][:8]}\n  ALL entities: [{all_ents}]\n"
+
+        # Task summary
+        table_tasks = [t for t in task_list if t["type"] == "table_field"]
+        common_tasks = [t for t in task_list if t["type"] == "common_field"]
+
+        task_summary = "FIELDS TO EXTRACT:\n"
+        for t in common_tasks:
+            task_summary += f"  - {t['field_key']} ({t['label']}): single value\n"
+        for t in table_tasks:
+            sub = ", ".join(t.get("sub_field_keys", [])[:6])
+            task_summary += f"  - {t['field_key']} ({t['label']}): TABLE [{sub}]\n"
+
+        # Build field key mapping for table tasks
+        table_field_keys = [t['field_key'] for t in table_tasks]
+        common_field_keys = [t['field_key'] for t in common_tasks]
+
+        system_prompt = f"""You are a document structure interpreter. Python already extracted these facts from the document.
+Your job is to ADD MEANING — classify rows, find field values, estimate output counts.
+
+{fact_sheet}
+{task_summary}
+
+RETURN JSON with EXACTLY these keys:
+{{
+  "field_mapping": {{
+    // Use EXACTLY these field keys: {common_field_keys}
+    // For each, find its value in the DOCUMENT HEADER text above
+    "<field_key>": {{
+      "found": true/false,
+      "value_hint": "the actual value found in the document",
+      "source": "header|table_column|footer|email_body"
+    }}
+  }},
+  "table_analysis": {{
+    // Use EXACTLY these field keys: {table_field_keys}
+    // Map ALL Python tables to these extraction field(s)
+    "<table_field_key>": {{
+      "header_rows_to_skip": ["entity names that are GROUP HEADERS like 'OCEANIA', not actual data"],
+      "rows_needing_split": ["entity names that have MULTIPLE date ranges and become multiple output rows"],
+      "rows_to_exclude": ["entity names where rate values are '-' or empty"],
+      "estimated_output_rows": <Python data_rows - skips - excludes + splits>,
+      "all_destination_names": ["ALL port/city names that should appear as POD in the output"],
+      "missing_risk_note": "structural observations about potential data loss"
+    }}
+  }},
+  "document_type": "1-line description"
+}}
+
+RULES:
+- Use Python's row counts as ground truth — do NOT re-count rows.
+- For field_mapping: look at the DOCUMENT HEADER text to find single-value fields.
+- For table_analysis: classify which entities are destinations vs headers vs excluded.
+- all_destination_names must list EVERY actual port/city, not numbers or headers.
+- Return ONLY valid JSON."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": "Interpret the document structure now."},
+        ]
+
+        ai_result = await self.call_llm(messages, temperature=0.0)
+
+        # Unwrap
+        if "guide_extracted" in ai_result and "field_mapping" not in ai_result:
+            ai_result = ai_result["guide_extracted"]
+
+        elapsed = _time.monotonic() - _t
+        logger.info(
+            f"[BetaPipeline] Survey complete: {elapsed:.1f}s "
+            f"(python={len(table_rows)} rows, ai={ai_result.get('document_type', '?')[:50]})"
+        )
+
+        return {
+            "python_facts": python_facts,
+            "ai_interpretation": ai_result,
+            "all_entities": sorted(all_entities),
+            "_elapsed_seconds": round(elapsed, 2),
+        }
+
+    # ==================================================================
+    # Phase ④: Judge LLM (Self-Audit)
+    # ==================================================================
+
+    async def _run_judge(self, guide: dict, tagged_text: str, model: ExtractionModel) -> dict:
+        """
+        Post-extraction verification:
+        1. Value accuracy — hallucination, scope errors, mismatches
+        2. Completeness — missing table rows (INCOMPLETE detection)
+        Returns {"issues": [...], "verdict": "pass"|"flagged"}.
+        """
+        import time as _time
+        _t = _time.monotonic()
+
+        # 1. Sample extraction results (avoid token explosion on large tables)
+        sampled_guide = self._sample_for_judge(guide)
+        guide_json = json.dumps(sampled_guide, ensure_ascii=False, indent=None)
+        if len(guide_json) > 4000:
+            guide_json = guide_json[:4000] + "...(truncated)"
+
+        # 2. Build richer document context: head + mid + tail
+        doc_len = len(tagged_text)
+        doc_head = tagged_text[:2000] if doc_len > 0 else "(empty)"
+        doc_mid = ""
+        doc_tail = ""
+        if doc_len > 5000:
+            mid_start = doc_len // 2 - 500
+            doc_mid = tagged_text[mid_start:mid_start + 1000]
+        if doc_len > 2500:
+            doc_tail = tagged_text[-1200:]
+
+        # 3. Count table rows in document vs extraction for completeness check
+        table_row_counts = {}
+        for key, val in guide.items():
+            if key.startswith("_"):
+                continue
+            actual_val = val
+            if isinstance(val, dict) and "value" in val and isinstance(val["value"], list):
+                actual_val = val["value"]
+            if isinstance(actual_val, list):
+                table_row_counts[key] = len(actual_val)
+
+        # Count markdown table rows in source document
+        doc_table_row_count = 0
+        if tagged_text:
+            doc_table_row_count = sum(
+                1 for line in tagged_text.split("\n")
+                if line.strip().startswith("|") and "---" not in line
+                and line.strip().count("|") >= 3
+            )
+
+        completeness_context = ""
+        if table_row_counts:
+            completeness_context = "\n\nTABLE ROW COUNTS:\n"
+            for tkey, tcount in table_row_counts.items():
+                completeness_context += f"  - Extracted '{tkey}': {tcount} rows\n"
+            if doc_table_row_count > 0:
+                completeness_context += f"  - Source document markdown table rows: ~{doc_table_row_count}\n"
+            completeness_context += (
+                "  IMPORTANT: If the document appears to have significantly MORE data rows "
+                "than what was extracted, flag as INCOMPLETE.\n"
+            )
+
+        # 4. Build Judge prompt
+        field_list = ", ".join(
+            f"{f.key}({f.label})" for f in model.fields
+        )
+
+        system_prompt = f"""You are an extraction QA auditor for a document data extraction system.
+Your job is to verify BOTH the accuracy AND completeness of extracted data.
+
+EXPECTED FIELDS: {field_list}
+
+CHECK 1 — VALUE ACCURACY (per field):
+1. HALLUCINATION — Value was invented (not found anywhere in the document)
+2. SCOPE_ERROR — Value is from the wrong section/table
+3. VALUE_MISMATCH — Value partially matches but has errors (wrong number, truncated)
+
+CHECK 2 — COMPLETENESS (for table/list fields):
+4. INCOMPLETE — The document contains MORE rows than were extracted.
+   Look for port names, city names, item names in the source document that do NOT appear
+   in the extraction result. If you find missing entries, report them.
+   For INCOMPLETE issues, set "field" to the table field key, and in "suggestion"
+   list the missing items you can see in the document.
+{completeness_context}
+
+RETURN JSON:
+{{
+  "issues": [
+    {{"field": "field_key", "type": "HALLUCINATION|SCOPE_ERROR|VALUE_MISMATCH|INCOMPLETE", "reason": "brief explanation", "suggestion": "correct value, or comma-separated list of missing items"}}
+  ],
+  "verdict": "pass" or "flagged"
+}}
+
+RULES:
+- Be CONSERVATIVE for value checks — only flag clear errors.
+- Be AGGRESSIVE for completeness — if you see port/city names in the document that aren't extracted, flag INCOMPLETE.
+- Minor formatting differences (e.g., "MSC" vs "M.S.C.") are OK for values.
+- Return ONLY valid JSON."""
+
+        user_prompt = f"""EXTRACTION RESULT:
+{guide_json}
+
+SOURCE DOCUMENT (head):
+{doc_head}
+
+SOURCE DOCUMENT (middle):
+{doc_mid}
+
+SOURCE DOCUMENT (tail):
+{doc_tail}
+
+Verify accuracy AND completeness now."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        result = await self.call_llm(messages, temperature=0.0)
+
+        # Unwrap: call_llm auto-wraps flat dicts into {guide_extracted: {...}}
+        if "guide_extracted" in result and "issues" not in result:
+            result = result["guide_extracted"]
+
+        # Parse and validate
+        issues = result.get("issues", [])
+        verdict = result.get("verdict", "unknown")
+
+        # Accumulate Judge token usage into pipeline total
+        judge_usage = result.get("_token_usage", {})
+
+        elapsed = _time.monotonic() - _t
+        logger.info(
+            f"[BetaPipeline] Judge complete: verdict={verdict}, "
+            f"issues={len(issues)}, elapsed={elapsed:.1f}s, "
+            f"tokens={judge_usage.get('total_tokens', 0)}"
+        )
+
+        return {
+            "issues": issues,
+            "verdict": verdict,
+            "_token_usage": judge_usage,
+            "_elapsed_seconds": round(elapsed, 2),
+            "_doc_table_rows": doc_table_row_count,
+            "_extracted_table_rows": table_row_counts,
+        }
+
+    @staticmethod
+    def _sample_for_judge(guide: dict, max_rows: int = 8) -> dict:
+        """
+        Sample extraction results for Judge input:
+        - Common fields: keep as-is
+        - Table fields: first 3 + last 2 + up to 3 random middle rows
+        This prevents token explosion while giving the Judge enough signal.
+        """
+        import random
+        sampled = {}
+        for key, val in guide.items():
+            if key.startswith("_"):
+                continue
+            if isinstance(val, list) and len(val) > max_rows:
+                # Sample: first 3 + last 2 + random middle
+                head = val[:3]
+                tail = val[-2:]
+                middle_pool = val[3:-2]
+                mid_sample = random.sample(middle_pool, min(3, len(middle_pool)))
+                sampled[key] = head + mid_sample + tail
+                sampled[f"_{key}_total_rows"] = len(val)
+            else:
+                sampled[key] = val
+        return sampled
+
+    async def _retry_flagged_fields(
+        self, issues: list, work_order: dict, tagged_text: str, model: ExtractionModel
+    ) -> dict:
+        """
+        Phase ④-b: Re-extract fields flagged by Judge.
+        Uses a stricter prompt: 'if not found, return null — do NOT guess.'
+        Groups all flagged fields into a single LLM call to minimize cost.
+        """
+        import time as _time
+        _t = _time.monotonic()
+
+        flagged_keys = {i.get("field", "") for i in issues if i.get("field")}
+        if not flagged_keys:
+            return {}
+
+        # Build focused field descriptions from model schema
+        field_desc_parts = []
+        for f in model.fields:
+            if f.key in flagged_keys:
+                issue = next((i for i in issues if i.get("field") == f.key), {})
+                field_desc_parts.append(
+                    f"- {f.key} ({f.label}): type={f.type}"
+                    f"  PREVIOUS ERROR: {issue.get('type', '?')} — {issue.get('reason', '?')}"
+                    f"  SUGGESTION: {issue.get('suggestion', 'Re-read document carefully')}"
+                )
+
+        if not field_desc_parts:
+            return {}
+
+        field_descriptions = "\n".join(field_desc_parts)
+
+        # Use more document context for retry (head + tail)
+        doc_context = tagged_text[:3000]
+        if len(tagged_text) > 4000:
+            doc_context += "\n...\n" + tagged_text[-1500:]
+
+        system_prompt = f"""You are a document data re-extractor. A previous extraction attempt had errors.
+You must CAREFULLY re-read the document and extract ONLY these flagged fields:
+
+{field_descriptions}
+
+STRICT RULES:
+1. If the value is NOT clearly present in the document, return null. Do NOT guess.
+2. If the value exists but in a different section, extract the CORRECT one based on context.
+3. Return ONLY the re-extracted fields as JSON: {{"field_key": {{"value": ..., "confidence": 0.0-1.0}}}}
+4. Do NOT include fields that were not flagged.
+5. Return ONLY valid JSON."""
+
+        user_prompt = f"""DOCUMENT:\n{doc_context}\n\nRe-extract the flagged fields now."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        result = await self.call_llm(messages, temperature=0.0)
+
+        # Unwrap auto-wrapping
+        if "guide_extracted" in result and not any(k in result for k in flagged_keys):
+            result = result["guide_extracted"]
+
+        # Filter to only flagged keys
+        retry_output = {}
+        for k in flagged_keys:
+            if k in result:
+                node = result[k]
+                if isinstance(node, dict):
+                    node["_retry"] = True
+                retry_output[k] = node
+
+        elapsed = _time.monotonic() - _t
+        logger.info(
+            f"[BetaPipeline] Field retry: {len(retry_output)}/{len(flagged_keys)} fields "
+            f"re-extracted in {elapsed:.1f}s"
+        )
+
+        return retry_output
 
     def _build_document_skeleton(self, tagged_text: str) -> str:
         """
