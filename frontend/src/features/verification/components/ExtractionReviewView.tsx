@@ -113,7 +113,7 @@ export function ExtractionReviewView({
         : previewData?.other_data
 
     // Beta mode: derived from model's beta features
-    const isBetaMode = !!(model?.beta_features?.use_optimized_prompt || model?.beta_features?.use_virtual_excel_ocr)
+    const isBetaMode = !!(model?.beta_features?.use_optimized_prompt || model?.beta_features?.use_virtual_excel_ocr || model?.beta_features?.use_judge)
 
     // OCR text: from previewData (raw Document Intelligence content)
     const ocrText = previewData?.raw_content || undefined

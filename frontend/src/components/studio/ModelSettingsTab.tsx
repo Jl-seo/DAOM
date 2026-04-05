@@ -266,6 +266,24 @@ export function ModelSettingsTab({
                                 }
                             })}
                         />
+
+                        <BetaToggle
+                            label="🧠 [Beta] 문서 구조 분석 (Document Survey)"
+                            badge={{ text: "SURVEY", color: "purple" }}
+                            description="추출 전 Python으로 행 수/엔티티를 분석하고, AI가 의미를 판단합니다. 대량 테이블 누락 방지 및 추론 맵 탭을 제공합니다."
+                            enabled={!!editingModel.beta_features?.use_judge}
+                            disabled={!isEditing}
+                            activeColor="bg-purple-500"
+                            id="toggle-document-survey"
+                            className="mt-3 pt-3 border-t border-border/50"
+                            onToggle={() => onUpdate({
+                                ...editingModel,
+                                beta_features: {
+                                    ...editingModel.beta_features,
+                                    use_judge: !editingModel.beta_features?.use_judge
+                                }
+                            })}
+                        />
                     </div>
                 )}
             </Card>
@@ -335,6 +353,7 @@ function BetaToggle({ label, description, enabled, disabled, activeColor, onTogg
         indigo: "bg-indigo-500/10 text-indigo-500 border-indigo-500/20",
         amber: "bg-amber-500/10 text-amber-600 border-amber-500/20",
         blue: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+        purple: "bg-purple-500/10 text-purple-600 border-purple-500/20",
     }
 
     return (
