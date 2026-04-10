@@ -334,24 +334,16 @@ class BetaPipeline(ExtractionPipeline):
                         f"LLM lied about completion. Forcing chunked re-extraction."
                     )
                     if current_len <= SINGLE_SHOT_CHAR_LIMIT:
-                        # Was single-shot → retry with forced smaller chunks
-                        # 8K chunks = ~2-3 table rows per chunk → LLM cannot skip any
+                        # Was single-shot → retry with chunked (same chunk size)
                         output = await self._run_engineer_chunked(
                             text_work_order, engineer_text_payload,
-                            8_000,  # Aggressive: tiny chunks so LLM must extract each row
+                            TEXT_CHUNK_SIZE,
                             model
                         )
                     elif num_table_fields >= 2:
                         # Was already chunked but still lazy → per-table split
                         output = await self._run_engineer_per_table(
                             text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model
-                        )
-                    else:
-                        # Single table field, was chunked → retry with even smaller chunks
-                        output = await self._run_engineer_chunked(
-                            text_work_order, engineer_text_payload,
-                            8_000,
-                            model
                         )
                     output["_completeness_retried"] = True
                     
@@ -494,7 +486,7 @@ class BetaPipeline(ExtractionPipeline):
                             }}
                             retry_output = await self._run_engineer_chunked(
                                 sub_wo, tagged_text,
-                                min(25_000, 15_000),  # Force smaller chunks
+                                25_000,  # Standard chunk size
                                 model
                             )
                             retry_guide = retry_output.get("guide_extracted", {})
