@@ -1504,8 +1504,9 @@ STRICT RULES:
 
     async def _run_engineer(self, work_order: dict, tagged_text: str, model: ExtractionModel = None) -> dict:
         """
-        Single-shot Engineer extraction.
-        Returns raw LLM output dict with guide_extracted + _token_usage.
+        Single-shot Engineer extraction with inline completeness retry.
+        For short documents (< 50K), chunking is useless. Instead, if the LLM
+        is lazy (extracts < 50% of rows), retry with a corrective prompt.
         """
         ref_data = (model.reference_data if model else None) or None
         system_prompt = RefinerEngine.construct_engineer_prompt(work_order, reference_data=ref_data)
@@ -1521,6 +1522,51 @@ STRICT RULES:
         temp = model.temperature if model else None
         
         raw_result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
+        
+        # --- Inline Completeness Retry (for short docs where chunking is useless) ---
+        doc_rows = self._count_doc_table_rows(tagged_text)
+        extracted_rows = self._count_extracted_rows(raw_result)
+        
+        if doc_rows > 5 and extracted_rows < doc_rows * 0.5 and not raw_result.get("_truncated"):
+            logger.warning(
+                f"[BetaPipeline] Single-Shot LAZY: extracted {extracted_rows}/{doc_rows} rows. "
+                f"Retrying with corrective prompt."
+            )
+            # Corrective retry: tell the LLM exactly what it missed
+            retry_user_prompt = (
+                f"DOCUMENT DATA (Tagged Layout Format):\n{tagged_text}\n\n"
+                f"🚨 COMPLETENESS FAILURE — RETRY REQUIRED:\n"
+                f"Your previous extraction returned only {extracted_rows} rows.\n"
+                f"This document contains {doc_rows} table data rows.\n"
+                f"You MUST extract ALL {doc_rows} rows. Missing {doc_rows - extracted_rows} rows.\n"
+                f"Go through the table ROW BY ROW and extract every single one.\n"
+                f"Return valid JSON with guide_extracted wrapper."
+            )
+            retry_messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": retry_user_prompt}
+            ]
+            try:
+                retry_result = await self.call_llm(
+                    retry_messages, is_table_model=True,
+                    temperature=0.0,  # Force deterministic
+                    response_format=response_format
+                )
+                retry_rows = self._count_extracted_rows(retry_result)
+                if retry_rows > extracted_rows:
+                    logger.info(
+                        f"[BetaPipeline] Single-Shot retry SUCCESS: "
+                        f"{extracted_rows} → {retry_rows} rows (doc has {doc_rows})"
+                    )
+                    return retry_result
+                else:
+                    logger.warning(
+                        f"[BetaPipeline] Single-Shot retry did NOT improve: "
+                        f"{extracted_rows} → {retry_rows}. Keeping original."
+                    )
+            except Exception as e:
+                logger.warning(f"[BetaPipeline] Single-Shot retry failed: {e}")
+        
         return raw_result
 
     async def _run_engineer_chunked(self, work_order: dict, tagged_text: str, chunk_size: int, model: ExtractionModel = None) -> dict:
