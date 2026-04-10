@@ -1239,15 +1239,10 @@ STRICT RULES:
                                 sf_schema_type = ["string", "null"]
 
                             if is_beta_mode:
-                                sub_props[sf_key] = {
-                                    "type": ["object", "null"],
-                                    "properties": {
-                                        "value": {"type": sf_schema_type},
-                                        "ref": {"type": ["string", "null"]}
-                                    },
-                                    "required": ["value", "ref"],
-                                    "additionalProperties": False
-                                }
+                                # TABLE CELLS: Use plain values (string|null) instead of {value, ref} wrapper.
+                                # This halves output tokens — critical for tables with many rows/columns.
+                                # BBox mapping for table cells uses fuzzy post-processing, not ref tags.
+                                sub_props[sf_key] = {"type": sf_schema_type}
                             else:
                                 sub_props[sf_key] = {
                                     "type": ["object", "null"],

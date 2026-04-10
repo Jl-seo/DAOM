@@ -721,10 +721,10 @@ For unmapped fields, fall back to generic work order instructions.
             key = tf.get("key", "table")
             cols = tf.get("columns", {})
             if cols:
-                col_examples = ', '.join(f'"{ck}": {{"value": "...", "ref": "C1"}}' for ck in list(cols.keys())[:3])
+                col_examples = ', '.join(f'"{ck}": "..."' for ck in list(cols.keys())[:3])
                 example_parts.append(f'    "{key}": [\n      {{{col_examples}}}\n    ]')
             else:
-                example_parts.append(f'    "{key}": [\n      {{"col1": {{"value": "...", "ref": "C1"}}}}\n    ]')
+                example_parts.append(f'    "{key}": [\n      {{"col1": "value"}}\n    ]')
 
         if example_parts:
             example_json = "{{\n  \"guide_extracted\": {{\n" + ",\n".join(example_parts) + "\n  }}\n}}"
@@ -789,10 +789,11 @@ CHECKBOXES & SELECTION MARKS (CRITICAL):
 - If your instruction asks for the state of a checkbox, map `:selected:` to true/Yes and `:unselected:` to false/No.
 
 TOKEN EFFICIENCY (CRITICAL):
-- Each cell MUST be ONLY: {{"value": "extracted value", "ref": "TAG_ID"}}
-- Do NOT add confidence, source_text, is_uncertain, or warning_msg.
+- For COMMON FIELDS (non-table): use {{"value": "extracted value", "ref": "TAG_ID"}}
+- For TABLE CELLS: use PLAIN VALUES directly. Example: {{"col1": "value", "col2": "value"}}
+  Do NOT wrap table cell values in {{"value": ..., "ref": ...}}. Just the raw value or null.
 - Maximize the number of rows you output. Data COMPLETENESS is more important than verbosity.
-- If a value is missing, return {{"value": null, "ref": null}}. Nothing more.
+- If a table cell value is missing, use null. Nothing more.
 
 ALLOWED FIELD KEYS (output ONLY these keys, do not invent new ones):
 {field_key_list}
