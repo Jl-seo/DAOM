@@ -335,15 +335,23 @@ class BetaPipeline(ExtractionPipeline):
                     )
                     if current_len <= SINGLE_SHOT_CHAR_LIMIT:
                         # Was single-shot → retry with forced smaller chunks
+                        # 8K chunks = ~2-3 table rows per chunk → LLM cannot skip any
                         output = await self._run_engineer_chunked(
                             text_work_order, engineer_text_payload,
-                            min(TEXT_CHUNK_SIZE, 15_000),  # Smaller chunks = more LLM calls = more rows
+                            8_000,  # Aggressive: tiny chunks so LLM must extract each row
                             model
                         )
                     elif num_table_fields >= 2:
                         # Was already chunked but still lazy → per-table split
                         output = await self._run_engineer_per_table(
                             text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model
+                        )
+                    else:
+                        # Single table field, was chunked → retry with even smaller chunks
+                        output = await self._run_engineer_chunked(
+                            text_work_order, engineer_text_payload,
+                            8_000,
+                            model
                         )
                     output["_completeness_retried"] = True
                     
@@ -1653,6 +1661,49 @@ STRICT RULES:
 
                     if result.get("_had_429"):
                         sem_ctx.is_429 = True
+
+                    # --- Per-Chunk Completeness Micro-Check ---
+                    # If LLM extracted < 50% of this chunk's rows, retry with explicit row-listing prompt
+                    chunk_doc_rows = self._count_doc_table_rows(chunk_text)
+                    chunk_extracted_rows = self._count_extracted_rows(result)
+                    if chunk_doc_rows > 5 and chunk_extracted_rows < chunk_doc_rows * 0.5:
+                        logger.warning(
+                            f"[BetaPipeline] Chunk {chunk_idx}: LLM lazy — "
+                            f"extracted {chunk_extracted_rows}/{chunk_doc_rows} rows. Retrying with stronger prompt."
+                        )
+                        # Build a much stronger individual-row instruction
+                        retry_user_prompt = (
+                            f"{prefix}"
+                            f"--- START ACTUAL CHUNK DATA (Chunk {chunk_idx + 1}/{len(chunks)}) ---\n"
+                            f"{chunk_text}\n"
+                            f"--- END ACTUAL CHUNK DATA ---\n\n"
+                            f"🚨 MANDATORY COMPLETENESS CHECK:\n"
+                            f"This chunk contains EXACTLY {chunk_doc_rows} table data rows.\n"
+                            f"You previously extracted only {chunk_extracted_rows} rows — this is WRONG.\n"
+                            f"You MUST extract ALL {chunk_doc_rows} rows, one by one.\n"
+                            f"Go through EVERY SINGLE ROW in the table above and extract it.\n"
+                            f"If you return fewer than {chunk_doc_rows} rows, you have FAILED.\n"
+                            f"Extract all fields from the ACTUAL CHUNK DATA only. Return valid JSON with guide_extracted wrapper."
+                        )
+                        retry_messages = [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": retry_user_prompt}
+                        ]
+                        try:
+                            retry_result = await self.call_llm(
+                                retry_messages, is_table_model=True,
+                                temperature=0.0,  # Force deterministic for retry
+                                response_format=response_format
+                            )
+                            retry_extracted = self._count_extracted_rows(retry_result)
+                            if retry_extracted > chunk_extracted_rows:
+                                logger.info(
+                                    f"[BetaPipeline] Chunk {chunk_idx} retry SUCCESS: "
+                                    f"{chunk_extracted_rows} → {retry_extracted} rows"
+                                )
+                                result = retry_result
+                        except Exception as retry_err:
+                            logger.warning(f"[BetaPipeline] Chunk {chunk_idx} retry failed: {retry_err}")
                         
                     # Validate result structure
                     if not isinstance(result, dict):
