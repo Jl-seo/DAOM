@@ -321,6 +321,39 @@ class BetaPipeline(ExtractionPipeline):
                 logger.info(f"[BetaPipeline] Route: Chunked Engineer ({num_table_fields} table fields, {current_len} chars)")
                 output = await self._run_engineer_chunked(text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model)
                 
+            # Fallback 1.5: Python Completeness Guard — catch LLM "lazy stop"
+            # LLM returns finish_reason="stop" after extracting ~8 rows, claiming it's done.
+            # Python deterministically counts document rows and forces re-extraction if way too few.
+            if not output.get("_truncated") and not output.get("_completeness_retried"):
+                doc_rows = self._count_doc_table_rows(engineer_text_payload)
+                extracted_rows = self._count_extracted_rows(output)
+                if doc_rows > 10 and extracted_rows < doc_rows * 0.3:
+                    logger.warning(
+                        f"[BetaPipeline] ⚠️ COMPLETENESS GUARD: LLM extracted only "
+                        f"{extracted_rows}/{doc_rows} rows ({extracted_rows*100//max(1,doc_rows)}%). "
+                        f"LLM lied about completion. Forcing chunked re-extraction."
+                    )
+                    if current_len <= SINGLE_SHOT_CHAR_LIMIT:
+                        # Was single-shot → retry with forced smaller chunks
+                        output = await self._run_engineer_chunked(
+                            text_work_order, engineer_text_payload,
+                            min(TEXT_CHUNK_SIZE, 15_000),  # Smaller chunks = more LLM calls = more rows
+                            model
+                        )
+                    elif num_table_fields >= 2:
+                        # Was already chunked but still lazy → per-table split
+                        output = await self._run_engineer_per_table(
+                            text_work_order, engineer_text_payload, TEXT_CHUNK_SIZE, model
+                        )
+                    output["_completeness_retried"] = True
+                    
+                    # Log post-retry results
+                    retry_rows = self._count_extracted_rows(output)
+                    logger.info(
+                        f"[BetaPipeline] Completeness Guard retry: {extracted_rows} → {retry_rows} rows "
+                        f"(doc has ~{doc_rows})"
+                    )
+
             # Fallback 2: Output truncated (completion tokens exhausted) → Per-Table Split
             # This is the ONLY path to per-table split now, ensuring it's used only when needed
             if output.get("_truncated") and num_table_fields >= 2:
@@ -395,7 +428,7 @@ class BetaPipeline(ExtractionPipeline):
                                 elif issue_type == "VALUE_MISMATCH":
                                     node["confidence"] = min(orig_conf, 0.5)
                                     node["_judge_flag"] = "VALUE_MISMATCH"
-                            # Handle INCOMPLETE (missing rows) — can't auto-fix, but flag for visibility
+                            # Handle INCOMPLETE (missing rows) — flagged for retry below
                             elif issue_type == "INCOMPLETE":
                                 logger.warning(
                                     f"[BetaPipeline] Judge: INCOMPLETE — {field_key} "
@@ -423,6 +456,52 @@ class BetaPipeline(ExtractionPipeline):
                             judge_result["_retry_applied"] = list(retry_result.keys())
                     except Exception as re:
                         logger.warning(f"[BetaPipeline] Field retry failed (non-fatal): {re}")
+
+                # --- 4b-2b. INCOMPLETE Retry: re-extract table fields with forced chunking ---
+                incomplete_issues = [
+                    i for i in issues
+                    if i.get("type") == "INCOMPLETE" and i.get("field")
+                ]
+                if incomplete_issues:
+                    for inc_issue in incomplete_issues[:3]:  # Max 3 tables to retry
+                        field_key = inc_issue.get("field", "")
+                        current_rows = processed_guide_pre.get(field_key, [])
+                        if not isinstance(current_rows, list):
+                            continue
+                        logger.warning(
+                            f"[BetaPipeline] INCOMPLETE retry: re-extracting '{field_key}' "
+                            f"(currently {len(current_rows)} rows) with forced chunking"
+                        )
+                        try:
+                            # Build sub-work-order for just this table field
+                            wo_inner_retry = work_order.get("work_order", work_order)
+                            target_tf = [tf for tf in wo_inner_retry.get("table_fields", []) if tf.get("key") == field_key]
+                            if not target_tf:
+                                continue
+                            sub_wo = {"work_order": {
+                                **wo_inner_retry,
+                                "common_fields": [],
+                                "table_fields": target_tf,
+                                "extraction_mode": "table"
+                            }}
+                            retry_output = await self._run_engineer_chunked(
+                                sub_wo, tagged_text,
+                                min(25_000, 15_000),  # Force smaller chunks
+                                model
+                            )
+                            retry_guide = retry_output.get("guide_extracted", {})
+                            if field_key in retry_guide:
+                                retry_rows = retry_guide[field_key]
+                                if isinstance(retry_rows, list) and len(retry_rows) > len(current_rows):
+                                    processed_guide_pre[field_key] = retry_rows
+                                    logger.info(
+                                        f"[BetaPipeline] INCOMPLETE retry SUCCESS: "
+                                        f"'{field_key}' {len(current_rows)} → {len(retry_rows)} rows"
+                                    )
+                                    if judge_result:
+                                        judge_result.setdefault("_incomplete_retry_applied", []).append(field_key)
+                        except Exception as e:
+                            logger.warning(f"[BetaPipeline] INCOMPLETE retry failed for '{field_key}': {e}")
 
             except Exception as e:
                 logger.warning(f"[BetaPipeline] Judge failed (non-fatal): {e}")
@@ -1333,6 +1412,59 @@ STRICT RULES:
     # ==================================================================
     # Phase ②: Engineer LLM (Value Extraction)
     # ==================================================================
+
+    @staticmethod
+    def _count_doc_table_rows(tagged_text: str) -> int:
+        """
+        Count markdown table data rows in the document (Python, deterministic).
+        Used by the Completeness Guard to detect LLM lazy extraction.
+        Skips separator rows (---) and header rows (estimated as first row per table).
+        """
+        import re
+        lines = tagged_text.split("\n")
+        total_data_rows = 0
+        in_table = False
+        header_seen_for_current_table = False
+        
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|") and stripped.endswith("|") and stripped.count("|") > 2:
+                # Skip separator rows
+                if "---" in stripped:
+                    continue
+                if re.match(r"^\|[\s\-\:\.\*]+\|$", stripped.replace(" ", "").replace("-", "")):
+                    continue
+                
+                if not in_table:
+                    # First row of a new table = header, skip it
+                    in_table = True
+                    header_seen_for_current_table = True
+                    continue
+                elif header_seen_for_current_table:
+                    # This is a data row
+                    total_data_rows += 1
+            else:
+                if in_table:
+                    # Exited table region
+                    in_table = False
+                    header_seen_for_current_table = False
+        
+        return total_data_rows
+
+    @staticmethod
+    def _count_extracted_rows(output: dict) -> int:
+        """
+        Count total extracted table rows from engineer output.
+        Used by the Completeness Guard.
+        """
+        guide = output.get("guide_extracted", {})
+        total = 0
+        for key, val in guide.items():
+            if key.startswith("_"):
+                continue
+            if isinstance(val, list):
+                total += len(val)
+        return total
 
     @staticmethod
     def _estimate_table_row_counts(tagged_text: str) -> str:
