@@ -455,13 +455,18 @@
         "actions": {
             "new_model": "New Model",
             "create_model": "Create Model",
-            "start": "Start"
+            "start": "Start",
+            "copy": "Copy"
         },
         "search": {
             "placeholder": "Search models..."
         },
         "errors": {
-            "load_failed": "Could not load model list"
+            "load_failed": "Failed to load models",
+            "copy_failed": "Failed to copy model"
+        },
+        "success": {
+            "copied": "Model copied successfully"
         },
         "empty": {
             "no_results": "No search results",

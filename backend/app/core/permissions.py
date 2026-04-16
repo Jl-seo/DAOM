@@ -40,8 +40,23 @@ async def check_model_permission(user: CurrentUser, model_id: str, required_role
     if await is_super_admin_by_group(user.id, user.tenant_id, access_token=access_token, user_groups=user_groups):
         return True
 
-    # 2. Check granular model permission
+    # 2. Check group-based model permission
     role = await get_model_role_by_group(user.id, user.tenant_id, model_id, access_token=access_token, user_groups=user_groups)
+    
+    # 3. Check Cosmos DB granular permissions (owner, users, groups, public)
+    from app.services.permission_service import get_model_permissions
+    model_perms = await get_model_permissions(model_id)
+
+    if model_perms:
+        if model_perms.owner == user.id:
+            role = "Admin"
+        elif not role: # Only grant User if not already Admin
+            if model_perms.public or user.id in model_perms.users:
+                role = "User"
+            # Groups array check in ModelPermissions
+            elif user_groups and any(gid in model_perms.groups for gid in user_groups):
+                role = "User"
+
     if not role:
         return False
 

@@ -28,16 +28,16 @@ async def list_models(current_user: CurrentUser = Depends(get_current_user)):
     if await is_super_admin(current_user):
         return all_models
 
-    # Standard User / Model Admin sees only accessible models (group permissions)
-    accessible_ids = await get_accessible_model_ids(
-        current_user.id,
-        current_user.tenant_id,
+    # Standard User / Model Admin sees only accessible models (owner, users, groups, superAdmin)
+    from app.services.permission_service import get_accessible_models
+    accessible_ids = await get_accessible_models(
+        current_user,
         access_token=getattr(current_user, 'access_token', None),
         user_groups=getattr(current_user, 'groups', None)
     )
     return [m for m in all_models if m.id in accessible_ids]
 
-@router.post("/", response_model=ExtractionModel, dependencies=[Depends(require_admin)])
+@router.post("/", response_model=ExtractionModel, dependencies=[Depends(get_current_user)])
 async def create_model(
     model_in: ExtractionModelCreate,
     request: Request,
@@ -50,6 +50,10 @@ async def create_model(
     )
     models.append(new_model)
     await save_models(models)
+
+    # Initialize ownership permissions for the new model
+    from app.services.permission_service import set_model_permissions
+    await set_model_permissions(new_model.id, owner=current_user.id, public=False)
 
     # Audit: Model creation
     await log_action(
@@ -303,4 +307,45 @@ async def delete_model(
             return {"message": "Model deactivated"}
 
     raise HTTPException(status_code=404, detail="Model not found")
+
+@router.post("/{model_id}/copy", response_model=ExtractionModel, dependencies=[Depends(verify_model_access)])
+async def copy_model(
+    model_id: str,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user)
+):
+    """모델 복사 (읽기 권한 필요, 복사 시 본인 소유로 생성)"""
+    models = await load_models()
+    original_model = next((m for m in models if m.id == model_id), None)
+    if not original_model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Clone the model data
+    model_data = original_model.model_dump()
+    model_data.pop("id", None)
+    model_data["name"] = f"{model_data.get('name', 'Copied Model')} (Copy)"
+    model_data["is_active"] = True
+    
+    new_model = ExtractionModel(
+        id=str(uuid.uuid4()),
+        **model_data
+    )
+    models.append(new_model)
+    await save_models(models)
+
+    # Automatically grant ownership to the user copying the model
+    from app.services.permission_service import set_model_permissions
+    await set_model_permissions(new_model.id, owner=current_user.id, public=False)
+
+    # Audit: Model copied
+    await log_action(
+        user=current_user,
+        action=AuditAction.CREATE_MODEL,
+        resource_type=AuditResource.MODEL,
+        resource_id=new_model.id,
+        details={"model_name": new_model.name, "copied_from": model_id},
+        request=request
+    )
+
+    return new_model
 

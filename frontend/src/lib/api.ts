@@ -98,6 +98,9 @@ export const modelsApi = {
     delete: (id: string) =>
         apiClient.delete(`/models/${id}`),
 
+    copy: (id: string) =>
+        apiClient.post<Model>(`/models/${id}/copy`),
+
     getOptions: () =>
         apiClient.get<{ id: string; name: string }[]>('/models/options/list'),
 

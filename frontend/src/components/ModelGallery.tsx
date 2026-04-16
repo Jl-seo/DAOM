@@ -2,9 +2,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { FileText, ArrowRight, CircleNotch, SquaresFour, PlusCircle, Sparkle, MagnifyingGlass, GitDiff, Stack } from '@phosphor-icons/react'
+import { FileText, ArrowRight, CircleNotch, SquaresFour, PlusCircle, Sparkle, MagnifyingGlass, GitDiff, Stack, Copy } from '@phosphor-icons/react'
 import axios from 'axios'
 import { API_CONFIG } from '../constants'
+import { modelsApi } from '../lib/api'
 import { toast } from 'sonner'
 import { useSiteConfig } from './SiteConfigProvider'
 import { useAuth } from '../auth/AuthContext'
@@ -78,6 +79,18 @@ export function ModelGallery() {
 
         return result
     }, [models, activeTab, searchQuery])
+
+    const handleCopy = async (modelId: string, e: React.MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        try {
+            await modelsApi.copy(modelId)
+            toast.success(t('gallery.success.copied'))
+            await loadModels()
+        } catch (error) {
+            toast.error(t('gallery.errors.copy_failed'))
+        }
+    }
 
     if (loading) {
         return (
@@ -254,9 +267,19 @@ export function ModelGallery() {
 
                                     {/* Footer */}
                                     <div className="flex items-center justify-between mt-auto pt-3 border-t border-border/50">
-                                        <span className="text-[10px] text-muted-foreground bg-muted/50 px-2 py-1 rounded-md">
-                                            {t('gallery.card.field_count', { count: model.fields?.length || 0 })}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-muted-foreground bg-muted/50 px-2 py-1 rounded-md">
+                                                {t('gallery.card.field_count', { count: model.fields?.length || 0 })}
+                                            </span>
+                                            <div 
+                                                role="button"
+                                                onClick={(e) => handleCopy(model.id, e)}
+                                                className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                                                title={t('gallery.actions.copy') || 'Copy'}
+                                            >
+                                                <Copy size={14} weight="bold" />
+                                            </div>
+                                        </div>
                                         <span className={clsx(
                                             "text-xs font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
                                             isComparison ? "text-chart-5" : "text-primary"
