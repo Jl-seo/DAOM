@@ -2,10 +2,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { FileText, ArrowRight, CircleNotch, SquaresFour, PlusCircle, Sparkle, MagnifyingGlass, GitDiff, Stack, Copy } from '@phosphor-icons/react'
+import { FileText, ArrowRight, CircleNotch, SquaresFour, PlusCircle, Sparkle, MagnifyingGlass, GitDiff, Stack, List } from '@phosphor-icons/react'
 import axios from 'axios'
 import { API_CONFIG } from '../constants'
-import { modelsApi } from '../lib/api'
 import { toast } from 'sonner'
 import { useSiteConfig } from './SiteConfigProvider'
 import { useAuth } from '../auth/AuthContext'
@@ -31,6 +30,7 @@ export function ModelGallery() {
     const [loading, setLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState('')
     const [activeTab, setActiveTab] = useState<TabType>('all')
+    const [viewMode, setViewMode] = useState<'card' | 'list'>('card')
     const { config } = useSiteConfig()
     const { isSuperAdmin, getAccessToken } = useAuth()
 
@@ -80,17 +80,7 @@ export function ModelGallery() {
         return result
     }, [models, activeTab, searchQuery])
 
-    const handleCopy = async (modelId: string, e: React.MouseEvent) => {
-        e.preventDefault()
-        e.stopPropagation()
-        try {
-            await modelsApi.copy(modelId)
-            toast.success(t('gallery.success.copied'))
-            await loadModels()
-        } catch (error) {
-            toast.error(t('gallery.errors.copy_failed'))
-        }
-    }
+
 
     if (loading) {
         return (
@@ -180,16 +170,38 @@ export function ModelGallery() {
                         ))}
                     </div>
 
-                    {/* Search */}
-                    <div className="relative max-w-xs w-full">
-                        <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                        <input
-                            type="text"
-                            placeholder={t('gallery.search.placeholder')}
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                        />
+                    {/* Search & View Toggle */}
+                    <div className="flex items-center gap-3 w-full md:w-auto">
+                        <div className="relative max-w-xs w-full">
+                            <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                            <input
+                                type="text"
+                                placeholder={t('gallery.search.placeholder')}
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                            />
+                        </div>
+                        <div className="flex bg-muted/50 p-1 rounded-lg border border-border/50">
+                            <button
+                                onClick={() => setViewMode('card')}
+                                className={clsx(
+                                    "p-1.5 rounded-md transition-all",
+                                    viewMode === 'card' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <SquaresFour size={18} weight={viewMode === 'card' ? "fill" : "regular"} />
+                            </button>
+                            <button
+                                onClick={() => setViewMode('list')}
+                                className={clsx(
+                                    "p-1.5 rounded-md transition-all",
+                                    viewMode === 'list' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <List size={18} weight={viewMode === 'list' ? "bold" : "regular"} />
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -216,7 +228,10 @@ export function ModelGallery() {
                         )}
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    <div className={clsx(
+                        "gap-4",
+                        viewMode === 'card' ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "flex flex-col"
+                    )}>
                         {filteredModels.map((model) => {
                             const isComparison = model.model_type === 'comparison'
                             return (
@@ -224,17 +239,21 @@ export function ModelGallery() {
                                     key={model.id}
                                     onClick={() => navigate(`/models/${model.id}`)}
                                     className={clsx(
-                                        "group relative flex flex-col p-4 rounded-xl border-2 transition-all duration-200 text-left",
+                                        "group relative flex p-4 rounded-xl border-2 transition-all duration-200 text-left",
                                         "hover:shadow-lg hover:-translate-y-0.5",
+                                        viewMode === 'card' ? "flex-col" : "items-center gap-4",
                                         isComparison
                                             ? "bg-gradient-to-br from-chart-5/5 to-transparent border-chart-5/20 hover:border-chart-5/50"
                                             : "bg-card border-border hover:border-primary/50"
                                     )}
                                 >
                                     {/* Type Badge */}
-                                    <div className="flex items-center justify-between mb-3">
+                                    <div className={clsx(
+                                        "flex items-center",
+                                        viewMode === 'card' ? "justify-between mb-3 w-full" : "shrink-0 gap-3 min-w-[120px]"
+                                    )}>
                                         <div className={clsx(
-                                            "w-10 h-10 rounded-xl flex items-center justify-center",
+                                            "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
                                             isComparison
                                                 ? "bg-chart-5/10 group-hover:bg-chart-5/20"
                                                 : "bg-primary/10 group-hover:bg-primary/20"
@@ -255,33 +274,30 @@ export function ModelGallery() {
                                     </div>
 
                                     {/* Title & Description */}
-                                    <h3 className={clsx(
-                                        "font-bold mb-1 line-clamp-1 transition-colors",
-                                        isComparison ? "group-hover:text-chart-5" : "group-hover:text-primary"
-                                    )}>
-                                        {model.name}
-                                    </h3>
-                                    <p className="text-xs text-muted-foreground line-clamp-2 mb-3 min-h-[2rem]">
-                                        {model.description || t('gallery.card.no_description')}
-                                    </p>
+                                    <div className={clsx("flex flex-col flex-1", viewMode === 'list' && "min-w-0 pr-4")}>
+                                        <h3 className={clsx(
+                                            "font-bold mb-1 line-clamp-1 transition-colors",
+                                            isComparison ? "group-hover:text-chart-5" : "group-hover:text-primary"
+                                        )}>
+                                            {model.name}
+                                        </h3>
+                                        <p className="text-xs text-muted-foreground line-clamp-2 min-h-[2rem]">
+                                            {model.description || t('gallery.card.no_description')}
+                                        </p>
+                                    </div>
 
                                     {/* Footer */}
-                                    <div className="flex items-center justify-between mt-auto pt-3 border-t border-border/50">
+                                    <div className={clsx(
+                                        "flex items-center justify-between",
+                                        viewMode === 'card' ? "mt-auto pt-3 border-t border-border/50 w-full" : "shrink-0 gap-6 border-l border-border/50 pl-4"
+                                    )}>
                                         <div className="flex items-center gap-2">
-                                            <span className="text-[10px] text-muted-foreground bg-muted/50 px-2 py-1 rounded-md">
+                                            <span className="text-[10px] text-muted-foreground bg-muted/50 px-2 py-1 rounded-md whitespace-nowrap">
                                                 {t('gallery.card.field_count', { count: model.fields?.length || 0 })}
                                             </span>
-                                            <div 
-                                                role="button"
-                                                onClick={(e) => handleCopy(model.id, e)}
-                                                className="p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-md transition-colors opacity-0 group-hover:opacity-100"
-                                                title={t('gallery.actions.copy') || 'Copy'}
-                                            >
-                                                <Copy size={14} weight="bold" />
-                                            </div>
                                         </div>
                                         <span className={clsx(
-                                            "text-xs font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
+                                            "text-xs font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap",
                                             isComparison ? "text-chart-5" : "text-primary"
                                         )}>
                                             {t('gallery.actions.start')}

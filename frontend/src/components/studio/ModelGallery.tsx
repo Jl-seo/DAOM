@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { clsx } from 'clsx'
-import { Plus, Trash2, LayoutTemplate, Search } from 'lucide-react'
+import { Plus, Trash2, LayoutTemplate, Search, Copy, Loader2, LayoutGrid, List } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { Model } from '../../types/model'
 
@@ -11,6 +12,8 @@ interface ModelGalleryProps {
     onNewModel: () => void
     onEditModel: (model: Model) => void
     onDeleteModel: (id: string) => void
+    onCopyModel?: (id: string, e: React.MouseEvent) => void
+    copyingId?: string | null
 }
 
 export function ModelGallery({
@@ -21,7 +24,10 @@ export function ModelGallery({
     onNewModel,
     onEditModel,
     onDeleteModel,
+    onCopyModel,
+    copyingId
 }: ModelGalleryProps) {
+    const [viewMode, setViewMode] = useState<'card' | 'list'>('card')
     const filteredModels = models.filter(
         model =>
             model.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -47,34 +53,67 @@ export function ModelGallery({
                 </div>
             ) : (
                 <>
-                    <div className="mb-6 max-w-md relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <input
-                            type="text"
-                            placeholder="모델 검색..."
-                            value={searchQuery}
-                            onChange={(e) => onSearchChange(e.target.value)}
-                            className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium"
-                        />
+                    <div className="mb-6 flex justify-between items-center gap-4">
+                        <div className="relative max-w-md w-full">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                            <input
+                                type="text"
+                                placeholder="모델 검색..."
+                                value={searchQuery}
+                                onChange={(e) => onSearchChange(e.target.value)}
+                                className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium"
+                            />
+                        </div>
+                        <div className="flex bg-muted/50 p-1 rounded-lg border border-border/50 shrink-0">
+                            <button
+                                onClick={() => setViewMode('card')}
+                                className={clsx(
+                                    "p-2 rounded-md transition-all",
+                                    viewMode === 'card' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <LayoutGrid className="w-4 h-4" />
+                            </button>
+                            <button
+                                onClick={() => setViewMode('list')}
+                                className={clsx(
+                                    "p-2 rounded-md transition-all",
+                                    viewMode === 'list' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <List className="w-4 h-4" />
+                            </button>
+                        </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    <div className={clsx(
+                        "gap-6",
+                        viewMode === 'card' ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "flex flex-col"
+                    )}>
                         {filteredModels.map((model) => (
                             <div
                                 key={model.id}
                                 className={clsx(
-                                    "group cursor-pointer h-full",
+                                    "group cursor-pointer",
+                                    viewMode === 'card' ? "h-full" : "w-full",
                                     model.is_active === false && "opacity-60"
                                 )}
                                 onClick={() => onEditModel(model)}
                             >
                                 <div className={clsx(
-                                    "relative p-[2px] rounded-2xl transition-all duration-300",
+                                    "relative p-[2px] transition-all duration-300",
+                                    viewMode === 'card' ? "rounded-2xl" : "rounded-xl",
                                     model.is_active === false
                                         ? "bg-muted-foreground/30"
                                         : "bg-gradient-to-br from-border to-border hover:from-primary hover:to-chart-5"
                                 )}>
-                                    <div className="bg-card rounded-2xl p-5 h-full transition-all duration-300 group-hover:shadow-xl">
-                                        <div className="flex items-start justify-between mb-3">
+                                    <div className={clsx(
+                                        "bg-card transition-all duration-300 group-hover:shadow-xl",
+                                        viewMode === 'card' ? "rounded-2xl p-5 h-full flex flex-col" : "rounded-xl p-4 flex items-center justify-between gap-4"
+                                    )}>
+                                        <div className={clsx(
+                                            "flex items-start justify-between",
+                                            viewMode === 'card' ? "mb-3" : "shrink-0 gap-4 w-12"
+                                        )}>
                                             <div className={clsx(
                                                 "p-2.5 rounded-xl group-hover:scale-110 transition-transform",
                                                 model.is_active === false
@@ -86,35 +125,66 @@ export function ModelGallery({
                                                     model.is_active === false ? "text-muted-foreground" : "text-primary"
                                                 )} />
                                             </div>
-                                            <div className="flex items-center gap-1">
-                                                {model.is_active === false && (
-                                                    <span className="px-2 py-0.5 text-[10px] bg-muted-foreground/20 text-muted-foreground rounded-full">
+                                            {viewMode === 'card' && (
+                                                <div className="flex items-center gap-1">
+                                                    {model.is_active === false && (
+                                                        <span className="px-2 py-0.5 text-[10px] bg-muted-foreground/20 text-muted-foreground rounded-full">
+                                                            숨김
+                                                        </span>
+                                                    )}
+                                                    {onCopyModel && (
+                                                        <button
+                                                            onClick={(e) => onCopyModel(model.id, e)}
+                                                            disabled={copyingId === model.id}
+                                                            className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-primary/10 hover:text-primary text-muted-foreground rounded-lg transition-all"
+                                                        >
+                                                            {copyingId === model.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            onDeleteModel(model.id)
+                                                        }}
+                                                        className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive rounded-lg transition-all"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className={clsx(
+                                            viewMode === 'card' ? "" : "flex-1 min-w-0"
+                                        )}>
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <h3 className={clsx(
+                                                    "font-bold text-base transition-colors",
+                                                    model.is_active === false
+                                                        ? "text-muted-foreground"
+                                                        : "text-foreground group-hover:text-primary",
+                                                    viewMode === 'list' && "truncate"
+                                                )}>
+                                                    {model.name}
+                                                </h3>
+                                                {viewMode === 'list' && model.is_active === false && (
+                                                    <span className="px-2 py-0.5 text-[10px] bg-muted-foreground/20 text-muted-foreground rounded-full whitespace-nowrap">
                                                         숨김
                                                     </span>
                                                 )}
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        onDeleteModel(model.id)
-                                                    }}
-                                                    className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-destructive/10 rounded-lg transition-all"
-                                                >
-                                                    <Trash2 className="w-4 h-4 text-destructive" />
-                                                </button>
                                             </div>
+                                            <p className={clsx(
+                                                "text-xs text-muted-foreground line-clamp-2",
+                                                viewMode === 'card' ? "mb-4" : ""
+                                            )}>
+                                                {model.description || '설명 없음'}
+                                            </p>
                                         </div>
-                                        <h3 className={clsx(
-                                            "font-bold text-base mb-2 transition-colors",
-                                            model.is_active === false
-                                                ? "text-muted-foreground"
-                                                : "text-foreground group-hover:text-primary"
+
+                                        <div className={clsx(
+                                            "flex items-center text-xs",
+                                            viewMode === 'card' ? "justify-between mt-auto w-full" : "shrink-0 gap-6 border-l border-border/50 pl-6 w-64"
                                         )}>
-                                            {model.name}
-                                        </h3>
-                                        <p className="text-xs text-muted-foreground mb-4 line-clamp-2">
-                                            {model.description || '설명 없음'}
-                                        </p>
-                                        <div className="flex items-center justify-between text-xs">
                                             <span className="text-muted-foreground">{model.fields?.length || 0}개 필드</span>
                                             <span className={clsx(
                                                 "px-2 py-1 rounded-full font-medium",
@@ -124,6 +194,28 @@ export function ModelGallery({
                                             )}>
                                                 {model.data_structure?.toUpperCase() || 'DATA'}
                                             </span>
+                                            {viewMode === 'list' && (
+                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    {onCopyModel && (
+                                                        <button
+                                                            onClick={(e) => onCopyModel(model.id, e)}
+                                                            disabled={copyingId === model.id}
+                                                            className="p-1.5 hover:bg-primary/10 hover:text-primary text-muted-foreground rounded-lg transition-all"
+                                                        >
+                                                            {copyingId === model.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            onDeleteModel(model.id)
+                                                        }}
+                                                        className="p-1.5 hover:bg-destructive/10 text-muted-foreground hover:text-destructive rounded-lg transition-all"
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

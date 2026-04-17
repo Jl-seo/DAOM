@@ -2,13 +2,13 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import {
     Plus, Save, ArrowLeft, Wand2,
-    Edit, Database, BookOpen, Settings2, FileText, TerminalSquare
+    Edit, Database, BookOpen, Settings2, FileText, TerminalSquare, Copy, Loader2
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'sonner'
 import { DEFAULTS, MESSAGES } from '../constants'
 import { useModels } from '../hooks/useModels'
-import { apiClient } from '../lib/api'
+import { apiClient, modelsApi } from '../lib/api'
 import type { Model, Field } from '../types/model'
 import { Card } from '@/components/ui/icon-card'
 import { Button } from '@/components/ui/button'
@@ -89,6 +89,7 @@ export function ModelStudio() {
     // Sub-field modal state
     const [subFieldModalOpen, setSubFieldModalOpen] = useState(false)
     const [selectedParentField, setSelectedParentField] = useState<{ index: number, field: Field } | null>(null)
+    const [copyingId, setCopyingId] = useState<string | null>(null)
 
     // Fetch LLM options for the dropdowns
     useEffect(() => {
@@ -207,6 +208,23 @@ export function ModelStudio() {
         }
     }
 
+    const handleCopyModel = async (id: string, e?: React.MouseEvent) => {
+        if (e) {
+            e.preventDefault()
+            e.stopPropagation()
+        }
+        setCopyingId(id)
+        try {
+            await modelsApi.copy(id)
+            toast.success('모델이 성공적으로 복사되었습니다.', { duration: 1500 })
+            await fetchModels()
+        } catch (error) {
+            toast.error('모델 복사 중 오류가 발생했습니다.')
+        } finally {
+            setCopyingId(null)
+        }
+    }
+
     if (editingModel) {
         return (
             <div className="h-[calc(100vh-80px)] flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300 font-sans text-sm">
@@ -256,10 +274,18 @@ export function ModelStudio() {
                                     </Button>
                                 </>
                             ) : (
-                                <Button size="sm" onClick={() => setIsEditing(true)}>
-                                    <Edit className="w-3.5 h-3.5 mr-1" />
-                                    편집
-                                </Button>
+                                <>
+                                    {editingModel.id && (
+                                        <Button size="sm" variant="outline" onClick={() => handleCopyModel(editingModel.id!)} disabled={copyingId === editingModel.id}>
+                                            {copyingId === editingModel.id ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Copy className="w-3.5 h-3.5 mr-1" />}
+                                            복사
+                                        </Button>
+                                    )}
+                                    <Button size="sm" onClick={() => setIsEditing(true)}>
+                                        <Edit className="w-3.5 h-3.5 mr-1" />
+                                        편집
+                                    </Button>
+                                </>
                             )}
                         </div>
                     </header>
@@ -549,6 +575,8 @@ export function ModelStudio() {
             onNewModel={handleNewModel}
             onEditModel={handleEditModel}
             onDeleteModel={handleDeleteModel}
+            onCopyModel={handleCopyModel}
+            copyingId={copyingId}
         />
     )
 }
