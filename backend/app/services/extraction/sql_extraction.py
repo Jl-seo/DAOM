@@ -979,10 +979,9 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
             
                 if table_kind == "rate_matrix":
                     # Check if the schema expects discrete container columns (e.g. 20DC, 40DC)
-                    # If it does, and there's no generic 'rate' or 'price' field, it means the user wants a flat table!
+                    # If it does, it means the user wants a flat table without pivoting!
                     has_discrete_containers = any("20" in k.lower() or "40" in k.lower() for k in expected_sub_keys)
-                    has_generic_rate = any("rate" in k.lower() or "price" in k.lower() or "freight" in k.lower() for k in expected_sub_keys)
-                    if has_discrete_containers and not has_generic_rate:
+                    if has_discrete_containers:
                         logger.info(f"[{target_key}] rate_matrix disabled: schema defines concrete container fields. Falling back to flat_table.")
                         table_kind = "flat_table"
                         
@@ -1019,7 +1018,7 @@ async def run_sql_extraction(file: UploadFile, model: ExtractionModel, md_conten
                         for sf_key in expected_sub_keys:
                             if sf_key in (ct_key, sf_key_for_val):
                                 continue
-                            excel_col = non_equip_col_map.get(sf_key)
+                            excel_col = non_equip_col_map.get(str(sf_key).strip().lower())
                             if excel_col and excel_col in row and pd.notna(row[excel_col]):
                                 val = str(row[excel_col]).strip()
                                 from app.services.extraction.pattern_analyzer import analyzer
