@@ -49,6 +49,38 @@ try:
             allow_headers=["*"],
         )
 
+    # Global exception handler — ensures every unhandled 500 returns a
+    # JSON body with the real error message (instead of Starlette's
+    # opaque 21-byte "Internal Server Error" text/plain) AND survives
+    # the CORS middleware so the browser actually sees the body.
+    # HTTPException is re-emitted via its status_code so FastAPI's
+    # default behavior (JSON detail) is preserved for intentional errors.
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+    from fastapi import HTTPException as FastAPIHTTPException
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        if isinstance(exc, (FastAPIHTTPException, StarletteHTTPException)):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+                headers=getattr(exc, "headers", None) or {},
+            )
+        logger.error(
+            f"[Global] Unhandled exception on {request.method} {request.url.path}: {exc}",
+            exc_info=True,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": str(exc),
+                "type": type(exc).__name__,
+                "path": request.url.path,
+            },
+        )
+
     app.include_router(api_router, prefix=settings.API_V1_STR)
 
     # Mount static files for uploaded documents
