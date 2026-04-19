@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.enums import ExtractionStatus
 from app.services import extraction_jobs, extraction_logs
+from app.services.job_log_sync import sync_update
 from app.services.models import get_model_by_id
 
 logger = logging.getLogger(__name__)
@@ -66,16 +67,11 @@ async def run_pipeline_job(
         except Exception as e:
             error_msg = f"Failed to download file: {str(e)}"
             logger.error(f"[Background] {error_msg}")
-
-            job = await extraction_jobs.get_job(job_id)
-            await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=error_msg)
-            if job and getattr(job, "original_log_id", None):
-                await extraction_logs.update_log_status(
-                    log_id=str(job.original_log_id),
-                    status=ExtractionStatus.ERROR.value,
-                    error=error_msg
-                )
-
+            await sync_update(
+                job_id,
+                status=ExtractionStatus.ERROR.value,
+                error=error_msg,
+            )
             return
 
         # 3. Detect MIME type
@@ -92,55 +88,40 @@ async def run_pipeline_job(
         )
 
         # 5. Handle Result
-        job = await extraction_jobs.get_job(job_id)
         if result.get("error"):
-             await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=result["error"])
-             if job and getattr(job, "original_log_id", None):
-                 await extraction_logs.update_log_status(
-                     log_id=str(job.original_log_id),
-                     status=ExtractionStatus.ERROR.value,
-                     error=result["error"]
-                 )
+            await sync_update(
+                job_id,
+                status=ExtractionStatus.ERROR.value,
+                error=result["error"],
+            )
         else:
-             await extraction_jobs.update_job(
+            await sync_update(
                 job_id,
                 status=ExtractionStatus.PREVIEW_READY.value,
-                preview_data=result
+                preview_data=result,
             )
-             if job and getattr(job, "original_log_id", None):
-                 await extraction_logs.update_log_status(
-                     log_id=str(job.original_log_id),
-                     status=ExtractionStatus.PREVIEW_READY.value,
-                     preview_data=result
-                 )
 
-             # Trigger Async Vibe Dictionary Generator
-             try:
-                 import asyncio
-                 from app.services.dictionary.vibe_dictionary import generate_vibe_dictionary_async
-                 asyncio.create_task(generate_vibe_dictionary_async(model_id, result))
-                 logger.info(f"[Background] Launched Vibe Dictionary AI generator for job {job_id}")
-             except Exception as vibe_error:
-                 logger.error(f"[Background] Failed to launch Vibe Dictionary generator: {vibe_error}")
+            # Trigger Async Vibe Dictionary Generator
+            try:
+                import asyncio
+                from app.services.dictionary.vibe_dictionary import generate_vibe_dictionary_async
+                asyncio.create_task(generate_vibe_dictionary_async(model_id, result))
+                logger.info(f"[Background] Launched Vibe Dictionary AI generator for job {job_id}")
+            except Exception as vibe_error:
+                logger.error(f"[Background] Failed to launch Vibe Dictionary generator: {vibe_error}")
 
         logger.info(f"[Background] Completed extraction job {job_id}")
 
     except Exception as e:
         logger.error(f"[Background] FATAL ERROR in job {job_id}: {e}")
         traceback.print_exc()
-        # Update job with error status
-        try:
-            job = await extraction_jobs.get_job(job_id)
-            await extraction_jobs.update_job(job_id, status=ExtractionStatus.ERROR.value, error=str(e))
-            if job and getattr(job, "original_log_id", None):
-                await extraction_logs.update_log_status(
-                    log_id=str(job.original_log_id),
-                    status=ExtractionStatus.ERROR.value,
-                    error=str(e)
-                )
-        except Exception as update_err:
-            logger.error(f"[Background] Failed to update job status: {update_err}")
-            pass
+        # Update job (and linked log, if any) with error status.
+        # sync_update swallows its own Cosmos failures internally.
+        await sync_update(
+            job_id,
+            status=ExtractionStatus.ERROR.value,
+            error=str(e),
+        )
 
 
 async def _run_comparison_branch(
