@@ -47,13 +47,29 @@ async def load_models() -> List[ExtractionModel]:
     try:
         items = [item async for item in container.read_all_items()]
         logger.info(f"[Models] Loaded {len(items)} models from Cosmos DB")
-        
-        models = []
+
+        # Per-item validation: one malformed doc must not blackhole every
+        # model. Previously a single schema mismatch caused the whole list
+        # to fall back to the bundled JSON (2 sample rows), hiding the
+        # user's real Cosmos models entirely. We now skip broken docs and
+        # log them so the operator can fix the offending document.
+        models: List[ExtractionModel] = []
+        skipped: List[tuple[str, str]] = []
         for item in items:
-            models.append(ExtractionModel(**item))
-            
-        # Optional: could populate reference_data for all here, 
-        # but usually get_model_by_id is where it's needed deeply.
+            try:
+                models.append(ExtractionModel(**item))
+            except Exception as item_err:  # noqa: BLE001
+                skipped.append((item.get("id", "<no-id>"), str(item_err)))
+
+        if skipped:
+            logger.error(
+                f"[Models] Skipped {len(skipped)}/{len(items)} "
+                f"malformed model documents:"
+            )
+            for mid, err in skipped:
+                # Truncate long Pydantic error messages in log lines
+                logger.error(f"[Models]   id={mid}  error={err[:500]}")
+
         return models
     except Exception as e:
         logger.error(f"[Models] Cosmos read failed: {e}")
