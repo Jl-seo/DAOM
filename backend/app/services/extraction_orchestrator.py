@@ -124,11 +124,17 @@ async def run_pipeline_job(
                  except Exception as e:
                      logger.error(f"[Background] Preview export mapping failed: {e}")
 
+             # Split the pipeline output:
+             #   preview_data → rendered by the review UI (compact)
+             #   debug_data   → surfaced only in the debug modal
+             # Keeps the UI payload lean and mirrors the Cosmos two-field schema.
+             debug_data = result.pop("_debug", None)
              await extraction_jobs.update_job(
                 job_id,
                 status=ExtractionStatus.PREVIEW_READY.value,
                 preview_data=result,
-                extracted_data=export_preview
+                extracted_data=export_preview,
+                debug_data=debug_data,
             )
              logger.info(f"[Background] Job {job_id} status set to PREVIEW_READY")
 
@@ -142,6 +148,7 @@ async def run_pipeline_job(
                          status=ExtractionStatus.PREVIEW_READY.value,
                          preview_data=result,
                          extracted_data=export_preview,
+                         debug_data=debug_data,
                          llm_model=llm_model_val
                      )
                  except Exception as log_sync_err:

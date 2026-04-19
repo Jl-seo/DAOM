@@ -258,8 +258,12 @@ async def save_extraction_log(
 
         return log
     except Exception as e:
-        logger.error(f"[ExtractionLogs] Save failed: {e}")
-        return None
+        # Do NOT swallow silently. `save_extraction_log` returning None on
+        # Cosmos rejection caused start-job to silently proceed without a
+        # history record. Raise so the caller sees a real 500 and the
+        # stacktrace reveals the root cause.
+        logger.error(f"[ExtractionLogs] Save failed: {e}", exc_info=True)
+        raise
 
 
 

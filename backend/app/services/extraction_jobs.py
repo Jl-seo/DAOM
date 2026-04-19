@@ -96,7 +96,15 @@ async def create_job(
             body["type"] = "extraction_job"
             await container.create_item(body=body)
         except Exception as e:
-            logger.error(f"[ExtractionJobs] Failed to save job: {e}")
+            # Do NOT swallow silently. Returning the pydantic job object
+            # after a failed Cosmos write left the caller polling a
+            # job_id that does not exist (404 loop, no visible error).
+            # Raise so the caller sees a real 500 with the Cosmos message.
+            logger.error(
+                f"[ExtractionJobs] Failed to save job id={job_id}: {e}",
+                exc_info=True,
+            )
+            raise
 
     return job
 

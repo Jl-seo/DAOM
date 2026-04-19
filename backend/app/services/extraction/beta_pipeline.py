@@ -575,7 +575,24 @@ class BetaPipeline(ExtractionPipeline):
         
         # --- 5. Build Result ---
         total_usage = engineer_output.get("_token_usage", {})
-        
+
+        # Diagnostic bundle surfaced to the frontend debug modal. Prunes
+        # `_debug_prompts` from the engineer response view so nesting
+        # stays shallow.
+        engineer_response_view = {
+            k: v for k, v in engineer_output.items()
+            if k not in ("_debug_prompts",)
+        }
+        debug_bundle = {
+            "work_order": work_order,
+            "engineer_prompts": engineer_output.get("_debug_prompts"),
+            "engineer_raw_response": engineer_response_view,
+            "tagged_text_preview": tagged_text[:3000],
+            "ref_map_size": len(ref_map) if isinstance(ref_map, dict) else 0,
+            "pipeline_mode": "designer-engineer",
+            "token_usage": total_usage,
+        }
+
         final_result = ExtractionResult(
             guide_extracted=processed_guide,
             raw_content=ocr_data.get("content", ""),
@@ -596,11 +613,12 @@ class BetaPipeline(ExtractionPipeline):
                     "all_entities": survey_result.get("all_entities", []) if survey_result else [],
                     "elapsed_seconds": survey_result.get("_elapsed_seconds") if survey_result else None,
                 } if survey_result else None,
+                "_debug": debug_bundle,
             },
             model_name=model.name,
             duration_seconds=(datetime.utcnow() - start_time).total_seconds()
         )
-        
+
         return final_result
 
     # ==================================================================
@@ -1517,7 +1535,16 @@ STRICT RULES:
         temp = model.temperature if model else None
         
         raw_result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
-        
+
+        # Capture prompt artifacts for the frontend debug modal. Harmless
+        # non-functional metadata — pipeline logic never reads this back.
+        if isinstance(raw_result, dict):
+            raw_result.setdefault("_debug_prompts", {
+                "mode": "single-shot",
+                "system": system_prompt,
+                "user_preview": user_prompt[:2000],
+            })
+
         # --- Inline Completeness Retry (for short docs where chunking is useless) ---
         doc_rows = self._count_doc_table_rows(tagged_text)
         extracted_rows = self._count_extracted_rows(raw_result)
