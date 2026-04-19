@@ -90,12 +90,25 @@ async def create_job(
     container = get_extractions_container()
     if container:
         try:
-            await container.create_item(body={
-                **job.model_dump(),
-                "type": "extraction_job"
-            })
+            body = {**job.model_dump(), "type": "extraction_job"}
+            logger.info(
+                f"[ExtractionJobs] create_job: id={job_id} "
+                f"model_id={model_id} tenant_id={tenant_id} "
+                f"body_keys={list(body.keys())}"
+            )
+            await container.create_item(body=body)
         except Exception as e:
-            logger.error(f"[ExtractionJobs] Failed to save job: {e}")
+            # Do NOT swallow silently. Previously the function returned the
+            # pydantic object even when Cosmos rejected the write — the
+            # frontend then polled /extraction/job/{id} forever and got 404,
+            # with no visible error. Raise so the API returns 500 with a
+            # real message and the backend log line above pinpoints the
+            # failing payload.
+            logger.error(
+                f"[ExtractionJobs] Failed to save job id={job_id}: {e}",
+                exc_info=True,
+            )
+            raise
 
     return job
 

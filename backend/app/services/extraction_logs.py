@@ -256,8 +256,13 @@ async def save_extraction_log(
 
         return log
     except Exception as e:
-        logger.error(f"[ExtractionLogs] Save failed: {e}")
-        return None
+        # Do NOT swallow silently. Returning None previously caused the
+        # start-job endpoint to continue with `original_log_id=None`, so
+        # extraction ran but never showed up in the user's history. Raise
+        # so the caller sees the real Cosmos error instead of a missing
+        # record.
+        logger.error(f"[ExtractionLogs] Save failed: {e}", exc_info=True)
+        raise
 
 
 
