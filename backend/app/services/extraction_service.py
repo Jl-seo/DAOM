@@ -28,6 +28,73 @@ class ExtractionService:
     def azure_openai(self) -> AsyncAzureOpenAI:
         return get_openai_client()
 
+    async def _finalize(
+        self,
+        raw_data: Dict[str, Any],
+        model: ExtractionModel,
+        pages_info: List[Dict[str, Any]],
+        start_time: datetime,
+        filename: str,
+        *,
+        pipeline_mode: Optional[str] = None,
+        barcode: Optional[str] = None,
+        pass_fields_to_normalizer: bool = True,
+        merge_meta: bool = False,
+    ) -> Dict[str, Any]:
+        """Shared post-processing applied by every extraction route.
+
+        Steps:
+          1. `_validate_and_format` — coerces types, normalizes bbox,
+             builds the canonical field wrapper shape.
+          2. Attach `_meta` (duration, filename, model_name, timestamp,
+             optional pipeline_mode).
+          3. Apply dictionary normalization (if model has `dictionaries`).
+             `pass_fields_to_normalizer=False` preserves the legacy
+             Excel-route call signature for byte compatibility.
+          4. Apply vibe_dictionary + validation_rules (if model has
+             `reference_data`).
+          5. Apply DEX validation (if `barcode` provided).
+
+        `merge_meta=True` preserves any `_meta` already present in
+        `raw_data` (used by the Excel route); the default replaces it.
+        """
+        result = self._validate_and_format(raw_data, model, pages_info)
+
+        duration = (datetime.utcnow() - start_time).total_seconds()
+        meta_fields: Dict[str, Any] = {
+            "duration_seconds": duration,
+            "filename": filename,
+            "model_name": model.name,
+            "timestamp": start_time.isoformat(),
+        }
+        if pipeline_mode:
+            meta_fields["pipeline_mode"] = pipeline_mode
+
+        if merge_meta:
+            if "_meta" not in result:
+                result["_meta"] = {}
+            result["_meta"].update(meta_fields)
+        else:
+            result["_meta"] = meta_fields
+
+        if model.dictionaries:
+            if pass_fields_to_normalizer:
+                result = await rule_engine.apply_dictionary_normalization(
+                    result, model.id, model.dictionaries, model.fields
+                )
+            else:
+                result = await rule_engine.apply_dictionary_normalization(
+                    result, model.id, model.dictionaries
+                )
+        if model.reference_data:
+            result = rule_engine.apply_vibe_dictionary(result, model.reference_data)
+            result = rule_engine.apply_validation_rules(result, model.reference_data)
+
+        if barcode:
+            result = self._apply_dex_validation(result, model, barcode)
+
+        return result
+
     async def run_extraction_pipeline(self, file_content: bytes, model_id: str, filename: str = "", mime_type: str = "", barcode: Optional[str] = None) -> Dict[str, Any]:
         """
         Main entry point for extraction.
@@ -78,32 +145,17 @@ class ExtractionService:
                 sql_result["_beta_parsed_content"] = md_content
                 sql_result["pages"] = [{"page_number": 1, "width": 1000, "height": 1000}]
 
-                # Format and validate to standardize `{value, confidence, bbox}` wrappers
-                sql_result = self._validate_and_format(sql_result, model, [])
-
-                duration = (datetime.utcnow() - start_time).total_seconds()
-                if "_meta" not in sql_result:
-                    sql_result["_meta"] = {}
-                sql_result["_meta"].update({
-                    "duration_seconds": duration,
-                    "filename": filename,
-                    "model_name": model.name,
-                    "timestamp": start_time.isoformat(),
-                    "pipeline_mode": "python-excel-engine"
-                })
-                
-                # Rule Engine Hook (Normalization & Validation)
-                if model.dictionaries:
-                    sql_result = await rule_engine.apply_dictionary_normalization(sql_result, model.id, model.dictionaries)
-                # Step 3: Global Rule Validation & Vibe Dictionary
-                if model.reference_data:
-                    sql_result = rule_engine.apply_vibe_dictionary(sql_result, model.reference_data)
-                    sql_result = rule_engine.apply_validation_rules(sql_result, model.reference_data)
-
-                if barcode:
-                    sql_result = self._apply_dex_validation(sql_result, model, barcode)
-                
-                return sql_result
+                return await self._finalize(
+                    sql_result,
+                    model,
+                    pages_info=[],
+                    start_time=start_time,
+                    filename=filename,
+                    pipeline_mode="python-excel-engine",
+                    barcode=barcode,
+                    pass_fields_to_normalizer=False,
+                    merge_meta=True,
+                )
             except Exception as e:
                 # We intentionally DO NOT pass to fallback here. The fallback LLM pipeline
                 # will just truncate 6000 rows to 19 rows. It's better to fail fast and show the error.
@@ -148,30 +200,16 @@ class ExtractionService:
                 }
                 if extraction_result.beta_metadata:
                     result_dict["_vision_metadata"] = extraction_result.beta_metadata
-                
-                final_result = self._validate_and_format(result_dict, model, [])
-                duration = (datetime.utcnow() - start_time).total_seconds()
-                final_result["_meta"] = {
-                    "duration_seconds": duration,
-                    "filename": filename,
-                    "model_name": model.name,
-                    "timestamp": start_time.isoformat(),
-                    "pipeline_mode": "vision-extraction",
-                }
 
-                # Rule Engine Hook (Normalization & Validation)
-                if model.dictionaries:
-                    # Pass fields definition for O(1) field-level mapping
-                    final_result = await rule_engine.apply_dictionary_normalization(final_result, model.id, model.dictionaries, model.fields)
-                # Step 3: Global Rule Validation & Vibe Dictionary Phase
-                if model.reference_data:
-                    final_result = rule_engine.apply_vibe_dictionary(final_result, model.reference_data)
-                    final_result = rule_engine.apply_validation_rules(final_result, model.reference_data)
-
-                if barcode:
-                    final_result = self._apply_dex_validation(final_result, model, barcode)
-
-                return final_result
+                return await self._finalize(
+                    result_dict,
+                    model,
+                    pages_info=[],
+                    start_time=start_time,
+                    filename=filename,
+                    pipeline_mode="vision-extraction",
+                    barcode=barcode,
+                )
             except Exception as e:
                 return error_response("Vision extraction", e, include_tb=True, logger=logger)
 
@@ -230,30 +268,14 @@ class ExtractionService:
         except Exception as e:
             return error_response("Extraction", e, include_tb=True, logger=logger)
 
-        # 4. Validation & Formatting
-        final_result = self._validate_and_format(processed_data, model, ocr_result.get("pages", []))
-
-        duration = (datetime.utcnow() - start_time).total_seconds()
-        final_result["_meta"] = {
-            "duration_seconds": duration,
-            "filename": filename,
-            "model_name": model.name,
-            "timestamp": start_time.isoformat()
-        }
-
-        # Rule Engine Hook (Normalization & Validation)
-        if model.dictionaries:
-            # Step 4: Dictionary Normalization & Vibe Dictionary & Validation (Global)
-            final_result = await rule_engine.apply_dictionary_normalization(final_result, model.id, model.dictionaries, model.fields)
-        if model.reference_data:
-            final_result = rule_engine.apply_vibe_dictionary(final_result, model.reference_data)
-            final_result = rule_engine.apply_validation_rules(final_result, model.reference_data)
-
-        # 5. DEX Integration (LLM vs LIS Check)
-        if barcode:
-            final_result = self._apply_dex_validation(final_result, model, barcode)
-
-        return final_result
+        return await self._finalize(
+            processed_data,
+            model,
+            pages_info=ocr_result.get("pages", []),
+            start_time=start_time,
+            filename=filename,
+            barcode=barcode,
+        )
 
     def _filter_ocr_data(self, ocr_data: Dict[str, Any], focus_pages: List[int]) -> Dict[str, Any]:
         """Filter OCR data to only include specific pages"""
