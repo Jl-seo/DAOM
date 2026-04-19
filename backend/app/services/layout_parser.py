@@ -295,14 +295,75 @@ class LayoutParser:
                 self._mark_claimed(global_offset, local_length)
 
                 # Store in grid (fill spanned cells, primary cell gets tag)
+                # For merged cells (rowSpan > 1 or colSpan > 1), propagate
+                # content to ALL spanned positions so the LLM sees the value
+                # in every row/column of the span. This prevents extraction
+                # misses for fields like validity dates in vertically merged cells.
+                is_merged = (row_span > 1 or col_span > 1)
+                if is_merged:
+                    logger.info(
+                        f"[LayoutParser] Merged cell detected: ({row_idx},{col_idx}) "
+                        f"span=({row_span}x{col_span}) content='{content[:60]}'"
+                    )
                 for r in range(row_idx, row_idx + row_span):
                     for c in range(col_idx, col_idx + col_span):
                         if (r, c) not in grid:
                             if r == row_idx and c == col_idx:
                                 grid[(r, c)] = {"content": content, "tag_id": tag_disp}
+                            elif is_merged and content:
+                                # Spanned cell — propagate content with marker
+                                # so LLM can see the inherited value per-row
+                                grid[(r, c)] = {"content": content, "tag_id": None}
                             else:
-                                # Spanned cell — show content only in top-left
                                 grid[(r, c)] = {"content": "", "tag_id": None}
+
+            # --- Step 1.5: Carry-Forward for undetected merged cells ---
+            # Scenario B: Azure DI reports merged cells as separate empty cells
+            # with rowSpan=1. Detect this pattern and carry forward values from
+            # the cell above when a cell is empty and the above cell has content.
+            # CONSERVATIVE: Only apply to columns where >=30% of data rows are 
+            # empty (indicating a merge pattern, not genuinely sparse data).
+            # Only checks first 3 columns where vertical merges typically occur.
+            if max_row > 1 and max_col >= 0:
+                data_row_count = max_row  # rows 1..max_row are data rows
+                for c in range(min(max_col + 1, 3)):
+                    # First pass: count empty data cells in this column
+                    empty_count = 0
+                    non_empty_count = 0
+                    for r in range(1, max_row + 1):
+                        cell_content = grid.get((r, c), {}).get("content", "").strip()
+                        if cell_content:
+                            non_empty_count += 1
+                        else:
+                            empty_count += 1
+                    
+                    # Only carry-forward if column has merge-like pattern:
+                    # Some non-empty values + significant empty gaps
+                    if non_empty_count == 0 or empty_count == 0:
+                        continue
+                    empty_ratio = empty_count / data_row_count
+                    if empty_ratio < 0.3:
+                        continue  # Not enough empty cells to indicate merges
+                    
+                    # Second pass: carry forward
+                    carried = 0
+                    for r in range(1, max_row + 1):
+                        above = grid.get((r - 1, c), {})
+                        current = grid.get((r, c), {})
+                        above_content = above.get("content", "").strip()
+                        current_content = current.get("content", "").strip()
+                        
+                        if not current_content and above_content:
+                            grid[(r, c)] = {"content": above_content, "tag_id": None}
+                            carried += 1
+                    
+                    if carried > 0:
+                        sample_val = grid.get((1, c), {}).get("content", "")[:40]
+                        logger.info(
+                            f"[LayoutParser] Carry-forward applied: col={c}, "
+                            f"{carried}/{data_row_count} cells inherited "
+                            f"(empty_ratio={empty_ratio:.0%}, sample='{sample_val}')"
+                        )
 
             # --- Step 2: Build Markdown Table from grid ---
             if max_row < 0 or max_col < 0:
@@ -330,14 +391,21 @@ class LayoutParser:
 
             markdown_table = "\n" + "\n".join(md_rows) + "\n"
 
+
             # --- Step 3: Register table replacement ---
             if table_span_start is not None and table_span_end is not None:
                 self._table_replacements.append((table_span_start, table_span_end, markdown_table))
+                logger.info(
+                    f"[LayoutParser] Table registered: span=[{table_span_start}, {table_span_end}], "
+                    f"grid={max_row+1}x{max_col+1}, "
+                    f"md_first_row={md_rows[0][:80] if md_rows else '(empty)'}"
+                )
             else:
                 # Table with no locatable spans — append as insertion at best guess
                 # Use first paragraph after table or end of content
                 insert_at = offset_shift
                 self._table_replacements.append((insert_at, insert_at, markdown_table))
+                logger.warning(f"[LayoutParser] Table with no spans, inserted at offset {insert_at}")
 
     def _pass_entities(self):
         """Priority 2: Tag NLP Entities in Unclaimed areas"""
@@ -555,10 +623,49 @@ class LayoutParser:
                 return p["global_page_number"]
         return 1 # Fallback
 
+    def _extract_unclaimed_text(self, start: int, end: int) -> str:
+        """Extract non-cell text fragments from within a table replacement span.
+        
+        When Azure DI treats a form (key-value metadata + data table) as a single
+        table object, the replacement span [start, end) covers metadata text that
+        is NOT part of any cell. This method recovers those fragments using the
+        claimed_mask to distinguish cell text from metadata text.
+        
+        Returns recovered text fragments joined by newlines, or empty string.
+        """
+        fragments = []
+        current_fragment = []
+        content_len = len(self.full_content)
+        
+        for i in range(start, min(end, content_len)):
+            if not self.claimed_mask[i]:
+                current_fragment.append(self.full_content[i])
+            else:
+                if current_fragment:
+                    text = "".join(current_fragment).strip()
+                    if text and len(text) >= 2:  # Skip whitespace-only fragments
+                        fragments.append(text)
+                    current_fragment = []
+        
+        # Final fragment
+        if current_fragment:
+            text = "".join(current_fragment).strip()
+            if text and len(text) >= 2:
+                fragments.append(text)
+        
+        return "\n".join(fragments)
+
     def _reconstruct_text(self) -> str:
         """Flatten original text with inserted tags and markdown table replacements."""
         # Sort table replacements by start position (non-overlapping assumed)
         table_repls = sorted(getattr(self, '_table_replacements', []), key=lambda x: x[0])
+
+        # Diagnostic: log all table replacements and detect overlaps
+        if table_repls:
+            logger.info(f"[LayoutParser] _reconstruct_text: {len(table_repls)} table replacement(s)")
+            for i, (s, e, _md) in enumerate(table_repls):
+                overlap = "OVERLAP" if i > 0 and s < table_repls[i-1][1] else "ok"
+                logger.info(f"  Table {i}: span=[{s}, {e}] len={e-s} {overlap}")
 
         # Filter out insertions that fall within table replacement zones
         # (table cells already have tags embedded in the markdown)
@@ -594,10 +701,25 @@ class LayoutParser:
             if etype == 'table':
                 s, e, md = data
                 if s < last_pos:
-                    continue  # Skip overlapping (shouldn't happen)
+                    # Overlapping table span — still emit its markdown to avoid
+                    # losing form metadata tables that overlap with data tables.
+                    # Azure DI invoice forms often produce two overlapping tables:
+                    # a key-value form table and a data table sharing the same area.
+                    unclaimed = self._extract_unclaimed_text(max(s, last_pos), e)
+                    if unclaimed.strip():
+                        chunks.append(unclaimed + "\n")
+                    chunks.append(md)
+                    last_pos = max(last_pos, e)
+                    continue
                 # Append text before table
                 chunks.append(self.full_content[last_pos:s])
-                # Append markdown table (replaces original text from s to e)
+                # Preserve non-cell text trapped inside the table span.
+                # Azure DI form tables can span metadata (Invoice No, Date, etc.)
+                # that is NOT part of the cell grid — recover it here.
+                unclaimed = self._extract_unclaimed_text(s, e)
+                if unclaimed.strip():
+                    chunks.append(unclaimed + "\n")
+                # Append markdown table (replaces original cell text from s to e)
                 chunks.append(md)
                 last_pos = e
             else:
