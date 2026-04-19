@@ -144,7 +144,26 @@ class BetaPipeline(ExtractionPipeline):
         
         # --- 5. Build Result ---
         total_usage = engineer_output.get("_token_usage", {})
-        
+
+        # Collect diagnostic artifacts for the frontend debug modal.
+        # Kept under a single "_debug" key so downstream layers can copy
+        # or drop it wholesale without touching individual fields.
+        # Raw engineer response is pruned of debug/truncation markers to
+        # show the "shape" the Engineer actually returned.
+        engineer_response_view = {
+            k: v for k, v in engineer_output.items()
+            if k not in ("_debug_prompts",)
+        }
+        debug_bundle = {
+            "work_order": work_order,
+            "engineer_prompts": engineer_output.get("_debug_prompts"),
+            "engineer_raw_response": engineer_response_view,
+            "tagged_text_preview": tagged_text[:3000],
+            "ref_map_size": len(ref_map) if isinstance(ref_map, dict) else 0,
+            "pipeline_mode": "designer-engineer",
+            "token_usage": total_usage,
+        }
+
         final_result = ExtractionResult(
             guide_extracted=processed_guide,
             raw_content=ocr_data.get("content", ""),
@@ -155,12 +174,13 @@ class BetaPipeline(ExtractionPipeline):
             beta_metadata={
                 "parsed_content": tagged_text,
                 "ref_map": ref_map,
-                "pipeline_mode": "designer-engineer"
+                "pipeline_mode": "designer-engineer",
+                "_debug": debug_bundle,
             },
             model_name=model.name,
             duration_seconds=(datetime.utcnow() - start_time).total_seconds()
         )
-        
+
         return final_result
 
     # ==================================================================
@@ -384,20 +404,30 @@ class BetaPipeline(ExtractionPipeline):
         """
         Single-shot Engineer extraction.
         Returns raw LLM output dict with guide_extracted + _token_usage.
+
+        Also attaches a `_debug_prompts` key so callers can surface the
+        actual LLM inputs for diagnostic purposes. Not used by the
+        extraction logic itself.
         """
         ref_data = (model.reference_data if model else None) or None
         system_prompt = RefinerEngine.construct_engineer_prompt(work_order, reference_data=ref_data)
         user_prompt = f"DOCUMENT DATA (Tagged Layout Format):\n{tagged_text}\n\nExtract all fields. Return valid JSON."
-        
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
-        
+
         response_format = self._build_engineer_schema(model) if model else {"type": "json_object"}
         temp = model.temperature if model else None
-        
+
         raw_result = await self.call_llm(messages, is_table_model=True, temperature=temp, response_format=response_format)
+        if isinstance(raw_result, dict):
+            raw_result["_debug_prompts"] = {
+                "mode": "single-shot",
+                "system": system_prompt,
+                "user_preview": user_prompt[:2000],
+            }
         return raw_result
 
     async def _run_engineer_chunked(self, work_order: dict, tagged_text: str, chunk_size: int, model: ExtractionModel = None) -> dict:
@@ -499,9 +529,21 @@ class BetaPipeline(ExtractionPipeline):
         if failed_chunks:
             logger.warning(f"[BetaPipeline] {len(failed_chunks)}/{len(results)} chunks FAILED: indices {failed_chunks}")
         
+        debug_prompts = {
+            "mode": "chunked",
+            "system": system_prompt,
+            "chunk_count": len(chunks),
+            "first_chunk_user_preview": (context_preamble + (chunks[0] if chunks else ""))[:2000],
+        }
+
         if not valid_chunks:
             logger.warning(f"[BetaPipeline] All {len(results)} chunks returned empty results. No data extracted.")
-            return {"guide_extracted": {}, "_token_usage": total_usage, "_truncated": any_truncated}
+            return {
+                "guide_extracted": {},
+                "_token_usage": total_usage,
+                "_truncated": any_truncated,
+                "_debug_prompts": debug_prompts,
+            }
 
         # Always run the Aggregator to safely merge list fields via append.
         # Previously, len(valid_chunks)==1 bypassed aggregation, silently dropping
@@ -510,7 +552,7 @@ class BetaPipeline(ExtractionPipeline):
 
         # If >1 chunks, run the Aggregator LLM (Phase 3)
         agg_result = await self._run_aggregator(work_order, valid_chunks)
-        
+
         # Accumulate Aggregator token usage
         agg_usage = agg_result.get("_token_usage", {})
         for k in total_usage:
@@ -520,7 +562,8 @@ class BetaPipeline(ExtractionPipeline):
             "guide_extracted": agg_result.get("guide_extracted", {}),
             "_token_usage": total_usage,
             "_truncated": any_truncated,
-            "logs": agg_result.get("logs", []) # Preserve the thought_process
+            "logs": agg_result.get("logs", []),  # Preserve the thought_process
+            "_debug_prompts": debug_prompts,
         }
 
     async def _run_aggregator(self, work_order: dict, chunks_payload: Dict[str, dict]) -> dict:

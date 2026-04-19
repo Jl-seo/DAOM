@@ -369,7 +369,11 @@ class ExtractionService:
             if extraction_result.beta_metadata:
                 result_dict["_beta_parsed_content"] = extraction_result.beta_metadata.get("parsed_content")
                 result_dict["_beta_ref_map"] = extraction_result.beta_metadata.get("ref_map")
-                
+                # Forward the diagnostic bundle so the orchestrator can
+                # persist it as job.debug_data for the frontend debug modal.
+                if extraction_result.beta_metadata.get("_debug"):
+                    result_dict["_debug"] = extraction_result.beta_metadata["_debug"]
+
             return result_dict
 
         else:
@@ -411,6 +415,8 @@ class ExtractionService:
              if extraction_result.beta_metadata:
                 result_dict["_beta_parsed_content"] = extraction_result.beta_metadata.get("parsed_content")
                 result_dict["_beta_ref_map"] = extraction_result.beta_metadata.get("ref_map")
+                if extraction_result.beta_metadata.get("_debug"):
+                    result_dict["_debug"] = extraction_result.beta_metadata["_debug"]
                 
              return result_dict
 
@@ -714,7 +720,7 @@ If a field is not found, return null.
         result["raw_content"] = raw_data.get("raw_content", "")
         result["raw_tables"] = raw_data.get("raw_tables", [])
         
-        for key in ["_beta_parsed_content", "_beta_ref_map", "_beta_chunking_info", "_beta_pipeline_stages"]:
+        for key in ["_beta_parsed_content", "_beta_ref_map", "_beta_chunking_info", "_beta_pipeline_stages", "_debug"]:
             if key in raw_data:
                 result[key] = raw_data[key]
         

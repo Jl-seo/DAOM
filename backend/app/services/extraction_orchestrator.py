@@ -95,10 +95,17 @@ async def run_pipeline_job(
                 error=result["error"],
             )
         else:
+            # Split the pipeline output into:
+            #   preview_data → rendered by the review UI
+            #   debug_data   → surfaced only in the debug modal
+            # Keeping them separate keeps the UI payload compact and
+            # mirrors how the Cosmos schema stores them (two fields).
+            debug_data = result.pop("_debug", None)
             await sync_update(
                 job_id,
                 status=ExtractionStatus.PREVIEW_READY.value,
                 preview_data=result,
+                debug_data=debug_data,
             )
 
             # Trigger Async Vibe Dictionary Generator
