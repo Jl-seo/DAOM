@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 // Status codes matching backend enum (backend/app/core/enums.py)
 export type ExtractionStatus =
     // Processing states (P-Series)
@@ -26,7 +25,7 @@ export interface ExtractionJob {
             index: number
             status: string
             data: {
-                guide_extracted: Record<string, any>
+                guide_extracted: Record<string, unknown>
             }
         }>
     }

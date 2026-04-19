@@ -1,7 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable react-hooks/exhaustive-deps */
-
 /* eslint-disable react-refresh/only-export-components */
+// TODO(types): 26 call sites use `any` for extraction payloads. Follow-up PR will
+// replace with the new `GuideExtracted` / `ExtractedField` types from ../types.
+// Blocked on Phase 4 refactor landing first to avoid churn on ~800-line file.
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createContext, useContext, useState, useRef, type ReactNode, useCallback, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
@@ -13,6 +15,7 @@ import type {
     ExtractionStatus,
     SubDocument,
     PreviewData,
+    GuideExtracted,
     ExtractionModel,
     Highlight,
     ExtractionLog
@@ -626,8 +629,8 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
 
             // Robust Restoration Logic using FULL log
             const restorePreviewData = (inputPreview: PreviewData | null | undefined): PreviewData => {
-                const base = inputPreview || {
-                    guide_extracted: fullLog.extracted_data || {},
+                const base: PreviewData = inputPreview || {
+                    guide_extracted: (fullLog.extracted_data || {}) as GuideExtracted,
                     other_data: [],
                     sub_documents: [],
                     model_fields: model?.fields?.map(f => ({ key: f.key, label: f.label })) || []
@@ -647,8 +650,8 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
             console.error('[loadFromHistory] Failed to fetch full log details:', e)
             // Fallback to initialLog
             const restorePreviewDataFallback = (inputPreview: PreviewData | null | undefined): PreviewData => {
-                const base = inputPreview || {
-                    guide_extracted: initialLog.extracted_data || {},
+                const base: PreviewData = inputPreview || {
+                    guide_extracted: (initialLog.extracted_data || {}) as GuideExtracted,
                     other_data: [],
                     sub_documents: [],
                     model_fields: model?.fields?.map(f => ({ key: f.key, label: f.label })) || []

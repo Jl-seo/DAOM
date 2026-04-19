@@ -1,10 +1,28 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 // ==========================================
 // EXTRACTION TYPES
 // ==========================================
 
 import { type ExtractionStatusType } from './constants/status'
+
+/**
+ * Canonical wrapper shape produced by backend `_validate_and_format`.
+ * Every field in `guide_extracted` conforms to this contract.
+ * Kept open (`unknown` value, all props optional) because pipelines
+ * vary in what they populate.
+ */
+export interface ExtractedField {
+    value: unknown
+    original_value?: unknown
+    confidence?: number
+    bbox?: number[] | null
+    page_number?: number
+    validation_status?: string
+    // Pipeline-specific extensions (Vibe Dictionary, DEX validation, etc.)
+    // are attached ad-hoc by downstream code; `unknown` keeps callers honest.
+    [extra: string]: unknown
+}
+
+export type GuideExtracted = Record<string, ExtractedField>
 
 /**
  * Sub-document structure for multi-page document splitting
@@ -17,11 +35,14 @@ export interface SubDocument {
     filename?: string
     status: 'success' | 'error' | 'review_needed'
     data?: {
-        guide_extracted: Record<string, any>
+        guide_extracted: GuideExtracted
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy shape, varies by pipeline
         raw_extracted?: Record<string, any>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- free-form unmapped data
         other_data: any[]
         raw_content?: string
         _beta_parsed_content?: string
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- bbox restoration map structure varies
         _beta_ref_map?: Record<string, any>
     }
 }
@@ -30,16 +51,21 @@ export interface SubDocument {
  * Preview data structure returned from extraction job
  */
 export interface PreviewData {
-    guide_extracted: Record<string, any>
+    guide_extracted: GuideExtracted
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- legacy shape, varies by pipeline
     raw_extracted?: Record<string, any>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- free-form value
     other_data: Array<{ column: string; value: any; confidence?: number; bbox?: number[] }>
     model_fields: Array<{ key: string; label: string }>
-    debug_data?: any // Raw debug information from backend
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw backend debug blob
+    debug_data?: any
     sub_documents?: SubDocument[]
     raw_content?: string // Raw text from Document Intelligence
     _beta_parsed_content?: string // Parsed text from LayoutParser
-    _beta_ref_map?: Record<string, any> // BBox restoration map
-    raw_tables?: any[] // Raw table data from Document Intelligence
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- bbox restoration map varies
+    _beta_ref_map?: Record<string, any>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw DI table cells
+    raw_tables?: any[]
     comparison_result?: {
         differences: Array<{
             id: string | number
@@ -66,6 +92,7 @@ export interface PreviewData {
         file_url?: string
         error?: string
     }>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- DEX validation payload evolving
     __dex_validation__?: any
 }
 
@@ -107,6 +134,7 @@ export interface ExtractionModel {
     beta_features?: {
         use_optimized_prompt?: boolean
         use_virtual_excel_ocr?: boolean
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- flag set grows organically
         [key: string]: any
     }
 }
@@ -145,10 +173,12 @@ export interface ExtractionLog {
     file_url?: string
     candidate_file_urls?: string[] // For comparison models
     status: ExtractionStatusType | string // Allow dynamic string fallback but prefer typed
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- stored extracted shape varies by model
     extracted_data?: Record<string, any>
     preview_data?: PreviewData // For in-progress jobs
     job_id?: string // For in-progress jobs
-    debug_data?: any // Raw debug data from backend
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw backend debug blob
+    debug_data?: any
     error?: string
     created_at: string
     updated_at?: string
