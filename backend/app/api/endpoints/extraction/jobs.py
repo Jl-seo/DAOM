@@ -16,13 +16,19 @@ router = APIRouter()
 
 
 async def process_extraction_job(job_id: str, model_id: str, file_urls: List[str], filenames: List[str] = None):
-    """Background task to run full extraction pipeline (Multi-file)"""
+    """Background task to run full extraction pipeline (Multi-file).
+
+    User context (user_id, tenant_id) is not forwarded here because the
+    Job and Log documents were already created with the real user_id
+    by the calling endpoint — this background task only mutates status
+    and attaches extraction results. If a future file_id-generation or
+    audit-trail feature needs user context, add it as an explicit
+    parameter rather than reintroducing a sentinel default.
+    """
     from app.services.extraction_service import extraction_service
     from app.services.storage import download_blob_to_bytes
     import mimetypes
 
-    # Pass necessary mapping for file_id generation if needed
-    user_id = "bg-task" # TODO: Pass user_id
     filename = filenames[0] if filenames else "unknown"
     
     logger.info(f"[Background] Starting job {job_id} (Files: {len(file_urls)})")
