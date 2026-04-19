@@ -13,6 +13,7 @@ from app.services.doc_intel import analyze_document_layout
 from app.services.models import get_model_by_id
 from app.schemas.model import ExtractionModel
 from app.core.config import settings
+from app.core.errors import error_response
 from app.services.llm import call_llm_single, get_current_model, get_openai_client
 from app.services.extraction_utils import normalize_bbox, parse_number
 from app.services.extraction.rule_engine import rule_engine
@@ -42,6 +43,7 @@ class ExtractionService:
         try:
             model = await get_model_by_id(model_id)
         except Exception as e:
+            # Preserve the legacy "Model <id> not found" phrasing (tests depend on it)
             logger.error(f"[Extraction] Model not found: {e}")
             return {"error": f"Model {model_id} not found"}
 
@@ -103,12 +105,9 @@ class ExtractionService:
                 
                 return sql_result
             except Exception as e:
-                import traceback
-                tb = traceback.format_exc()
-                logger.error(f"[Extraction] Native Python Engine CRASHED: {e}\n{tb}")
                 # We intentionally DO NOT pass to fallback here. The fallback LLM pipeline
                 # will just truncate 6000 rows to 19 rows. It's better to fail fast and show the error.
-                return {"error": f"Native Python Excel Engine Failed: {str(e)}\n\nTraceback:\n{tb}"}
+                return error_response("Native Python Excel Engine", e, include_tb=True, logger=logger)
                 
         # 1b. Vision Extraction Mode — skip OCR entirely
         use_vision = model.beta_features.get("use_vision_extraction", False) if model.beta_features else False
@@ -174,10 +173,7 @@ class ExtractionService:
 
                 return final_result
             except Exception as e:
-                import traceback
-                tb = traceback.format_exc()
-                logger.error(f"[Extraction] Vision extraction failed: {e}", exc_info=True)
-                return {"error": f"Vision extraction failed: {str(e)}\n\nTraceback:\n{tb}"}
+                return error_response("Vision extraction", e, include_tb=True, logger=logger)
 
         # 2. Document Intelligence (OCR) or Excel Direct Markdown
         ocr_result = None
@@ -215,8 +211,7 @@ class ExtractionService:
                 from app.services.doc_intel import analyze_document_layout
                 ocr_result = await analyze_document_layout(file_content, mime_type=mime_type)
             except Exception as e:
-                logger.error(f"[Extraction] OCR failed: {e}")
-                return {"error": f"OCR Analysis failed: {str(e)}"}
+                return error_response("OCR Analysis", e, logger=logger)
             
         # 2.5 Auto-extract Barcode from OCR if not manually provided
         if not barcode and not is_excel_mode and ocr_result and "pages" in ocr_result:
@@ -233,10 +228,7 @@ class ExtractionService:
             # We pass the full model object to allow checking flags/rules
             processed_data = await self._unwrap_llm_extraction(ocr_result, model)
         except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            logger.error(f"[Extraction] LLM Extraction failed: {e}", exc_info=True)
-            return {"error": f"Extraction failed: {str(e)}\n\nTraceback:\n{tb}"}
+            return error_response("Extraction", e, include_tb=True, logger=logger)
 
         # 4. Validation & Formatting
         final_result = self._validate_and_format(processed_data, model, ocr_result.get("pages", []))
