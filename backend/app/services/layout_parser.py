@@ -321,12 +321,15 @@ class LayoutParser:
             # Scenario B: Azure DI reports merged cells as separate empty cells
             # with rowSpan=1. Detect this pattern and carry forward values from
             # the cell above when a cell is empty and the above cell has content.
-            # CONSERVATIVE: Only apply to columns where >=30% of data rows are 
+            # CONSERVATIVE: Only apply to columns where >=30% of data rows are
             # empty (indicating a merge pattern, not genuinely sparse data).
-            # Only checks first 3 columns where vertical merges typically occur.
+            # Previously restricted to cols 0-2 (TRADE/COMMODITY/PORT), but
+            # freight-rate tables also vertically merge VALIDITY/CONTRACT/SURCHARGE
+            # columns further right. The empty_ratio gate is tight enough to
+            # prevent accidental carry-forward on genuinely sparse numeric columns.
             if max_row > 1 and max_col >= 0:
                 data_row_count = max_row  # rows 1..max_row are data rows
-                for c in range(min(max_col + 1, 3)):
+                for c in range(max_col + 1):
                     # First pass: count empty data cells in this column
                     empty_count = 0
                     non_empty_count = 0
