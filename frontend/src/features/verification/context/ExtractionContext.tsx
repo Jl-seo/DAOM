@@ -4,7 +4,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useRef, type ReactNode, useCallback, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiClient } from '@/lib/api'
 import { EXTRACTION_STATUS, isSuccessStatus } from '../constants/status'
@@ -120,6 +120,7 @@ interface ExtractionProviderProps {
 
 export function ExtractionProvider({ modelId, initialJobId, initialLogId, children }: ExtractionProviderProps) {
     const navigate = useNavigate()
+    const queryClient = useQueryClient()
     // Model state
     const [model, setModel] = useState<ExtractionModel | null>(null)
 
@@ -383,6 +384,12 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
             if (log_id) setCurrentLogId(log_id)  // Enable retry functionality
             setStatus(EXTRACTION_STATUS.REFINING)
 
+            // Invalidate the history list so the new row shows up without
+            // a page refresh. The per-model scoped key plus the global
+            // "all" key cover both the model page and the global history.
+            queryClient.invalidateQueries({ queryKey: ['extraction-logs', modelId] })
+            queryClient.invalidateQueries({ queryKey: ['extraction-logs-all'] })
+
             // Start polling for job status updates
             startPolling(job_id)
         } catch (e: any) {
@@ -390,7 +397,7 @@ export function ExtractionProvider({ modelId, initialJobId, initialLogId, childr
             setError(e?.response?.data?.detail || '파일 업로드 실패')
             toast.error('파일 업로드 실패')
         }
-    }, [modelId, startPolling])
+    }, [modelId, startPolling, queryClient])
 
     // Confirm extraction mutation
     const saveLogMutation = useMutation({

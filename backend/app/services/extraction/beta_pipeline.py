@@ -587,7 +587,13 @@ class BetaPipeline(ExtractionPipeline):
             "work_order": work_order,
             "engineer_prompts": engineer_output.get("_debug_prompts"),
             "engineer_raw_response": engineer_response_view,
-            "tagged_text_preview": tagged_text[:3000],
+            # Full tagged text (was 3000-char preview). Blob offloading at
+            # 1.5MB will kick in if debug_data outgrows Cosmos limits, so
+            # we can afford the full text here for diagnostic fidelity.
+            # Truncating tagged_text hid the actual table rows the LLM saw
+            # when email headers/signatures consumed the first 3KB.
+            "tagged_text_full": tagged_text,
+            "tagged_text_length": len(tagged_text),
             "ref_map_size": len(ref_map) if isinstance(ref_map, dict) else 0,
             "pipeline_mode": "designer-engineer",
             "token_usage": total_usage,
