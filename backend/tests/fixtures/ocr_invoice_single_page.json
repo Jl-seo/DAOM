@@ -1,0 +1,21 @@
+{
+  "content": "INVOICE\nInvoice Number: INV-2026-0001\nDate: 2026-03-15\nBill To: Acme Corp\nSubtotal: 1000.00\nTax: 100.00\nTotal: 1100.00",
+  "pages": [
+    {
+      "page_number": 1,
+      "width": 612,
+      "height": 792,
+      "unit": "pixel"
+    }
+  ],
+  "tables": [],
+  "key_value_pairs": [
+    {"key": "Invoice Number", "value": "INV-2026-0001", "confidence": 0.98},
+    {"key": "Date", "value": "2026-03-15", "confidence": 0.96},
+    {"key": "Total", "value": "1100.00", "confidence": 0.97}
+  ],
+  "meta": {
+    "model_id": "prebuilt-layout",
+    "page_count": 1
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "content": "ORDER SUMMARY\nOrder ID: ORD-99121\nCustomer: Globex Inc.\n\nLine Items:\nSKU     Description     Qty     Unit     Total\nA001    Widget          10      9.99     99.90\nB002    Gadget          5       19.99    99.95\nC003    Gizmo           2       49.99    99.98\n\nSubtotal: 299.83\nShipping: 15.00\nGrand Total: 314.83",
+  "pages": [
+    {"page_number": 1, "width": 612, "height": 792, "unit": "pixel"}
+  ],
+  "tables": [
+    {
+      "row_count": 4,
+      "column_count": 5,
+      "cells": [
+        {"row_index": 0, "column_index": 0, "content": "SKU", "kind": "columnHeader"},
+        {"row_index": 0, "column_index": 1, "content": "Description", "kind": "columnHeader"},
+        {"row_index": 0, "column_index": 2, "content": "Qty", "kind": "columnHeader"},
+        {"row_index": 0, "column_index": 3, "content": "Unit", "kind": "columnHeader"},
+        {"row_index": 0, "column_index": 4, "content": "Total", "kind": "columnHeader"},
+        {"row_index": 1, "column_index": 0, "content": "A001"},
+        {"row_index": 1, "column_index": 1, "content": "Widget"},
+        {"row_index": 1, "column_index": 2, "content": "10"},
+        {"row_index": 1, "column_index": 3, "content": "9.99"},
+        {"row_index": 1, "column_index": 4, "content": "99.90"},
+        {"row_index": 2, "column_index": 0, "content": "B002"},
+        {"row_index": 2, "column_index": 1, "content": "Gadget"},
+        {"row_index": 2, "column_index": 2, "content": "5"},
+        {"row_index": 2, "column_index": 3, "content": "19.99"},
+        {"row_index": 2, "column_index": 4, "content": "99.95"},
+        {"row_index": 3, "column_index": 0, "content": "C003"},
+        {"row_index": 3, "column_index": 1, "content": "Gizmo"},
+        {"row_index": 3, "column_index": 2, "content": "2"},
+        {"row_index": 3, "column_index": 3, "content": "49.99"},
+        {"row_index": 3, "column_index": 4, "content": "99.98"}
+      ]
+    }
+  ],
+  "key_value_pairs": [
+    {"key": "Order ID", "value": "ORD-99121", "confidence": 0.99},
+    {"key": "Customer", "value": "Globex Inc.", "confidence": 0.95},
+    {"key": "Grand Total", "value": "314.83", "confidence": 0.98}
+  ],
+  "meta": {
+    "model_id": "prebuilt-layout",
+    "page_count": 1
+  }
+}

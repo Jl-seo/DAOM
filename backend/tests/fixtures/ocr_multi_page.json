@@ -1,0 +1,32 @@
+{
+  "content": "PAGE 1\nHeader info\nOrder: PO-88812\n\nPAGE 2\nLine items detail\nItem A  qty 5  unit 100  total 500\nItem B  qty 3  unit 250  total 750\n\nPAGE 3\nSummary\nTotal: 1250.00\nSignature required",
+  "pages": [
+    {"page_number": 1, "width": 612, "height": 792, "unit": "pixel"},
+    {"page_number": 2, "width": 612, "height": 792, "unit": "pixel"},
+    {"page_number": 3, "width": 612, "height": 792, "unit": "pixel"}
+  ],
+  "tables": [
+    {
+      "row_count": 2,
+      "column_count": 4,
+      "cells": [
+        {"row_index": 0, "column_index": 0, "content": "Item A"},
+        {"row_index": 0, "column_index": 1, "content": "5"},
+        {"row_index": 0, "column_index": 2, "content": "100"},
+        {"row_index": 0, "column_index": 3, "content": "500"},
+        {"row_index": 1, "column_index": 0, "content": "Item B"},
+        {"row_index": 1, "column_index": 1, "content": "3"},
+        {"row_index": 1, "column_index": 2, "content": "250"},
+        {"row_index": 1, "column_index": 3, "content": "750"}
+      ]
+    }
+  ],
+  "key_value_pairs": [
+    {"key": "Order", "value": "PO-88812", "confidence": 0.94},
+    {"key": "Total", "value": "1250.00", "confidence": 0.98}
+  ],
+  "meta": {
+    "model_id": "prebuilt-layout",
+    "page_count": 3
+  }
+}
