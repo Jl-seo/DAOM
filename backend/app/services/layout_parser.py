@@ -321,15 +321,41 @@ class LayoutParser:
             # Scenario B: Azure DI reports merged cells as separate empty cells
             # with rowSpan=1. Detect this pattern and carry forward values from
             # the cell above when a cell is empty and the above cell has content.
-            # CONSERVATIVE: Only apply to columns where >=30% of data rows are
-            # empty (indicating a merge pattern, not genuinely sparse data).
-            # Previously restricted to cols 0-2 (TRADE/COMMODITY/PORT), but
-            # freight-rate tables also vertically merge VALIDITY/CONTRACT/SURCHARGE
-            # columns further right. The empty_ratio gate is tight enough to
-            # prevent accidental carry-forward on genuinely sparse numeric columns.
+            #
+            # Domain rule (shipping-rate tables):
+            #  - Values written in a specific row's cell (e.g. a surcharge
+            #    "WRS $40/teu" in the Abu Dhabi row) apply ONLY to that port.
+            #  - Values that span a whole block (Validity, POL, Currency,
+            #    Region, Trade) merge vertically and should be inherited
+            #    across all rows of the block.
+            # These two cases produce the same "lots of empty cells" shape,
+            # so empty_ratio alone can't distinguish them. We therefore
+            # restrict carry-forward to a WHITELIST of column headers that
+            # semantically represent block-level attributes. Surcharge,
+            # remark, amount, and port-unique columns are never propagated.
+            STRUCTURAL_HEADER_KEYWORDS = (
+                "validity", "valid", "pol", "pod", "por", "pvy",
+                "currency", "ccy", "region", "trade", "area",
+                "service", "lane", "route", "origin", "destination",
+                "commodity", "rate_type",
+                "유효기간", "항로", "지역", "구간", "출발", "도착", "통화",
+            )
+
+            def _is_structural_column(col_idx: int) -> bool:
+                header = grid.get((0, col_idx), {}).get("content", "").strip().lower()
+                if not header:
+                    return False
+                return any(kw in header for kw in STRUCTURAL_HEADER_KEYWORDS)
+
             if max_row > 1 and max_col >= 0:
                 data_row_count = max_row  # rows 1..max_row are data rows
                 for c in range(max_col + 1):
+                    # Gate 1: column header must be "structural" (block-level
+                    # attribute). Per-row values like WRS/Surcharge/Remark
+                    # are never carried forward.
+                    if not _is_structural_column(c):
+                        continue
+
                     # First pass: count empty data cells in this column
                     empty_count = 0
                     non_empty_count = 0
@@ -339,7 +365,7 @@ class LayoutParser:
                             non_empty_count += 1
                         else:
                             empty_count += 1
-                    
+
                     # Only carry-forward if column has merge-like pattern:
                     # Some non-empty values + significant empty gaps
                     if non_empty_count == 0 or empty_count == 0:
