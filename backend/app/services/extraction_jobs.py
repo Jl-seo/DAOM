@@ -91,6 +91,11 @@ async def create_job(
     if container:
         try:
             body = {**job.model_dump(), "type": "extraction_job"}
+            # Cosmos TTL must be a positive int or -1; `null` is rejected
+            # with a BadRequest. When retention_days is unset we simply omit
+            # the field so the container's default applies.
+            if body.get("ttl") is None:
+                body.pop("ttl", None)
             logger.info(
                 f"[ExtractionJobs] create_job: id={job_id} "
                 f"model_id={model_id} tenant_id={tenant_id} "
@@ -297,6 +302,10 @@ async def update_job(
         if final_size > 1_900_000: # 1.9MB (Danger Zone)
              logger.warning(f"[ExtractionJobs] Payload still huge ({final_size} bytes) after all offloading! Cosmos insert might fail.")
 
+
+        # Cosmos rejects ttl=null; strip it so the container default applies.
+        if job_data.get("ttl") is None:
+            job_data.pop("ttl", None)
 
         # Upsert
         try:

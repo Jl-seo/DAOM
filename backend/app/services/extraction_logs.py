@@ -123,6 +123,10 @@ async def save_extraction_log(
     try:
         log_dict = log.model_dump()
         log_dict["type"] = ExtractionType.LOG.value
+        # Cosmos rejects ttl=null (accepts positive int or -1 only). Omit
+        # the field so the container default applies.
+        if log_dict.get("ttl") is None:
+            log_dict.pop("ttl", None)
         
         # --- BLOB OFFLOADING LOGIC FOR LOGS ---
         from app.services.storage import save_json_as_blob
