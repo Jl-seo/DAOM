@@ -28,12 +28,35 @@ async def list_models(current_user: CurrentUser = Depends(get_current_user)):
     if await is_super_admin(current_user):
         return all_models
 
-    # Standard User / Model Admin sees only accessible models (owner, users, groups, superAdmin)
+    # Non-superadmin: union of the two permission mechanisms so the list stays
+    # consistent with `verify_model_access` (can_access_model), which grants
+    # access whenever EITHER mechanism matches:
+    #   (a) old model-stored permissions — owner / users / groups / public
+    #   (b) group-stored model role   — group.permissions.models[*].modelId
+    # Without this union, an admin assigned a model via a group's model-role
+    # list could open the model by URL but never see it in /models. GH issue:
+    # "일반 어드민 할당된 모델 안보임".
     from app.services.permission_service import get_accessible_models
-    accessible_ids = await get_accessible_models(
+
+    access_token = getattr(current_user, 'access_token', None)
+    user_groups = getattr(current_user, 'groups', None)
+
+    legacy_ids = await get_accessible_models(
         current_user,
-        access_token=getattr(current_user, 'access_token', None),
-        user_groups=getattr(current_user, 'groups', None)
+        access_token=access_token,
+        user_groups=user_groups,
+    )
+    group_role_ids = await get_accessible_model_ids(
+        user_id=current_user.id,
+        tenant_id=current_user.tenant_id,
+        access_token=access_token,
+        user_groups=user_groups,
+    )
+    accessible_ids = set(legacy_ids) | set(group_role_ids)
+
+    logger.info(
+        f"[list_models] user={current_user.id} legacy={len(legacy_ids)} "
+        f"group_role={len(group_role_ids)} union={len(accessible_ids)}"
     )
     return [m for m in all_models if m.id in accessible_ids]
 
