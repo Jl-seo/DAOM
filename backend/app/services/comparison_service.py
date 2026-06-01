@@ -95,39 +95,27 @@ async def compare_images(image_url_1: str, image_url_2: str, custom_instructions
 
     logger.info(f"[LLM] SSIM global score: {ssim_global_score:.4f}, detected {len(ssim_diffs)} diff regions")
 
-    # Gate 1: SSIM Global Score Gate (핵심 할루시네이션 방지)
-    # Global SSIM score가 threshold 이상이면 노이즈 contour 수와 관계없이 LLM 호출 건너뜀
-    if use_ssim and ssim_global_score >= ssim_identity_threshold:
-        logger.info(f"[LLM] SSIM score {ssim_global_score:.4f} >= threshold {ssim_identity_threshold}. Images are IDENTICAL. Skipping LLM.")
-        return {
-            "differences": [],
-            "metadata": {
-                "model": model,
-                "method": "ssim_score_gate",
-                "ssim_score": ssim_global_score,
-                "ssim_threshold": ssim_identity_threshold,
-                "ssim_noise_contours": len(ssim_diffs),
-                "vision_enabled": use_vision,
-                "skipped_llm": True,
-                "reason": f"Images are identical (SSIM {ssim_global_score:.4f} >= {ssim_identity_threshold})"
-            }
-        }
-
-    # Gate 2: Fast path - SSIM이 diff 0건이면 LLM 호출 없이 즉시 빈 결과 반환
+    # SSIM Fast-Path (할루시네이션/비용 방지): "진짜로 동일한" 이미지일 때만 LLM 호출을 건너뛴다.
+    # ⚠️ 전역 SSIM 점수만으로 판단하면 안 됨 — 여백(흰 배경)이 큰 문서는 내용이 전혀 달라도
+    # 배경이 일치해 전역 점수가 0.95+로 나와 명백한 차이를 통째로 놓친다(false negative).
+    # 따라서 (1) 검출된 diff 영역이 0건이고 AND (2) 전역 점수가 임계값 이상일 때만 '동일'로 간주한다.
+    # - 내용이 다른 문서는 diff 영역이 생기므로 (1)에서 걸러져 LLM이 정상 실행됨.
+    # - SSIM 처리 실패 시 {"score": 0.0, "diffs": []}가 반환되는데, (2)에서 걸러져 LLM이 정상 실행됨.
     skip_llm_if_identical = comparison_settings.get("skip_llm_if_identical", True) if comparison_settings else True
 
-    if not ssim_diffs and use_ssim and skip_llm_if_identical:
-        logger.info("[LLM] SSIM confirms images are IDENTICAL (zero diffs). Skipping LLM call to prevent hallucination.")
+    if use_ssim and skip_llm_if_identical and not ssim_diffs and ssim_global_score >= ssim_identity_threshold:
+        logger.info(f"[LLM] SSIM confirms IDENTICAL (score={ssim_global_score:.4f} >= {ssim_identity_threshold}, 0 diff regions). Skipping LLM.")
         return {
             "differences": [],
             "metadata": {
                 "model": model,
                 "method": "ssim_fast_path",
                 "ssim_score": ssim_global_score,
+                "ssim_threshold": ssim_identity_threshold,
                 "ssim_count": 0,
                 "vision_enabled": use_vision,
                 "skipped_llm": True,
-                "reason": "Images are identical (SSIM zero diffs)"
+                "reason": f"Images are identical (SSIM {ssim_global_score:.4f} >= {ssim_identity_threshold}, no diff regions)"
             }
         }
 
