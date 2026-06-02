@@ -28,13 +28,35 @@ async def list_models(current_user: CurrentUser = Depends(get_current_user)):
     if await is_super_admin(current_user):
         return all_models
 
-    # Standard User / Model Admin sees only accessible models (owner, users, groups, superAdmin)
+    # Standard User / Model Admin sees only accessible models.
+    # 권한 저장소가 두 곳이므로 둘 다 합집합으로 확인해야 한다:
+    #  A) 모델 문서 권한: owner / public / 직접 지정 users  (permission_service)
+    #  B) 그룹 문서 권한: group.permissions.models[]         (group_permission_utils)
+    # B를 빠뜨리면 "특정 모델 관리자"로 그룹 등록된 계정이 아무 모델도 못 본다.
     from app.services.permission_service import get_accessible_models
-    accessible_ids = await get_accessible_models(
+
+    access_token = getattr(current_user, 'access_token', None)
+    user_groups = getattr(current_user, 'groups', None)
+
+    # Source A: 모델 문서 기반 권한
+    accessible_ids = set(await get_accessible_models(
         current_user,
-        access_token=getattr(current_user, 'access_token', None),
-        user_groups=getattr(current_user, 'groups', None)
-    )
+        access_token=access_token,
+        user_groups=user_groups
+    ))
+
+    # Source B: 그룹 기반 per-model 권한 (RBAC 모델 관리자 경로)
+    try:
+        group_model_ids = await get_accessible_model_ids(
+            current_user.id,
+            current_user.tenant_id,
+            access_token=access_token,
+            user_groups=user_groups
+        )
+        accessible_ids |= set(group_model_ids)
+    except Exception as e:
+        logger.warning(f"[Permission] group-based model access lookup failed: {e}")
+
     return [m for m in all_models if m.id in accessible_ids]
 
 @router.post("/", response_model=ExtractionModel, dependencies=[Depends(get_current_user)])
